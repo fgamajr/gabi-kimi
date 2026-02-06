@@ -1,0 +1,266 @@
+# =============================================================================
+# GABI - Docker Compose para Desenvolvimento Local
+# =============================================================================
+# ATENÇÃO: Esta configuração é APENAS para desenvolvimento local!
+# NÃO use em produção - Elasticsearch e Redis sem autenticação!
+# =============================================================================
+
+version: "3.9"
+
+services:
+  # ===========================================================================
+  # PostgreSQL + pgvector
+  # ===========================================================================
+  postgres:
+    image: pgvector/pgvector:pg15
+    container_name: gabi-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: gabi
+      POSTGRES_USER: gabi
+      POSTGRES_PASSWORD: gabi
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gabi -d gabi"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - gabi-network
+
+  # ===========================================================================
+  # Elasticsearch
+  # ===========================================================================
+  # ATENÇÃO: Security desabilitado apenas para desenvolvimento local!
+  elasticsearch:
+    image: elasticsearch:8.11.0
+    container_name: gabi-elasticsearch
+    restart: unless-stopped
+    ports:
+      - "9200:9200"
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+      - cluster.routing.allocation.disk.threshold_enabled=false
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - gabi-network
+
+  # ===========================================================================
+  # Redis
+  # ===========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: gabi-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - gabi-network
+
+  # ===========================================================================
+  # Text Embeddings Inference (TEI)
+  # ===========================================================================
+  tei:
+    image: ghcr.io/huggingface/text-embeddings-inference:1.4
+    container_name: gabi-tei
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - MODEL_ID=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+      - POOLING=cls
+      - TRUNCATION_DIRECTION=right
+      - MAX_CLIENT_BATCH_SIZE=256
+    volumes:
+      - tei_models:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - gabi-network
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # ===========================================================================
+  # API GABI
+  # ===========================================================================
+  api:
+    build:
+      context: .
+      dockerfile: gabi/docker/Dockerfile
+    container_name: gabi-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # Ambiente
+      GABI_ENVIRONMENT: local
+      GABI_DEBUG: "true"
+      GABI_LOG_LEVEL: debug
+      
+      # PostgreSQL
+      GABI_DATABASE_URL: postgresql+asyncpg://gabi:gabi@postgres:5432/gabi
+      GABI_DATABASE_POOL_SIZE: "10"
+      GABI_DATABASE_MAX_OVERFLOW: "20"
+      GABI_DATABASE_ECHO: "false"
+      
+      # Elasticsearch
+      GABI_ELASTICSEARCH_URL: http://elasticsearch:9200
+      GABI_ELASTICSEARCH_INDEX: gabi_documents_v1
+      GABI_ELASTICSEARCH_TIMEOUT: "30"
+      
+      # Redis
+      GABI_REDIS_URL: redis://redis:6379/0
+      GABI_REDIS_DLQ_DB: "1"
+      GABI_REDIS_CACHE_DB: "2"
+      GABI_REDIS_LOCK_DB: "3"
+      
+      # TEI (Embeddings)
+      GABI_EMBEDDINGS_URL: http://tei:8080
+      GABI_EMBEDDINGS_MODEL: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+      GABI_EMBEDDINGS_DIMENSIONS: "384"
+      GABI_EMBEDDINGS_BATCH_SIZE: "32"
+      
+      # Pipeline
+      GABI_PIPELINE_CONCURRENCY: "3"
+      GABI_PIPELINE_CHECKPOINT_INTERVAL: "100"
+      
+      # Auth (desabilitado para local)
+      GABI_AUTH_ENABLED: "false"
+      
+      # API
+      GABI_API_HOST: 0.0.0.0
+      GABI_API_PORT: "8000"
+      GABI_API_RELOAD: "false"
+      
+      # CORS
+      GABI_CORS_ORIGINS: '["http://localhost:3000", "http://localhost:5173"]'
+      
+      # Sources
+      GABI_SOURCES_PATH: /app/sources.yaml
+    volumes:
+      - ./sources.yaml:/app/sources.yaml:ro
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      tei:
+        condition: service_healthy
+    networks:
+      - gabi-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ===========================================================================
+  # Celery Worker (opcional - para processamento em background)
+  # ===========================================================================
+  worker:
+    build:
+      context: .
+      dockerfile: gabi/docker/Dockerfile
+    container_name: gabi-worker
+    restart: unless-stopped
+    command: celery -A gabi.worker worker --loglevel=info --concurrency=2
+    environment:
+      GABI_ENVIRONMENT: local
+      GABI_DEBUG: "true"
+      GABI_LOG_LEVEL: info
+      GABI_DATABASE_URL: postgresql+asyncpg://gabi:gabi@postgres:5432/gabi
+      GABI_ELASTICSEARCH_URL: http://elasticsearch:9200
+      GABI_REDIS_URL: redis://redis:6379/0
+      GABI_EMBEDDINGS_URL: http://tei:8080
+      GABI_AUTH_ENABLED: "false"
+      GABI_SOURCES_PATH: /app/sources.yaml
+    volumes:
+      - ./sources.yaml:/app/sources.yaml:ro
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      tei:
+        condition: service_healthy
+    networks:
+      - gabi-network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  # ===========================================================================
+  # Flower - Monitoramento Celery (opcional)
+  # ===========================================================================
+  flower:
+    image: mher/flower:2.0
+    container_name: gabi-flower
+    restart: unless-stopped
+    ports:
+      - "5555:5555"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - FLOWER_PORT=5555
+      - FLOWER_BASIC_AUTH=gabi:gabi
+    depends_on:
+      - redis
+    networks:
+      - gabi-network
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  postgres_data:
+    driver: local
+  elasticsearch_data:
+    driver: local
+  redis_data:
+    driver: local
+  tei_models:
+    driver: local
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  gabi-network:
+    driver: bridge
+    name: gabi-network
