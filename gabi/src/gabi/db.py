@@ -1,5 +1,4 @@
-"""
-Database layer para GABI - Gerador Automático de Boletins por IA.
+"""Database layer para GABI - Gerador Automático de Boletins por IA.
 
 Este módulo fornece a camada de acesso ao banco de dados usando SQLAlchemy async.
 Suporta PostgreSQL com asyncpg driver.
@@ -8,8 +7,9 @@ Suporta PostgreSQL com asyncpg driver.
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator, Optional
+from typing import Any
 
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -28,7 +28,7 @@ Base = declarative_base()
 
 class Settings:
     """Placeholder para Settings - será substituído pelo config real."""
-    
+
     def __init__(
         self,
         database_url: str = "postgresql+asyncpg://user:pass@localhost/gabi",
@@ -51,16 +51,15 @@ def create_engine(
     pool_pre_ping: bool = True,
     echo: bool = False,
 ) -> Any:
-    """
-    Factory para criar async engine do SQLAlchemy.
-    
+    """Factory para criar async engine do SQLAlchemy.
+
     Args:
         database_url: URL do banco de dados
         pool_size: Tamanho do pool de conexões
         max_overflow: Número máximo de conexões extras além do pool_size
         pool_pre_ping: Verificar conexão antes de usar
         echo: Logar queries SQL
-    
+
     Returns:
         AsyncEngine configurado
     """
@@ -69,7 +68,7 @@ def create_engine(
         database_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
     elif database_url.startswith("postgres://"):
         database_url = database_url.replace("postgres://", "postgresql+asyncpg://", 1)
-    
+
     # Para SQLite em memória (usado em testes), usa NullPool
     if database_url.startswith("sqlite"):
         return create_async_engine(
@@ -77,7 +76,7 @@ def create_engine(
             echo=echo,
             poolclass=NullPool,
         )
-    
+
     engine = create_async_engine(
         database_url,
         pool_size=pool_size,
@@ -86,39 +85,37 @@ def create_engine(
         echo=echo,
         future=True,
     )
-    
+
     logger.info(f"Database engine criado: pool_size={pool_size}, max_overflow={max_overflow}")
     return engine
 
 
 class DatabaseManager:
-    """
-    Gerenciador de conexões com o banco de dados.
-    
+    """Gerenciador de conexões com o banco de dados.
+
     Responsável por:
     - Criar e gerenciar o engine async
     - Fornecer session factory
     - Gerenciar ciclo de vida (init/close)
     - Criar tabelas (dev mode)
     """
-    
-    def __init__(self, settings: Optional[Settings] = None):
-        """
-        Inicializa o DatabaseManager.
-        
+
+    def __init__(self, settings: Settings | None = None):
+        """Inicializa o DatabaseManager.
+
         Args:
             settings: Configurações do banco de dados
         """
         self.settings = settings or Settings()
-        self._engine: Optional[Any] = None
-        self._session_factory: Optional[async_sessionmaker[AsyncSession]] = None
-    
+        self._engine: Any | None = None
+        self._session_factory: async_sessionmaker[AsyncSession] | None = None
+
     async def initialize(self) -> None:
         """Inicializa o engine e session factory."""
         if self._engine is not None:
             logger.warning("DatabaseManager já inicializado")
             return
-        
+
         self._engine = create_engine(
             database_url=self.settings.database_url,
             pool_size=self.settings.db_pool_size,
@@ -126,7 +123,7 @@ class DatabaseManager:
             pool_pre_ping=self.settings.db_pool_pre_ping,
             echo=self.settings.db_echo,
         )
-        
+
         self._session_factory = async_sessionmaker(
             self._engine,
             class_=AsyncSession,
@@ -134,69 +131,66 @@ class DatabaseManager:
             autocommit=False,
             autoflush=False,
         )
-        
+
         logger.info("DatabaseManager inicializado com sucesso")
-    
+
     async def close(self) -> None:
         """Fecha o engine e libera recursos."""
         if self._engine is None:
             return
-        
+
         await self._engine.dispose()
         self._engine = None
         self._session_factory = None
         logger.info("DatabaseManager fechado")
-    
+
     async def create_tables(self) -> None:
-        """
-        Cria todas as tabelas definidas nos modelos.
-        
+        """Cria todas as tabelas definidas nos modelos.
+
         ⚠️ ATENÇÃO: Apenas para desenvolvimento/testes.
         Em produção use migrations (Alembic).
         """
         if self._engine is None:
             raise RuntimeError("DatabaseManager não inicializado. Chame initialize() primeiro.")
-        
+
         async with self._engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        
+
         logger.info("Tabelas criadas com sucesso")
-    
+
     async def drop_tables(self) -> None:
-        """
-        Remove todas as tabelas.
-        
+        """Remove todas as tabelas.
+
         ⚠️ ATENÇÃO: Apenas para desenvolvimento/testes.
         """
         if self._engine is None:
             raise RuntimeError("DatabaseManager não inicializado. Chame initialize() primeiro.")
-        
+
         async with self._engine.begin() as conn:
             await conn.run_sync(Base.metadata.drop_all)
-        
+
         logger.info("Tabelas removidas")
-    
+
     def get_session_factory(self) -> async_sessionmaker[AsyncSession]:
-        """
-        Retorna o factory de sessões.
-        
+        """Retorna o factory de sessões.
+
         Returns:
             async_sessionmaker configurado
-        
+
         Raises:
             RuntimeError: Se o DatabaseManager não estiver inicializado
         """
         if self._session_factory is None:
             raise RuntimeError("DatabaseManager não inicializado. Chame initialize() primeiro.")
         return self._session_factory
-    
+
     @property
     def engine(self) -> Any:
         """Retorna o engine atual."""
         if self._engine is None:
             raise RuntimeError("DatabaseManager não inicializado. Chame initialize() primeiro.")
         return self._engine
-    
+
     @property
     def is_initialized(self) -> bool:
         """Verifica se o manager está inicializado."""
@@ -204,25 +198,24 @@ class DatabaseManager:
 
 
 # Instância global do DatabaseManager
-_db_manager: Optional[DatabaseManager] = None
+_db_manager: DatabaseManager | None = None
 
 
-async def init_db(settings: Optional[Settings] = None) -> DatabaseManager:
-    """
-    Inicializa o banco de dados globalmente.
-    
+async def init_db(settings: Settings | None = None) -> DatabaseManager:
+    """Inicializa o banco de dados globalmente.
+
     Args:
         settings: Configurações opcionais
-    
+
     Returns:
         DatabaseManager inicializado
     """
     global _db_manager
-    
+
     if _db_manager is not None and _db_manager.is_initialized:
         logger.warning("Banco de dados já inicializado")
         return _db_manager
-    
+
     _db_manager = DatabaseManager(settings)
     await _db_manager.initialize()
     return _db_manager
@@ -231,7 +224,7 @@ async def init_db(settings: Optional[Settings] = None) -> DatabaseManager:
 async def close_db() -> None:
     """Fecha a conexão com o banco de dados global."""
     global _db_manager
-    
+
     if _db_manager is not None:
         await _db_manager.close()
         _db_manager = None
@@ -240,30 +233,26 @@ async def close_db() -> None:
 
 @asynccontextmanager
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
-    """
-    Context manager para obter uma sessão do banco de dados.
-    
+    """Context manager para obter uma sessão do banco de dados.
+
     Gerencia automaticamente commit/rollback e fechamento da sessão.
-    
+
     Yields:
         AsyncSession: Sessão do SQLAlchemy
-    
+
     Example:
         >>> async with get_session() as session:
         ...     result = await session.execute(select(User))
         ...     users = result.scalars().all()
     """
     global _db_manager
-    
+
     if _db_manager is None or not _db_manager.is_initialized:
-        raise RuntimeError(
-            "Database não inicializado. "
-            "Chame init_db() antes de usar get_session()"
-        )
-    
+        raise RuntimeError("Database não inicializado. Chame init_db() antes de usar get_session()")
+
     session_factory = _db_manager.get_session_factory()
     session = session_factory()
-    
+
     try:
         yield session
         await session.commit()
@@ -275,12 +264,11 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
-    """
-    Dependency para FastAPI - retorna uma sessão do banco de dados.
-    
+    """Dependency para FastAPI - retorna uma sessão do banco de dados.
+
     Yields:
         AsyncSession: Sessão do SQLAlchemy para uso em endpoints FastAPI
-    
+
     Example:
         >>> @app.get("/users")
         ... async def list_users(db: AsyncSession = Depends(get_db_session)):
@@ -296,15 +284,14 @@ get_db = get_db_session
 
 
 async def check_connection() -> bool:
-    """
-    Verifica se a conexão com o banco está funcionando.
-    
+    """Verifica se a conexão com o banco está funcionando.
+
     Returns:
         True se conectado, False caso contrário
     """
     try:
         async with get_session() as session:
-            result = await session.execute("SELECT 1")
+            result = await session.execute(text("SELECT 1"))  # type: ignore
             return result.scalar() == 1
     except Exception as e:
         logger.error(f"Falha na conexão com banco de dados: {e}")

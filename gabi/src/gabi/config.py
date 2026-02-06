@@ -4,7 +4,6 @@ Variáveis são validadas no startup. Falha rápido em config inválida.
 """
 
 from enum import Enum
-from typing import List, Optional
 
 from pydantic import AnyUrl, Field, HttpUrl, field_validator, model_validator
 from pydantic_settings import BaseSettings
@@ -34,14 +33,11 @@ class Settings(BaseSettings):
     # === Ambiente ===
     environment: Environment = Field(default=Environment.LOCAL)
     debug: bool = Field(default=False)
-    log_level: str = Field(
-        default="info", pattern=r"^(debug|info|warning|error|critical)$"
-    )
+    log_level: str = Field(default="info", pattern=r"^(debug|info|warning|error|critical)$")
 
     # === PostgreSQL ===
     database_url: str = Field(
-        default="postgresql://localhost:5432/gabi",
-        description="PostgreSQL connection URL"
+        default="postgresql://localhost:5432/gabi", description="PostgreSQL connection URL"
     )
     database_pool_size: int = Field(default=10, ge=1, le=100)
     database_max_overflow: int = Field(default=20, ge=0, le=100)
@@ -59,21 +55,21 @@ class Settings(BaseSettings):
         return v
 
     # === Elasticsearch ===
-    elasticsearch_url: HttpUrl = Field(default="http://localhost:9200")
+    elasticsearch_url: HttpUrl = Field(default="http://localhost:9200")  # type: ignore
     elasticsearch_index: str = Field(default="gabi_documents_v1")
     elasticsearch_timeout: int = Field(default=30, ge=1, le=300)
     elasticsearch_max_retries: int = Field(default=3, ge=0, le=10)
-    elasticsearch_username: Optional[str] = Field(default=None)
-    elasticsearch_password: Optional[str] = Field(default=None)
+    elasticsearch_username: str | None = Field(default=None)
+    elasticsearch_password: str | None = Field(default=None)
 
     # === Redis ===
-    redis_url: AnyUrl = Field(default="redis://localhost:6379/0")
+    redis_url: AnyUrl = Field(default="redis://localhost:6379/0")  # type: ignore
     redis_dlq_db: int = Field(default=1, ge=0, le=15)
     redis_cache_db: int = Field(default=2, ge=0, le=15)
     redis_lock_db: int = Field(default=3, ge=0, le=15)
 
     # === Embeddings (TEI) - IMUTÁVEL ===
-    embeddings_url: HttpUrl = Field(default="http://localhost:8080")
+    embeddings_url: HttpUrl = Field(default="http://localhost:8080")  # type: ignore
     embeddings_model: str = Field(
         default="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
         frozen=True,
@@ -104,19 +100,15 @@ class Settings(BaseSettings):
     search_timeout_ms: int = Field(default=5000, ge=100, le=30000)
 
     # === Auth ===
-    jwt_issuer: HttpUrl = Field(default="https://auth.tcu.gov.br/realms/tcu")
+    jwt_issuer: HttpUrl = Field(default="https://auth.tcu.gov.br/realms/tcu")  # type: ignore
     jwt_audience: str = Field(default="gabi-api")
-    jwt_jwks_url: HttpUrl = Field(
+    jwt_jwks_url: HttpUrl = Field(  # type: ignore
         default="https://auth.tcu.gov.br/realms/tcu/protocol/openid-connect/certs"
     )
-    jwt_algorithm: str = Field(
-        default="RS256", pattern=r"^(RS256|RS384|RS512|ES256|ES384|ES512)$"
-    )
+    jwt_algorithm: str = Field(default="RS256", pattern=r"^(RS256|RS384|RS512|ES256|ES384|ES512)$")
     jwt_jwks_cache_minutes: int = Field(default=5, ge=1, le=15)
     auth_enabled: bool = Field(default=True)
-    auth_public_paths: List[str] = Field(
-        default=["/health", "/metrics", "/docs", "/openapi.json"]
-    )
+    auth_public_paths: list[str] = Field(default=["/health", "/metrics", "/docs", "/openapi.json"])
 
     @model_validator(mode="after")
     def validate_auth_in_production(self):
@@ -161,12 +153,10 @@ class Settings(BaseSettings):
     api_reload: bool = Field(default=False)
 
     # === CORS ===
-    cors_origins: List[str] = Field(default=["http://localhost:3000"])
+    cors_origins: list[str] = Field(default=["http://localhost:3000"])
     cors_allow_credentials: bool = Field(default=True)
-    cors_allow_methods: List[str] = Field(default=["GET", "POST", "PUT", "DELETE"])
-    cors_allow_headers: List[str] = Field(
-        default=["Authorization", "Content-Type", "X-Request-ID"]
-    )
+    cors_allow_methods: list[str] = Field(default=["GET", "POST", "PUT", "DELETE"])
+    cors_allow_headers: list[str] = Field(default=["Authorization", "Content-Type", "X-Request-ID"])
 
     @model_validator(mode="after")
     def validate_cors_in_production(self):
