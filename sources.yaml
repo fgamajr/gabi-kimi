@@ -93,11 +93,9 @@ sources:
 
     embedding:
       enabled: true
-      model: "neuralmind/bert-base-portuguese-cased"
       chunking:
         unit: semantic_section
         overlap: none
-      dimensions: 768
 
   # ==============================================================================
   # TCU - Normas Internas
