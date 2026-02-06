@@ -1,2 +1,0 @@
-[console_scripts]
-gabi = gabi.cli:main
