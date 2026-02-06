@@ -11,6 +11,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -291,7 +292,7 @@ async def check_connection() -> bool:
     """
     try:
         async with get_session() as session:
-            result = await session.execute(text("SELECT 1"))  # type: ignore
+            result = await session.execute(text("SELECT 1"))
             return result.scalar() == 1
     except Exception as e:
         logger.error(f"Falha na conexão com banco de dados: {e}")

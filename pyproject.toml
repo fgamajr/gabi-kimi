@@ -142,6 +142,7 @@ ignore = [
     "ARG001",  # Unused function argument
     "ERA001",  # Commented-out code
     "UP042",   # Class inherits from both str and enum
+    "PGH003",  # Use specific rule codes when ignoring type issues
 ]
 
 [tool.ruff.lint.pydocstyle]
