@@ -1,0 +1,150 @@
+"""Modelo ExecutionManifest para o GABI.
+
+Este módulo define o modelo para tracking de execuções de ingestão,
+com suporte a checkpoint para resume e estatísticas de processamento.
+Baseado em GABI_SPECS_FINAL_v1.md Seção 2.7.1 (execution_manifests).
+"""
+
+from datetime import datetime
+from typing import Optional, List, Dict, Any
+from uuid import UUID, uuid4
+
+from sqlalchemy import ForeignKey, func, Float, String, Text, ARRAY
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column
+
+from gabi.models.base import Base
+from gabi.types import ExecutionStatus
+
+
+# =============================================================================
+# Modelo ExecutionManifest
+# =============================================================================
+
+class ExecutionManifest(Base):
+    """Manifesto de execução de ingestão de dados.
+    
+    Registra todas as execuções de ingestão, incluindo status, estatísticas,
+    checkpoint para resume, logs e informações de erro.
+    
+    Campos:
+        run_id: UUID único da execução (chave primária)
+        source_id: Referência para a fonte de dados
+        status: Status atual da execução
+        trigger: Tipo de gatilho ('scheduled', 'manual', 'api', 'retry')
+        triggered_by: Identificador de quem iniciou (user_id ou 'system')
+        started_at: Timestamp de início da execução
+        completed_at: Timestamp de conclusão (None se em andamento)
+        stats: Estatísticas JSONB (urls_discovered, documents_indexed, etc.)
+        checkpoint: Dados de checkpoint para resume de execução
+        duration_seconds: Duração total da execução em segundos
+        error_message: Mensagem de erro (se houver falha)
+        error_traceback: Stack trace completo do erro
+        logs: Array de logs da execução
+    """
+    
+    __tablename__ = "execution_manifests"
+    
+    # Identificação
+    run_id: Mapped[UUID] = mapped_column(
+        primary_key=True,
+        default=uuid4,
+        server_default=func.gen_random_uuid(),
+        nullable=False,
+    )
+    source_id: Mapped[str] = mapped_column(
+        ForeignKey("sources.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    
+    # Status
+    status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default=ExecutionStatus.PENDING.value,
+    )
+    trigger: Mapped[str] = mapped_column(
+        nullable=False,
+    )
+    triggered_by: Mapped[Optional[str]] = mapped_column(
+        nullable=True,
+    )
+    
+    # Timestamps
+    started_at: Mapped[datetime] = mapped_column(
+        nullable=False,
+        server_default=func.now(),
+    )
+    completed_at: Mapped[Optional[datetime]] = mapped_column(
+        nullable=True,
+    )
+    
+    # Estatísticas JSONB
+    stats: Mapped[Dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default="{}",
+    )
+    
+    # Checkpoint para resume
+    checkpoint: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSONB,
+        nullable=True,
+    )
+    
+    # Duração
+    duration_seconds: Mapped[Optional[float]] = mapped_column(
+        Float,
+        nullable=True,
+    )
+    
+    # Error tracking
+    error_message: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    error_traceback: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    
+    # Logs
+    logs: Mapped[Optional[List[str]]] = mapped_column(
+        ARRAY(Text),
+        nullable=True,
+    )
+    
+    def __repr__(self) -> str:
+        return (
+            f"<ExecutionManifest("
+            f"run_id={self.run_id}, "
+            f"source_id={self.source_id}, "
+            f"status={self.status.value}, "
+            f"trigger={self.trigger}"
+            f")>"
+        )
+    
+    @property
+    def is_active(self) -> bool:
+        """Retorna True se a execução está em andamento."""
+        return self.status in (ExecutionStatus.PENDING, ExecutionStatus.RUNNING)
+    
+    @property
+    def is_success(self) -> bool:
+        """Retorna True se a execução foi bem-sucedida."""
+        return self.status in (ExecutionStatus.SUCCESS, ExecutionStatus.PARTIAL_SUCCESS)
+    
+    @property
+    def has_error(self) -> bool:
+        """Retorna True se a execução falhou ou foi cancelada."""
+        return self.status in (ExecutionStatus.FAILED, ExecutionStatus.CANCELLED)
+
+
+# =============================================================================
+# Exports
+# =============================================================================
+
+__all__ = [
+    "ExecutionManifest",
+]

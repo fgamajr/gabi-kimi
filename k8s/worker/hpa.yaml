@@ -1,0 +1,67 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: gabi-worker
+  namespace: gabi
+  labels:
+    app: gabi-worker
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: gabi-worker
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+  - type: External
+    external:
+      metric:
+        name: celery_queue_length
+        selector:
+          matchLabels:
+            queue: gabi.default
+      target:
+        type: AverageValue
+        averageValue: "10"
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+      - type: Pods
+        value: 5
+        periodSeconds: 10
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Pods
+        value: 1
+        periodSeconds: 60
+---
+# KEDA ScaledObject for queue-based scaling
+# apiVersion: keda.sh/v1alpha1
+# kind: ScaledObject
+# metadata:
+#   name: gabi-worker-keda
+#   namespace: gabi
+# spec:
+#   scaleTargetRef:
+#     name: gabi-worker
+#   minReplicaCount: 3
+#   maxReplicaCount: 50
+#   triggers:
+#   - type: redis
+#     metadata:
+#       address: redis.gabi.svc.cluster.local:6379
+#       passwordFromEnv: REDIS_PASSWORD
+#       listName: celery
+#       listLength: "5"
+#       activationListLength: "1"
+#     authenticationRef:
+#       name: keda-redis-secret
+#       kind: ClusterTriggerAuthentication

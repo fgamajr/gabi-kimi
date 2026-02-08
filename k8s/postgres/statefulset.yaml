@@ -1,0 +1,237 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: gabi
+  labels:
+    app: postgres
+    component: database
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+        component: database
+    spec:
+      securityContext:
+        fsGroup: 999
+        runAsUser: 999
+        runAsGroup: 999
+      containers:
+      - name: postgres
+        image: postgres:16-alpine
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 5432
+          name: postgres
+        envFrom:
+        - configMapRef:
+            name: postgres-config
+        env:
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: gabi-secrets
+              key: DB_PASSWORD
+        - name: PGDATA
+          value: "/var/lib/postgresql/data/pgdata"
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data
+        - name: init-scripts
+          mountPath: /docker-entrypoint-initdb.d
+        - name: postgres-config
+          mountPath: /etc/postgresql/postgresql.conf
+          subPath: postgresql.conf
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "4Gi"
+            cpu: "2"
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - gabi_user
+            - -d
+            - gabi
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - gabi_user
+            - -d
+            - gabi
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        lifecycle:
+          postStart:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 10 && PGPASSWORD=$POSTGRES_PASSWORD psql -U gabi_user -d gabi -c \"CREATE EXTENSION IF NOT EXISTS pgvector;\" || true"]
+      - name: backup-sidecar
+        image: postgres:16-alpine
+        command:
+        - /bin/sh
+        - -c
+        - |
+          echo "Starting PostgreSQL backup sidecar..."
+          
+          # Create backup directories
+          mkdir -p /backups/daily /backups/weekly /backups/monthly
+          
+          # Function to perform backup
+          perform_backup() {
+            BACKUP_TYPE=$1
+            TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+            BACKUP_FILE="/backups/${BACKUP_TYPE}/gabi_backup_${TIMESTAMP}.sql.gz"
+            
+            echo "[$(date)] Starting ${BACKUP_TYPE} backup: ${BACKUP_FILE}"
+            
+            # Perform pg_dump with compression
+            PGPASSWORD="${POSTGRES_PASSWORD}" pg_dump \
+              -h localhost \
+              -U gabi_user \
+              -d gabi \
+              --verbose \
+              --no-owner \
+              --no-acl \
+              --format=plain \
+              2>/dev/null | gzip > "${BACKUP_FILE}"
+            
+            if [ $? -eq 0 ]; then
+              echo "[$(date)] Backup completed successfully: ${BACKUP_FILE}"
+              ls -lh "${BACKUP_FILE}"
+              
+              # Export metrics for Prometheus (if node-exporter is available)
+              echo "pg_backup_last_successful_time $(date +%s)" > /backups/metrics.prom
+            else
+              echo "[$(date)] Backup FAILED!"
+              rm -f "${BACKUP_FILE}"
+            fi
+          }
+          
+          # Function to cleanup old backups
+          cleanup_backups() {
+            BACKUP_TYPE=$1
+            RETENTION_DAYS=$2
+            
+            echo "[$(date)] Cleaning up ${BACKUP_TYPE} backups older than ${RETENTION_DAYS} days"
+            find "/backups/${BACKUP_TYPE}" -name "*.sql.gz" -mtime +${RETENTION_DAYS} -delete
+          }
+          
+          # Main backup loop
+          DAILY_COUNT=0
+          while true; do
+            # Daily backup at 02:00
+            CURRENT_HOUR=$(date +%H)
+            CURRENT_DOW=$(date +%u)  # 1=Monday, 7=Sunday
+            CURRENT_DAY=$(date +%d)
+            
+            if [ "${CURRENT_HOUR}" = "02" ]; then
+              perform_backup "daily"
+              cleanup_backups "daily" 7
+              DAILY_COUNT=$((DAILY_COUNT + 1))
+              
+              # Weekly backup on Sundays
+              if [ "${CURRENT_DOW}" = "7" ]; then
+                perform_backup "weekly"
+                cleanup_backups "weekly" 30
+              fi
+              
+              # Monthly backup on 1st of month
+              if [ "${CURRENT_DAY}" = "01" ]; then
+                perform_backup "monthly"
+                cleanup_backups "monthly" 365
+              fi
+              
+              # Sleep to avoid multiple backups in the same hour
+              sleep 3600
+            fi
+            
+            # Check every 5 minutes
+            sleep 300
+          done
+        env:
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: gabi-secrets
+              key: DB_PASSWORD
+        - name: PGUSER
+          value: gabi_user
+        - name: PGDATABASE
+          value: gabi
+        volumeMounts:
+        - name: backups
+          mountPath: /backups
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "50m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        securityContext:
+          runAsUser: 999
+          runAsGroup: 999
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: init-scripts
+        configMap:
+          name: postgres-init-scripts
+          defaultMode: 0755
+      - name: postgres-config
+        configMap:
+          name: postgres-config
+      - name: backups
+        persistentVolumeClaim:
+          claimName: postgres-backups
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 50Gi
+      storageClassName: fast-ssd
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-scripts
+  namespace: gabi
+data:
+  init.sql: |
+    -- Create extensions
+    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+    CREATE EXTENSION IF NOT EXISTS pg_trgm;
+    
+    -- Create schemas
+    CREATE SCHEMA IF NOT EXISTS documents;
+    CREATE SCHEMA IF NOT EXISTS analytics;
+    
+    -- Grant permissions
+    GRANT ALL PRIVILEGES ON SCHEMA documents TO gabi_user;
+    GRANT ALL PRIVILEGES ON SCHEMA analytics TO gabi_user;
+    GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO gabi_user;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO gabi_user;

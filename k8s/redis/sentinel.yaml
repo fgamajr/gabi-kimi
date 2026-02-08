@@ -1,0 +1,193 @@
+# Redis Sentinel for High Availability
+# This provides automatic failover for Redis
+# Alternative: Consider using managed Redis (AWS ElastiCache, Google Memorystore, Azure Cache)
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-sentinel
+  namespace: gabi
+  labels:
+    app: redis-sentinel
+    component: cache-ha
+spec:
+  serviceName: redis-sentinel-headless
+  replicas: 3
+  selector:
+    matchLabels:
+      app: redis-sentinel
+  template:
+    metadata:
+      labels:
+        app: redis-sentinel
+        component: cache-ha
+    spec:
+      securityContext:
+        fsGroup: 999
+        runAsUser: 999
+        runAsGroup: 999
+      containers:
+      - name: sentinel
+        image: redis:7-alpine
+        ports:
+        - containerPort: 26379
+          name: sentinel
+        command:
+        - sh
+        - -c
+        - |
+          # Generate sentinel config
+          cat > /etc/redis/sentinel.conf <<EOF
+          port 26379
+          dir /tmp
+          sentinel monitor mymaster redis.gabi.svc.cluster.local 6379 2
+          sentinel down-after-milliseconds mymaster 5000
+          sentinel parallel-syncs mymaster 1
+          sentinel failover-timeout mymaster 10000
+          sentinel auth-pass mymaster $(REDIS_PASSWORD)
+          EOF
+          
+          exec redis-sentinel /etc/redis/sentinel.conf --sentinel
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: gabi-secrets
+              key: REDIS_PASSWORD
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          tcpSocket:
+            port: 26379
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - redis-cli
+            - -p
+            - "26379"
+            - ping
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-sentinel
+  namespace: gabi
+  labels:
+    app: redis-sentinel
+    component: cache-ha
+spec:
+  type: ClusterIP
+  ports:
+  - port: 26379
+    targetPort: 26379
+    name: sentinel
+  selector:
+    app: redis-sentinel
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-sentinel-headless
+  namespace: gabi
+  labels:
+    app: redis-sentinel
+    component: cache-ha
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+  - port: 26379
+    targetPort: 26379
+    name: sentinel
+  selector:
+    app: redis-sentinel
+---
+# PodDisruptionBudget for Sentinel
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: redis-sentinel-pdb
+  namespace: gabi
+  labels:
+    app: redis-sentinel
+    component: cache-ha
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: redis-sentinel
+---
+# Alternative: Redis Cluster mode for better HA
+# Uncomment below and comment out single redis deployment for cluster mode
+# 
+# ---
+# apiVersion: apps/v1
+# kind: StatefulSet
+# metadata:
+#   name: redis-cluster
+#   namespace: gabi
+# spec:
+#   serviceName: redis-cluster-headless
+#   replicas: 6  # 3 masters + 3 replicas
+#   selector:
+#     matchLabels:
+#       app: redis-cluster
+#   template:
+#     metadata:
+#       labels:
+#         app: redis-cluster
+#     spec:
+#       containers:
+#       - name: redis
+#         image: redis:7-alpine
+#         ports:
+#         - containerPort: 6379
+#         - containerPort: 16379  # Cluster bus
+#         command:
+#         - redis-server
+#         - --cluster-enabled
+#         - "yes"
+#         - --cluster-config-file
+#         - /data/nodes.conf
+#         - --cluster-node-timeout
+#         - "5000"
+#         - --appendonly
+#         - "yes"
+#         - --requirepass
+#         - $(REDIS_PASSWORD)
+#         env:
+#         - name: REDIS_PASSWORD
+#           valueFrom:
+#             secretKeyRef:
+#               name: gabi-secrets
+#               key: REDIS_PASSWORD
+#         volumeMounts:
+#         - name: data
+#           mountPath: /data
+#   volumeClaimTemplates:
+#   - metadata:
+#       name: data
+#     spec:
+#       accessModes: ["ReadWriteOnce"]
+#       resources:
+#         requests:
+#           storage: 10Gi

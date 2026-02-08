@@ -1,0 +1,112 @@
+# Fly.io Configuration for GABI API
+# Document Understanding & Q&A System
+
+app = 'gabi-api'
+primary_region = 'gru'
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  APP_ENV = "production"
+  APP_NAME = "GABI API"
+  DEBUG = "false"
+  LOG_LEVEL = "INFO"
+  LOG_FORMAT = "json"
+  
+  # CORS
+  CORS_ORIGINS = "https://gabi.example.com,https://app.gabi.example.com"
+  
+  # Upload
+  MAX_UPLOAD_SIZE_MB = "50"
+  UPLOAD_TIMEOUT_SECONDS = "300"
+  
+  # LLM
+  LLM_PROVIDER = "openai"
+  LLM_MODEL = "gpt-4o"
+  LLM_TEMPERATURE = "0.1"
+  LLM_MAX_TOKENS = "4096"
+  
+  # Embedding
+  EMBEDDING_PROVIDER = "openai"
+  EMBEDDING_MODEL = "text-embedding-3-small"
+  EMBEDDING_DIMENSIONS = "1536"
+  
+  # Vector DB
+  VECTOR_DB_HOST = "your-elasticsearch.fly.dev"
+  VECTOR_DB_PORT = "443"
+  VECTOR_DB_SCHEME = "https"
+  VECTOR_DB_VERIFY_CERTS = "true"
+  
+  # Cache
+  REDIS_HOST = "your-redis.fly.dev"
+  REDIS_PORT = "6379"
+  REDIS_SSL = "true"
+  
+  # Celery
+  CELERY_BROKER_URL = "redis://your-redis.fly.dev:6379/0"
+  CELERY_RESULT_BACKEND = "redis://your-redis.fly.dev:6379/1"
+  CELERY_WORKER_CONCURRENCY = "4"
+  
+  # Database
+  DATABASE_URL = "postgresql://user:pass@your-db.fly.dev:5432/gabi"
+  DB_POOL_SIZE = "20"
+  DB_MAX_OVERFLOW = "10"
+  DB_POOL_TIMEOUT = "30"
+  
+  # Security
+  RATE_LIMIT_REQUESTS = "100"
+  RATE_LIMIT_WINDOW = "60"
+  MAX_QUERY_LENGTH = "1000"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ['app']
+
+  [http_service.concurrency]
+    type = 'connections'
+    hard_limit = 100
+    soft_limit = 50
+
+  [[http_service.checks]]
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '10s'
+    method = 'GET'
+    path = '/health'
+
+[[vm]]
+  memory = '2gb'
+  cpu_kind = 'shared'
+  cpus = 2
+
+[[mounts]]
+  source = 'gabi_uploads'
+  destination = '/app/uploads'
+
+[metrics]
+  port = 8000
+  path = "/metrics"
+
+# Worker Process
+[processes]
+  app = "uvicorn src.api.main:app --host 0.0.0.0 --port 8000"
+  worker = "celery -A src.tasks.celery_app worker --loglevel=info --concurrency=4 -Q documents,queries,embeddings,processing"
+  scheduler = "celery -A src.tasks.celery_app beat --loglevel=info"
+  beat = "celery -A src.tasks.celery_app beat --loglevel=info --scheduler celery.beat.PersistentScheduler"
+
+[[vm.workers]]
+  memory = '4gb'
+  cpu_kind = 'shared'
+  cpus = 2
+  processes = ["worker"]
+
+[[vm.schedulers]]
+  memory = '512mb'
+  cpu_kind = 'shared'
+  cpus = 1
+  processes = ["scheduler", "beat"]
