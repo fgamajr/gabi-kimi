@@ -43,7 +43,26 @@ DEFAULT_PDF_MAX_PAGES = 1000  # Default page limit for PDFs
 PDF_MAX_PAGES_HARD = 10_000  # Absolute maximum pages
 MAX_PDF_TEXT_SIZE_PER_PAGE = 10 * 1024 * 1024  # 10MB text per page
 
-# Quarantine configuration
+# Quarantine configuration (defaults, can be overridden via function)
+_DEFAULT_QUARANTINE_DIR = "/tmp/gabi_quarantine"
+_DEFAULT_QUARANTINE_ENABLED = True
+
+
+def _get_quarantine_config() -> Tuple[bool, str]:
+    """Get quarantine configuration from environment variables.
+    
+    This function reads the configuration fresh each time, allowing
+    tests to modify environment variables without module reload.
+    
+    Returns:
+        Tuple of (enabled, directory)
+    """
+    enabled = os.environ.get("GABI_QUARANTINE_ENABLED", "true").lower() in ("true", "1", "yes")
+    directory = os.environ.get("GABI_QUARANTINE_DIR", _DEFAULT_QUARANTINE_DIR)
+    return enabled, directory
+
+
+# Keep module-level constants for backward compatibility
 QUARANTINE_DIR = os.environ.get("GABI_QUARANTINE_DIR", "/tmp/gabi_quarantine")
 QUARANTINE_ENABLED = os.environ.get("GABI_QUARANTINE_ENABLED", "true").lower() in ("true", "1", "yes")
 
@@ -240,18 +259,20 @@ def _quarantine_file(content: FetchedContent, reason: str, error_details: Dict[s
     Returns:
         Path do arquivo em quarentena
     """
-    if not QUARANTINE_ENABLED:
+    quarantine_enabled, quarantine_dir = _get_quarantine_config()
+    
+    if not quarantine_enabled:
         return ""
     
     try:
         # Create quarantine directory
-        os.makedirs(QUARANTINE_DIR, exist_ok=True)
+        os.makedirs(quarantine_dir, exist_ok=True)
         
         # Generate quarantine filename
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         content_hash = hashlib.sha256(content.url.encode()).hexdigest()[:12]
         filename = f"{timestamp}_{content_hash}_{os.path.basename(content.url) or 'unknown'}"
-        quarantine_path = os.path.join(QUARANTINE_DIR, filename)
+        quarantine_path = os.path.join(quarantine_dir, filename)
         
         # Save content
         raw_content = content.get_content()

@@ -1,0 +1,6 @@
+{
+  "health_check_task": "OK",
+  "sync_source_task": "OK",
+  "process_dlq_task": "FAIL: cannot import name 'process_dlq_task' from 'gabi.tasks.dlq' (/home/fgamajr/dev/gabi-kimi/src/gabi/tasks/dlq.py)",
+  "send_alert_task": "OK"
+}

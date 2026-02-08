@@ -165,7 +165,7 @@ class TestCircuitBreaker:
     
     @pytest.mark.asyncio
     async def test_half_open_after_timeout(self):
-        """Circuito entra em half-open após timeout."""
+        """Circuito entra em half-open após timeout, falha retorna para open."""
         cb = CircuitBreaker(
             CircuitBreakerConfig(failure_threshold=1, recovery_timeout=0.1)
         )
@@ -185,12 +185,12 @@ class TestCircuitBreaker:
         # Aguarda timeout de recovery
         await asyncio.sleep(0.15)
         
-        # Verifica se entrou em half-open (atualização é lazy)
+        # Chama função que falha - deve tentar half-open mas voltar para open
         with pytest.raises(ValueError):
             await cb.call(fail_func)
         
-        # Agora deve estar em half-open
-        assert cb.state == CircuitBreakerState.HALF_OPEN
+        # Falha em half-open retorna para OPEN
+        assert cb.state == CircuitBreakerState.OPEN
     
     @pytest.mark.asyncio
     async def test_success_in_half_open_closes_circuit(self):
@@ -982,7 +982,15 @@ class TestEdgeCases:
         session = AsyncMock()
         response = AsyncMock()
         response.status = 200
-        response.json = AsyncMock(return_value=[[0.1] * 384])
+        
+        # Retorna embeddings conforme tamanho do batch
+        async def mock_json():
+            call_args = session.post.call_args
+            payload = call_args[1].get('json', {})
+            inputs = payload.get('inputs', [])
+            return [[0.1] * 384 for _ in inputs]
+        
+        response.json = mock_json
         
         # session.post needs to return an async context manager
         session.post = MagicMock(return_value=create_async_context_manager_mock(response))
@@ -1006,7 +1014,15 @@ class TestEdgeCases:
         session = AsyncMock()
         response = AsyncMock()
         response.status = 200
-        response.json = AsyncMock(return_value=[[0.1] * 384])
+        
+        # Retorna embeddings conforme tamanho do batch
+        async def mock_json():
+            call_args = session.post.call_args
+            payload = call_args[1].get('json', {})
+            inputs = payload.get('inputs', [])
+            return [[0.1] * 384 for _ in inputs]
+        
+        response.json = mock_json
         
         # session.post needs to return an async context manager
         session.post = MagicMock(return_value=create_async_context_manager_mock(response))

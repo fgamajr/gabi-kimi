@@ -217,8 +217,12 @@ class TestProcessDLQMessage:
     @pytest.mark.asyncio
     async def test_message_not_found(self):
         """Deve lançar erro quando mensagem não existe."""
-        with patch("gabi.tasks.dlq._get_message") as mock_get:
+        with patch("gabi.tasks.dlq._get_message") as mock_get, \
+             patch("gabi.tasks.dlq.get_session") as mock_get_session:
             mock_get.return_value = None
+            mock_session = AsyncMock()
+            mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_get_session.return_value.__aexit__ = AsyncMock(return_value=None)
             
             with pytest.raises(ValueError, match="not found"):
                 await _process_dlq_message("nonexistent")
@@ -234,8 +238,12 @@ class TestProcessDLQMessage:
         mock_message.retry_count = 5
         mock_message.max_retries = 5
         
-        with patch("gabi.tasks.dlq._get_message") as mock_get:
+        with patch("gabi.tasks.dlq._get_message") as mock_get, \
+             patch("gabi.tasks.dlq.get_session") as mock_get_session:
             mock_get.return_value = mock_message
+            mock_session = AsyncMock()
+            mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_get_session.return_value.__aexit__ = AsyncMock(return_value=None)
             
             with pytest.raises(ValueError, match="cannot be retried"):
                 await _process_dlq_message(str(uuid.uuid4()))

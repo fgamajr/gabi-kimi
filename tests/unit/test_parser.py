@@ -554,6 +554,15 @@ class TestHTMLParser:
 # Testes do PDFParser
 # =============================================================================
 
+# Skip PDF tests if pdfplumber is not installed
+try:
+    import pdfplumber
+    HAS_PDFPLUMBER = True
+except ImportError:
+    HAS_PDFPLUMBER = False
+
+
+@pytest.mark.skipif(not HAS_PDFPLUMBER, reason="pdfplumber not installed")
 class TestPDFParser:
     """Testes do parser PDF."""
     

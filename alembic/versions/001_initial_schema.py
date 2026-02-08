@@ -42,48 +42,48 @@ def upgrade() -> None:
     # =======================================================================
     # 2. ENUMS
     # =======================================================================
-    # Source enums
-    source_type = sa.Enum('api', 'web', 'file', 'crawler', name='source_type')
-    source_type.create(op.get_bind())
+    # Source enums - create with checkfirst=True
+    source_type = postgresql.ENUM('api', 'web', 'file', 'crawler', name='source_type', create_type=True)
+    source_type.create(op.get_bind(), checkfirst=True)
     
-    source_status = sa.Enum('active', 'paused', 'error', 'disabled', name='source_status')
-    source_status.create(op.get_bind())
+    source_status = postgresql.ENUM('active', 'paused', 'error', 'disabled', name='source_status', create_type=True)
+    source_status.create(op.get_bind(), checkfirst=True)
     
     # Execution enum
-    execution_status = sa.Enum('pending', 'running', 'success', 'partial_success', 'failed', 'cancelled', name='execution_status')
-    execution_status.create(op.get_bind())
+    execution_status = postgresql.ENUM('pending', 'running', 'success', 'partial_success', 'failed', 'cancelled', name='execution_status', create_type=True)
+    execution_status.create(op.get_bind(), checkfirst=True)
     
     # Document enum
-    document_status = sa.Enum('active', 'updated', 'deleted', 'error', name='document_status')
-    document_status.create(op.get_bind())
+    document_status = postgresql.ENUM('active', 'updated', 'deleted', 'error', name='document_status', create_type=True)
+    document_status.create(op.get_bind(), checkfirst=True)
     
     # DLQ enum
-    dlq_status = sa.Enum('pending', 'retrying', 'exhausted', 'resolved', 'archived', name='dlq_status')
-    dlq_status.create(op.get_bind())
+    dlq_status = postgresql.ENUM('pending', 'retrying', 'exhausted', 'resolved', 'archived', name='dlq_status', create_type=True)
+    dlq_status.create(op.get_bind(), checkfirst=True)
     
     # Governance enums
-    sensitivity_level = sa.Enum('public', 'internal', 'restricted', 'confidential', name='sensitivity_level')
-    sensitivity_level.create(op.get_bind())
+    sensitivity_level = postgresql.ENUM('public', 'internal', 'restricted', 'confidential', name='sensitivity_level', create_type=True)
+    sensitivity_level.create(op.get_bind(), checkfirst=True)
     
-    audit_event_type = sa.Enum(
+    audit_event_type = postgresql.ENUM(
         'document_viewed', 'document_searched', 'document_created', 
         'document_updated', 'document_deleted', 'document_reindexed',
         'sync_started', 'sync_completed', 'sync_failed', 'sync_cancelled',
         'config_changed', 'user_login', 'user_logout', 'permission_changed',
         'dlq_message_created', 'dlq_message_resolved', 'quality_check_failed',
-        name='audit_event_type'
+        name='audit_event_type', create_type=True
     )
-    audit_event_type.create(op.get_bind())
+    audit_event_type.create(op.get_bind(), checkfirst=True)
     
-    audit_severity = sa.Enum('debug', 'info', 'warning', 'error', 'critical', name='audit_severity')
-    audit_severity.create(op.get_bind())
+    audit_severity = postgresql.ENUM('debug', 'info', 'warning', 'error', 'critical', name='audit_severity', create_type=True)
+    audit_severity.create(op.get_bind(), checkfirst=True)
     
     # Lineage enums
-    lineage_node_type = sa.Enum('source', 'transform', 'dataset', 'document', 'api', name='lineage_node_type')
-    lineage_node_type.create(op.get_bind())
+    lineage_node_type = postgresql.ENUM('source', 'transform', 'dataset', 'document', 'api', name='lineage_node_type', create_type=True)
+    lineage_node_type.create(op.get_bind(), checkfirst=True)
     
-    lineage_edge_type = sa.Enum('produced', 'input_to', 'output_to', 'derived_from', 'api_call', name='lineage_edge_type')
-    lineage_edge_type.create(op.get_bind())
+    lineage_edge_type = postgresql.ENUM('produced', 'input_to', 'output_to', 'derived_from', 'api_call', name='lineage_edge_type', create_type=True)
+    lineage_edge_type.create(op.get_bind(), checkfirst=True)
     
     # =======================================================================
     # 3. TABELA: source_registry
@@ -93,8 +93,8 @@ def upgrade() -> None:
         sa.Column('id', sa.String(), nullable=False),
         sa.Column('name', sa.String(), nullable=False),
         sa.Column('description', sa.Text(), nullable=True),
-        sa.Column('type', sa.Enum('api', 'web', 'file', 'crawler', name='source_type'), nullable=False),
-        sa.Column('status', sa.Enum('active', 'paused', 'error', 'disabled', name='source_status'), server_default='active', nullable=False),
+        sa.Column('type', postgresql.ENUM('api', 'web', 'file', 'crawler', name='source_type', create_type=False), nullable=False),
+        sa.Column('status', postgresql.ENUM('active', 'paused', 'error', 'disabled', name='source_status', create_type=False), server_default='active', nullable=False),
         sa.Column('config_hash', sa.String(), nullable=False),
         sa.Column('config_json', postgresql.JSONB(astext_type=sa.Text()), server_default='{}', nullable=False),
         # Estatísticas
@@ -111,7 +111,7 @@ def upgrade() -> None:
         sa.Column('last_error_at', sa.DateTime(timezone=True), nullable=True),
         # Governança
         sa.Column('owner_email', sa.String(), nullable=False),
-        sa.Column('sensitivity', sa.Enum('public', 'internal', 'restricted', 'confidential', name='sensitivity_level'), server_default='internal', nullable=False),
+        sa.Column('sensitivity', postgresql.ENUM('public', 'internal', 'restricted', 'confidential', name='sensitivity_level', create_type=False), server_default='internal', nullable=False),
         sa.Column('retention_days', sa.Integer(), server_default='2555', nullable=False),
         # Timestamps
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
@@ -158,7 +158,7 @@ def upgrade() -> None:
         sa.Column('content_type', sa.String(), nullable=True),
         sa.Column('language', sa.String(), server_default='pt-BR', nullable=False),
         # Status
-        sa.Column('status', sa.Enum('active', 'updated', 'deleted', 'error', name='document_status'), server_default='active', nullable=False),
+        sa.Column('status', postgresql.ENUM('active', 'updated', 'deleted', 'error', name='document_status', create_type=False), server_default='active', nullable=False),
         sa.Column('version', sa.Integer(), server_default='1', nullable=False),
         # Soft delete
         sa.Column('is_deleted', sa.Boolean(), server_default='false', nullable=False),
@@ -251,7 +251,7 @@ def upgrade() -> None:
         sa.Column('run_id', sa.UUID(as_uuid=False), server_default=sa.text('gen_random_uuid()'), nullable=False),
         sa.Column('source_id', sa.String(), nullable=False),
         # Status
-        sa.Column('status', sa.Enum('pending', 'running', 'success', 'partial_success', 'failed', 'cancelled', name='execution_status'), server_default='pending', nullable=False),
+        sa.Column('status', postgresql.ENUM('pending', 'running', 'success', 'partial_success', 'failed', 'cancelled', name='execution_status', create_type=False), server_default='pending', nullable=False),
         sa.Column('trigger', sa.String(), nullable=False),
         sa.Column('triggered_by', sa.String(), nullable=True),
         # Timestamps
@@ -298,7 +298,7 @@ def upgrade() -> None:
         sa.Column('error_traceback', sa.Text(), nullable=True),
         sa.Column('error_hash', sa.Text(), nullable=True),
         # Retry
-        sa.Column('status', sa.Enum('pending', 'retrying', 'exhausted', 'resolved', 'archived', name='dlq_status'), server_default='pending', nullable=False),
+        sa.Column('status', postgresql.ENUM('pending', 'retrying', 'exhausted', 'resolved', 'archived', name='dlq_status', create_type=False), server_default='pending', nullable=False),
         sa.Column('retry_count', sa.Integer(), server_default='0', nullable=False),
         sa.Column('max_retries', sa.Integer(), server_default='5', nullable=False),
         sa.Column('retry_strategy', sa.Text(), server_default='exponential_backoff', nullable=False),
@@ -341,8 +341,8 @@ def upgrade() -> None:
         sa.Column('id', sa.UUID(as_uuid=False), server_default=sa.text('gen_random_uuid()'), nullable=False),
         sa.Column('timestamp', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         # Evento
-        sa.Column('event_type', sa.Enum('document_viewed', 'document_searched', 'document_created', 'document_updated', 'document_deleted', 'document_reindexed', 'sync_started', 'sync_completed', 'sync_failed', 'sync_cancelled', 'config_changed', 'user_login', 'user_logout', 'permission_changed', 'dlq_message_created', 'dlq_message_resolved', 'quality_check_failed', name='audit_event_type'), nullable=False),
-        sa.Column('severity', sa.Enum('debug', 'info', 'warning', 'error', 'critical', name='audit_severity'), server_default='info', nullable=False),
+        sa.Column('event_type', postgresql.ENUM('document_viewed', 'document_searched', 'document_created', 'document_updated', 'document_deleted', 'document_reindexed', 'sync_started', 'sync_completed', 'sync_failed', 'sync_cancelled', 'config_changed', 'user_login', 'user_logout', 'permission_changed', 'dlq_message_created', 'dlq_message_resolved', 'quality_check_failed', name='audit_event_type', create_type=False), nullable=False),
+        sa.Column('severity', postgresql.ENUM('debug', 'info', 'warning', 'error', 'critical', name='audit_severity', create_type=False), server_default='info', nullable=False),
         # Usuário
         sa.Column('user_id', sa.String(), nullable=True),
         sa.Column('user_email', sa.String(), nullable=True),
@@ -384,7 +384,7 @@ def upgrade() -> None:
     op.create_table(
         'lineage_nodes',
         sa.Column('node_id', sa.String(), nullable=False),
-        sa.Column('node_type', sa.Enum('source', 'transform', 'dataset', 'document', 'api', name='lineage_node_type'), nullable=False),
+        sa.Column('node_type', postgresql.ENUM('source', 'transform', 'dataset', 'document', 'api', name='lineage_node_type', create_type=False), nullable=False),
         sa.Column('name', sa.String(), nullable=False),
         sa.Column('description', sa.Text(), nullable=True),
         sa.Column('properties', postgresql.JSONB(astext_type=sa.Text()), server_default='{}', nullable=False),
@@ -404,7 +404,7 @@ def upgrade() -> None:
         sa.Column('id', sa.UUID(as_uuid=False), server_default=sa.text('gen_random_uuid()'), nullable=False),
         sa.Column('source_node', sa.String(), nullable=False),
         sa.Column('target_node', sa.String(), nullable=False),
-        sa.Column('edge_type', sa.Enum('produced', 'input_to', 'output_to', 'derived_from', 'api_call', name='lineage_edge_type'), nullable=False),
+        sa.Column('edge_type', postgresql.ENUM('produced', 'input_to', 'output_to', 'derived_from', 'api_call', name='lineage_edge_type', create_type=False), nullable=False),
         sa.Column('properties', postgresql.JSONB(astext_type=sa.Text()), server_default='{}', nullable=False),
         sa.Column('run_id', sa.UUID(as_uuid=False), nullable=True),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),

@@ -43,11 +43,13 @@ def sample_source():
         type=SourceType.API,
         status=SourceStatus.ACTIVE,
         config_hash="abc123",
+        config_json={},
         owner_email="admin@tcu.gov.br",
         sensitivity=SensitivityLevel.INTERNAL,
         document_count=100,
         total_documents_ingested=150,
         consecutive_errors=0,
+        retention_days=365,
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
@@ -72,7 +74,7 @@ class TestListSources:
         """Verifica que list_sources retorna SourceListResponse."""
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = []
-        mock_result.scalar_one.return_value = 0
+        mock_result.scalar_one_or_none.return_value = 0
         mock_db_session.execute = AsyncMock(return_value=mock_result)
         
         response = await list_sources(db=mock_db_session)
@@ -86,7 +88,7 @@ class TestListSources:
         """Verifica que list_sources filtra por status."""
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = [sample_source]
-        mock_result.scalar_one.return_value = 1
+        mock_result.scalar_one_or_none.return_value = 1
         mock_db_session.execute = AsyncMock(return_value=mock_result)
         
         response = await list_sources(
@@ -102,7 +104,7 @@ class TestListSources:
         """Verifica que list_sources exclui deletados por padrão."""
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = [sample_source]
-        mock_result.scalar_one.return_value = 1
+        mock_result.scalar_one_or_none.return_value = 1
         mock_db_session.execute = AsyncMock(return_value=mock_result)
         
         response = await list_sources(db=mock_db_session)

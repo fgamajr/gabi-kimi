@@ -162,6 +162,17 @@ class ChangeDetectionCache(Base):
     )
     
     # ==========================================================================
+    # Inicialização
+    # ==========================================================================
+    def __init__(self, **kwargs):
+        # Set defaults before calling super().__init__
+        if 'check_count' not in kwargs:
+            kwargs['check_count'] = 0
+        if 'change_count' not in kwargs:
+            kwargs['change_count'] = 0
+        super().__init__(**kwargs)
+    
+    # ==========================================================================
     # Propriedades
     # ==========================================================================
     @property

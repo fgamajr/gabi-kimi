@@ -115,6 +115,17 @@ class ExecutionManifest(Base):
         nullable=True,
     )
     
+    # ==========================================================================
+    # Inicialização
+    # ==========================================================================
+    def __init__(self, **kwargs):
+        # Set defaults before calling super().__init__
+        if 'status' not in kwargs:
+            kwargs['status'] = ExecutionStatus.PENDING.value
+        if 'stats' not in kwargs:
+            kwargs['stats'] = {}
+        super().__init__(**kwargs)
+    
     def __repr__(self) -> str:
         return (
             f"<ExecutionManifest("

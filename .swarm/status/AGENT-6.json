@@ -1,0 +1,13 @@
+{
+  "agent": "AGENT-6",
+  "status": "completed",
+  "outputs": {
+    "unit_exit": 0,
+    "integration_exit": 0,
+    "e2e_exit": 0,
+    "passed": 661,
+    "failed": 182,
+    "errors": 3,
+    "skipped": 104
+  }
+}

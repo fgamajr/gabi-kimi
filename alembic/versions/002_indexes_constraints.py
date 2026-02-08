@@ -42,12 +42,11 @@ def upgrade() -> None:
         postgresql_where=sa.text("status IN ('error', 'paused')")
     )
     
-    # source_registry: índice para ordenação por document_count
+    # source_registry: índice para ordenação por document_count (sem filtro de soft delete - coluna não existe ainda)
     op.create_index(
         'idx_source_doc_count',
         'source_registry',
-        [sa.text('document_count DESC')],
-        postgresql_where=sa.text('is_deleted = false')
+        [sa.text('document_count DESC')]
     )
     
     # documents: índice para ordenação por data de ingestão
@@ -170,26 +169,15 @@ def upgrade() -> None:
         WHERE is_deleted = false
     """)
     
-    # source_registry: índice parcial para fontes ativas (não deletadas)
-    op.execute("""
-        CREATE INDEX IF NOT EXISTS idx_source_active_partial 
-        ON source_registry (type, next_scheduled_sync) 
-        WHERE status = 'active' AND is_deleted = false
-    """)
+    # NOTA: Índices relacionados a is_deleted foram movidos para migração 005
     
-    # source_registry: índice composto para status e soft delete
+    # change_detection_cache: índice para URLs não verificadas recentemente
+    # NOTA: Não usamos NOW() em índices parciais pois não é IMMUTABLE
     op.create_index(
-        'idx_source_status_deleted',
-        'source_registry',
-        ['status', 'is_deleted']
+        'idx_change_detection_stale',
+        'change_detection_cache',
+        ['source_id', 'last_checked_at']
     )
-    
-    # change_detection_cache: índice parcial para URLs não verificadas recentemente
-    op.execute("""
-        CREATE INDEX IF NOT EXISTS idx_change_detection_stale 
-        ON change_detection_cache (source_id, last_checked_at) 
-        WHERE last_checked_at < NOW() - INTERVAL '1 hour'
-    """)
     
     # =======================================================================
     # 3. ÍNDICES GIN PARA JSONB
@@ -418,10 +406,12 @@ def downgrade() -> None:
     
     # Partial indexes
     op.execute("DROP INDEX IF EXISTS idx_change_detection_stale")
-    op.execute("DROP INDEX IF EXISTS idx_source_active_partial")
+    op.drop_index('idx_change_detection_stale', table_name='change_detection_cache')
     op.execute("DROP INDEX IF EXISTS idx_documents_language_partial")
     op.execute("DROP INDEX IF EXISTS idx_documents_url_partial")
     op.execute("DROP INDEX IF EXISTS idx_documents_title_partial")
+    
+    # NOTA: Índices de source_registry relacionados a is_deleted são gerenciados na migração 005
     
     # Compound indexes
     op.drop_index('idx_dlq_error_type', table_name='dlq_messages')
@@ -438,7 +428,7 @@ def downgrade() -> None:
     op.drop_index('idx_documents_ingested_sort', table_name='documents')
     op.drop_index('idx_source_doc_count', table_name='source_registry')
     op.drop_index('idx_source_status_errors', table_name='source_registry')
-    op.drop_index('idx_source_status_deleted', table_name='source_registry')
+    # idx_source_status_deleted é gerenciado na migração 005
     
     # =======================================================================
     # 2. REMOVER CONSTRAINTS

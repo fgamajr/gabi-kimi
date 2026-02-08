@@ -40,6 +40,7 @@ def sample_document():
         document_id="TCU-TEST-001",
         source_id="test_source",
         fingerprint="abc123",
+        fingerprint_algorithm="sha256",
         title="Test Document",
         content_preview="Preview...",
         status=DocumentStatus.ACTIVE,
@@ -50,6 +51,7 @@ def sample_document():
         doc_metadata={"year": 2024},
         ingested_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
+        language="pt",
     )
 
 
@@ -73,10 +75,10 @@ class TestListDocuments:
         # Mock execute
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = []
-        mock_result.scalar_one.return_value = 0
+        mock_result.scalar_one_or_none.return_value = 0
         mock_db_session.execute = AsyncMock(return_value=mock_result)
         
-        response = await list_documents(db=mock_db_session)
+        response = await list_documents(db=mock_db_session, page=1, page_size=20)
         
         assert isinstance(response, DocumentListResponse)
         assert response.total == 0
@@ -88,13 +90,15 @@ class TestListDocuments:
         # Mock execute
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = [sample_document]
-        mock_result.scalar_one.return_value = 1
+        mock_result.scalar_one_or_none.return_value = 1
         mock_db_session.execute = AsyncMock(return_value=mock_result)
         
         response = await list_documents(
             source_id="test_source",
             status=DocumentStatus.ACTIVE,
             db=mock_db_session,
+            page=1,
+            page_size=20,
         )
         
         assert response.total == 1
@@ -106,7 +110,7 @@ class TestListDocuments:
         """Verifica que list_documents suporta paginação."""
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = []
-        mock_result.scalar_one.return_value = 0
+        mock_result.scalar_one_or_none.return_value = 0
         mock_db_session.execute = AsyncMock(return_value=mock_result)
         
         response = await list_documents(
@@ -270,12 +274,15 @@ class TestDeleteDocument:
         mock_result.scalar_one_or_none.return_value = sample_document
         mock_db_session.execute = AsyncMock(return_value=mock_result)
         
-        response = await delete_document(
-            document_id="TCU-TEST-001",
-            reason="Dados obsoletos",
-            deleted_by="admin@tcu.gov.br",
-            db=mock_db_session,
-        )
+        # Mock the user dependency
+        from unittest.mock import patch
+        with patch("gabi.api.documents.RequireAuth", return_value=lambda: {"sub": "admin@tcu.gov.br"}):
+            response = await delete_document(
+                document_id="TCU-TEST-001",
+                reason="Dados obsoletos",
+                db=mock_db_session,
+                user={"sub": "admin@tcu.gov.br"},
+            )
         
         assert response.success is True
         assert response.document_id == "TCU-TEST-001"

@@ -69,8 +69,8 @@ def upgrade():
 
 def downgrade():
     """Remove soft delete columns from source_registry table."""
-    op.drop_index('idx_source_status_deleted', table_name='source_registry')
-    op.drop_index('idx_source_is_deleted', table_name='source_registry')
+    op.execute("DROP INDEX IF EXISTS idx_source_status_deleted")
+    op.execute("DROP INDEX IF EXISTS idx_source_is_deleted")
     op.drop_column('source_registry', 'deleted_by')
     op.drop_column('source_registry', 'deleted_reason')
     op.drop_column('source_registry', 'is_deleted')

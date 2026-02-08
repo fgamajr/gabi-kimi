@@ -15,6 +15,7 @@ Example:
     >>> print(f"Cache hit rate: {service.metrics.cache_hit_rate:.2%}")
 """
 
+import asyncio
 import json
 import logging
 import time
@@ -192,6 +193,9 @@ class EmbeddingService:
         self.cache_config = cache_config or CacheConfig()
         self.enable_fallback = enable_fallback
         self.metrics = EmbeddingMetrics()
+        
+        # Request coalescing: tracking de requests pendentes
+        self._pending: Dict[str, asyncio.Future] = {}
         
         # Inicializa fallback se habilitado
         if self.enable_fallback and self.fallback_backend is None:

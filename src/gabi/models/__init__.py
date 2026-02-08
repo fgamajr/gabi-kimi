@@ -15,6 +15,20 @@ from gabi.models.base import Base
 # Import enums and simple models that don't have side effects
 from gabi.models.document import DocumentStatus
 
+# Import all models - lazy loading to avoid DB initialization issues
+try:
+    from gabi.models.audit import AuditLog
+    from gabi.models.lineage import LineageNode, LineageEdge
+    from gabi.models.dlq import DLQMessage, DLQStatus
+    from gabi.models.execution import ExecutionManifest, ExecutionStatus
+    from gabi.models.cache import ChangeDetectionCache
+    from gabi.models.source import SourceRegistry
+    from gabi.models.document import Document
+    from gabi.models.chunk import DocumentChunk
+except ImportError:
+    # Models may not be available without DB initialization
+    pass
+
 # Note: Full model imports may require database initialization
 # Use lazy imports for production code:
 #   from gabi.models.document import Document
@@ -25,5 +39,16 @@ __all__ = [
     "Base",
     # Enums (safe to import)
     "DocumentStatus",
-    # Note: Other models require lazy import due to DB initialization
+    # Models (may require DB initialization)
+    "AuditLog",
+    "LineageNode",
+    "LineageEdge",
+    "DLQMessage",
+    "DLQStatus",
+    "ExecutionManifest",
+    "ExecutionStatus",
+    "ChangeDetectionCache",
+    "SourceRegistry",
+    "Document",
+    "DocumentChunk",
 ]

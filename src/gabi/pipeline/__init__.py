@@ -52,7 +52,24 @@ from gabi.pipeline.contracts import (
 # Use: from gabi.pipeline.fetcher import ContentFetcher
 # Use: from gabi.pipeline.fingerprint import Fingerprinter, FingerprinterConfig
 
+# Import orchestrator (lazy to avoid side effects)
+from gabi.pipeline.orchestrator import (
+    PipelineOrchestrator,
+    PipelineConfig,
+    PipelineManifest,
+    PipelineStatus,
+    PipelinePhase,
+    run_pipeline,
+)
+
 __all__ = [
+    # Orchestrator
+    "PipelineOrchestrator",
+    "PipelineConfig",
+    "PipelineManifest",
+    "PipelineStatus",
+    "PipelinePhase",
+    "run_pipeline",
     # Contracts
     "DiscoveredURL",
     "DiscoveryResult",

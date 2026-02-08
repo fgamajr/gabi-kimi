@@ -15,6 +15,13 @@ import pytest
 from datetime import datetime
 from unittest.mock import Mock, patch, MagicMock
 
+# Skip PDF tests if pdfplumber is not installed
+try:
+    import pdfplumber
+    HAS_PDFPLUMBER = True
+except ImportError:
+    HAS_PDFPLUMBER = False
+
 from gabi.pipeline.parser import (
     CSVParser,
     HTMLParser,
@@ -177,6 +184,7 @@ class TestSizeLimits:
         assert "SizeLimitExceeded" in result.errors[0]["error_type"]
     
     @pytest.mark.asyncio
+    @pytest.mark.skipif(not HAS_PDFPLUMBER, reason="pdfplumber not installed")
     async def test_pdf_size_limit(self):
         """Deve rejeitar PDF maior que o limite."""
         content = FetchedContent(
@@ -331,6 +339,7 @@ class TestHTMLSecurity:
 # Tests - PDF Security
 # =============================================================================
 
+@pytest.mark.skipif(not HAS_PDFPLUMBER, reason="pdfplumber not installed")
 class TestPDFSecurity:
     """Testes de segurança do PDF Parser."""
     
@@ -493,10 +502,8 @@ class TestQuarantine:
         """Deve respeitar configuração de desativação de quarentena."""
         monkeypatch.setenv("GABI_QUARANTINE_ENABLED", "false")
         
-        # Reload module to pick up new env var
-        import importlib
+        # No need to reload module - _get_quarantine_config() reads env vars fresh
         from gabi.pipeline import parser
-        importlib.reload(parser)
         
         fetched = FetchedContent(
             url="https://example.com/suspicious.csv",
@@ -518,10 +525,8 @@ class TestQuarantine:
         monkeypatch.setenv("GABI_QUARANTINE_ENABLED", "true")
         monkeypatch.setenv("GABI_QUARANTINE_DIR", str(tmp_path))
         
-        # Reload module to pick up new env var
-        import importlib
+        # No need to reload module - _get_quarantine_config() reads env vars fresh
         from gabi.pipeline import parser
-        importlib.reload(parser)
         
         fetched = FetchedContent(
             url="https://example.com/suspicious.csv",

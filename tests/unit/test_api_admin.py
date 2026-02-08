@@ -68,6 +68,7 @@ def sample_dlq_message():
         retry_count=0,
         max_retries=5,
         created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
     )
 
 
@@ -90,10 +91,10 @@ class TestListExecutions:
         """Verifica que list_executions retorna ExecutionListResponse."""
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = []
-        mock_result.scalar_one.return_value = 0
+        mock_result.scalar_one_or_none.return_value = 0
         mock_db_session.execute = AsyncMock(return_value=mock_result)
         
-        response = await list_executions(db=mock_db_session)
+        response = await list_executions(db=mock_db_session, page=1, page_size=20)
         
         assert isinstance(response, ExecutionListResponse)
         assert response.total == 0
@@ -104,13 +105,15 @@ class TestListExecutions:
         """Verifica que list_executions aplica filtros."""
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = [sample_execution]
-        mock_result.scalar_one.return_value = 1
+        mock_result.scalar_one_or_none.return_value = 1
         mock_db_session.execute = AsyncMock(return_value=mock_result)
         
         response = await list_executions(
             source_id="test_source",
             status=ExecutionStatus.SUCCESS,
             db=mock_db_session,
+            page=1,
+            page_size=20,
         )
         
         assert response.total == 1
@@ -122,7 +125,7 @@ class TestListExecutions:
         """Verifica que list_executions suporta paginação."""
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = []
-        mock_result.scalar_one.return_value = 0
+        mock_result.scalar_one_or_none.return_value = 0
         mock_db_session.execute = AsyncMock(return_value=mock_result)
         
         response = await list_executions(
@@ -183,10 +186,10 @@ class TestListDLQ:
         """Verifica que list_dlq retorna DLQListResponse."""
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = []
-        mock_result.scalar_one.return_value = 0
+        mock_result.scalar_one_or_none.return_value = 0
         mock_db_session.execute = AsyncMock(return_value=mock_result)
         
-        response = await list_dlq(db=mock_db_session)
+        response = await list_dlq(db=mock_db_session, page=1, page_size=20)
         
         assert isinstance(response, DLQListResponse)
         assert response.total == 0
@@ -197,12 +200,14 @@ class TestListDLQ:
         """Verifica que list_dlq filtra por status."""
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = [sample_dlq_message]
-        mock_result.scalar_one.return_value = 1
+        mock_result.scalar_one_or_none.return_value = 1
         mock_db_session.execute = AsyncMock(return_value=mock_result)
         
         response = await list_dlq(
             status=DLQStatus.PENDING,
             db=mock_db_session,
+            page=1,
+            page_size=20,
         )
         
         assert response.total == 1
@@ -212,10 +217,10 @@ class TestListDLQ:
         """Verifica que list_dlq inclui contagens por status."""
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = [sample_dlq_message]
-        mock_result.scalar_one.return_value = 1
+        mock_result.scalar_one_or_none.return_value = 1
         mock_db_session.execute = AsyncMock(return_value=mock_result)
         
-        response = await list_dlq(db=mock_db_session)
+        response = await list_dlq(db=mock_db_session, page=1, page_size=20)
         
         assert isinstance(response.by_status, dict)
 
@@ -344,7 +349,7 @@ class TestSystemStats:
     async def test_get_system_stats_returns_response(self, mock_db_session):
         """Verifica que get_system_stats retorna SystemStatsResponse."""
         mock_result = MagicMock()
-        mock_result.scalar_one.return_value = 0
+        mock_result.scalar_one_or_none.return_value = 0
         mock_db_session.execute = AsyncMock(return_value=mock_result)
         
         response = await get_system_stats(db=mock_db_session)
@@ -357,7 +362,7 @@ class TestSystemStats:
     async def test_get_system_stats_includes_all_metrics(self, mock_db_session):
         """Verifica que get_system_stats inclui todas as métricas."""
         mock_result = MagicMock()
-        mock_result.scalar_one.return_value = 0
+        mock_result.scalar_one_or_none.return_value = 0
         mock_db_session.execute = AsyncMock(return_value=mock_result)
         
         response = await get_system_stats(db=mock_db_session)

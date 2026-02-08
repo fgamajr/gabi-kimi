@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gabi.db import get_session
 from gabi.models.dlq import DLQMessage, DLQStatus
+from gabi.pipeline.fetcher import ContentFetcher
 from gabi.worker import celery_app
 
 logger = logging.getLogger(__name__)
@@ -465,9 +466,6 @@ async def _retry_fetch(session: AsyncSession, message: DLQMessage) -> Dict[str, 
     """
     url = message.url
     source_id = message.source_id
-    
-    # Implementação de retry de fetch
-    from gabi.pipeline.fetcher import ContentFetcher
     
     fetcher = ContentFetcher()
     try:

@@ -217,12 +217,6 @@ class SourceRegistry(Base):
     # ==========================================================================
     # Soft Delete (SoftDeleteMixin inline)
     # ==========================================================================
-    is_deleted: Mapped[bool] = mapped_column(
-        default=False,
-        nullable=False,
-        comment="Flag de soft delete"
-    )
-    
     deleted_at: Mapped[Optional[datetime]] = mapped_column(
         TIMESTAMP(timezone=True),
         nullable=True,
@@ -254,6 +248,11 @@ class SourceRegistry(Base):
     # Propriedades
     # ==========================================================================
     @property
+    def is_deleted(self) -> bool:
+        """Retorna True se o registro foi deletado (soft delete)."""
+        return self.deleted_at is not None
+    
+    @property
     def is_active(self) -> bool:
         """Retorna True se a fonte está ativa e não foi deletada."""
         return self.status == SourceStatus.ACTIVE and not self.is_deleted
@@ -284,7 +283,6 @@ class SourceRegistry(Base):
             reason: Motivo da exclusão
             deleted_by: Identificador de quem está deletando
         """
-        self.is_deleted = True
         self.deleted_at = datetime.now(timezone.utc)
         self.deleted_reason = reason
         self.deleted_by = deleted_by
@@ -292,7 +290,6 @@ class SourceRegistry(Base):
     
     def restore(self) -> None:
         """Restore from soft delete."""
-        self.is_deleted = False
         self.deleted_at = None
         self.deleted_reason = None
         self.deleted_by = None

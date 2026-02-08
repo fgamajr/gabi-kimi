@@ -1,0 +1,32 @@
+{
+  "agent": "AGENT-2",
+  "status": "completed",
+  "progress": 100,
+  "timestamp": "2026-02-08T18:48:28.573Z",
+  "outputs": {
+    "migrations_applied": true,
+    "pgvector_enabled": true,
+    "tables": [
+      "alembic_version",
+      "audit_log",
+      "change_detection_cache",
+      "data_catalog",
+      "dlq_messages",
+      "document_chunks",
+      "documents",
+      "execution_manifests",
+      "lineage_edges",
+      "lineage_nodes",
+      "source_registry"
+    ],
+    "es_indices": ["gabi_documents_v1"],
+    "database_extensions": ["plpgsql", "uuid-ossp", "vector", "pg_trgm", "pgcrypto"],
+    "fixes_applied": [
+      "Fixed migration 001: Changed sa.Enum to postgresql.ENUM with create_type=False",
+      "Fixed migration 002: Removed is_deleted references from source_registry (moved to 005)",
+      "Fixed migration 002: Removed NOW() from partial index (not IMMUTABLE)",
+      "Fixed migration 005: Added IF EXISTS to drop_index operations",
+      "Updated .env: Changed ES port from 9201 to 9200"
+    ]
+  }
+}

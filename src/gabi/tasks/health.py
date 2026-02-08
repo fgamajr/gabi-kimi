@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional
 
 import aiohttp
 import redis.asyncio as redis
+from celery.app.control import Inspect
 from elasticsearch import AsyncElasticsearch
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -421,8 +422,6 @@ async def _check_celery(include_details: bool = False) -> HealthResult:
     
     try:
         # Usa inspect para verificar workers
-        from celery.app.control import Inspect
-        
         inspect = Inspect(app=celery_app)
         
         # Timeout para não bloquear

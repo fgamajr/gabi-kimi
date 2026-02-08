@@ -24,6 +24,7 @@ from gabi.schemas.health import (
     HealthStatus,
     LivenessResponse,
     ReadinessResponse,
+    ComponentStatus,
 )
 
 
@@ -96,15 +97,29 @@ class TestHealthCheck:
         mock_result.scalar_one = AsyncMock(return_value=1)
         mock_db_session.execute = AsyncMock(return_value=mock_result)
 
-        # Mock Elasticsearch and Redis clients
-        mock_es_client = AsyncMock()
-        mock_es_client.info = AsyncMock(return_value={"version": {"number": "8.0.0"}})
+        # Mock check functions to return healthy status directly
+        mock_db_status = ComponentStatus(
+            name="database",
+            status=HealthStatus.HEALTHY,
+            response_time_ms=5.0,
+            message="PostgreSQL responding",
+        )
+        mock_es_status = ComponentStatus(
+            name="elasticsearch",
+            status=HealthStatus.HEALTHY,
+            response_time_ms=10.0,
+            message="Elasticsearch 8.0.0 responding",
+        )
+        mock_redis_status = ComponentStatus(
+            name="redis",
+            status=HealthStatus.HEALTHY,
+            response_time_ms=2.0,
+            message="Redis responding",
+        )
 
-        mock_redis_client = AsyncMock()
-        mock_redis_client.ping = AsyncMock(return_value=True)
-
-        with patch("gabi.db.get_es_client", return_value=mock_es_client), \
-             patch("gabi.db.get_redis_client", return_value=mock_redis_client):
+        with patch("gabi.api.health.check_database", return_value=mock_db_status), \
+             patch("gabi.api.health.check_elasticsearch", return_value=mock_es_status), \
+             patch("gabi.api.health.check_redis", return_value=mock_redis_status):
             response = await health_check(db=mock_db_session)
 
         assert isinstance(response, HealthResponse)

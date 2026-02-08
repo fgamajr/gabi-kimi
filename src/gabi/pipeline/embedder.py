@@ -178,6 +178,10 @@ class CircuitBreaker:
                     self._state = CircuitBreakerState.HALF_OPEN
                     self._half_open_calls = 0
                     self._success_count = 0
+                    # Reset failure count to allow testing in half-open state
+                    # The first failure in half-open should transition back to OPEN
+                    # (this is handled by _on_failure)
+                    self._failure_count = 0
     
     async def _on_success(self) -> None:
         """Registra sucesso."""
@@ -190,6 +194,8 @@ class CircuitBreaker:
                     self._failure_count = 0
                     self._half_open_calls = 0
             else:
+                # Em estado CLOSED, incrementa contador de sucesso e decrementa falhas
+                self._success_count += 1
                 self._failure_count = max(0, self._failure_count - 1)
     
     async def _on_failure(self) -> None:
@@ -201,10 +207,12 @@ class CircuitBreaker:
             if self._state == CircuitBreakerState.HALF_OPEN:
                 logger.warning("Circuit breaker transitioning to OPEN (failure in half-open)")
                 self._state = CircuitBreakerState.OPEN
+                self._success_count = 0
             elif self._failure_count >= self.config.failure_threshold:
                 if self._state != CircuitBreakerState.OPEN:
                     logger.warning(f"Circuit breaker transitioning to OPEN ({self._failure_count} failures)")
                     self._state = CircuitBreakerState.OPEN
+                    self._success_count = 0
     
     def get_stats(self) -> Dict[str, Any]:
         """Retorna estatísticas do circuit breaker."""
@@ -243,7 +251,20 @@ class Embedder:
     """
     
     # Dimensionalidade fixa conforme ADR-001 - IMUTÁVEL
-    EMBEDDING_DIMENSIONS: int = 384
+    _EMBEDDING_DIMENSIONS: int = 384
+    
+    @property
+    def EMBEDDING_DIMENSIONS(self) -> int:
+        """Dimensionalidade fixa dos embeddings (384)."""
+        return self._EMBEDDING_DIMENSIONS
+    
+    @EMBEDDING_DIMENSIONS.setter
+    def EMBEDDING_DIMENSIONS(self, value: int) -> None:
+        """Bloqueia alteração da dimensionalidade (ADR-001)."""
+        raise AttributeError(
+            f"Cannot modify EMBEDDING_DIMENSIONS. "
+            f"It is fixed at {self._EMBEDDING_DIMENSIONS} as per ADR-001."
+        )
     
     def __init__(
         self,
@@ -280,7 +301,8 @@ class Embedder:
         
         # Sessão HTTP
         self._session = session
-        self._owns_session = session is None
+        # Always close session when Embedder is closed (context manager or explicit close)
+        self._owns_session = True
         
         # Request coalescing: deduplica requests em andamento
         # Dict[str, asyncio.Future] - chave: hash do texto, valor: Future com resultado
