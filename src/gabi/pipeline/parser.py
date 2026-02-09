@@ -36,7 +36,8 @@ logger = logging.getLogger(__name__)
 
 MAX_PARSE_SIZE = 100 * 1024 * 1024  # 100MB
 MAX_CSV_ROWS = 1_000_000  # 1 million rows
-MAX_CSV_ROW_LENGTH = 10_000  # 10KB per row
+# Max CSV field size. 10KB is too restrictive for legal corpora with long text columns.
+MAX_CSV_ROW_LENGTH = 5 * 1024 * 1024  # 5MB per field
 MAX_HTML_ENTITY_EXPANSION = 10_000  # Prevent billion laughs attack
 MAX_HTML_SIZE = 50 * 1024 * 1024  # 50MB for HTML (before parsing)
 DEFAULT_PDF_MAX_PAGES = 1000  # Default page limit for PDFs
@@ -441,6 +442,27 @@ class ParserRegistry:
 
 
 # =============================================================================
+# Content Parser
+# =============================================================================
+
+class ContentParser:
+    """Parser de alto nível que delega para o parser correto."""
+
+    def __init__(self, registry: Optional[ParserRegistry] = None) -> None:
+        self._registry = registry or get_registry()
+
+    async def parse(self, content: FetchedContent, config: Dict[str, Any]) -> ParseResult:
+        """Seleciona o parser pelo formato e executa o parse."""
+        fmt = config.get("input_format") or config.get("format") or config.get("parser")
+        if not fmt:
+            raise ValueError("input_format é obrigatório para parsing")
+        parser = self._registry.get_parser(fmt)
+        if not parser:
+            raise ValueError(f"Parser não registrado para formato: {fmt}")
+        return await parser.parse(content, config)
+
+
+# =============================================================================
 # CSV Parser
 # =============================================================================
 
@@ -568,15 +590,18 @@ class CSVParser(BaseParser):
         errors: List[Dict[str, Any]] = []
         metrics = get_parse_error_metrics()
         
+        max_parse_size = int(config.get("max_parse_size_bytes", MAX_PARSE_SIZE))
+        max_parse_size = max(1024 * 1024, min(max_parse_size, 2 * 1024 * 1024 * 1024))
+
         # Check size limit first
-        within_limit, content_size = self._check_size_limit(content, MAX_PARSE_SIZE)
+        within_limit, content_size = self._check_size_limit(content, max_parse_size)
         if not within_limit:
             error_type = "SizeLimitExceeded"
             error_details = {
-                "error": f"CSV size ({content_size} bytes) exceeds maximum ({MAX_PARSE_SIZE} bytes)",
+                "error": f"CSV size ({content_size} bytes) exceeds maximum ({max_parse_size} bytes)",
                 "error_type": error_type,
                 "size_bytes": content_size,
-                "max_size_bytes": MAX_PARSE_SIZE,
+                "max_size_bytes": max_parse_size,
             }
             quarantine_path = _quarantine_file(content, error_type, error_details)
             metrics.record_error(error_type, "csv", bool(quarantine_path))
@@ -598,6 +623,8 @@ class CSVParser(BaseParser):
         source_id = config.get("source_id", "unknown")
         mapping = config.get("mapping", {})
         max_rows = config.get("max_rows", MAX_CSV_ROWS)
+        csv_field_size_limit = config.get("csv_field_size_limit", MAX_CSV_ROW_LENGTH)
+        csv_field_size_limit = max(1024, min(int(csv_field_size_limit), max_parse_size))
         
         try:
             # Get content (handles both streamed and in-memory)
@@ -618,7 +645,7 @@ class CSVParser(BaseParser):
                 quotechar = quotechar or self.DEFAULT_QUOTECHAR
             
             # Parseia o CSV com limite de tamanho de linha
-            csv.field_size_limit(MAX_CSV_ROW_LENGTH)
+            csv.field_size_limit(csv_field_size_limit)
             reader = csv.DictReader(
                 io.StringIO(text_content),
                 delimiter=delimiter,
@@ -812,6 +839,24 @@ def get_parser(format: str) -> Optional[BaseParser]:
         Parser ou None
     """
     return _parser_registry.get_parser(format)
+
+
+class ContentParser:
+    """Wrapper para acesso ao registro global de parsers."""
+
+    def __init__(self, registry: Optional[ParserRegistry] = None) -> None:
+        self._registry = registry or get_registry()
+
+    async def parse(self, content: FetchedContent, config: Dict[str, Any]) -> ParseResult:
+        format_type = config.get("input_format") or config.get("format")
+        if not format_type:
+            raise ValueError("input_format é obrigatório para parsing")
+
+        parser = self._registry.get_parser(format_type)
+        if parser is None:
+            raise ValueError(f"Parser não encontrado para formato: {format_type}")
+
+        return await parser.parse(content, config)
 
 
 
@@ -1466,6 +1511,7 @@ register_parser("pdf", PDFParser())
 __all__ = [
     # Base classes
     "BaseParser",
+    "ContentParser",
     "ParserRegistry",
     # Security constants
     "MAX_PARSE_SIZE",

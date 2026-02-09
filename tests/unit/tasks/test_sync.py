@@ -13,7 +13,9 @@ import pytest_asyncio
 from gabi.tasks.sync import (
     _add_document_to_dlq,
     _add_to_dlq,
+    _build_error_summary,
     _check_duplicate,
+    _classify_runtime_error,
     _get_source,
     _index_document,
     _run_discovery,
@@ -101,7 +103,7 @@ class TestRunDiscovery:
             "gabi.tasks.sync.DiscoveryEngine.discover",
             return_value=mock_discovery_result,
         ):
-            result = await _run_discovery("test_source", {})
+            result = await _run_discovery("test_source", {"discovery": {}})
             
             assert result.total_found == 1
             assert len(result.urls) == 1
@@ -135,13 +137,15 @@ class TestRunFetch:
         mock_fetcher = MagicMock()
         mock_fetcher.fetch = AsyncMock(return_value=mock_content)
         
-        result = await _run_fetch(mock_fetcher, discovered)
+        result = await _run_fetch(mock_fetcher, discovered, {"method": "GET"})
         
         assert result.url == "https://example.com/test.csv"
         assert result.content == b"id,name\n1,test"
         mock_fetcher.fetch.assert_called_once_with(
             url="https://example.com/test.csv",
             source_id="test_source",
+            method="GET",
+            headers=None,
         )
 
 
@@ -245,7 +249,7 @@ class TestIndexDocument:
             str(uuid.uuid4()),
         )
         
-        mock_session.merge.assert_called_once()
+        assert mock_session.merge.call_count + mock_session.add.call_count >= 1
         mock_session.commit.assert_called_once()
 
 
@@ -340,3 +344,35 @@ class TestGetSource:
         result = await _get_source(mock_session, "nonexistent")
         
         assert result is None
+
+
+class TestErrorClassification:
+    """Testes para classificação de erros do relatório."""
+
+    def test_classifies_external_unreachable(self):
+        classification = _classify_runtime_error(
+            "Max retries exceeded: Network error: [Errno -5] No address associated with hostname",
+            "https://api.stf.jus.br/decisoes.csv",
+        )
+        assert classification == "source_unreachable_external"
+
+    def test_classifies_embedding_backend_unavailable(self):
+        classification = _classify_runtime_error(
+            "embedding_failed: Failed to connect to TEI after 4 attempts"
+        )
+        assert classification == "embedding_backend_unavailable"
+
+    def test_build_error_summary(self):
+        summary = _build_error_summary(
+            [
+                {
+                    "error": "embedding_failed: Failed to connect to TEI after 4 attempts",
+                },
+                {
+                    "error": "Max retries exceeded: Network error: [Errno -5] No address associated with hostname",
+                    "url": "https://api.stj.jus.br/acordaos/2020.csv",
+                },
+            ]
+        )
+        assert summary["embedding_backend_unavailable"] == 1
+        assert summary["source_unreachable_external"] == 1

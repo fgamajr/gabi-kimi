@@ -15,6 +15,7 @@ import re
 import time
 from typing import Any, Dict, List, Optional, Callable
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 import httpx
@@ -50,6 +51,7 @@ class DiscoveryConfig:
     headers: Optional[Dict[str, str]] = None
     timeout: int = 30
     max_retries: int = 3
+    max_urls: Optional[int] = None
 
 
 class RateLimiter:
@@ -261,9 +263,14 @@ class DiscoveryEngine:
         value_lists = []
         
         for var_name, range_spec in config.range_config.items():
-            start = range_spec.get("start", 0)
-            end = range_spec.get("end", start)
-            step = range_spec.get("step", 1)
+            start = self._resolve_range_value(range_spec.get("start", 0))
+            end = self._resolve_range_value(range_spec.get("end", start))
+            step = self._resolve_range_value(range_spec.get("step", 1))
+            if step == 0:
+                logger.warning("Step 0 inválido para %s; usando 1", var_name)
+                step = 1
+            if end < start and step > 0:
+                step = -step
             
             placeholder = f"{{{var_name}}}"
             
@@ -271,8 +278,9 @@ class DiscoveryEngine:
                 logger.warning(f"Placeholder {placeholder} não encontrado no padrão")
                 continue
             
+            range_stop = end + 1 if step > 0 else end - 1
             var_names.append(var_name)
-            value_lists.append(list(range(start, end + 1, step)))
+            value_lists.append(list(range(start, range_stop, step)))
         
         if not var_names:
             logger.error("Nenhuma variável válida encontrada no padrão")
@@ -280,6 +288,8 @@ class DiscoveryEngine:
         
         # Generate cartesian product of all variable combinations
         for combination in itertools.product(*value_lists):
+            if config.max_urls is not None and len(urls) >= config.max_urls:
+                break
             await self.rate_limiter.acquire()
             
             url = config.url_pattern
@@ -307,6 +317,22 @@ class DiscoveryEngine:
             )
         
         return urls
+
+    @staticmethod
+    def _resolve_range_value(raw_value: Any) -> int:
+        """Converte valor de range para inteiro.
+        
+        Suporta tokens simbólicos como ``current`` para ano corrente.
+        """
+        if isinstance(raw_value, int):
+            return raw_value
+        if isinstance(raw_value, str):
+            value = raw_value.strip().lower()
+            if value in {"current", "current_year", "this_year", "now"}:
+                return datetime.now(timezone.utc).year
+            if re.fullmatch(r"-?\d+", value):
+                return int(value)
+        raise ValueError(f"Valor de range inválido: {raw_value!r}")
     
     async def _handle_api_pagination(
         self,

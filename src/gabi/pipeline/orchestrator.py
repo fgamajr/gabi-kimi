@@ -21,12 +21,16 @@ import hashlib
 import logging
 import uuid
 from datetime import datetime, timezone
+import itertools
 from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from enum import Enum
 
 import httpx
+from sqlalchemy import insert, update
 
+from gabi.models.dlq import DLQMessage as DLQMessageModel
+from gabi.models.execution import ExecutionManifest
 from gabi.pipeline.contracts import (
     DiscoveredURL,
     DiscoveryResult,
@@ -50,6 +54,7 @@ from gabi.pipeline.contracts import (
     DLQMessage,
     PipelineResult,
 )
+from gabi.types import DLQStatus, ExecutionTrigger
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -219,7 +224,12 @@ class PipelineOrchestrator:
         """Lazy init do deduplicator."""
         if self._deduplicator is None:
             from gabi.pipeline.deduplication import Deduplicator
-            self._deduplicator = Deduplicator()
+            if self.db_session is None:
+                raise RuntimeError("db_session é obrigatório para deduplicação")
+            self._deduplicator = Deduplicator(
+                db_session=self.db_session,
+                redis_client=self.redis_client,
+            )
         return self._deduplicator
     
     @property
@@ -242,11 +252,10 @@ class PipelineOrchestrator:
     def indexer(self) -> Any:
         """Lazy init do indexer."""
         if self._indexer is None:
-            from gabi.pipeline.indexer import DocumentIndexer
-            self._indexer = DocumentIndexer(
-                db_session=self.db_session,
-                es_client=self.es_client,
-            )
+            from gabi.pipeline.indexer import Indexer
+            if self.es_client is None:
+                raise RuntimeError("es_client é obrigatório para indexação")
+            self._indexer = Indexer(es_client=self.es_client)
         return self._indexer
     
     def _check_memory(self) -> None:
@@ -368,8 +377,6 @@ class PipelineOrchestrator:
             max_urls = discovery_config.get("max_urls", 100)
             
             urls = []
-            # Gera URLs baseado nos parâmetros
-            import itertools
             
             param_names = list(params.keys())
             if not param_names:
@@ -379,10 +386,15 @@ class PipelineOrchestrator:
             ranges = []
             for param_name in param_names:
                 param_spec = params[param_name]
-                start = param_spec.get("start", 0)
-                end = param_spec.get("end", start)
-                step = param_spec.get("step", 1)
-                ranges.append(list(range(start, end + 1, step)))
+                start = self._resolve_range_value(param_spec.get("start", 0))
+                end = self._resolve_range_value(param_spec.get("end", start))
+                step = self._resolve_range_value(param_spec.get("step", 1))
+                if step == 0:
+                    step = 1
+                if end < start and step > 0:
+                    step = -step
+                stop = end + 1 if step > 0 else end - 1
+                ranges.append(list(range(start, stop, step)))
             
             # Gera combinações
             for combination in itertools.product(*ranges):
@@ -394,9 +406,44 @@ class PipelineOrchestrator:
                 urls.append(url)
             
             return urls
+
+        elif mode == "crawler":
+            # Validation fallback: use root URL as seed so sync path can exercise fetch/parse/index.
+            root_url = discovery_config.get("root_url") or discovery_config.get("url")
+            if root_url:
+                return [root_url]
+            return []
+
+        elif mode == "api_query":
+            # Validation fallback path for driver-based APIs without explicit URL.
+            url = (
+                discovery_config.get("validation_url")
+                or discovery_config.get("url")
+                or discovery_config.get("endpoint")
+                or discovery_config.get("base_url")
+            )
+            if url:
+                return [url]
+
+            if discovery_config.get("driver") == "camara_api_v1":
+                return ["https://www.camara.leg.br/"]
+            return []
         
         # Outros modos podem ser implementados conforme necessário
         return []
+
+    @staticmethod
+    def _resolve_range_value(raw_value: Any) -> int:
+        """Converte valor de range para inteiro, suportando tokens simbólicos."""
+        if isinstance(raw_value, int):
+            return raw_value
+        if isinstance(raw_value, str):
+            value = raw_value.strip().lower()
+            if value in {"current", "current_year", "this_year", "now"}:
+                return datetime.now(timezone.utc).year
+            if value.lstrip("-").isdigit():
+                return int(value)
+        raise ValueError(f"Invalid range value: {raw_value!r}")
     
     async def _change_detection_phase(
         self,
@@ -442,6 +489,9 @@ class PipelineOrchestrator:
         mapping_config = source_config.get("mapping", {})
         quality_config = source_config.get("quality", {})
         
+        if self._semaphore is None:
+            self._semaphore = asyncio.Semaphore(self.config.max_concurrent_urls)
+
         async def process_with_semaphore(url: str) -> None:
             async with self._semaphore:
                 await self._process_single_url(
@@ -482,12 +532,33 @@ class PipelineOrchestrator:
             run_id: ID da execução
             stats: Estatísticas acumuladas
         """
+        fetched: Optional[FetchedContent] = None
         try:
             # Verifica limite de memória
             self._check_memory()
+
+            # Fetch
+            method = fetch_config.get("method", "GET")
+            headers = fetch_config.get("headers")
+            fetched = await self.fetcher.fetch(
+                url=url,
+                source_id=source_id,
+                method=method,
+                headers=headers,
+            )
+
+            # Parse
+            parser_config = dict(parse_config)
+            parser_config.setdefault("source_id", source_id)
+            parsed = None
+            if parser_config.get("input_format") or parser_config.get("format"):
+                parsed = await self.parser.parse(fetched, parser_config)
             
             # Atualiza estatísticas
             stats["documents_fetched"] = stats.get("documents_fetched", 0) + 1
+            stats["documents_parsed"] = stats.get("documents_parsed", 0) + len(
+                getattr(parsed, "documents", []) or []
+            )
             
         except Exception as e:
             logger.error(f"Error processing {url}: {e}")
@@ -500,6 +571,9 @@ class PipelineOrchestrator:
                     error_message=str(e),
                 )
             raise
+        finally:
+            if fetched is not None:
+                fetched.cleanup()
     
     async def _create_manifest(self, manifest: PipelineManifest) -> None:
         """Cria manifest de execução no banco de dados.
@@ -507,7 +581,25 @@ class PipelineOrchestrator:
         Args:
             manifest: Manifesto a ser criado
         """
-        # Em implementação completa, salvaria no banco
+        if self.db_session:
+            status_value = (
+                manifest.status.value
+                if isinstance(manifest.status, PipelineStatus)
+                else str(manifest.status)
+            )
+            await self.db_session.execute(
+                insert(ExecutionManifest).values(
+                    run_id=manifest.run_id,
+                    source_id=manifest.source_id,
+                    status=status_value,
+                    trigger=ExecutionTrigger.MANUAL.value,
+                    started_at=manifest.started_at or datetime.now(timezone.utc),
+                    stats=asdict(manifest.stats),
+                    checkpoint=asdict(manifest.checkpoint),
+                )
+            )
+            if hasattr(self.db_session, "commit"):
+                await self.db_session.commit()
         logger.info(f"Created manifest for run {manifest.run_id}")
     
     async def _load_manifest(self, run_id: str) -> PipelineManifest:
@@ -544,7 +636,23 @@ class PipelineOrchestrator:
             self._manifest.checkpoint.last_processed_url = last_url
             self._manifest.checkpoint.timestamp = datetime.now(timezone.utc)
         
-        # Em implementação completa, salvaria no banco
+        if self.db_session is not None:
+            checkpoint_payload = (
+                asdict(self._manifest.checkpoint)
+                if self._manifest
+                else {
+                    "processed_count": processed,
+                    "last_processed_url": last_url,
+                    "timestamp": datetime.now(timezone.utc),
+                }
+            )
+            await self.db_session.execute(
+                update(ExecutionManifest)
+                .where(ExecutionManifest.run_id == run_id)
+                .values(checkpoint=checkpoint_payload)
+            )
+            if hasattr(self.db_session, "commit"):
+                await self.db_session.commit()
         logger.debug(f"Updated checkpoint for run {run_id}: {processed} items")
     
     async def _complete_manifest(
@@ -564,7 +672,18 @@ class PipelineOrchestrator:
             self._manifest.status = PipelineStatus(status)
             self._manifest.completed_at = datetime.now(timezone.utc)
         
-        # Em implementação completa, atualizaria no banco
+        if self.db_session is not None:
+            await self.db_session.execute(
+                update(ExecutionManifest)
+                .where(ExecutionManifest.run_id == run_id)
+                .values(
+                    status=status,
+                    completed_at=datetime.now(timezone.utc),
+                    stats=stats,
+                )
+            )
+            if hasattr(self.db_session, "commit"):
+                await self.db_session.commit()
         logger.info(f"Completed run {run_id} with status {status}")
     
     async def _send_to_dlq(
@@ -585,8 +704,27 @@ class PipelineOrchestrator:
             error_message: Mensagem de erro
         """
         if self.db_session:
-            # Em implementação completa, salvaria no banco
-            pass
+            error_hash = hashlib.sha256(f"{error_type}:{error_message}".encode()).hexdigest()[:16]
+            await self.db_session.execute(
+                insert(DLQMessageModel).values(
+                    source_id=source_id,
+                    run_id=run_id,
+                    url=url,
+                    error_type=error_type,
+                    error_message=error_message,
+                    error_hash=error_hash,
+                    status=DLQStatus.PENDING.value,
+                    payload={
+                        "source_id": source_id,
+                        "run_id": run_id,
+                        "url": url,
+                        "error_type": error_type,
+                        "error_message": error_message,
+                    },
+                )
+            )
+            if hasattr(self.db_session, "commit"):
+                await self.db_session.commit()
         
         logger.warning(
             f"Sent to DLQ: source={source_id}, url={url}, "
