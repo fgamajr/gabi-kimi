@@ -171,6 +171,7 @@ dev = [
     "ipdb==0.13.13",
     "debugpy==1.8.1",
     "watchdog==4.0.0",
+    "psutil==6.0.0",
     "pyinstrument==4.6.2",
     "memray==1.11.0",
     "bandit==1.7.7",

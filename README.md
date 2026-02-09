@@ -83,14 +83,14 @@ alembic upgrade head
 ## Quick Start
 
 ```bash
-# Setup (uses correct docker-compose file)
-make setup
+# Setup local environment
+make init
 
 # Or manually:
-docker-compose --profile infra up -d
+docker compose --profile infra up -d
 
 # Verify installation
-make test-health
+curl http://localhost:8000/health
 ```
 
 ### Setup Local (Detalhado)
@@ -155,7 +155,7 @@ GABI_JWKS_CACHE_TTL=300
 ### API REST
 
 ```bash
-# Health check
+# Health check (also available as /api/v1/health)
 curl http://localhost:8000/health
 
 # Busca semântica

@@ -118,7 +118,19 @@ class Settings(BaseSettings):
     jwt_algorithm: str = Field(default="RS256", pattern=r"^(RS256|RS384|RS512|ES256|ES384|ES512)$")
     jwt_jwks_cache_minutes: int = Field(default=5, ge=1, le=15)
     auth_enabled: bool = Field(default=True)
-    auth_public_paths: List[str] = Field(default=["/health", "/metrics", "/docs", "/openapi.json"])
+    auth_public_paths: List[str] = Field(
+        default=[
+            "/health",
+            "/health/live",
+            "/health/ready",
+            "/api/v1/health",
+            "/api/v1/health/live",
+            "/api/v1/health/ready",
+            "/metrics",
+            "/docs",
+            "/openapi.json",
+        ]
+    )
     auth_fail_closed: bool = Field(
         default=False,
         description="Fail-closed authentication: reject tokens when Redis is unavailable (recommended for production)"

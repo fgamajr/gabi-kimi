@@ -20,12 +20,16 @@ from typing import TYPE_CHECKING, Any, Callable, Coroutine, Dict, List, Optional
 from uuid import UUID
 
 from sqlalchemy import delete, select, update
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gabi.db import get_session_no_commit
 from gabi.models.chunk import DocumentChunk
 from gabi.models.document import Document
 from gabi.models.dlq import DLQMessage, DLQStatus
+from gabi.models.execution import ExecutionManifest
+from gabi.models.source import SourceRegistry
+from gabi.types import SourceType
 from gabi.config import settings
 
 if TYPE_CHECKING:
@@ -47,6 +51,7 @@ class IndexingStatus(str, Enum):
     FAILED = "failed"    # Falha em ambos
     ROLLED_BACK = "rolled_back"  # Saga executou rollback
     DUPLICATE = "duplicate"  # Documento duplicado (mesmo fingerprint)
+    IGNORED = "ignored"  # Duplicata ignorada na execução atual
 
 
 class SagaStepStatus(str, Enum):
@@ -202,6 +207,7 @@ class Indexer:
         es_index: Optional[str] = None,
         embedding_dim: int = 384,
         enable_saga: bool = True,
+        bulk_fn: Optional[Callable[..., Coroutine[Any, Any, Tuple[int, List[Any]]]]] = None,
     ):
         """Inicializa o Indexer.
         
@@ -216,6 +222,8 @@ class Indexer:
         self.embedding_dim = embedding_dim
         self.enable_saga = enable_saga
         self._saga_steps: List[SagaStep] = []
+        self._processed_fingerprints: set[str] = set()
+        self._bulk_fn = bulk_fn
         
     # ========================================================================
     # API Pública
@@ -254,7 +262,11 @@ class Indexer:
                     f"Documento {document.document_id} é duplicata de "
                     f"{duplicate_check.existing_doc_id} (fingerprint match)"
                 )
-                result.status = IndexingStatus.DUPLICATE
+                result.status = (
+                    IndexingStatus.IGNORED
+                    if document.fingerprint in self._processed_fingerprints
+                    else IndexingStatus.DUPLICATE
+                )
                 result.errors.append(
                     f"Duplicate fingerprint: {duplicate_check.existing_doc_id}"
                 )
@@ -266,7 +278,7 @@ class Indexer:
             # =================================================================
             # FASE 1: PostgreSQL (Source of Truth)
             # =================================================================
-            pg_result = await self._execute_pg_phase(document, chunks)
+            pg_result, document = await self._execute_pg_phase(document, chunks)
             result.pg_success = pg_result.success
             
             if not pg_result.success:
@@ -294,6 +306,7 @@ class Indexer:
                 
                 # Mark as synced after successful ES indexing
                 await self._mark_document_indexed(document.document_id)
+                self._processed_fingerprints.add(document.fingerprint)
                 
             except ElasticsearchError as e:
                 result.errors.append(f"Elasticsearch error: {e}")
@@ -311,7 +324,6 @@ class Indexer:
                     
                     if saga_success:
                         result.status = IndexingStatus.ROLLED_BACK
-                        result.pg_success = False  # Rollback revertido
                     else:
                         result.status = IndexingStatus.PARTIAL
                         # PG tem dados mas ES não - necessita reconciliação
@@ -354,7 +366,7 @@ class Indexer:
             
             # Atualiza versão
             document.version += 1
-            document.updated_at = datetime.now()
+            document.updated_at = datetime.now(timezone.utc)
             
             return await self.index_document(
                 document=document,
@@ -383,6 +395,7 @@ class Indexer:
                 if soft:
                     # Soft delete no PG with audit info
                     now = datetime.now(timezone.utc)
+                    now_naive = now.replace(tzinfo=None)
                     stmt = (
                         update(Document)
                         .where(Document.document_id == document_id)
@@ -402,7 +415,7 @@ class Indexer:
                         .where(DocumentChunk.document_id == document_id)
                         .values(
                             is_deleted=True,
-                            deleted_at=now,
+                            deleted_at=now_naive,
                         )
                     )
                     await session.execute(stmt_chunks)
@@ -449,7 +462,7 @@ class Indexer:
         self,
         document: Document,
         chunks: List[ChunkData],
-    ) -> "PGPhaseResult":
+    ) -> Tuple["PGPhaseResult", Document]:
         """Executa a fase PostgreSQL da indexação.
         
         Args:
@@ -457,12 +470,15 @@ class Indexer:
             chunks: Chunks com embeddings
             
         Returns:
-            PGPhaseResult com status e metadados
+            Tuple[PGPhaseResult, Document] com status e documento (possivelmente merged)
         """
         async with get_session_no_commit() as session:
             try:
-                # Inicia transação
-                async with session.begin():
+                # Inicia transação se não estiver em uma
+                nested = session.in_transaction()
+                cm = session.begin_nested() if nested else session.begin()
+                
+                async with cm:
                     # 1. Verifica se documento existe (para reindexação)
                     existing = await self._get_document_by_id(
                         session, document.document_id
@@ -473,11 +489,14 @@ class Indexer:
                         await self._delete_chunks_by_document(
                             session, document.document_id
                         )
-                        # Atualiza documento existente
-                        await session.merge(document)
-                    else:
-                        # Novo documento
-                        session.add(document)
+                        # Garante update na linha existente (evita INSERT duplicado)
+                        document.id = existing.id
+
+                    # Merge cobre tanto novos documentos quanto reindexação
+                    persistent_doc = await session.merge(document)
+                    
+                    # Force document persist before chunks to satisfy FK
+                    await session.flush()
                     
                     # 2. Insere novos chunks
                     for chunk_data in chunks:
@@ -496,11 +515,25 @@ class Indexer:
                         session.add(chunk)
                     
                     # 3. Atualiza contador de chunks
-                    document.chunks_count = len(chunks)
+                    persistent_doc.chunks_count = len(chunks)
                     
                 # Commit automático pelo context manager
+                
+                # Refresh para garantir que atributos (updated_at, etc) estejam carregados
+                # antes de fechar a sessão, evitando DetachedInstanceError na fase ES
+                try:
+                    await session.refresh(persistent_doc)
+                except InvalidRequestError:
+                    logger.debug(
+                        "Documento não estava persistente para refresh; usando valores em memória."
+                    )
+                # Force load of datetime fields
+                _ = persistent_doc.ingested_at
+                _ = persistent_doc.updated_at
+                _ = persistent_doc.created_at if hasattr(persistent_doc, 'created_at') else None
+                
                 logger.debug(f"PG commit OK para {document.document_id}")
-                return PGPhaseResult(success=True)
+                return PGPhaseResult(success=True), persistent_doc
                 
             except Exception as e:
                 await session.rollback()
@@ -552,6 +585,7 @@ class Indexer:
         """
         try:
             from elasticsearch.helpers import async_bulk
+            bulk_fn = self._bulk_fn or async_bulk
             
             actions = [
                 {
@@ -590,7 +624,7 @@ class Indexer:
                 })
             
             # Bulk index with refresh
-            success, errors = await async_bulk(
+            success, errors = await bulk_fn(
                 self.es, 
                 actions, 
                 refresh="wait_for",
@@ -900,21 +934,42 @@ class IndexingDLQHandler:
             DLQMessage criada
         """
         error_hash = self._compute_error_hash(error)
-        
-        message = DLQMessage(
-            source_id=source_id,
-            run_id=run_id,
-            url=f"internal://indexing/{document_id}",
-            document_id=document_id,
-            error_type=type(error).__name__,
-            error_message=str(error),
-            error_traceback=self._get_traceback(error),
-            error_hash=error_hash,
-            status=DLQStatus.PENDING,
-            payload=payload or {},
-        )
-        
+
         async with self.session_factory() as session:
+            # Garante que a fonte exista para respeitar FK
+            stmt = select(SourceRegistry).where(SourceRegistry.id == source_id)
+            result = await session.execute(stmt)
+            source = result.scalar_one_or_none()
+            if source is None:
+                placeholder = SourceRegistry(
+                    id=source_id,
+                    name=source_id,
+                    type=SourceType.API,
+                    config_hash=hashlib.sha256(source_id.encode()).hexdigest(),
+                    owner_email="unknown@example.com",
+                )
+                session.add(placeholder)
+
+            # Se run_id não existir, limpa para evitar FK inválida
+            if run_id is not None:
+                stmt = select(ExecutionManifest).where(ExecutionManifest.run_id == run_id)
+                result = await session.execute(stmt)
+                if result.scalar_one_or_none() is None:
+                    run_id = None
+
+            message = DLQMessage(
+                source_id=source_id,
+                run_id=run_id,
+                url=f"internal://indexing/{document_id}",
+                document_id=document_id,
+                error_type=type(error).__name__,
+                error_message=str(error),
+                error_traceback=self._get_traceback(error),
+                error_hash=error_hash,
+                status=DLQStatus.PENDING,
+                payload=payload or {},
+            )
+
             session.add(message)
             await session.commit()
             

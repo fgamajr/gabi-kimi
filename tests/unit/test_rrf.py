@@ -1,8 +1,8 @@
 """Unit tests for Reciprocal Rank Fusion (RRF) algorithm."""
 
 import pytest
-from src.gabi.services.search_service import SearchService, RawResult
-from src.gabi.schemas.search import RRFConfig
+from gabi.services.search_service import SearchService, RawResult
+from gabi.schemas.search import RRFConfig
 
 
 class TestRRFAlgorithm:

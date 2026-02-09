@@ -103,11 +103,20 @@ class ChangeDetector:
             max_retries: Número máximo de retries
             user_agent: User-Agent para requisições
         """
-        self.db_manager = db_manager or DatabaseManager()
+        self.db_manager = db_manager
         self.timeout = timeout
         self.max_retries = max_retries
         self.user_agent = user_agent
         self._client: Optional[httpx.AsyncClient] = None
+
+    def _get_db_manager(self) -> DatabaseManager:
+        """Inicializa DatabaseManager sob demanda.
+        
+        Evita inicializar o engine antes do necessário.
+        """
+        if self.db_manager is None:
+            self.db_manager = DatabaseManager()
+        return self.db_manager
     
     async def _get_client(self) -> httpx.AsyncClient:
         """Obtém ou cria cliente HTTP.
@@ -470,7 +479,8 @@ class ChangeDetector:
         start_time = time.monotonic()
         
         try:
-            async with self.db_manager.session() as session:
+            db_manager = self._get_db_manager()
+            async with db_manager.session() as session:
                 # Obtém cache existente
                 cached = None
                 if not force_refresh:
@@ -667,7 +677,8 @@ class ChangeDetector:
         Returns:
             Estatísticas do cache
         """
-        async with self.db_manager.session_no_commit() as session:
+        db_manager = self._get_db_manager()
+        async with db_manager.session_no_commit() as session:
             statement = select(ChangeDetectionCache)
             
             if source_id:
@@ -708,7 +719,8 @@ class ChangeDetector:
         """
         from sqlalchemy import delete
         
-        async with self.db_manager.session() as session:
+        db_manager = self._get_db_manager()
+        async with db_manager.session() as session:
             statement = delete(ChangeDetectionCache)
             
             conditions = []
@@ -729,7 +741,11 @@ class ChangeDetector:
 
 
 # Singleton global
-change_detector = ChangeDetector()
+try:
+    change_detector = ChangeDetector()
+except RuntimeError as exc:
+    logger.warning("ChangeDetector singleton not initialized: %s", exc)
+    change_detector = None
 
 
 # Exportações

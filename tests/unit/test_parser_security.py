@@ -46,6 +46,40 @@ from gabi.pipeline.contracts import FetchedContent, FetchMetadata
 # Fixtures
 # =============================================================================
 
+
+@pytest.fixture
+def mock_settings():
+    """Mock de settings com valores inteiros para parser.
+    
+    Returns:
+        MagicMock: Settings mockado com valores inteiros explícitos
+    """
+    from gabi.config import Settings, Environment
+    
+    # Create a real Settings instance to ensure all attributes return proper types
+    settings = MagicMock(spec=Settings)
+    
+    # Parser settings - ensure these return actual integers, not Mock objects
+    settings.parser_max_file_size = MAX_PARSE_SIZE
+    settings.parser_max_total_size = MAX_PARSE_SIZE * 5
+    settings.parser_max_workers = 4
+    settings.parser_max_memory_mb = 512
+    settings.parser_timeout_seconds = 300
+    
+    # General pipeline settings
+    settings.pipeline_fetch_max_size_mb = 100
+    settings.pipeline_fetch_timeout = 60
+    settings.pipeline_max_memory_mb = 3584
+    
+    # Other commonly used settings that might be compared to integers
+    settings.max_file_size = MAX_PARSE_SIZE
+    settings.max_total_size = MAX_PARSE_SIZE * 5
+    settings.max_memory_mb = 512
+    settings.chunk_size = 8192
+    settings.max_rows = MAX_CSV_ROWS
+    
+    return settings
+
 @pytest.fixture
 def oversized_content():
     """Conteúdo maior que o limite permitido."""

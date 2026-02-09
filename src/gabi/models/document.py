@@ -318,6 +318,27 @@ class Document(Base):
     )
     
     # ========================================================================
+    # Inicialização
+    # ========================================================================
+    def __init__(self, **kwargs):
+        # Set defaults before calling super().__init__
+        if 'status' not in kwargs:
+            kwargs['status'] = DocumentStatus.ACTIVE
+        if 'language' not in kwargs:
+            kwargs['language'] = 'pt-BR'
+        if 'version' not in kwargs:
+            kwargs['version'] = 1
+        if 'is_deleted' not in kwargs:
+            kwargs['is_deleted'] = False
+        if 'es_indexed' not in kwargs:
+            kwargs['es_indexed'] = False
+        if 'chunks_count' not in kwargs:
+            kwargs['chunks_count'] = 0
+        if 'doc_metadata' not in kwargs:
+            kwargs['doc_metadata'] = {}
+        super().__init__(**kwargs)
+    
+    # ========================================================================
     # Métodos
     # ========================================================================
     

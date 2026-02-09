@@ -153,3 +153,20 @@ def task_failure_handler(task_id: str, exception: Exception, args: tuple, kwargs
 # =============================================================================
 
 __all__ = ["celery_app", "create_celery_app"]
+
+
+def main() -> None:
+    """Entry point do worker Celery para scripts de console."""
+    celery_app.start(
+        argv=[
+            "celery",
+            "-A",
+            "gabi.worker",
+            "worker",
+            "--loglevel=info",
+        ]
+    )
+
+
+if __name__ == "__main__":
+    main()

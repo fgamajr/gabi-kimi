@@ -74,7 +74,7 @@ class ChangeDetectionCache(Base):
     # ==========================================================================
     source_id: Mapped[str] = mapped_column(
         String,
-        ForeignKey("sources.id", ondelete="CASCADE"),
+        ForeignKey("source_registry.id", ondelete="CASCADE"),
         nullable=False,
         comment="Referência à fonte na sources"
     )

@@ -9,9 +9,11 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import ForeignKey, func, Float, String, Text, ARRAY
+from sqlalchemy import ARRAY, DateTime, Float, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
+
+from sqlalchemy import Index
 
 from gabi.models.base import Base
 from gabi.types import ExecutionStatus
@@ -53,7 +55,7 @@ class ExecutionManifest(Base):
         nullable=False,
     )
     source_id: Mapped[str] = mapped_column(
-        ForeignKey("sources.id", ondelete="CASCADE"),
+        ForeignKey("source_registry.id", ondelete="CASCADE"),
         nullable=False,
     )
     
@@ -72,10 +74,12 @@ class ExecutionManifest(Base):
     
     # Timestamps
     started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
     )
     completed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
         nullable=True,
     )
     
@@ -116,6 +120,18 @@ class ExecutionManifest(Base):
     )
     
     # ==========================================================================
+    # Índices
+    # ==========================================================================
+    __table_args__ = (
+        # Índice para busca por fonte e ordenação por data
+        Index("idx_executions_source", "source_id", "started_at"),
+        # Índice parcial para execuções ativas (pending/running)
+        Index("idx_executions_status", "status"),
+        # Índice para ordenação por data de início
+        Index("idx_executions_date", "started_at"),
+    )
+    
+    # ==========================================================================
     # Inicialização
     # ==========================================================================
     def __init__(self, **kwargs):
@@ -127,11 +143,13 @@ class ExecutionManifest(Base):
         super().__init__(**kwargs)
     
     def __repr__(self) -> str:
+        # Handle both string and enum values
+        status_val = self.status.value if hasattr(self.status, 'value') else self.status
         return (
             f"<ExecutionManifest("
             f"run_id={self.run_id}, "
             f"source_id={self.source_id}, "
-            f"status={self.status.value}, "
+            f"status={status_val}, "
             f"trigger={self.trigger}"
             f")>"
         )

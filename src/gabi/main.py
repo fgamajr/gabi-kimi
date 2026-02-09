@@ -3,12 +3,14 @@
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
+import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_client import make_asgi_app
 
+from gabi.api.health import router as health_router
 from gabi.api.router import get_api_router
 from gabi.auth.middleware import AuthMiddleware
 from gabi.config import Environment, settings
@@ -111,7 +113,9 @@ def create_app() -> FastAPI:
     # =============================================================================
     # Routers
     # =============================================================================
-    
+
+    # Expose health endpoints without API prefix for probes (/health, /health/live, /health/ready)
+    app.include_router(health_router)
     app.include_router(get_api_router())
     
     # =============================================================================
@@ -148,3 +152,18 @@ def create_app() -> FastAPI:
 
 # Instância global da aplicação
 app = create_app()
+
+
+def main() -> None:
+    """Entry point do servidor API para scripts de console."""
+    uvicorn.run(
+        "gabi.main:app",
+        host=settings.api_host,
+        port=settings.api_port,
+        reload=settings.api_reload,
+        workers=settings.api_workers if not settings.api_reload else 1,
+    )
+
+
+if __name__ == "__main__":
+    main()

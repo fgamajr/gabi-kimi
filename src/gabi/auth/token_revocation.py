@@ -192,6 +192,11 @@ class TokenRevocationList:
             
         except Exception as e:
             logger.error(f"Failed to check user revocation for {user_id}: {e}")
+            # Security: same policy as single-token revocation check
+            if settings.auth_fail_closed or settings.environment.value == "production":
+                raise AuthenticationError(
+                    "Cannot verify user token revocation status"
+                ) from e
             return False
 
 

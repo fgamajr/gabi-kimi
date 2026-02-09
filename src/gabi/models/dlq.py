@@ -66,7 +66,7 @@ class DLQMessage(Base):
     )
     
     source_id: Mapped[str] = mapped_column(
-        ForeignKey("sources.id", ondelete="CASCADE"),
+        ForeignKey("source_registry.id", ondelete="CASCADE"),
         nullable=False,
     )
     

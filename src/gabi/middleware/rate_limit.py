@@ -42,7 +42,15 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     ) -> None:
         super().__init__(app)
         self._redis: Optional[redis.Redis] = redis_client
-        self._public_paths = {"/health", "/metrics"}
+        self._public_paths = {
+            "/health",
+            "/health/live",
+            "/health/ready",
+            "/api/v1/health",
+            "/api/v1/health/live",
+            "/api/v1/health/ready",
+            "/metrics",
+        }
         self._lua_sha: Optional[str] = None
     
     async def dispatch(self, request: Request, call_next: Callable) -> JSONResponse:
@@ -50,7 +58,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         
         # Ignorar paths públicos
-        if path in self._public_paths or path.startswith("/health"):
+        if path in self._public_paths or path.startswith("/health") or path.startswith("/api/v1/health"):
             return await call_next(request)
         
         # Rate limiting desabilitado

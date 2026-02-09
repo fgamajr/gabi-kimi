@@ -245,6 +245,27 @@ class SourceRegistry(Base):
     )
     
     # ==========================================================================
+    # Inicialização
+    # ==========================================================================
+    def __init__(self, **kwargs):
+        # Set defaults before calling super().__init__
+        if 'status' not in kwargs:
+            kwargs['status'] = SourceStatus.ACTIVE
+        if 'sensitivity' not in kwargs:
+            kwargs['sensitivity'] = SensitivityLevel.INTERNAL
+        if 'config_json' not in kwargs:
+            kwargs['config_json'] = {}
+        if 'document_count' not in kwargs:
+            kwargs['document_count'] = 0
+        if 'total_documents_ingested' not in kwargs:
+            kwargs['total_documents_ingested'] = 0
+        if 'consecutive_errors' not in kwargs:
+            kwargs['consecutive_errors'] = 0
+        if 'retention_days' not in kwargs:
+            kwargs['retention_days'] = 2555
+        super().__init__(**kwargs)
+    
+    # ==========================================================================
     # Propriedades
     # ==========================================================================
     @property

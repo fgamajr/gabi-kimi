@@ -44,11 +44,21 @@ def sample_payload():
         "sub": "user-123",
         "email": "user@tcu.gov.br",
         "name": "Test User",
+        "jti": "token-123",
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(hours=1)).timestamp()),
         "iss": "https://auth.tcu.gov.br/realms/tcu",
         "aud": "gabi-api",
     }
+
+
+@pytest.fixture(autouse=True)
+def mock_revocation_checks():
+    """Evita acesso real ao Redis em testes de JWT."""
+    with patch("gabi.auth.jwt.revocation_list") as mock_revocation:
+        mock_revocation.is_revoked = AsyncMock(return_value=False)
+        mock_revocation.is_user_revoked = AsyncMock(return_value=False)
+        yield mock_revocation
 
 
 # =============================================================================

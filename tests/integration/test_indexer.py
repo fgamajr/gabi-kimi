@@ -10,6 +10,7 @@ import asyncio
 import hashlib
 import uuid
 from datetime import datetime
+from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator, Dict, List
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -24,6 +25,9 @@ from gabi.models.chunk import DocumentChunk
 from gabi.models.document import Document
 from gabi.models.dlq import DLQMessage, DLQStatus
 from gabi.models.source import SourceRegistry
+from gabi.models.execution import ExecutionManifest
+from gabi.models.lineage import LineageNode, LineageEdge
+from gabi.types import SensitivityLevel, SourceStatus, SourceType
 
 # Pipeline
 from gabi.pipeline.indexer import (
@@ -59,8 +63,39 @@ from gabi.db import close_db, get_session_no_commit, init_db_with_tables
 @pytest_asyncio.fixture(scope="function")
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
     """Cria sessão de banco para testes."""
-    await init_db_with_tables()
+    from gabi.db import init_db, get_engine
     
+    # Reset DB
+    try:
+        await init_db()
+    except RuntimeError:
+        pass  # Already initialized
+        
+    engine = get_engine()
+    async with engine.begin() as conn:
+        # Drop all tables with CASCADE to handle views/dependencies
+        await conn.execute(text("DO $$ DECLARE r RECORD; BEGIN FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP EXECUTE 'DROP TABLE IF EXISTS ' || quote_ident(r.tablename) || ' CASCADE'; END LOOP; END $$;"))
+        # Drop all enum types to ensure fresh definition
+        await conn.execute(text("DO $$ DECLARE r RECORD; BEGIN FOR r IN (SELECT typname FROM pg_type JOIN pg_namespace ON pg_type.typnamespace = pg_namespace.oid WHERE nspname = 'public' AND typtype = 'e') LOOP EXECUTE 'DROP TYPE IF EXISTS ' || quote_ident(r.typname) || ' CASCADE'; END LOOP; END $$;"))
+        await conn.run_sync(Base.metadata.create_all)
+    
+    # Setup required sources
+    async with get_session_no_commit() as session:
+        for source_id in ("test-source", "test", "concurrent-test", "source-456"):
+            await session.merge(
+                SourceRegistry(
+                    id=source_id,
+                    name=f"Test {source_id}",
+                    type=SourceType.API,
+                    status=SourceStatus.ACTIVE,
+                    config_hash=hashlib.sha256(source_id.encode()).hexdigest(),
+                    config_json={},
+                    owner_email="test@example.com",
+                    sensitivity=SensitivityLevel.INTERNAL,
+                )
+            )
+        await session.commit()
+
     async with get_session_no_commit() as session:
         yield session
     
@@ -139,14 +174,35 @@ def sample_chunks() -> List[ChunkData]:
     ]
 
 
+from typing import Generator
+
+# ...
+
 @pytest.fixture
-def indexer(mock_es_client: MagicMock, mock_bulk_success) -> Indexer:
-    """Cria instância do Indexer com ES mockado."""
-    with patch("elasticsearch.helpers.async_bulk", mock_bulk_success):
-        return Indexer(
+def mock_session_factory(db_session):
+    """Factory that returns the shared db_session context manager.
+    
+    This ensures Indexer uses the same session as the test, allowing it to see
+    uncommitted data and participating in the same transaction scope.
+    """
+    @asynccontextmanager
+    async def _mock_get_session():
+        # Important: Don't close/commit the test session here
+        # just yield it so Indexer can use it
+        yield db_session
+        
+    return _mock_get_session
+
+@pytest.fixture
+def indexer(mock_es_client: MagicMock, mock_bulk_success, mock_session_factory) -> Generator[Indexer, None, None]:
+    """Cria instância do Indexer com ES mockado e DB session compartilhada."""
+    # Patch get_session_no_commit globalmente para este teste
+    with patch("gabi.pipeline.indexer.get_session_no_commit", side_effect=mock_session_factory):
+        yield Indexer(
             es_client=mock_es_client,
             es_index="test_gabi",
             enable_saga=True,
+            bulk_fn=mock_bulk_success,
         )
 
 
@@ -163,6 +219,7 @@ class TestAtomicIndexing:
         db_session: AsyncSession,
         mock_es_client: MagicMock,
         mock_bulk_success,
+        mock_session_factory,
         sample_document: Document,
         sample_chunks: List[ChunkData],
     ) -> None:
@@ -175,7 +232,8 @@ class TestAtomicIndexing:
         - Status é SUCCESS
         - es_indexed flag foi atualizada
         """
-        with patch("elasticsearch.helpers.async_bulk", mock_bulk_success):
+        with patch("elasticsearch.helpers.async_bulk", mock_bulk_success), \
+             patch("gabi.pipeline.indexer.get_session_no_commit", side_effect=mock_session_factory):
             indexer = Indexer(es_client=mock_es_client, es_index="test")
             
             # Executa indexação
@@ -239,12 +297,18 @@ class TestAtomicIndexing:
             )
             
             # Executa (deve falhar no PG)
-            with patch("gabi.pipeline.indexer.get_session_no_commit") as mock_session_factory:
-                mock_session = AsyncMock()
-                mock_session.begin = MagicMock(side_effect=Exception("PG Error"))
-                mock_session_factory.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-                mock_session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
-                
+            # Como já estamos mockando o session factory, podemos injetar a falha
+            # de outra forma, mas para manter isolamento deste teste específico
+            # vamos sobrescrever o patch
+            mock_fail_factory = MagicMock()
+            mock_session = AsyncMock()
+            # O begin falha ao tentar iniciar transação
+            mock_session.begin = MagicMock(side_effect=Exception("PG Error"))
+            # Precisamos configurar o context manager do session
+            mock_fail_factory.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_fail_factory.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            with patch("gabi.pipeline.indexer.get_session_no_commit", side_effect=mock_fail_factory):
                 result = await indexer.index_document(
                     document=invalid_doc,
                     chunks=sample_chunks,
@@ -259,6 +323,7 @@ class TestAtomicIndexing:
         db_session: AsyncSession,
         mock_es_client: MagicMock,
         mock_bulk_failure,
+        mock_session_factory,
         sample_document: Document,
         sample_chunks: List[ChunkData],
     ) -> None:
@@ -270,7 +335,8 @@ class TestAtomicIndexing:
         - Saga executou rollback
         - Documento foi removido do PG
         """
-        with patch("elasticsearch.helpers.async_bulk", mock_bulk_failure):
+        with patch("elasticsearch.helpers.async_bulk", mock_bulk_failure), \
+             patch("gabi.pipeline.indexer.get_session_no_commit", side_effect=mock_session_factory):
             indexer = Indexer(
                 es_client=mock_es_client,
                 es_index="test",
@@ -357,6 +423,7 @@ class TestReindexing:
         db_session: AsyncSession,
         mock_es_client: MagicMock,
         mock_bulk_success,
+        mock_session_factory,
         sample_document: Document,
         sample_chunks: List[ChunkData],
     ) -> None:
@@ -367,7 +434,8 @@ class TestReindexing:
         - Novos chunks são inseridos
         - Versão é incrementada
         """
-        with patch("elasticsearch.helpers.async_bulk", mock_bulk_success):
+        with patch("elasticsearch.helpers.async_bulk", mock_bulk_success), \
+             patch("gabi.pipeline.indexer.get_session_no_commit", side_effect=mock_session_factory):
             indexer = Indexer(es_client=mock_es_client, es_index="test")
             
             # Primeira indexação
@@ -397,7 +465,8 @@ class TestReindexing:
             ),
         ]
         
-        with patch("elasticsearch.helpers.async_bulk", mock_bulk_success):
+        with patch("elasticsearch.helpers.async_bulk", mock_bulk_success), \
+             patch("gabi.pipeline.indexer.get_session_no_commit", side_effect=mock_session_factory):
             # Reindexa
             result = await indexer.reindex_document(
                 document_id=sample_document.document_id,
@@ -435,11 +504,13 @@ class TestDeletion:
         db_session: AsyncSession,
         mock_es_client: MagicMock,
         mock_bulk_success,
+        mock_session_factory,
         sample_document: Document,
         sample_chunks: List[ChunkData],
     ) -> None:
         """Testa soft delete preserva dados no PG."""
-        with patch("elasticsearch.helpers.async_bulk", mock_bulk_success):
+        with patch("elasticsearch.helpers.async_bulk", mock_bulk_success), \
+             patch("gabi.pipeline.indexer.get_session_no_commit", side_effect=mock_session_factory):
             indexer = Indexer(es_client=mock_es_client, es_index="test")
             
             # Indexa primeiro
@@ -449,11 +520,12 @@ class TestDeletion:
                 source_id="test-source",
             )
         
-        # Soft delete
-        success = await indexer.delete_document(
-            document_id=sample_document.document_id,
-            soft=True,
-        )
+            # Soft delete (still inside patch scope ideally, but let's re-patch or keep scope)
+            success = await indexer.delete_document(
+                document_id=sample_document.document_id,
+                soft=True,
+                deleted_by="tester",
+            )
         
         assert success is True
         
@@ -476,11 +548,13 @@ class TestDeletion:
         db_session: AsyncSession,
         mock_es_client: MagicMock,
         mock_bulk_success,
+        mock_session_factory,
         sample_document: Document,
         sample_chunks: List[ChunkData],
     ) -> None:
         """Testa hard delete remove tudo do PG."""
-        with patch("elasticsearch.helpers.async_bulk", mock_bulk_success):
+        with patch("elasticsearch.helpers.async_bulk", mock_bulk_success), \
+             patch("gabi.pipeline.indexer.get_session_no_commit", side_effect=mock_session_factory):
             indexer = Indexer(es_client=mock_es_client, es_index="test")
             
             # Indexa primeiro
@@ -488,6 +562,12 @@ class TestDeletion:
                 document=sample_document,
                 chunks=sample_chunks,
                 source_id="test-source",
+            )
+        
+            # Hard delete
+            success = await indexer.delete_document(
+                document_id=sample_document.document_id,
+                soft=False,
             )
         
         # Hard delete
@@ -526,11 +606,13 @@ class TestIdempotency:
         db_session: AsyncSession,
         mock_es_client: MagicMock,
         mock_bulk_success,
+        mock_session_factory,
         sample_document: Document,
         sample_chunks: List[ChunkData],
     ) -> None:
         """Testa que documentos com mesmo fingerprint são detectados como duplicatas."""
-        with patch("elasticsearch.helpers.async_bulk", mock_bulk_success):
+        with patch("elasticsearch.helpers.async_bulk", mock_bulk_success), \
+             patch("gabi.pipeline.indexer.get_session_no_commit", side_effect=mock_session_factory):
             indexer = Indexer(es_client=mock_es_client, es_index="test")
             
             # Primeira indexação
@@ -541,16 +623,27 @@ class TestIdempotency:
             )
             assert result1.status == IndexingStatus.SUCCESS
         
-        # Cria documento diferente com MESMO fingerprint
-        duplicate_doc = Document(
-            document_id=f"different-id-{uuid.uuid4().hex[:8]}",
-            source_id="test-source",
-            fingerprint=sample_document.fingerprint,  # Mesmo fingerprint
-            fingerprint_algorithm="sha256",
-            title="Documento Duplicado",
-            doc_metadata={},
-            language="pt-BR",
-        )
+            # Cria documento diferente com MESMO fingerprint
+            duplicate_doc = Document(
+                document_id=f"different-id-{uuid.uuid4().hex[:8]}",
+                source_id="test-source",
+                fingerprint=sample_document.fingerprint,  # Mesmo fingerprint
+                fingerprint_algorithm="sha256",
+                title="Documento Duplicado",
+                doc_metadata={},
+                language="pt-BR",
+            )
+            
+            # Tenta indexar duplicata
+            result2 = await indexer.index_document(
+                document=duplicate_doc,
+                chunks=sample_chunks,
+                source_id="test-source",
+            )
+            
+            # Deve ser ignorado como duplicata
+            assert result2.status == IndexingStatus.IGNORED
+            assert "Duplicate fingerprint" in str(result2.errors)
         
         with patch("elasticsearch.helpers.async_bulk", mock_bulk_success):
             indexer2 = Indexer(es_client=mock_es_client, es_index="test")
@@ -570,11 +663,13 @@ class TestIdempotency:
         db_session: AsyncSession,
         mock_es_client: MagicMock,
         mock_bulk_success,
+        mock_session_factory,
         sample_document: Document,
         sample_chunks: List[ChunkData],
     ) -> None:
         """Testa que reindexação do mesmo documento é permitida."""
-        with patch("elasticsearch.helpers.async_bulk", mock_bulk_success):
+        with patch("elasticsearch.helpers.async_bulk", mock_bulk_success), \
+             patch("gabi.pipeline.indexer.get_session_no_commit", side_effect=mock_session_factory):
             indexer = Indexer(es_client=mock_es_client, es_index="test")
             
             # Primeira indexação
@@ -607,6 +702,7 @@ class TestVersioning:
         db_session: AsyncSession,
         mock_es_client: MagicMock,
         mock_bulk_failure,
+        mock_session_factory,
         sample_document: Document,
         sample_chunks: List[ChunkData],
     ) -> None:
@@ -629,8 +725,17 @@ class TestVersioning:
                 source_id="test-source",
             )
         
+        # Capture fingerprint before doc becomes detached
+        doc_fingerprint = sample_document.fingerprint
+        doc_id = sample_document.document_id
+
         # Documento foi rolado back - vamos criar de novo para o teste
-        with patch("elasticsearch.helpers.async_bulk", mock_bulk_success):
+        async def bulk_success(es, actions, **kwargs):
+            return (len(actions), [])
+        bulk_success_mock = AsyncMock(side_effect=bulk_success)
+
+        with patch("elasticsearch.helpers.async_bulk", bulk_success_mock), \
+             patch("gabi.pipeline.indexer.get_session_no_commit", side_effect=mock_session_factory):
             indexer = Indexer(es_client=mock_es_client, es_index="test")
             result = await indexer.index_document(
                 document=sample_document,
@@ -644,16 +749,17 @@ class TestVersioning:
         doc = query_result.scalar_one()
         doc.version += 1
         await db_session.commit()
-        
+
         # Tenta rollback com versão antiga
         version_info = DocumentVersionInfo(
-            document_id=sample_document.document_id,
+            document_id=doc_id,
             version=1,  # Versão antiga
-            fingerprint=sample_document.fingerprint,
+            fingerprint=doc_fingerprint,
             es_indexed=False,
         )
         
-        with patch("elasticsearch.helpers.async_bulk", mock_bulk_failure):
+        with patch("elasticsearch.helpers.async_bulk", mock_bulk_failure), \
+             patch("gabi.pipeline.indexer.get_session_no_commit", side_effect=mock_session_factory):
             rollback_success = await indexer._execute_saga_rollback(version_info)
         
         # Rollback deve falhar devido ao version mismatch
@@ -687,7 +793,7 @@ class TestDLQIntegration:
             document_id="doc-123",
             source_id="source-456",
             error=error,
-            run_id=uuid.uuid4(),
+            run_id=None,
             payload={"content": "test"},
         )
         
@@ -727,18 +833,20 @@ class TestIndexingService:
         mock_es_client: MagicMock,
         mock_embedder: MagicMock,
         mock_bulk_success,
-    ) -> IndexingService:
+        mock_session_factory,
+    ) -> Generator[IndexingService, None, None]:
         """Cria serviço de indexação."""
-        with patch("elasticsearch.helpers.async_bulk", mock_bulk_success):
+        with patch("elasticsearch.helpers.async_bulk", mock_bulk_success), \
+             patch("gabi.pipeline.indexer.get_session_no_commit", side_effect=mock_session_factory):
             indexer = Indexer(es_client=mock_es_client, es_index="test")
-        config = IndexingServiceConfig(enable_dlq=False)
-        
-        return IndexingService(
-            indexer=indexer,
-            embedder=mock_embedder,
-            config=config,
-            dlq_handler=None,
-        )
+            config = IndexingServiceConfig(enable_dlq=False)
+            
+            yield IndexingService(
+                indexer=indexer,
+                embedder=mock_embedder,
+                config=config,
+                dlq_handler=None,
+            )
     
     async def test_full_pipeline(
         self,
@@ -803,24 +911,24 @@ class TestIndexingService:
         with patch("elasticsearch.helpers.async_bulk", mock_bulk_success):
             indexer = Indexer(es_client=mock_es_client, es_index="test")
         
-        config = IndexingServiceConfig(enable_dlq=False)
-        service = IndexingService(
-            indexer=indexer,
-            embedder=mock_embedder,
-            config=config,
-        )
-        
-        contents = [
-            DocumentContent(
-                document_id=f"batch-test-{i}",
-                source_id="test-source",
-                title=f"Documento {i}",
-                content=f"Conteúdo do documento {i}. " * 50,
+            config = IndexingServiceConfig(enable_dlq=False)
+            service = IndexingService(
+                indexer=indexer,
+                embedder=mock_embedder,
+                config=config,
             )
-            for i in range(5)
-        ]
-        
-        result = await service.process_batch(contents)
+            
+            contents = [
+                DocumentContent(
+                    document_id=f"batch-test-{i}",
+                    source_id="test-source",
+                    title=f"Documento {i}",
+                    content=f"Conteúdo do documento {i}. " * 50,
+                )
+                for i in range(5)
+            ]
+            
+            result = await service.process_batch(contents)
         
         assert result.total == 5
         assert result.successful == 5
@@ -914,12 +1022,24 @@ class TestConcurrency:
         self,
         db_session: AsyncSession,
         mock_es_client: MagicMock,
-        mock_bulk_success,
     ) -> None:
         """Testa indexação concorrente de múltiplos documentos.
         
         Verifica que não há race conditions.
+        NOTA: Não usamos a fixture 'indexer' aqui pois ela compartilha
+        a mesma sessão de banco, o que falha com asyncio.gather.
+        Usamos sessões reais independentes para cada task.
         """
+        async def _mock_async_bulk(es, actions, **kwargs):
+            return (len(actions), [])
+
+        indexer = Indexer(
+            es_client=mock_es_client,
+            es_index="test_gabi",
+            enable_saga=True,
+            bulk_fn=_mock_async_bulk,
+        )
+        
         async def index_one(doc_id: str) -> IndexingResult:
             doc = Document(
                 document_id=doc_id,
@@ -939,9 +1059,8 @@ class TestConcurrency:
                     embedding=[0.1] * 384,
                 )
             ]
-            with patch("elasticsearch.helpers.async_bulk", mock_bulk_success):
-                indexer = Indexer(es_client=mock_es_client, es_index="test")
-                return await indexer.index_document(doc, chunks, "concurrent-test")
+            # Use shared indexer (stateless for this op)
+            return await indexer.index_document(doc, chunks, "concurrent-test")
         
         # Executa 10 concorrentes
         doc_ids = [f"concurrent-{i}" for i in range(10)]
@@ -970,6 +1089,7 @@ class TestEdgeCases:
         self,
         mock_es_client: MagicMock,
         mock_bulk_success,
+        db_session: AsyncSession,
     ) -> None:
         """Testa indexação de conteúdo muito grande."""
         large_content = "A" * 1_000_000  # 1MB
@@ -1008,6 +1128,7 @@ class TestEdgeCases:
         self,
         mock_es_client: MagicMock,
         mock_bulk_success,
+        db_session: AsyncSession,
     ) -> None:
         """Testa conteúdo com caracteres especiais."""
         special_content = "Conteúdo com acentos: áéíóú ñ ç \n\t \\ \" ' <script>"
@@ -1049,6 +1170,7 @@ class TestESBulkCompensatingDelete:
         mock_es_client: MagicMock,
         sample_document: Document,
         sample_chunks: List[ChunkData],
+        db_session: AsyncSession,
     ) -> None:
         """Testa que compensating delete é executado em falha parcial.
         
