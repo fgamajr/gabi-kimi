@@ -32,16 +32,18 @@ class DiscoveryConfig:
     """Configuração para descoberta de URLs.
     
     Attributes:
-        mode: Modo de discovery (url_pattern, static_url, api_pagination)
+        mode: Modo de discovery (url_pattern, static_url, api_pagination, crawler, api_query)
         url: URL base (para static_url ou api_pagination)
         url_pattern: Padrão de URL com placeholders (para url_pattern)
-        range_config: Configuração de range para url_pattern (ex: {"year": {"start": 2020, "end": 2024}})
+        range_config: Configuração de range para url_pattern
         pagination_config: Configuração de paginação para api_pagination
         rate_limit_delay: Delay entre requisições em segundos
         priority: Prioridade padrão para URLs descobertas
         headers: Headers HTTP adicionais
+        crawler_rules: Regras de crawling (link_selector, asset_selector, etc.)
+        api_query_config: Configuração completa para api_query (driver, params, etc.)
     """
-    mode: str  # url_pattern, static_url, api_pagination
+    mode: str  # url_pattern, static_url, api_pagination, crawler, api_query
     url: Optional[str] = None
     url_pattern: Optional[str] = None
     range_config: Optional[Dict[str, Any]] = None
@@ -52,6 +54,10 @@ class DiscoveryConfig:
     timeout: int = 30
     max_retries: int = 3
     max_urls: Optional[int] = None
+    # Crawler mode fields
+    crawler_rules: Optional[Dict[str, Any]] = None
+    # api_query mode fields
+    api_query_config: Optional[Dict[str, Any]] = None
 
 
 class RateLimiter:
@@ -87,6 +93,8 @@ class DiscoveryEngine:
             "static_url": self._handle_static_url,
             "url_pattern": self._handle_url_pattern,
             "api_pagination": self._handle_api_pagination,
+            "crawler": self._handle_crawler,
+            "api_query": self._handle_api_query,
         }
     
     async def discover(
@@ -453,6 +461,296 @@ class DiscoveryEngine:
         logger.info(f"API pagination: {len(urls)} URLs extraídas em {page - pagination.get('start_page', 1) + 1} páginas")
         return urls
     
+    async def _handle_crawler(
+        self,
+        source_id: str,
+        config: DiscoveryConfig,
+    ) -> List[DiscoveredURL]:
+        """Handler para discovery via crawling de páginas HTML.
+
+        Crawlea uma root_url, extrai links de subpáginas e/ou links de assets
+        (PDFs, etc.) seguindo as regras configuradas.
+
+        Suporta:
+        - Paginação via query param (pagination_param)
+        - Extração de links de detalhe (link_selector regex)
+        - Extração de assets diretos (asset_selector regex)
+        - Profundidade configurável (max_depth)
+        """
+        root_url = config.url
+        if not root_url:
+            logger.error("root_url não configurada para modo crawler")
+            return []
+
+        rules = config.crawler_rules or {}
+        asset_pattern = rules.get("asset_selector", r'href="([^"]+\.pdf)"')
+        link_pattern = rules.get("link_selector", "")
+        pagination_param = rules.get("pagination_param")
+        max_depth = int(rules.get("max_depth", 1))
+        rate_limit = float(rules.get("rate_limit", 1.0))
+        max_pages = int(rules.get("max_pages", 50))
+
+        # Convert CSS-like selectors to regex patterns
+        asset_regex = self._selector_to_regex(asset_pattern)
+        link_regex = self._selector_to_regex(link_pattern) if link_pattern else None
+
+        urls: List[DiscoveredURL] = []
+        visited: set[str] = set()
+
+        parsed_root = urlparse(root_url)
+        base_url = f"{parsed_root.scheme}://{parsed_root.netloc}"
+
+        async with httpx.AsyncClient(
+            timeout=config.timeout,
+            follow_redirects=True,
+            headers={"User-Agent": "GABI-Crawler/1.0"},
+        ) as client:
+            # Phase 1: Collect listing pages (with pagination)
+            listing_pages = [root_url]
+            if pagination_param:
+                for page_num in range(2, max_pages + 1):
+                    sep = "&" if "?" in root_url else "?"
+                    listing_pages.append(f"{root_url}{sep}{pagination_param}={page_num}")
+
+            # Phase 2: Crawl listing pages to find detail links and/or assets
+            detail_links: List[str] = []
+
+            for page_url in listing_pages:
+                if config.max_urls and len(urls) + len(detail_links) >= config.max_urls:
+                    break
+                await asyncio.sleep(rate_limit)
+                try:
+                    resp = await client.get(page_url)
+                    if resp.status_code != 200:
+                        logger.debug("Crawler page %s returned %s, stopping pagination", page_url, resp.status_code)
+                        break
+                    html = resp.text
+                    visited.add(page_url)
+
+                    # Extract direct asset links (e.g. PDFs)
+                    for match in re.finditer(asset_regex, html, re.IGNORECASE):
+                        asset_url = self._resolve_url(match.group(1), base_url)
+                        if asset_url and asset_url not in visited:
+                            visited.add(asset_url)
+                            urls.append(DiscoveredURL(
+                                url=asset_url,
+                                source_id=source_id,
+                                priority=config.priority,
+                                metadata={"discovery_mode": "crawler", "depth": 0},
+                            ))
+
+                    # Extract detail page links for deeper crawling
+                    if link_regex and max_depth >= 2:
+                        for match in re.finditer(link_regex, html, re.IGNORECASE):
+                            link_url = self._resolve_url(match.group(1), base_url)
+                            if link_url and link_url not in visited:
+                                detail_links.append(link_url)
+
+                    # If no new detail links found on this page, stop pagination
+                    if pagination_param and not re.search(link_regex or asset_regex, html, re.IGNORECASE):
+                        break
+
+                except Exception as exc:
+                    logger.warning("Crawler error on %s: %s", page_url, exc)
+                    break
+
+            # Phase 3: Crawl detail pages for assets (depth 2)
+            if detail_links and max_depth >= 2:
+                for detail_url in detail_links:
+                    if config.max_urls and len(urls) >= config.max_urls:
+                        break
+                    if detail_url in visited:
+                        continue
+                    visited.add(detail_url)
+                    await asyncio.sleep(rate_limit)
+                    try:
+                        resp = await client.get(detail_url)
+                        if resp.status_code != 200:
+                            continue
+                        html = resp.text
+                        for match in re.finditer(asset_regex, html, re.IGNORECASE):
+                            asset_url = self._resolve_url(match.group(1), base_url)
+                            if asset_url and asset_url not in visited:
+                                visited.add(asset_url)
+                                urls.append(DiscoveredURL(
+                                    url=asset_url,
+                                    source_id=source_id,
+                                    priority=config.priority,
+                                    metadata={"discovery_mode": "crawler", "depth": 1, "parent": detail_url},
+                                ))
+                    except Exception as exc:
+                        logger.warning("Crawler error on detail %s: %s", detail_url, exc)
+
+        logger.info("Crawler discovery for %s: %d asset URLs found", source_id, len(urls))
+        return urls
+
+    @staticmethod
+    def _selector_to_regex(selector: str) -> str:
+        """Convert a CSS-like selector hint to a regex for href extraction.
+
+        Supports patterns like:
+        - ``a[href$='.pdf']`` → ``href="([^"]+\\.pdf)"``
+        - ``a[href*='/publicacoes/']`` → ``href="([^"]*\\/publicacoes\\/[^"]*?)"``
+        - ``a[href$='.pdf']:not([href$='todas'])`` → regex with negative lookahead
+        - Raw regex (passed through if it contains a capture group)
+        """
+        # Already a real regex (has capture group AND does not look like CSS)
+        if "(" in selector and not re.search(r':not\(|:has\(|a\[', selector):
+            return selector
+
+        # Strip :not(...) clause and handle it separately
+        not_pattern = None
+        base_selector = selector
+        not_match = re.search(r":not\(\[href[^\]]*=['\"](.+?)['\"]\]\)", selector)
+        if not_match:
+            not_pattern = re.escape(not_match.group(1))
+            base_selector = selector[:not_match.start()]
+
+        # a[href$='.pdf']
+        m = re.match(r"a\[href\$=['\"](.+?)['\"]\]", base_selector)
+        if m:
+            suffix = re.escape(m.group(1))
+            if not_pattern:
+                return r'href="((?![^"]*' + not_pattern + r')[^"]+' + suffix + r')"'
+            return r'href="([^"]+' + suffix + r')"'
+
+        # a[href*='...']
+        m = re.match(r"a\[href\*=['\"](.+?)['\"]\]", base_selector)
+        if m:
+            contains = re.escape(m.group(1))
+            if not_pattern:
+                return r'href="((?![^"]*' + not_pattern + r')[^"]*' + contains + r'[^"]*?)"'
+            return r'href="([^"]*' + contains + r'[^"]*?)"'
+
+        # Fallback: treat as literal substring match
+        escaped = re.escape(selector)
+        return r'href="([^"]*' + escaped + r'[^"]*?)"'
+
+    @staticmethod
+    def _resolve_url(url: str, base_url: str) -> Optional[str]:
+        """Resolve a possibly relative URL against a base URL."""
+        if not url:
+            return None
+        url = url.strip()
+        if url.startswith(("http://", "https://")):
+            return url
+        if url.startswith("/"):
+            return base_url.rstrip("/") + url
+        return None
+
+    async def _handle_api_query(
+        self,
+        source_id: str,
+        config: DiscoveryConfig,
+    ) -> List[DiscoveredURL]:
+        """Handler para discovery via API REST paginada.
+
+        Suporta drivers específicos:
+        - camara_api_v1: API Dados Abertos da Câmara dos Deputados
+        - generic: API genérica com paginação offset/limit
+        """
+        api_config = config.api_query_config or {}
+        driver = api_config.get("driver", "generic")
+        params = api_config.get("params", {})
+
+        if driver == "camara_api_v1":
+            return await self._discover_camara_api(source_id, config, params)
+
+        # Generic API query: needs an explicit URL
+        url = api_config.get("url") or api_config.get("endpoint") or config.url
+        if not url:
+            logger.error("URL não configurada para modo api_query")
+            return []
+        return [DiscoveredURL(
+            url=url,
+            source_id=source_id,
+            priority=config.priority,
+            metadata={"discovery_mode": "api_query", "driver": driver},
+        )]
+
+    async def _discover_camara_api(
+        self,
+        source_id: str,
+        config: DiscoveryConfig,
+        params: Dict[str, Any],
+    ) -> List[DiscoveredURL]:
+        """Discovery via API Dados Abertos da Câmara dos Deputados.
+
+        Pagina pela API v2 de proposições (leis ordinárias) extraindo
+        URLs de detalhamento de cada proposição.
+        """
+        start_year = int(params.get("start_year", 2020))
+        end_year = int(params.get("end_year", datetime.now(timezone.utc).year))
+        items_per_page = 100
+        max_per_year = config.max_urls or 200
+
+        urls: List[DiscoveredURL] = []
+        total_limit = config.max_urls
+
+        async with httpx.AsyncClient(
+            timeout=config.timeout,
+            follow_redirects=True,
+            headers={"Accept": "application/json"},
+        ) as client:
+            for year in range(end_year, start_year - 1, -1):  # newest first
+                if total_limit and len(urls) >= total_limit:
+                    break
+                page = 1
+                year_count = 0
+                while year_count < max_per_year:
+                    if total_limit and len(urls) >= total_limit:
+                        break
+                    await asyncio.sleep(config.rate_limit_delay)
+                    api_url = (
+                        f"https://dadosabertos.camara.leg.br/api/v2/proposicoes"
+                        f"?siglaTipo=PL&ano={year}&itens={items_per_page}"
+                        f"&pagina={page}&ordem=ASC&ordenarPor=id"
+                    )
+                    try:
+                        resp = await client.get(api_url)
+                        if resp.status_code != 200:
+                            logger.warning("Camara API %s returned %s", api_url, resp.status_code)
+                            break
+                        data = resp.json()
+                        dados = data.get("dados", [])
+                        if not dados:
+                            break
+
+                        for item in dados:
+                            if total_limit and len(urls) >= total_limit:
+                                break
+                            prop_url = item.get("uri", "")
+                            prop_id = item.get("id", "")
+                            ementa = item.get("ementa", "")
+                            if prop_url:
+                                urls.append(DiscoveredURL(
+                                    url=prop_url,
+                                    source_id=source_id,
+                                    priority=config.priority,
+                                    metadata={
+                                        "discovery_mode": "api_query",
+                                        "driver": "camara_api_v1",
+                                        "prop_id": prop_id,
+                                        "year": year,
+                                        "ementa": ementa[:200] if ementa else "",
+                                    },
+                                ))
+                                year_count += 1
+
+                        # Check if there are more pages
+                        links = data.get("links", [])
+                        has_next = any(l.get("rel") == "next" for l in links)
+                        if not has_next or len(dados) < items_per_page:
+                            break
+                        page += 1
+
+                    except Exception as exc:
+                        logger.warning("Camara API error year=%s page=%s: %s", year, page, exc)
+                        break
+
+        logger.info("Camara API discovery for %s: %d proposições found", source_id, len(urls))
+        return urls
+
     def register_handler(self, mode: str, handler: Callable) -> None:
         """Registra um handler customizado para um modo de discovery.
         

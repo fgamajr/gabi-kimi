@@ -22,8 +22,8 @@ flower==2.0.1
 elasticsearch[async]==8.11.0
 
 # HTTP Client
-httpx==0.27.0
-httpx-socks==0.9.0
+httpx
+httpx-socks
 
 # Data Validation
 pydantic==2.6.3

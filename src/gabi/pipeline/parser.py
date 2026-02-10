@@ -44,28 +44,29 @@ DEFAULT_PDF_MAX_PAGES = 1000  # Default page limit for PDFs
 PDF_MAX_PAGES_HARD = 10_000  # Absolute maximum pages
 MAX_PDF_TEXT_SIZE_PER_PAGE = 10 * 1024 * 1024  # 10MB text per page
 
-# Quarantine configuration (defaults, can be overridden via function)
+# Quarantine configuration (defaults, can be overridden via env vars)
+# Disabled by default since server is diskless (Fly.io)
 _DEFAULT_QUARANTINE_DIR = "/tmp/gabi_quarantine"
-_DEFAULT_QUARANTINE_ENABLED = True
+_DEFAULT_QUARANTINE_ENABLED = False
 
 
 def _get_quarantine_config() -> Tuple[bool, str]:
     """Get quarantine configuration from environment variables.
     
-    This function reads the configuration fresh each time, allowing
-    tests to modify environment variables without module reload.
+    Quarantine is disabled by default on diskless servers.
+    Enable with GABI_QUARANTINE_ENABLED=true if a writable volume is mounted.
     
     Returns:
         Tuple of (enabled, directory)
     """
-    enabled = os.environ.get("GABI_QUARANTINE_ENABLED", "true").lower() in ("true", "1", "yes")
+    enabled = os.environ.get("GABI_QUARANTINE_ENABLED", "false").lower() in ("true", "1", "yes")
     directory = os.environ.get("GABI_QUARANTINE_DIR", _DEFAULT_QUARANTINE_DIR)
     return enabled, directory
 
 
 # Keep module-level constants for backward compatibility
 QUARANTINE_DIR = os.environ.get("GABI_QUARANTINE_DIR", "/tmp/gabi_quarantine")
-QUARANTINE_ENABLED = os.environ.get("GABI_QUARANTINE_ENABLED", "true").lower() in ("true", "1", "yes")
+QUARANTINE_ENABLED = os.environ.get("GABI_QUARANTINE_ENABLED", "false").lower() in ("true", "1", "yes")
 
 
 # =============================================================================
@@ -1504,6 +1505,143 @@ class PDFParser(BaseParser):
 register_parser("pdf", PDFParser())
 
 
+class JSONParser(BaseParser):
+    """Parser para respostas JSON de APIs.
+
+    Extrai documentos de respostas JSON, suportando:
+    - Resposta direta (um documento por JSON)
+    - Array de objetos (múltiplos documentos)
+    - Aninhamento via ``data_path`` (ex: ``dados`` para API da Câmara)
+
+    O conteúdo textual é construído concatenando campos configuráveis.
+    """
+
+    async def parse(self, content: FetchedContent, config: Dict[str, Any]) -> ParseResult:
+        """Parseia conteúdo JSON em documentos.
+
+        Args:
+            content: Conteúdo JSON buscado
+            config: Configuração com:
+                - source_id: ID da fonte (obrigatório)
+                - data_path: Caminho para dados (ex: 'dados'). None = raiz
+                - text_fields: Campos a concatenar como conteúdo (padrão: todos os strings)
+                - id_field: Campo para usar como document_id (padrão: 'id')
+                - title_field: Campo para título (padrão: 'ementa' ou 'titulo')
+                - max_rows: Limite de documentos a extrair
+
+        Returns:
+            ParseResult com documentos extraídos
+        """
+        import json as json_mod
+
+        start_time = datetime.utcnow()
+        documents: List[ParsedDocument] = []
+        errors: List[Dict[str, Any]] = []
+
+        source_id = config.get("source_id", "unknown")
+        data_path = config.get("data_path")
+        text_fields = config.get("text_fields")
+        id_field = config.get("id_field", "id")
+        title_field = config.get("title_field")
+        max_rows = config.get("max_rows")
+
+        try:
+            raw_content = content.get_content()
+            raw_size = len(raw_content)
+            text = raw_content.decode("utf-8")
+            data = json_mod.loads(text)
+
+            # Navigate to data_path
+            if data_path:
+                for key in data_path.split("."):
+                    if isinstance(data, dict):
+                        data = data.get(key, data)
+                    else:
+                        break
+
+            # Normalize to list
+            if isinstance(data, dict):
+                items = [data]
+            elif isinstance(data, list):
+                items = data
+            else:
+                items = [{"content": str(data)}]
+
+            if max_rows:
+                items = items[:max_rows]
+
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+
+                # Build text content
+                if text_fields:
+                    parts = [str(item.get(f, "")) for f in text_fields if item.get(f)]
+                else:
+                    # Auto-detect: use all non-empty string values
+                    parts = [str(v) for v in item.values() if isinstance(v, str) and v.strip()]
+
+                doc_content = "\n\n".join(parts)
+                if not doc_content.strip():
+                    continue
+
+                # ID
+                doc_id_raw = item.get(id_field, "")
+                doc_id = self._generate_document_id(source_id, str(doc_id_raw) or doc_content)
+
+                # Title
+                title = ""
+                if title_field:
+                    title = str(item.get(title_field, ""))
+                if not title:
+                    for tf in ("ementa", "titulo", "title", "nome", "descricao"):
+                        if item.get(tf):
+                            title = str(item[tf])[:300]
+                            break
+
+                # Extra metadata (non-text fields)
+                extra_meta = {}
+                skip_fields = set(text_fields) if text_fields else set()
+                for k, v in item.items():
+                    if isinstance(v, (str, int, float, bool)) and k not in skip_fields:
+                        extra_meta[k] = v
+
+                documents.append(ParsedDocument(
+                    document_id=doc_id,
+                    source_id=source_id,
+                    title=title,
+                    content=doc_content,
+                    content_preview=self._create_preview(doc_content),
+                    content_hash=self._generate_content_hash(doc_content),
+                    url=content.url,
+                    metadata={
+                        "source_id": source_id,
+                        "title": title,
+                        "url": content.url,
+                        "format": "json",
+                        **extra_meta,
+                    },
+                ))
+
+        except Exception as exc:
+            errors.append({
+                "error": f"JSON parse error: {exc}",
+                "error_type": type(exc).__name__,
+            })
+
+        duration = (datetime.utcnow() - start_time).total_seconds()
+        return ParseResult(
+            documents=documents,
+            errors=errors,
+            raw_content_size=len(raw_content) if 'raw_content' in dir() else 0,
+            parsed_content_size=sum(len(d.content) for d in documents),
+            duration_seconds=duration,
+        )
+
+
+register_parser("json", JSONParser())
+
+
 # =============================================================================
 # Exports
 # =============================================================================
@@ -1524,6 +1662,7 @@ __all__ = [
     "CSVParser",
     "HTMLParser",
     "PDFParser",
+    "JSONParser",
     # Registry functions
     "get_registry",
     "register_parser",

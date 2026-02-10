@@ -142,14 +142,18 @@ class FetchMetadata:
 class FetchedContent:
     """Conteúdo buscado na fase de fetch.
     
+    All content is kept in memory (diskless server — no temp files).
+    The content_path field is kept for backward compatibility but is
+    never populated in the current architecture.
+    
     Attributes:
         url: URL de origem
-        content: Conteúdo bruto (bytes) - None se is_streamed=True
+        content: Conteúdo bruto em bytes (sempre presente)
         metadata: Metadados do fetch
         cache_path: Caminho no cache local (se aplicável)
         fingerprint: Hash do conteúdo para dedup
-        content_path: Caminho para arquivo temporário (se is_streamed=True)
-        is_streamed: Se o conteúdo está em arquivo temporário
+        content_path: DEPRECATED — sempre None em server diskless
+        is_streamed: DEPRECATED — sempre False em server diskless
         size_bytes: Tamanho do conteúdo em bytes
     """
     url: str
@@ -157,12 +161,15 @@ class FetchedContent:
     metadata: Optional[FetchMetadata] = None
     cache_path: Optional[str] = None
     fingerprint: Optional[str] = None
-    content_path: Optional[str] = None
-    is_streamed: bool = False
+    content_path: Optional[str] = None  # DEPRECATED: diskless server
+    is_streamed: bool = False  # DEPRECATED: always False
     size_bytes: int = 0
     
     def get_content(self) -> bytes:
-        """Get content, reading from file if streamed.
+        """Get content bytes.
+        
+        Content is always in memory. The file fallback is kept for
+        backward compatibility but should never be hit on diskless servers.
         
         Returns:
             Content as bytes
@@ -172,24 +179,26 @@ class FetchedContent:
         """
         if self.content is not None:
             return self.content
+        # Legacy fallback (should not happen on diskless server)
         if self.content_path:
             import os
             with open(self.content_path, 'rb') as f:
                 return f.read()
-        raise ValueError("No content available")
+        raise ValueError("No content available — content was not loaded into memory")
     
     def cleanup(self) -> None:
-        """Remove temp file if streamed.
+        """Noop on diskless server. Kept for backward compatibility.
         
         Safe to call multiple times.
         """
+        # Legacy temp file cleanup (should not happen on diskless server)
         if self.content_path:
             import os
             try:
                 if os.path.exists(self.content_path):
                     os.unlink(self.content_path)
             except OSError:
-                pass  # File may already be deleted
+                pass
             self.content_path = None
 
 

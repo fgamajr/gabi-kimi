@@ -42,7 +42,6 @@ from gabi.pipeline.embedder import Embedder
 from gabi.pipeline.fetcher import ContentFetcher, FetcherConfig
 from gabi.pipeline.fingerprint import Fingerprinter, FingerprinterConfig
 from gabi.pipeline.indexer import Indexer
-from gabi.pipeline.orchestrator import PipelineOrchestrator
 from gabi.pipeline.parser import get_parser
 from gabi.worker import celery_app
 
@@ -512,34 +511,31 @@ async def _run_discovery(
     discovery_config = source_config.get("discovery", {}) or {}
     discovery_mode = str(discovery_config.get("mode", "static_url")).lower()
 
-    if use_orchestrator_fallback and discovery_mode in {"crawler", "api_query"}:
-        orchestrator = PipelineOrchestrator()
-        discovered_urls = await orchestrator._discovery_phase(source_config, {})
-        mapped_urls = [
-            DiscoveredURL(
-                url=url,
-                source_id=source_id,
-                priority=0,
-                metadata={"discovery_mode": f"orchestrator_{discovery_mode}"},
-            )
-            for url in discovered_urls
-        ]
-        return DiscoveryResult(
-            urls=mapped_urls,
-            total_found=len(mapped_urls),
-            filtered_out=0,
-            duration_seconds=0.0,
-        )
-
     engine = DiscoveryEngine()
-    
+
+    # Determine max_urls based on mode and limits
+    max_urls: Optional[int] = None
+    if max_documents_per_source > 0:
+        if discovery_mode == "url_pattern":
+            max_urls = 1  # For CSV sources each URL has many rows
+        elif discovery_mode in {"crawler", "api_query"}:
+            max_urls = max_documents_per_source  # Each URL is one document
+
     config = DiscoveryConfig(
         mode=discovery_config.get("mode", "static_url"),
-        url=discovery_config.get("url"),
+        url=discovery_config.get("url") or discovery_config.get("root_url"),
         url_pattern=discovery_config.get("url_template"),
         range_config=discovery_config.get("params"),
         rate_limit_delay=discovery_config.get("rate_limit_delay", 1.0),
-        max_urls=1 if max_documents_per_source > 0 and discovery_mode == "url_pattern" else None,
+        max_urls=max_urls,
+        # Crawler mode
+        crawler_rules=discovery_config.get("rules"),
+        # API query mode
+        api_query_config={
+            "driver": discovery_config.get("driver"),
+            "params": discovery_config.get("params", {}),
+            "url": discovery_config.get("url") or discovery_config.get("endpoint"),
+        } if discovery_mode == "api_query" else None,
     )
     
     return await engine.discover(source_id, config)
@@ -596,6 +592,17 @@ async def _run_parse(
     elif "pdf" in content_type or fetched.url.endswith(".pdf"):
         parser = get_parser("pdf")
         config = {"source_id": source_id}
+    elif "json" in content_type or fetched.url.endswith(".json"):
+        parser = get_parser("json")
+        config = {
+            "source_id": source_id,
+            "data_path": parse_config.get("data_path", "dados"),
+            "text_fields": parse_config.get("text_fields"),
+            "id_field": parse_config.get("id_field", "id"),
+            "title_field": parse_config.get("title_field"),
+        }
+        if max_rows is not None:
+            config["max_rows"] = max_rows
     else:
         # Tenta CSV como default para fontes TCU
         parser = get_parser("csv")

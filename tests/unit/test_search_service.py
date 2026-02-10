@@ -204,7 +204,7 @@ class TestVectorSearch:
     
     @pytest.mark.asyncio
     async def test_vector_search_with_es_uses_correct_field_path(self):
-        """Test that ES vector search uses correct field path content.fields.vector."""
+        """Test that ES vector search uses correct field path content_vector."""
         es_mock = Mock()
         es_mock.search = AsyncMock(return_value={"hits": {"hits": []}})
         
@@ -219,7 +219,7 @@ class TestVectorSearch:
         call_args = es_mock.search.call_args
         kwargs = call_args.kwargs if call_args.kwargs else call_args[1]
         knn_query = kwargs.get("knn", {})
-        assert knn_query.get("field") == "content.fields.vector"
+        assert knn_query.get("field") == "content_vector"
     
     @pytest.mark.asyncio
     async def test_vector_search_es_without_client_returns_empty(self):

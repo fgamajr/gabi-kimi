@@ -89,7 +89,7 @@ async def search_index(es_client: Any, es_index: str) -> AsyncGenerator[str, Non
     Cleanup:
         Deleta o índice após os testes
     """
-    from gabi.services.elasticsearch_setup import INDEX_MAPPING
+    from gabi.services.elasticsearch_setup import INDEX_MAPPINGS, INDEX_SETTINGS
     
     # Deleta se existir
     if await es_client.indices.exists(index=es_index):
@@ -98,7 +98,8 @@ async def search_index(es_client: Any, es_index: str) -> AsyncGenerator[str, Non
     # Cria índice
     await es_client.indices.create(
         index=es_index,
-        body=INDEX_MAPPING,
+        mappings=INDEX_MAPPINGS,
+        settings=INDEX_SETTINGS,
     )
     
     # Aguarda índice ficar disponível

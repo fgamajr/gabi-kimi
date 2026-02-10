@@ -7,7 +7,7 @@ Implementa a fase de fetch do pipeline de ingestão com:
 - Retry com exponential backoff
 - Limite de tamanho de arquivo
 - Timeout configurável
-- True streaming para arquivos grandes (disco temporário)
+- True streaming para memória (diskless-friendly, sem temp files)
 - Proteção SSRF (Server-Side Request Forgery)
 - Circuit breaker para prevenir falhas em cascata
 
@@ -853,7 +853,13 @@ class ContentFetcher:
         response_headers: Dict[str, str],
         start_time: float,
     ) -> FetchedContent:
-        """Stream large content to temporary file.
+        """DEPRECATED: Stream large content to temporary file.
+
+        This method is kept for backward compatibility but is no longer
+        called by fetch(). The server is diskless (Fly.io) so all content
+        is streamed to memory via _stream_to_memory().
+
+        For new code, always use _stream_to_memory() instead.
         
         Args:
             response: HTTP response with streaming content
@@ -869,6 +875,13 @@ class ContentFetcher:
         Raises:
             FetchSizeError: If content exceeds max size
         """
+        import warnings
+        warnings.warn(
+            "_stream_to_temp_file is deprecated on diskless servers. "
+            "Use _stream_to_memory instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         temp_path: Optional[str] = None
         
         try:
@@ -957,9 +970,12 @@ class ContentFetcher:
         response_headers: Dict[str, str],
         start_time: float,
     ) -> FetchedContent:
-        """Stream small content to memory (original behavior).
+        """Stream content to memory via chunked HTTP response.
         
-        Args:
+        This is the primary fetch method for diskless servers.
+        Content is accumulated in memory chunks, then joined into
+        a single bytes object. SHA-256 hash is computed incrementally
+        during streaming.
             response: HTTP response with streaming content
             url: Source URL
             content_type: Content-Type header
@@ -1048,12 +1064,11 @@ class ContentFetcher:
     ) -> FetchedContent:
         """Faz download de conteúdo de uma URL.
         
-        Executa o download com streaming inteligente:
-        - Arquivos pequenos (< stream_threshold): carregados em memória
-        - Arquivos grandes (>= stream_threshold): stream para disco
+        Executa o download com streaming para memória (diskless server).
+        Todo conteúdo é mantido em bytes na RAM — sem temp files.
         
         Validação de magic bytes, cálculo de hash e limites de segurança
-        são aplicados independentemente do modo.
+        são aplicados durante o streaming.
         
         Security:
             - Validação SSRF antes do request
@@ -1121,22 +1136,11 @@ class ContentFetcher:
                         f"Content-Length {size_hint} exceeds max {self.config.max_size_bytes}",
                         url,
                     )
-                
-                # Decide streaming strategy based on content length
-                if size_hint >= self.config.stream_threshold:
-                    return await self._stream_to_temp_file(
-                        response, url, content_type, method, response_headers, start_time
-                    )
-                else:
-                    return await self._stream_to_memory(
-                        response, url, content_type, method, response_headers, start_time
-                    )
-            else:
-                # No content-length, usa streaming em memória
-                # Mas verifica threshold durante o streaming
-                return await self._stream_to_memory(
-                    response, url, content_type, method, response_headers, start_time
-                )
+
+            # Always stream to memory (diskless server — no temp files)
+            return await self._stream_to_memory(
+                response, url, content_type, method, response_headers, start_time
+            )
             
         except FetchSizeError:
             raise

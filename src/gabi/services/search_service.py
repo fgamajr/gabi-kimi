@@ -365,9 +365,9 @@ class SearchService:
         
         try:
             # Build kNN query with correct field path
-            # Per elasticsearch_setup.py: content.fields.vector
+            # Per elasticsearch_setup.py: top-level content_vector field
             knn_query = {
-                "field": "content.fields.vector",
+                "field": "content_vector",
                 "query_vector": embedding,
                 "k": min(limit * 2, self.max_limit),
                 "num_candidates": 100,

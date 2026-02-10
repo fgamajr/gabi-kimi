@@ -27,6 +27,13 @@ share/python-wheels/
 *.egg
 MANIFEST
 
+.agents/
+.antigravity/
+.claude/
+swarm/
+.venv/
+
+
 # Virtual environments
 .venv
 venv/
