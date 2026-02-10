@@ -248,7 +248,7 @@ make deploy       # Deploy para Fly.io
 
 ## 📚 Documentação
 
-- [Especificação Técnica](GABI_SPECS_FINAL_v1.md)
+- [Especificação Técnica](docs/GABI_SPECS_FINAL_v1.md)
 - [Configuração de Fontes](sources.yaml)
 - [API Documentation](http://localhost:8000/docs) (OpenAPI/Swagger)
 

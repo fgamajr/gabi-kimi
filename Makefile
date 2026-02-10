@@ -74,24 +74,22 @@ help: ## Mostra esta ajuda com todos os comandos disponíveis
 # =============================================================================
 
 .PHONY: install
-install: ## Instala dependências de produção (requirements.txt)
+install: ## Instala dependências de produção
 	@echo "$(BLUE)📦 Instalando dependências de produção...$(RESET)"
-	$(PIP) install -r requirements.txt
+	$(PIP) install .
 	@echo "$(GREEN)✅ Dependências instaladas com sucesso!$(RESET)"
 
 .PHONY: install-dev
-install-dev: ## Instala dependências de desenvolvimento (+ dev extras)
+install-dev: ## Instala dependências de desenvolvimento (modo editável + dev extras)
 	@echo "$(BLUE)📦 Instalando dependências de desenvolvimento...$(RESET)"
-	$(PIP) install -r requirements.txt
-	$(PIP) install -r requirements-dev.txt
+	$(PIP) install -e ".[dev]"
 	@echo "$(GREEN)✅ Dependências de desenvolvimento instaladas!$(RESET)"
 
 .PHONY: install-uv
 install-uv: ## Instala usando uv (mais rápido, se disponível)
 	@echo "$(BLUE)📦 Instalando com uv...$(RESET)"
 	@which uv > /dev/null 2>&1 || (echo "$(YELLOW)⚠️  uv não encontrado. Instalando uv...$(RESET)" && pip install uv)
-	uv pip install -r requirements.txt
-	uv pip install -r requirements-dev.txt
+	uv pip install -e ".[dev]"
 	@echo "$(GREEN)✅ Dependências instaladas com uv!$(RESET)"
 
 .PHONY: init
@@ -195,9 +193,9 @@ check: ## Executa TODAS as verificações (lint + format + typecheck + test)
 # =============================================================================
 
 .PHONY: docker-up
-docker-up: ## Sobe infraestrutura com docker-compose.local.yml
+docker-up: ## Sobe infraestrutura Docker
 	@echo "$(BLUE)🐳 Iniciando containers Docker...$(RESET)"
-	$(DOCKER_COMPOSE) -f docker-compose.local.yml up -d
+	$(DOCKER_COMPOSE) --profile infra up -d
 	@echo "$(GREEN)✅ Containers iniciados!$(RESET)"
 	@echo "$(YELLOW)   PostgreSQL: localhost:5432$(RESET)"
 	@echo "$(YELLOW)   Elasticsearch: localhost:9200$(RESET)"
@@ -206,36 +204,36 @@ docker-up: ## Sobe infraestrutura com docker-compose.local.yml
 .PHONY: docker-down
 docker-down: ## Derruba containers Docker
 	@echo "$(BLUE)🛑 Parando containers Docker...$(RESET)"
-	$(DOCKER_COMPOSE) -f docker-compose.local.yml down
+	$(DOCKER_COMPOSE) --profile infra down
 	@echo "$(GREEN)✅ Containers parados!$(RESET)"
 
 .PHONY: docker-logs
 docker-logs: ## Mostra logs dos containers (follow mode)
 	@echo "$(BLUE)📋 Mostrando logs (Ctrl+C para sair)...$(RESET)"
-	$(DOCKER_COMPOSE) -f docker-compose.local.yml logs -f
+	$(DOCKER_COMPOSE) --profile infra logs -f
 
 .PHONY: docker-logs-api
 docker-logs-api: ## Mostra logs apenas da API
-	$(DOCKER_COMPOSE) -f docker-compose.local.yml logs -f api
+	$(DOCKER_COMPOSE) --profile all logs -f api
 
 .PHONY: docker-logs-worker
 docker-logs-worker: ## Mostra logs apenas do worker
-	$(DOCKER_COMPOSE) -f docker-compose.local.yml logs -f worker
+	$(DOCKER_COMPOSE) --profile all logs -f worker
 
 .PHONY: docker-ps
 docker-ps: ## Lista containers em execução
 	@echo "$(BLUE)📦 Containers em execução:$(RESET)"
-	$(DOCKER_COMPOSE) -f docker-compose.local.yml ps
+	$(DOCKER_COMPOSE) --profile infra --profile all ps
 
 .PHONY: docker-build
 docker-build: ## Builda imagens Docker
 	@echo "$(BLUE)🔨 Buildando imagens Docker...$(RESET)"
-	$(DOCKER_COMPOSE) -f docker-compose.local.yml build
+	$(DOCKER_COMPOSE) --profile all build
 
 .PHONY: docker-clean
 docker-clean: ## Remove containers, volumes e imagens órfãs
 	@echo "$(BLUE)🧹 Limpando recursos Docker...$(RESET)"
-	$(DOCKER_COMPOSE) -f docker-compose.local.yml down -v --remove-orphans
+	$(DOCKER_COMPOSE) --profile infra --profile all down -v --remove-orphans
 	docker system prune -f
 	@echo "$(GREEN)✅ Docker limpo!$(RESET)"
 

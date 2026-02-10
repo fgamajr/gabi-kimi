@@ -26,7 +26,7 @@ services:
       - "${GABI_POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./docker/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${GABI_POSTGRES_USER:-gabi} -d ${GABI_POSTGRES_DB:-gabi}"]
       interval: 10s
@@ -114,15 +114,22 @@ services:
     dns:
       - 1.1.1.1
       - 8.8.8.8
-    environment:
-      - PORT=8080
-      - MAX_CONCURRENT_REQUESTS=512
-      - MAX_BATCH_TOKENS=16384
     volumes:
       - ./data/tei/model:/model:ro
     ports:
       - "${GABI_TEI_PORT:-8080}:8080"
-    command: ["--model-id", "/model", "--tokenization-workers", "${GABI_TEI_WORKERS:-2}"]
+    command:
+      - "--model-id"
+      - "/model"
+      - "--tokenization-workers"
+      - "${GABI_TEI_WORKERS:-2}"
+      - "--auto-truncate"
+      - "--port"
+      - "8080"
+      - "--max-concurrent-requests"
+      - "512"
+      - "--max-batch-tokens"
+      - "16384"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s

@@ -22,7 +22,7 @@ from sqlalchemy import text
 from gabi.db import get_engine, init_db, close_db
 
 
-SOURCES_FILE = Path(__file__).parent / "sources.yaml"
+SOURCES_FILE = Path(__file__).resolve().parent.parent / "sources.yaml"
 
 
 def _source_type(source_cfg: dict) -> str:

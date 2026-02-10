@@ -1,5 +1,28 @@
 cd /home/fgamajr/dev/gabi-kimi
 
+# ══════════════════════════════════════════════════════════════════════════════
+# ⚠️  ATENÇÃO: Este script destrói TODOS os dados locais (Postgres, ES, Redis)
+#     e recria a infraestrutura do zero. Essa operação é IRREVERSÍVEL.
+# ══════════════════════════════════════════════════════════════════════════════
+echo ""
+echo "╔══════════════════════════════════════════════════════════════════╗"
+echo "║  ⚠️  DESTRUCTIVE OPERATION                                      ║"
+echo "║                                                                 ║"
+echo "║  Este script irá:                                               ║"
+echo "║    • Parar todos os containers e remover volumes Docker         ║"
+echo "║    • Apagar TODOS os dados (Postgres, Elasticsearch, Redis)     ║"
+echo "║    • Recriar a infraestrutura e rodar migrations do zero        ║"
+echo "║                                                                 ║"
+echo "║  Todos os documentos, embeddings e índices serão perdidos.      ║"
+echo "╚══════════════════════════════════════════════════════════════════╝"
+echo ""
+read -p "Tem certeza que deseja continuar? (y/N): " confirm
+if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+  echo "Operação cancelada."
+  exit 0
+fi
+echo ""
+
 # 1. Parar tudo e remover volumes
 docker compose --profile infra --profile all down -v
 
