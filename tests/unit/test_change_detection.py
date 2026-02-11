@@ -25,7 +25,6 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch, call
 
 import httpx
 import pytest
-import pytest_asyncio
 
 
 # =============================================================================

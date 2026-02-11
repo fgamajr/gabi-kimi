@@ -145,6 +145,36 @@ services:
         reservations:
           memory: ${GABI_TEI_MEM_RESERVE:-1G}
 
+  neo4j:
+    image: neo4j:5.15-community
+    container_name: gabi-neo4j
+    restart: unless-stopped
+    profiles: ["infra", "all", "graph"]
+    environment:
+      - NEO4J_AUTH=${GABI_NEO4J_USER:-neo4j}/${GABI_NEO4J_PASSWORD:-gabi_graph_password}
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_dbms_memory_heap_initial__size=${GABI_NEO4J_HEAP:-2G}
+      - NEO4J_dbms_memory_heap_max__size=${GABI_NEO4J_HEAP:-2G}
+      - NEO4J_dbms_memory_pagecache_size=${GABI_NEO4J_PAGECACHE:-1G}
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*
+      - NEO4J_dbms_logs_query_enabled=${GABI_NEO4J_QUERY_LOGS:-OFF}
+    ports:
+      - "${GABI_NEO4J_HTTP_PORT:-7474}:7474"
+      - "${GABI_NEO4J_BOLT_PORT:-7687}:7687"
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      - neo4j_import:/var/lib/neo4j/import
+      - neo4j_plugins:/plugins
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider localhost:7474 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - gabi-network
+
   # ============================================================================
   # APPLICATION SERVICES (profiles: all only)
   #   These services require infrastructure to be running.
@@ -291,6 +321,34 @@ volumes:
       type: none
       o: bind
       device: ./data/redis
+  
+  neo4j_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./data/neo4j/data
+  
+  neo4j_logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./data/neo4j/logs
+  
+  neo4j_import:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./data/neo4j/import
+  
+  neo4j_plugins:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./data/neo4j/plugins
 
 # =============================================================================
 # NETWORKS

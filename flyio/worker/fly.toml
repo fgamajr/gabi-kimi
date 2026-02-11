@@ -1,0 +1,95 @@
+# =============================================================================
+# GABI Worker - Fly.io Configuration
+# Celery Worker for Priority Tasks
+# Note: Heavy processing (bulk ingestion) runs locally
+# =============================================================================
+
+app = 'gabi-worker'
+primary_region = 'gru'
+kill_signal = 'SIGTERM'
+swap_size_mb = 512
+
+[build]
+  dockerfile = "../../docker/Dockerfile"
+
+[env]
+  # Application
+  GABI_ENVIRONMENT = "production"
+  GABI_DEBUG = "false"
+  GABI_LOG_LEVEL = "info"
+  
+  # Worker Configuration
+  GABI_WORKER_CONCURRENCY = "4"
+  
+  # Database
+  GABI_DATABASE_POOL_SIZE = "10"
+  GABI_DATABASE_MAX_OVERFLOW = "10"
+  
+  # Elasticsearch
+  GABI_ELASTICSEARCH_INDEX = "gabi_documents_v1"
+  GABI_ELASTICSEARCH_TIMEOUT = "60"
+  
+  # Redis
+  GABI_REDIS_DLQ_DB = "1"
+  GABI_REDIS_CACHE_DB = "2"
+  GABI_REDIS_LOCK_DB = "3"
+  
+  # Embeddings
+  GABI_EMBEDDINGS_URL = "https://api.openai.com/v1/embeddings"
+  GABI_EMBEDDINGS_MODEL = "text-embedding-3-small"
+  GABI_EMBEDDINGS_DIMENSIONS = "1536"
+  GABI_EMBEDDINGS_BATCH_SIZE = "50"
+  
+  # Pipeline (moderate for priority tasks)
+  GABI_PIPELINE_CONCURRENCY = "2"
+  GABI_PIPELINE_MAX_MEMORY_MB = "2048"
+  GABI_PIPELINE_FETCH_MAX_SIZE_MB = "100"
+  GABI_PIPELINE_FETCH_TIMEOUT = "120"
+  GABI_PIPELINE_FETCH_MAX_RETRIES = "3"
+  GABI_PIPELINE_CHUNK_MAX_TOKENS = "512"
+  GABI_PIPELINE_CHUNK_OVERLAP_TOKENS = "50"
+  GABI_PIPELINE_CHECKPOINT_INTERVAL = "100"
+  
+  # Auth (for internal API calls)
+  GABI_AUTH_ENABLED = "false"
+  
+  # Fetcher Security
+  GABI_FETCHER_SSRF_ENABLED = "true"
+  GABI_FETCHER_SSRF_BLOCK_INTERNAL_IPS = "true"
+  
+  # Governance
+  GABI_AUDIT_ENABLED = "true"
+  GABI_QUALITY_ENABLED = "true"
+  GABI_LINEAGE_ENABLED = "true"
+  
+  # Sources
+  GABI_SOURCES_PATH = "sources.yaml"
+
+# Worker Process (no HTTP service)
+[processes]
+  worker = "celery -A gabi.worker worker --loglevel=info --concurrency=4 -Q gabi.default,gabi.sync,gabi.sync.high,gabi.sync.normal,gabi.sync.bulk,gabi.dlq,gabi.health,gabi.alerts"
+  beat = "celery -A gabi.worker beat --loglevel=info --scheduler celery.beat.PersistentScheduler"
+
+[[vm]]
+  memory = '4gb'
+  cpu_kind = 'shared'
+  cpus = 4
+  processes = ["worker"]
+
+[[vm]]
+  memory = '512mb'
+  cpu_kind = 'shared'
+  cpus = 1
+  processes = ["beat"]
+
+# No HTTP service - internal processing only
+# Workers connect to Redis for task consumption
+
+# Auto-scaling configuration
+[deploy]
+  strategy = "rolling"
+
+[[mounts]]
+  source = 'gabi_worker_data'
+  destination = '/app/data'
+  initial_size = '5gb'

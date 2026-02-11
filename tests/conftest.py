@@ -17,13 +17,12 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import uuid
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
-import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlmodel import SQLModel
@@ -41,17 +40,9 @@ from gabi.types import (
 # =============================================================================
 # Configuração do Event Loop
 # =============================================================================
-
-@pytest.fixture(scope="session")
-def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
-    """Cria um event loop para a sessão de testes.
-    
-    Yields:
-        asyncio.AbstractEventLoop: Loop de eventos asyncio
-    """
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
+# O pytest-asyncio ≥1.0 com asyncio_mode="auto" gerencia event loops
+# internamente. NÃO usar @pytest_asyncio.fixture — use @pytest.fixture normal
+# que agora suporta corrotinas automaticamente.
 
 
 # =============================================================================
@@ -100,7 +91,7 @@ def test_db_url() -> str:
 # Fixtures de Banco de Dados
 # =============================================================================
 
-@pytest_asyncio.fixture(scope="session")
+@pytest.fixture(scope="session")
 async def db_engine() -> AsyncGenerator[Any, None]:
     """Engine SQLAlchemy para testes.
     
@@ -128,7 +119,7 @@ async def db_engine() -> AsyncGenerator[Any, None]:
     await engine.dispose()
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def db_session(
     db_engine: Any,
 ) -> AsyncGenerator[AsyncSession, None]:
@@ -156,7 +147,7 @@ async def db_session(
         await session.rollback()
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def db_session_with_commit(
     db_engine: Any,
 ) -> AsyncGenerator[AsyncSession, None]:

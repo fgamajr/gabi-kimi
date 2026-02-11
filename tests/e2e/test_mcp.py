@@ -24,7 +24,6 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 import httpx
 import pytest
-import pytest_asyncio
 import yaml
 
 # =============================================================================
@@ -35,14 +34,14 @@ MCP_BASE_URL = os.getenv("MCP_TEST_URL", "http://localhost:8001")
 JWT_TOKEN = os.getenv("MCP_TEST_TOKEN", "test-token")  # Para testes com auth real
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def http_client() -> AsyncGenerator[httpx.AsyncClient, None]:
     """Cliente HTTP assíncrono"""
     async with httpx.AsyncClient(base_url=MCP_BASE_URL, timeout=30.0) as client:
         yield client
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def mcp_session(http_client: httpx.AsyncClient) -> AsyncGenerator["MCPTestSession", None]:
     """Sessão MCP com handshake completo"""
     session = MCPTestSession(http_client)

@@ -25,6 +25,7 @@ from gabi.models.dlq import DLQMessage, DLQStatus
 from gabi.models.chunk import DocumentChunk
 from gabi.models.document import Document
 from gabi.models.execution import ExecutionManifest, ExecutionStatus
+from gabi.models.pipeline_action import PipelineAction
 from gabi.models.source import SourceRegistry, SourceStatus
 from gabi.pipeline.chunker import Chunker
 from gabi.pipeline.contracts import (
@@ -51,6 +52,72 @@ logger = logging.getLogger(__name__)
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "tei", "redis", "postgres", "elasticsearch"}
 
 
+def _cancel_key(source_id: str) -> str:
+    return f"gabi:pipeline:cancel:{source_id}:all"
+
+
+async def _mark_runtime_task_started(
+    source_id: str,
+    run_id: str,
+    task_id: str,
+    action_id: Optional[str] = None,
+    phase: Optional[str] = None,
+) -> None:
+    if not task_id:
+        return
+    from gabi.db import get_redis_client
+
+    redis = get_redis_client()
+    runtime_key = f"gabi:pipeline:runtime:{source_id}:{phase or 'all'}"
+    await redis.hset(
+        runtime_key,
+        mapping={
+            "source_id": source_id,
+            "run_id": run_id,
+            "task_id": task_id,
+            "action_id": action_id or "",
+            "phase": phase or "all",
+            "status": "running",
+            "is_running": "true",
+            "cancel_requested": "false",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    await redis.sadd(f"gabi:pipeline:active_tasks:{source_id}", task_id)
+    await redis.expire(runtime_key, 60 * 60 * 24)
+
+
+async def _mark_runtime_task_finished(source_id: str, task_id: str) -> None:
+    if not task_id:
+        return
+    from gabi.db import get_redis_client
+
+    redis = get_redis_client()
+    await redis.srem(f"gabi:pipeline:active_tasks:{source_id}", task_id)
+    runtime_prefix = f"gabi:pipeline:runtime:{source_id}:"
+    keys = await redis.keys(f"{runtime_prefix}*")
+    now = datetime.now(timezone.utc).isoformat()
+    for key in keys:
+        if await redis.hget(key, "task_id") == task_id:
+            await redis.hset(
+                key,
+                mapping={
+                    "status": "idle",
+                    "is_running": "false",
+                    "updated_at": now,
+                },
+            )
+
+
+async def _is_cancel_requested(source_id: str) -> bool:
+    from gabi.db import get_redis_client
+
+    redis = get_redis_client()
+    # Keep phase-specific cancellation for future phases; full pipeline uses :all.
+    key = _cancel_key(source_id)
+    return bool(await redis.get(key))
+
+
 # =============================================================================
 # Task: Sync Source
 # =============================================================================
@@ -69,6 +136,8 @@ def sync_source_task(
     run_id: Optional[str] = None,
     max_documents_per_source_override: Optional[int] = None,
     disable_embeddings: bool = False,
+    action_id: Optional[str] = None,
+    phase: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Executa pipeline completo de sincronização para uma fonte.
     
@@ -90,6 +159,12 @@ def sync_source_task(
     logger.info(f"[sync_source_task] Starting sync for source {source_id}, run {run_id}")
     
     try:
+        try:
+            task_id = self.request.id
+            asyncio.run(_mark_runtime_task_started(source_id, run_id, task_id, action_id=action_id, phase=phase))
+        except Exception as rt_exc:
+            logger.warning("[sync_source_task] runtime start tracking failed: %s", rt_exc)
+
         # Executa pipeline com lifecycle de DB no mesmo event loop.
         result = asyncio.run(
             _run_sync_pipeline_entry(
@@ -102,6 +177,9 @@ def sync_source_task(
         
         duration = time.monotonic() - start_time
         logger.info(f"[sync_source_task] Completed sync for {source_id} in {duration:.2f}s")
+        if action_id:
+            final_status = "cancelled" if result.get("cancelled") else "completed"
+            asyncio.run(_update_pipeline_action_status_entry(action_id, final_status))
         
         return {
             "run_id": run_id,
@@ -113,6 +191,11 @@ def sync_source_task(
         
     except Exception as exc:
         logger.exception(f"[sync_source_task] Failed to sync source {source_id}")
+        if action_id:
+            try:
+                asyncio.run(_update_pipeline_action_status_entry(action_id, "failed", error_message=str(exc)))
+            except Exception as action_exc:
+                logger.warning("[sync_source_task] failed to update action status: %s", action_exc)
         
         # Classifica o erro como retryable ou não
         is_retryable, should_dlq = _classify_exception(exc)
@@ -131,6 +214,17 @@ def sync_source_task(
         
         # Erro não-retryable ou esgotou retries - propaga o erro
         raise
+    finally:
+        task_id = self.request.id
+        try:
+            asyncio.run(_mark_runtime_task_finished(source_id, task_id))
+        except Exception as cleanup_exc:
+            logger.warning(
+                "[sync_source_task] failed runtime cleanup for source %s task %s: %s",
+                source_id,
+                task_id,
+                cleanup_exc,
+            )
 
 
 # =============================================================================
@@ -181,6 +275,7 @@ async def _run_sync_pipeline(
         "chunks_created": 0,
         "embeddings_generated": 0,
         "errors": [],
+        "cancelled": False,
     }
     
     async with get_session() as session:
@@ -238,6 +333,11 @@ async def _run_sync_pipeline(
         
         try:
             for discovered_url in discovery_result.urls:
+                if await _is_cancel_requested(source_id):
+                    logger.warning("Cancellation requested for source %s", source_id)
+                    stats["cancelled"] = True
+                    break
+
                 if max_documents_per_source > 0:
                     remaining_docs = max_documents_per_source - stats["documents_indexed"]
                     if remaining_docs <= 0:
@@ -286,6 +386,13 @@ async def _run_sync_pipeline(
                     
                     # Processa cada documento
                     for parsed_doc in parsed_result.documents:
+                        if await _is_cancel_requested(source_id):
+                            logger.warning(
+                                "Cancellation requested while processing documents for source %s",
+                                source_id,
+                            )
+                            stats["cancelled"] = True
+                            break
                         try:
                             # Fingerprint
                             fingerprint = fingerprinter.compute(parsed_doc)
@@ -352,6 +459,8 @@ async def _run_sync_pipeline(
                                 session, source_id, run_id, parsed_doc.document_id,
                                 str(doc_exc), discovered_url.url
                             )
+                    if stats["cancelled"]:
+                        break
                     
                     stats["urls_processed"] += 1
                     
@@ -365,15 +474,20 @@ async def _run_sync_pipeline(
                         "error": str(url_exc),
                         "classification": classification,
                     })
+                if stats["cancelled"]:
+                    break
         finally:
             if embedder is not None:
                 await embedder.close()
         
         # 5. Atualiza manifest
-        await _update_manifest_status(
-            session, manifest, 
-            ExecutionStatus.SUCCESS if stats["urls_failed"] == 0 else ExecutionStatus.PARTIAL_SUCCESS
-        )
+        if stats["cancelled"]:
+            await _update_manifest_status(session, manifest, ExecutionStatus.CANCELLED)
+        else:
+            await _update_manifest_status(
+                session, manifest, 
+                ExecutionStatus.SUCCESS if stats["urls_failed"] == 0 else ExecutionStatus.PARTIAL_SUCCESS
+            )
         
         # 6. Atualiza source registry
         await _update_source_stats(session, source_id, stats)
@@ -395,6 +509,43 @@ async def _add_to_dlq_entry(source_id: str, run_id: str, error_message: str, tas
         await _add_to_dlq(source_id, run_id, error_message, task_id)
     finally:
         await close_db()
+
+
+async def _update_pipeline_action_status_entry(
+    action_id: str,
+    status: str,
+    error_message: Optional[str] = None,
+) -> None:
+    """Wrapper to update pipeline action status in DB."""
+    await init_db()
+    try:
+        async with get_session() as session:
+            await _update_pipeline_action_status(session, action_id, status, error_message=error_message)
+    finally:
+        await close_db()
+
+
+async def _update_pipeline_action_status(
+    session: AsyncSession,
+    action_id: str,
+    status: str,
+    error_message: Optional[str] = None,
+) -> None:
+    try:
+        action_uuid = uuid.UUID(action_id)
+    except ValueError:
+        return
+    result = await session.execute(
+        select(PipelineAction).where(PipelineAction.action_id == action_uuid)
+    )
+    action = result.scalar_one_or_none()
+    if not action:
+        return
+    action.status = status
+    if error_message:
+        action.error_message = error_message
+    action.updated_at = datetime.now(timezone.utc)
+    await session.commit()
 
 
 async def _get_source(session: AsyncSession, source_id: str) -> Optional[SourceRegistry]:
@@ -434,7 +585,7 @@ async def _update_manifest_status(
     manifest.status = status.value if hasattr(status, "value") else str(status)
     manifest.completed_at = (
         datetime.utcnow()
-        if status in [ExecutionStatus.SUCCESS, ExecutionStatus.FAILED, ExecutionStatus.PARTIAL_SUCCESS]
+        if status in [ExecutionStatus.SUCCESS, ExecutionStatus.FAILED, ExecutionStatus.PARTIAL_SUCCESS, ExecutionStatus.CANCELLED]
         else None
     )
     await session.commit()

@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import pytest_asyncio
 
 from gabi.tasks.health import (
     HealthResult,
@@ -362,10 +361,11 @@ class TestCheckTEI:
     @pytest.mark.asyncio
     async def test_tei_timeout(self):
         """TEI timeout."""
+        import asyncio as _asyncio
         with patch("aiohttp.ClientSession") as MockSession:
             mock_session = MagicMock()
             mock_cm = AsyncMock()
-            mock_cm.__aenter__ = AsyncMock(side_effect=TimeoutError())
+            mock_cm.__aenter__ = AsyncMock(side_effect=_asyncio.TimeoutError())
             mock_cm.__aexit__ = AsyncMock(return_value=None)
             mock_session.get.return_value = mock_cm
             MockSession.return_value.__aenter__ = AsyncMock(return_value=mock_session)

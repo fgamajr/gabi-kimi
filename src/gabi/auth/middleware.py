@@ -108,3 +108,25 @@ class RequireAuth:
                 )
         
         return user
+
+
+class DevAuthMiddleware(BaseHTTPMiddleware):
+    """Middleware de desenvolvimento que injeta um usuário admin fake.
+
+    Usado quando GABI_AUTH_ENABLED=false para que RequireAuth
+    encontre request.state.user populado e não retorne 401.
+    Nunca deve ser habilitado em produção.
+    """
+
+    DEV_USER = {
+        "sub": "dev-user",
+        "preferred_username": "dev",
+        "email": "dev@gabi.local",
+        "realm_access": {"roles": ["admin", "user"]},
+    }
+
+    async def dispatch(self, request: Request, call_next: Callable) -> JSONResponse:
+        request.state.user = self.DEV_USER
+        request.state.user_id = self.DEV_USER["sub"]
+        request.state.user_roles = ["admin", "user"]
+        return await call_next(request)

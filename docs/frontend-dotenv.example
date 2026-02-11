@@ -1,0 +1,14 @@
+# GABI Frontend Environment Variables
+# Copy to: frontend/.env.local
+
+# API Configuration
+VITE_API_URL=http://localhost:8000/api/v1
+
+# WebSocket URL (optional - for future real-time updates)
+# VITE_WS_URL=ws://localhost:8000/ws/dashboard
+
+# Environment
+VITE_APP_ENV=development
+
+# Feature flags
+VITE_USE_MOCK_API=false

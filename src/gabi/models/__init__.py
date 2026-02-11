@@ -22,6 +22,7 @@ try:
     from gabi.models.dlq import DLQMessage, DLQStatus
     from gabi.models.execution import ExecutionManifest, ExecutionStatus
     from gabi.models.cache import ChangeDetectionCache
+    from gabi.models.pipeline_action import PipelineAction
     from gabi.models.source import SourceRegistry
     from gabi.models.document import Document
     from gabi.models.chunk import DocumentChunk
@@ -48,6 +49,7 @@ __all__ = [
     "ExecutionManifest",
     "ExecutionStatus",
     "ChangeDetectionCache",
+    "PipelineAction",
     "SourceRegistry",
     "Document",
     "DocumentChunk",

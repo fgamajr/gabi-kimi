@@ -15,7 +15,6 @@ from typing import Any, AsyncGenerator, Dict, List
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import pytest_asyncio
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -60,7 +59,7 @@ from gabi.db import close_db, get_session_no_commit, init_db_with_tables
 # Fixtures
 # =============================================================================
 
-@pytest_asyncio.fixture(scope="function")
+@pytest.fixture
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
     """Cria sessão de banco para testes."""
     from gabi.db import init_db, get_engine

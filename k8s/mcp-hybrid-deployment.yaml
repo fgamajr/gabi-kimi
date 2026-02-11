@@ -1,0 +1,441 @@
+# =============================================================================
+# GABI MCP Hybrid Search Server - Kubernetes Deployment
+# =============================================================================
+#
+# This deployment configures the MCP Hybrid Search Server with:
+# - 3 replicas for high availability
+# - Horizontal Pod Autoscaler
+# - Resource limits and requests
+# - Liveness and readiness probes
+# - ConfigMap for configuration
+# - Secret for sensitive data
+#
+# Apply: kubectl apply -f k8s/mcp-hybrid-deployment.yaml
+# =============================================================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gabi
+  labels:
+    app.kubernetes.io/name: gabi
+    app.kubernetes.io/component: mcp-hybrid
+
+---
+# =============================================================================
+# ConfigMap - Non-sensitive configuration
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mcp-hybrid-config
+  namespace: gabi
+data:
+  GABI_ENVIRONMENT: "production"
+  GABI_LOG_LEVEL: "info"
+  GABI_MCP_ENABLED: "true"
+  GABI_MCP_PORT: "8001"
+  GABI_MCP_AUTH_REQUIRED: "true"
+  GABI_MCP_CORS_ORIGINS: "https://chattcu.tcu.gov.br,https://gabi.tcu.gov.br"
+  
+  # Search settings
+  GABI_SEARCH_RRF_K: "60"
+  GABI_SEARCH_DEFAULT_LIMIT: "10"
+  GABI_SEARCH_MAX_LIMIT: "100"
+  GABI_SEARCH_BM25_WEIGHT: "1.0"
+  GABI_SEARCH_VECTOR_WEIGHT: "1.0"
+  GABI_SEARCH_TIMEOUT_MS: "5000"
+  
+  # Rate limiting
+  GABI_RATE_LIMIT_ENABLED: "true"
+  GABI_RATE_LIMIT_REQUESTS_PER_MINUTE: "60"
+  GABI_RATE_LIMIT_BURST: "10"
+  GABI_RATE_LIMIT_WINDOW_SECONDS: "60"
+  GABI_RATE_LIMIT_FAIL_CLOSED: "true"
+  
+  # Sources config
+  sources.yaml: |
+    # Sources configuration for MCP Hybrid Search
+    sources:
+      tcu_acordaos:
+        enabled: true
+        description: "Acórdãos do TCU"
+      tcu_normas:
+        enabled: true
+        description: "Normas do TCU"
+      tcu_portarias:
+        enabled: true
+        description: "Portarias do TCU"
+
+---
+# =============================================================================
+# Secret - Sensitive configuration (base64 encoded)
+# NOTE: In production, use external secret management (Vault, Sealed Secrets, etc.)
+# =============================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mcp-hybrid-secrets
+  namespace: gabi
+type: Opaque
+stringData:
+  # Database URL
+  GABI_DATABASE_URL: "postgresql+asyncpg://gabi:${DB_PASSWORD}@postgres:5432/gabi"
+  
+  # Elasticsearch
+  GABI_ELASTICSEARCH_URL: "http://elasticsearch:9200"
+  GABI_ELASTICSEARCH_USERNAME: "elastic"
+  GABI_ELASTICSEARCH_PASSWORD: "${ES_PASSWORD}"
+  
+  # Redis
+  GABI_REDIS_URL: "redis://redis:6379/0"
+  
+  # Embeddings
+  GABI_EMBEDDINGS_URL: "http://embeddings:8080"
+  
+  # Auth (Keycloak)
+  GABI_JWT_ISSUER: "https://auth.tcu.gov.br/realms/tcu"
+  GABI_JWT_AUDIENCE: "gabi-api"
+  GABI_JWT_JWKS_URL: "https://auth.tcu.gov.br/realms/tcu/protocol/openid-connect/certs"
+
+---
+# =============================================================================
+# Deployment
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-hybrid
+  namespace: gabi
+  labels:
+    app.kubernetes.io/name: gabi
+    app.kubernetes.io/component: mcp-hybrid
+    app.kubernetes.io/version: "2.0.0"
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gabi
+      app.kubernetes.io/component: mcp-hybrid
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gabi
+        app.kubernetes.io/component: mcp-hybrid
+        app.kubernetes.io/version: "2.0.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8001"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: gabi-mcp
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      
+      containers:
+        - name: mcp-hybrid
+          image: gabi-mcp-hybrid:latest
+          imagePullPolicy: IfNotPresent
+          
+          ports:
+            - name: http
+              containerPort: 8001
+              protocol: TCP
+          
+          envFrom:
+            - configMapRef:
+                name: mcp-hybrid-config
+            - secretRef:
+                name: mcp-hybrid-secrets
+          
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "1000m"
+          
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 30
+          
+          volumeMounts:
+            - name: sources-config
+              mountPath: /app/sources.yaml
+              subPath: sources.yaml
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      
+      volumes:
+        - name: sources-config
+          configMap:
+            name: mcp-hybrid-config
+        - name: tmp
+          emptyDir: {}
+      
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/component
+                      operator: In
+                      values:
+                        - mcp-hybrid
+                topologyKey: kubernetes.io/hostname
+
+---
+# =============================================================================
+# Service
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-hybrid
+  namespace: gabi
+  labels:
+    app.kubernetes.io/name: gabi
+    app.kubernetes.io/component: mcp-hybrid
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8001
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: gabi
+    app.kubernetes.io/component: mcp-hybrid
+
+---
+# =============================================================================
+# Horizontal Pod Autoscaler
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: mcp-hybrid-hpa
+  namespace: gabi
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: mcp-hybrid
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+
+---
+# =============================================================================
+# Pod Disruption Budget
+# =============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: mcp-hybrid-pdb
+  namespace: gabi
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gabi
+      app.kubernetes.io/component: mcp-hybrid
+
+---
+# =============================================================================
+# Service Account
+# =============================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gabi-mcp
+  namespace: gabi
+  labels:
+    app.kubernetes.io/name: gabi
+    app.kubernetes.io/component: mcp-hybrid
+
+---
+# =============================================================================
+# Network Policy
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mcp-hybrid-network-policy
+  namespace: gabi
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: gabi
+      app.kubernetes.io/component: mcp-hybrid
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow from ingress controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8001
+    # Allow from same namespace
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8001
+  egress:
+    # Allow to database
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Allow to elasticsearch
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: elasticsearch
+      ports:
+        - protocol: TCP
+          port: 9200
+    # Allow to redis
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow to embeddings service
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: embeddings
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Allow DNS
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+
+---
+# =============================================================================
+# Ingress
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mcp-hybrid-ingress
+  namespace: gabi
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/rate-limit: "60"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - mcp.gabi.tcu.gov.br
+      secretName: mcp-hybrid-tls
+  rules:
+    - host: mcp.gabi.tcu.gov.br
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mcp-hybrid
+                port:
+                  number: 8001

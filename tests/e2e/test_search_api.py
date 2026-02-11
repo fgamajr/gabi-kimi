@@ -20,7 +20,6 @@ import os
 from typing import Any, AsyncGenerator
 
 import pytest
-import pytest_asyncio
 from fastapi import FastAPI
 from httpx import AsyncClient, ASGITransport
 
@@ -52,7 +51,7 @@ def es_index() -> str:
     return "gabi_test_search"
 
 
-@pytest_asyncio.fixture(scope="module")
+@pytest.fixture(scope="module")
 async def es_client(es_url: str) -> AsyncGenerator[Any, None]:
     """Cliente Elasticsearch para testes.
     
@@ -75,7 +74,7 @@ async def es_client(es_url: str) -> AsyncGenerator[Any, None]:
     await client.close()
 
 
-@pytest_asyncio.fixture(scope="module")
+@pytest.fixture(scope="module")
 async def search_index(es_client: Any, es_index: str) -> AsyncGenerator[str, None]:
     """Cria índice de teste no Elasticsearch.
     
@@ -112,7 +111,7 @@ async def search_index(es_client: Any, es_index: str) -> AsyncGenerator[str, Non
         await es_client.indices.delete(index=es_index)
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def search_service(
     es_client: Any,
     search_index: str,
@@ -146,7 +145,7 @@ async def search_service(
     yield service
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def test_app(search_index: str, es_url: str) -> AsyncGenerator[FastAPI, None]:
     """Aplicação FastAPI configurada para testes.
     
@@ -192,7 +191,7 @@ async def test_app(search_index: str, es_url: str) -> AsyncGenerator[FastAPI, No
     yield app
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def test_client(test_app: FastAPI) -> AsyncGenerator[AsyncClient, None]:
     """Cliente HTTP async para testes.
     
@@ -207,7 +206,7 @@ async def test_client(test_app: FastAPI) -> AsyncGenerator[AsyncClient, None]:
         yield client
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def sample_documents(es_client: Any, search_index: str) -> AsyncGenerator[list[dict], None]:
     """Insere documentos de teste no Elasticsearch.
     

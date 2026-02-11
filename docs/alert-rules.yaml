@@ -1,0 +1,411 @@
+# GABI Production Alert Rules
+# Import into Grafana Cloud Alerting
+
+apiVersion: 1
+groups:
+  # =============================================================================
+  # Critical Alerts - Page immediately
+  # =============================================================================
+  - name: gabi-critical
+    interval: 30s
+    rules:
+      
+      # API Down - Service completely unavailable
+      - alert: GABIAPIDown
+        expr: |
+          up{job="gabi-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+          service: gabi-api
+        annotations:
+          summary: "🚨 GABI API is DOWN"
+          description: |
+            The GABI API has been down for more than 2 minutes.
+            
+            Impact: Users cannot access the search functionality.
+            
+            Runbook: https://wiki.tcu.gov.br/runbooks/gabi-api-down
+          runbook_url: "https://wiki.tcu.gov.br/runbooks/gabi-api-down"
+          dashboard_url: "https://grafana.tcu.gov.br/d/gabi-production"
+
+      # Database Connection Failure
+      - alert: GABIDatabaseDown
+        expr: |
+          gabi_db_connections{state="active"} == 0 or 
+          absent(gabi_db_connections{state="active"})
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+          service: postgresql
+        annotations:
+          summary: "🚨 GABI cannot connect to PostgreSQL"
+          description: |
+            No active database connections detected for 1 minute.
+            
+            Impact: All database operations are failing. API is non-functional.
+            
+            Runbook: https://wiki.tcu.gov.br/runbooks/gabi-database-down
+          runbook_url: "https://wiki.tcu.gov.br/runbooks/gabi-database-down"
+
+      # High Error Rate (> 10%)
+      - alert: GABIHighErrorRate
+        expr: |
+          (
+            sum(rate(gabi_http_requests_total{status=~"5.."}[5m]))
+            /
+            sum(rate(gabi_http_requests_total[5m]))
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+          service: gabi-api
+        annotations:
+          summary: "🚨 High error rate on GABI API"
+          description: |
+            Error rate is {{ $value | humanizePercentage }} for the last 5 minutes.
+            
+            Impact: Users are experiencing frequent failures.
+            
+            Runbook: https://wiki.tcu.gov.br/runbooks/gabi-high-error-rate
+          runbook_url: "https://wiki.tcu.gov.br/runbooks/gabi-high-error-rate"
+
+      # Pipeline Stalled - No successful sync in 24h
+      - alert: GABIPipelineStalled
+        expr: |
+          time() - gabi_sync_last_success_timestamp{source_id=~"tcu_.*"} > 86400
+        for: 5m
+        labels:
+          severity: critical
+          team: data
+          service: pipeline
+        annotations:
+          summary: "🚨 Pipeline stalled for {{ $labels.source_id }}"
+          description: |
+            No successful synchronization for {{ $labels.source_id }} in the last 24 hours.
+            
+            Impact: Data freshness is compromised. Users may see outdated information.
+            
+            Runbook: https://wiki.tcu.gov.br/runbooks/gabi-pipeline-stalled
+          runbook_url: "https://wiki.tcu.gov.br/runbooks/gabi-pipeline-stalled"
+
+      # Elasticsearch Cluster Red
+      - alert: GABIESClusterRed
+        expr: |
+          elasticsearch_cluster_health_status{color="red"} == 1
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+          service: elasticsearch
+        annotations:
+          summary: "🚨 Elasticsearch cluster is RED"
+          description: |
+            The Elasticsearch cluster is in RED status.
+            
+            Impact: Search functionality is severely degraded or unavailable.
+            Some data may be inaccessible.
+            
+            Runbook: https://wiki.tcu.gov.br/runbooks/gabi-es-cluster-red
+          runbook_url: "https://wiki.tcu.gov.br/runbooks/gabi-es-cluster-red"
+
+  # =============================================================================
+  # Warning Alerts - Notify but don't page
+  # =============================================================================
+  - name: gabi-warning
+    interval: 1m
+    rules:
+      
+      # High Response Time (p95 > 2s)
+      - alert: GABIHighResponseTime
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(gabi_http_request_duration_seconds_bucket[5m])) by (le)
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          service: gabi-api
+        annotations:
+          summary: "⚠️ High response time on GABI API"
+          description: |
+            95th percentile response time is {{ $value }} seconds.
+            
+            Impact: Users may experience sluggish performance.
+            
+            Runbook: https://wiki.tcu.gov.br/runbooks/gabi-high-response-time
+          runbook_url: "https://wiki.tcu.gov.br/runbooks/gabi-high-response-time"
+
+      # Memory Usage > 85%
+      - alert: GABIHighMemoryUsage
+        expr: |
+          fly_instance_memory{app="gabi-api"} / 
+          fly_instance_memory_limit{app="gabi-api"} > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          service: gabi-api
+        annotations:
+          summary: "⚠️ High memory usage on GABI API"
+          description: |
+            Memory usage is {{ $value | humanizePercentage }}.
+            
+            Impact: Risk of OOM kills and service instability.
+            
+            Runbook: https://wiki.tcu.gov.br/runbooks/gabi-high-memory
+          runbook_url: "https://wiki.tcu.gov.br/runbooks/gabi-high-memory"
+
+      # DLQ Growing > 100 messages
+      - alert: GABIDLQGrowing
+        expr: |
+          sum(gabi_dlq_queue_size) > 100
+        for: 10m
+        labels:
+          severity: warning
+          team: data
+          service: pipeline
+        annotations:
+          summary: "⚠️ DLQ has many pending messages"
+          description: |
+            DLQ has {{ $value }} pending messages that need attention.
+            
+            Impact: Documents are failing to process and require manual intervention.
+            
+            Runbook: https://wiki.tcu.gov.br/runbooks/gabi-dlq-growing
+          runbook_url: "https://wiki.tcu.gov.br/runbooks/gabi-dlq-growing"
+
+      # Elasticsearch Degraded (Yellow status)
+      - alert: GABIESDegraded
+        expr: |
+          elasticsearch_cluster_health_status{color="yellow"} == 1
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+          service: elasticsearch
+        annotations:
+          summary: "⚠️ Elasticsearch cluster is YELLOW"
+          description: |
+            The Elasticsearch cluster is in YELLOW status for 10+ minutes.
+            
+            Impact: Some replicas may be unassigned. Search performance may be degraded.
+            
+            Runbook: https://wiki.tcu.gov.br/runbooks/gabi-es-degraded
+          runbook_url: "https://wiki.tcu.gov.br/runbooks/gabi-es-degraded"
+
+      # Celery Worker Down
+      - alert: GABIWorkerDown
+        expr: |
+          celery_worker_up == 0
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          service: celery
+        annotations:
+          summary: "⚠️ Celery worker is down"
+          description: |
+            Worker {{ $labels.worker }} has been down for 5 minutes.
+            
+            Impact: Background tasks (sync, indexing) are not being processed.
+            
+            Runbook: https://wiki.tcu.gov.br/runbooks/gabi-worker-down
+          runbook_url: "https://wiki.tcu.gov.br/runbooks/gabi-worker-down"
+
+      # Search Failure Rate > 5%
+      - alert: GABISearchFailures
+        expr: |
+          (
+            sum(rate(gabi_search_errors_total[10m]))
+            /
+            sum(rate(gabi_search_requests_total[10m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          service: search
+        annotations:
+          summary: "⚠️ Search failure rate is high"
+          description: |
+            Search error rate is {{ $value | humanizePercentage }}.
+            
+            Impact: Users may experience failed searches.
+            
+            Runbook: https://wiki.tcu.gov.br/runbooks/gabi-search-failures
+          runbook_url: "https://wiki.tcu.gov.br/runbooks/gabi-search-failures"
+
+      # Database Connection Pool Near Exhaustion
+      - alert: GABIDBConnectionPoolNearExhaustion
+        expr: |
+          gabi_db_connections{state="active"} / 
+          (gabi_db_connections{state="active"} + gabi_db_connections{state="idle"}) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          service: postgresql
+        annotations:
+          summary: "⚠️ Database connection pool near exhaustion"
+          description: |
+            {{ $value | humanizePercentage }} of connections are active.
+            
+            Impact: Risk of connection timeouts and request failures.
+            
+            Runbook: https://wiki.tcu.gov.br/runbooks/gabi-db-connections
+          runbook_url: "https://wiki.tcu.gov.br/runbooks/gabi-db-connections"
+
+      # Embedding Service Degraded
+      - alert: GABITEIDegraded
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(gabi_embedding_duration_seconds_bucket[5m])) by (le)
+          ) > 1
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+          service: tei
+        annotations:
+          summary: "⚠️ TEI embedding service is slow"
+          description: |
+            95th percentile embedding time is {{ $value }} seconds.
+            
+            Impact: Document processing may be slowed. Search indexing delayed.
+            
+            Runbook: https://wiki.tcu.gov.br/runbooks/gabi-tei-degraded
+          runbook_url: "https://wiki.tcu.gov.br/runbooks/gabi-tei-degraded"
+
+      # High Rate Limit Hits
+      - alert: GABIRateLimitHits
+        expr: |
+          sum(rate(gabi_rate_limit_hits_total[5m])) > 10
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          service: gabi-api
+        annotations:
+          summary: "⚠️ High rate limit hits"
+          description: |
+            Rate limit is being hit {{ $value }} times per second.
+            
+            Impact: Legitimate users may be throttled. Potential abuse or misconfiguration.
+            
+            Runbook: https://wiki.tcu.gov.br/runbooks/gabi-rate-limit
+          runbook_url: "https://wiki.tcu.gov.br/runbooks/gabi-rate-limit"
+
+  # =============================================================================
+  # Info Alerts - Low priority notifications
+  # =============================================================================
+  - name: gabi-info
+    interval: 5m
+    rules:
+      
+      # Successful Deployment
+      - alert: GABIDeploymentSuccess
+        expr: |
+          changes(up{job="gabi-api"}[10m]) > 0
+        labels:
+          severity: info
+          team: platform
+          service: gabi-api
+        annotations:
+          summary: "ℹ️ GABI API deployment detected"
+          description: |
+            A new deployment of GABI API was detected.
+
+      # Pipeline Completed Successfully
+      - alert: GABIPipelineCompleted
+        expr: |
+          increase(gabi_pipeline_documents_total{status="success"}[1h]) > 100
+        for: 0m
+        labels:
+          severity: info
+          team: data
+          service: pipeline
+        annotations:
+          summary: "ℹ️ Pipeline completed for {{ $labels.source_id }}"
+          description: |
+            Successfully processed documents from {{ $labels.source_id }}.
+
+      # Disk Space Warning (for volume-based apps)
+      - alert: GABILowDiskSpace
+        expr: |
+          fly_volume_used_bytes / fly_volume_size_bytes > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          service: storage
+        annotations:
+          summary: "⚠️ Low disk space on {{ $labels.app }}"
+          description: |
+            Disk usage is {{ $value | humanizePercentage }}.
+            
+            Impact: Risk of running out of storage space.
+            
+            Runbook: https://wiki.tcu.gov.br/runbooks/gabi-disk-space
+          runbook_url: "https://wiki.tcu.gov.br/runbooks/gabi-disk-space"
+
+  # =============================================================================
+  # Business/SLO Alerts
+  # =============================================================================
+  - name: gabi-slo
+    interval: 5m
+    rules:
+      
+      # SLO: Availability < 99.9% over 30 days
+      - alert: GABIAvailabilitySLOBreach
+        expr: |
+          avg_over_time(up{job="gabi-api"}[30d]) < 0.999
+        for: 1h
+        labels:
+          severity: warning
+          team: platform
+          service: slo
+        annotations:
+          summary: "📊 SLO Breach: Availability"
+          description: |
+            30-day availability is {{ $value | humanizePercentage }} (target: 99.9%).
+            
+            Error budget is being consumed faster than allowed.
+
+      # SLO: P95 Latency > 500ms over 7 days
+      - alert: GABILatencySLOBreach
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(gabi_http_request_duration_seconds_bucket[7d])) by (le)
+          ) > 0.5
+        for: 1h
+        labels:
+          severity: warning
+          team: platform
+          service: slo
+        annotations:
+          summary: "📊 SLO Breach: Latency"
+          description: |
+            7-day p95 latency is {{ $value }} seconds (target: < 500ms).
+
+      # SLO: Error Rate > 1% over 7 days
+      - alert: GABIErrorRateSLOBreach
+        expr: |
+          (
+            sum(rate(gabi_http_requests_total{status=~"5.."}[7d]))
+            /
+            sum(rate(gabi_http_requests_total[7d]))
+          ) > 0.01
+        for: 1h
+        labels:
+          severity: warning
+          team: platform
+          service: slo
+        annotations:
+          summary: "📊 SLO Breach: Error Rate"
+          description: |
+            7-day error rate is {{ $value | humanizePercentage }} (target: < 1%).

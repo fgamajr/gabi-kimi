@@ -12,7 +12,7 @@ from prometheus_client import make_asgi_app
 
 from gabi.api.health import router as health_router
 from gabi.api.router import get_api_router
-from gabi.auth.middleware import AuthMiddleware
+from gabi.auth.middleware import AuthMiddleware, DevAuthMiddleware
 from gabi.config import Environment, settings
 from gabi.db import close_db, init_db
 from gabi.logging_config import setup_logging
@@ -109,6 +109,9 @@ def create_app() -> FastAPI:
             AuthMiddleware,
             public_paths=settings.auth_public_paths
         )
+    else:
+        # Dev mode: inject fake admin user so RequireAuth doesn't 401
+        app.add_middleware(DevAuthMiddleware)
     
     # =============================================================================
     # Routers

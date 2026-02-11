@@ -36,6 +36,7 @@ def create_celery_app() -> Celery:
         # Broker (Redis)
         broker_url=settings.redis_url,
         result_backend=settings.redis_url,
+        broker_connection_retry_on_startup=True,
         
         # Serialização
         task_serializer="json",
@@ -67,6 +68,9 @@ def create_celery_app() -> Celery:
         task_queues={
             "gabi.default": {"binding_key": "gabi.default"},
             "gabi.sync": {"binding_key": "gabi.sync"},
+            "gabi.sync.high": {"binding_key": "gabi.sync.high"},
+            "gabi.sync.normal": {"binding_key": "gabi.sync.normal"},
+            "gabi.sync.bulk": {"binding_key": "gabi.sync.bulk"},
             "gabi.dlq": {"binding_key": "gabi.dlq"},
             "gabi.health": {"binding_key": "gabi.health"},
             "gabi.alerts": {"binding_key": "gabi.alerts"},

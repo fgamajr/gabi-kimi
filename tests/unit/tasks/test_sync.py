@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import pytest_asyncio
 
 from gabi.tasks.sync import (
     _add_document_to_dlq,
@@ -79,7 +78,7 @@ class TestSyncSourceTask:
 class TestRunDiscovery:
     """Test suite para _run_discovery."""
     
-    @pytest_asyncio.fixture
+    @pytest.fixture
     async def mock_discovery_result(self):
         """Fixture para resultado de discovery."""
         from gabi.pipeline.contracts import DiscoveredURL, DiscoveryResult

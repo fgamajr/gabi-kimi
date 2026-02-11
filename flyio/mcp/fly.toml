@@ -1,0 +1,114 @@
+# =============================================================================
+# GABI MCP Server - Fly.io Configuration
+# Model Context Protocol for ChatTCU Integration
+# =============================================================================
+
+app = 'gabi-mcp'
+primary_region = 'gru'
+kill_signal = 'SIGTERM'
+swap_size_mb = 256
+
+[build]
+  dockerfile = "../../docker/Dockerfile"
+
+[env]
+  # Application
+  GABI_ENVIRONMENT = "production"
+  GABI_DEBUG = "false"
+  GABI_LOG_LEVEL = "info"
+  
+  # MCP Configuration
+  GABI_MCP_ENABLED = "true"
+  GABI_MCP_PORT = "8001"
+  GABI_MCP_AUTH_REQUIRED = "true"
+  GABI_MCP_CORS_ORIGINS = "https://chat.tcu.gov.br,https://app.tcu.gov.br"
+  
+  # Database (shared with API)
+  GABI_DATABASE_POOL_SIZE = "10"
+  GABI_DATABASE_MAX_OVERFLOW = "5"
+  GABI_DATABASE_POOL_TIMEOUT = "30"
+  
+  # Elasticsearch
+  GABI_ELASTICSEARCH_INDEX = "gabi_documents_v1"
+  GABI_ELASTICSEARCH_TIMEOUT = "30"
+  
+  # Redis
+  GABI_REDIS_DLQ_DB = "1"
+  GABI_REDIS_CACHE_DB = "2"
+  GABI_REDIS_LOCK_DB = "3"
+  
+  # Search
+  GABI_SEARCH_RRF_K = "60"
+  GABI_SEARCH_DEFAULT_LIMIT = "10"
+  GABI_SEARCH_MAX_LIMIT = "100"
+  
+  # Auth
+  GABI_AUTH_ENABLED = "true"
+  GABI_JWT_ALGORITHM = "RS256"
+  GABI_JWT_JWKS_CACHE_MINUTES = "5"
+  
+  # Rate Limiting (stricter for MCP)
+  GABI_RATE_LIMIT_ENABLED = "true"
+  GABI_RATE_LIMIT_REQUESTS_PER_MINUTE = "120"
+  GABI_RATE_LIMIT_BURST = "20"
+  GABI_RATE_LIMIT_WINDOW_SECONDS = "60"
+  
+  # Governance
+  GABI_AUDIT_ENABLED = "true"
+
+[http_service]
+  internal_port = 8001
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ['mcp']
+
+  [http_service.concurrency]
+    type = 'connections'
+    hard_limit = 50
+    soft_limit = 25
+
+  [[http_service.checks]]
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '10s'
+    method = 'GET'
+    path = '/health'
+    protocol = 'http'
+
+[metrics]
+  port = 8001
+  path = "/metrics"
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 2
+
+# MCP Server Process
+[processes]
+  mcp = "python -m gabi.mcp.server"
+
+[[services]]
+  internal_port = 8001
+  protocol = "tcp"
+  
+  [[services.ports]]
+    handlers = ["http"]
+    port = 80
+    force_https = true
+  
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port = 443
+
+  [services.concurrency]
+    type = "connections"
+    hard_limit = 50
+    soft_limit = 25
+
+  [[services.tcp_checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"

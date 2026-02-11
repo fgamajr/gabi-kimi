@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
+from gabi.config import settings
 from gabi.db import get_db_session, get_redis_client, get_es_client
 from gabi.schemas.health import (
     HealthResponse,
@@ -163,11 +164,11 @@ async def health_check(db: AsyncSession = Depends(get_db_session)) -> HealthResp
     
     return HealthResponse(
         status=overall_status,
-        version="1.0.0",  # TODO: Pegar do settings/config
+        version="2.1.0",
         timestamp=datetime.utcnow(),
         uptime_seconds=round(time.time() - _STARTUP_TIME, 2),
         components=components,
-        environment="production",  # TODO: Pegar do settings
+        environment=settings.environment.value,
     )
 
 
@@ -187,6 +188,16 @@ async def liveness_check() -> LivenessResponse:
         LivenessResponse com alive=True
     """
     return LivenessResponse(alive=True)
+
+
+@router.get(
+    "/live",
+    response_model=LivenessResponse,
+    include_in_schema=False,
+)
+async def liveness_check_alias() -> LivenessResponse:
+    """Alias for /health/live (simpler probe path)."""
+    return await liveness_check()
 
 
 @router.get(
@@ -281,3 +292,15 @@ async def readiness_check(db: AsyncSession = Depends(get_db_session)) -> Readine
         timestamp=datetime.utcnow(),
         checks=checks,
     )
+
+
+@router.get(
+    "/ready",
+    response_model=ReadinessResponse,
+    include_in_schema=False,
+)
+async def readiness_check_alias(
+    db: AsyncSession = Depends(get_db_session),
+) -> ReadinessResponse:
+    """Alias for /health/ready (simpler probe path)."""
+    return await readiness_check(db)

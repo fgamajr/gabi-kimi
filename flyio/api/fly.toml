@@ -1,0 +1,166 @@
+# =============================================================================
+# GABI API - Fly.io Configuration
+# FastAPI Application Serving Layer
+# =============================================================================
+
+app = 'gabi-api'
+primary_region = 'gru'
+kill_signal = 'SIGTERM'
+swap_size_mb = 512
+
+[build]
+  dockerfile = "docker/Dockerfile"
+
+[env]
+  # Application
+  GABI_ENVIRONMENT = "production"
+  GABI_DEBUG = "false"
+  GABI_LOG_LEVEL = "info"
+  
+  # API Configuration
+  GABI_API_HOST = "0.0.0.0"
+  GABI_API_PORT = "8000"
+  GABI_API_WORKERS = "4"
+  GABI_API_RELOAD = "false"
+  
+  # CORS (update with your domains)
+  GABI_CORS_ORIGINS = "https://gabi.tcu.gov.br,https://app.tcu.gov.br"
+  
+  # Database (will be overridden by secrets)
+  GABI_DATABASE_POOL_SIZE = "20"
+  GABI_DATABASE_MAX_OVERFLOW = "10"
+  GABI_DATABASE_POOL_TIMEOUT = "30"
+  
+  # Elasticsearch
+  GABI_ELASTICSEARCH_INDEX = "gabi_documents_v1"
+  GABI_ELASTICSEARCH_TIMEOUT = "30"
+  GABI_ELASTICSEARCH_MAX_RETRIES = "3"
+  
+  # Redis (will be overridden by secrets)
+  GABI_REDIS_DLQ_DB = "1"
+  GABI_REDIS_CACHE_DB = "2"
+  GABI_REDIS_LOCK_DB = "3"
+  
+  # Embeddings (must match current 384d pipeline contract)
+  # Point this to your TEI/embedding service URL in production.
+  GABI_EMBEDDINGS_URL = "https://gabi-embeddings.fly.dev"
+  GABI_EMBEDDINGS_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+  GABI_EMBEDDINGS_DIMENSIONS = "384"
+  GABI_EMBEDDINGS_BATCH_SIZE = "32"
+  GABI_EMBEDDINGS_TIMEOUT = "60"
+  
+  # Pipeline (reduced for serving only)
+  GABI_PIPELINE_CONCURRENCY = "2"
+  GABI_PIPELINE_MAX_MEMORY_MB = "1024"
+  GABI_PIPELINE_FETCH_MAX_SIZE_MB = "50"
+  GABI_PIPELINE_CHUNK_MAX_TOKENS = "512"
+  GABI_PIPELINE_CHUNK_OVERLAP_TOKENS = "50"
+  
+  # Search
+  GABI_SEARCH_RRF_K = "60"
+  GABI_SEARCH_DEFAULT_LIMIT = "10"
+  GABI_SEARCH_MAX_LIMIT = "100"
+  GABI_SEARCH_BM25_WEIGHT = "1.0"
+  GABI_SEARCH_VECTOR_WEIGHT = "1.0"
+  GABI_SEARCH_TIMEOUT_MS = "5000"
+  
+  # Auth (production settings)
+  GABI_AUTH_ENABLED = "true"
+  GABI_AUTH_FAIL_CLOSED = "true"
+  GABI_JWT_ALGORITHM = "RS256"
+  GABI_JWT_JWKS_CACHE_MINUTES = "5"
+  
+  # Rate Limiting
+  GABI_RATE_LIMIT_ENABLED = "true"
+  GABI_RATE_LIMIT_REQUESTS_PER_MINUTE = "60"
+  GABI_RATE_LIMIT_BURST = "10"
+  GABI_RATE_LIMIT_WINDOW_SECONDS = "60"
+  GABI_RATE_LIMIT_FAIL_CLOSED = "true"
+  
+  # Security
+  GABI_TRUSTED_PROXIES = "172.16.0.0/12,10.0.0.0/8"
+  
+  # Fetcher Security
+  GABI_FETCHER_SSRF_ENABLED = "true"
+  GABI_FETCHER_SSRF_BLOCK_INTERNAL_IPS = "true"
+  GABI_FETCHER_CIRCUIT_BREAKER_ENABLED = "true"
+  GABI_FETCHER_CIRCUIT_BREAKER_THRESHOLD = "5"
+  GABI_FETCHER_CIRCUIT_BREAKER_TIMEOUT = "60"
+  
+  # Governance
+  GABI_AUDIT_ENABLED = "true"
+  GABI_AUDIT_RETENTION_DAYS = "2555"
+  GABI_QUALITY_ENABLED = "true"
+  GABI_LINEAGE_ENABLED = "true"
+  
+  # Sources
+  GABI_SOURCES_PATH = "sources.yaml"
+  GABI_SOURCES_VALIDATION_STRICT = "true"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 2
+  processes = ['app']
+
+  [http_service.concurrency]
+    type = 'connections'
+    hard_limit = 100
+    soft_limit = 50
+
+  [[http_service.checks]]
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '10s'
+    method = 'GET'
+    path = '/health'
+    protocol = 'http'
+
+  [[http_service.checks]]
+    interval = '60s'
+    timeout = '10s'
+    grace_period = '30s'
+    method = 'GET'
+    path = '/health/ready'
+    protocol = 'http'
+
+[metrics]
+  port = 8000
+  path = "/metrics"
+
+[[vm]]
+  memory = '2gb'
+  cpu_kind = 'shared'
+  cpus = 2
+
+# Mount for temporary uploads
+[[mounts]]
+  source = 'gabi_uploads'
+  destination = '/app/uploads'
+  initial_size = '1gb'
+
+# Scale settings
+[[services]]
+  internal_port = 8000
+  protocol = "tcp"
+  
+  [[services.ports]]
+    handlers = ["http"]
+    port = 80
+    force_https = true
+  
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port = 443
+
+  [services.concurrency]
+    type = "connections"
+    hard_limit = 100
+    soft_limit = 50
+
+  [[services.tcp_checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"

@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import time
 import uuid
 from datetime import datetime, timezone
 import itertools
@@ -311,11 +312,16 @@ class PipelineOrchestrator:
             "source_id": source_id,
             "status": "running",
             "started_at": self._manifest.started_at.isoformat() if self._manifest.started_at else None,
+            "phase_durations_ms": {},
         }
         
         try:
             # Fase 1: Discovery
+            discovery_start = time.perf_counter()
             urls = await self._discovery_phase(source_config, stats)
+            stats["phase_durations_ms"][PipelinePhase.DISCOVERY.value] = round(
+                (time.perf_counter() - discovery_start) * 1000, 2
+            )
             
             if not urls:
                 logger.info(f"No URLs discovered for {source_id}")
@@ -324,10 +330,15 @@ class PipelineOrchestrator:
                 return stats
             
             # Fase 2: Change Detection
+            change_detection_start = time.perf_counter()
             urls_to_process = await self._change_detection_phase(urls, source_id, source_config, stats)
+            stats["phase_durations_ms"][PipelinePhase.CHANGE_DETECTION.value] = round(
+                (time.perf_counter() - change_detection_start) * 1000, 2
+            )
             
             # Fase 3: Processing
             if urls_to_process:
+                processing_start = time.perf_counter()
                 await self._processing_phase(
                     urls_to_process,
                     source_id,
@@ -335,9 +346,21 @@ class PipelineOrchestrator:
                     run_id,
                     stats,
                 )
+                stats["phase_durations_ms"]["processing_total"] = round(
+                    (time.perf_counter() - processing_start) * 1000, 2
+                )
             
             stats["status"] = "success"
             await self._complete_manifest(run_id, "success", stats)
+            logger.info(
+                "Pipeline run completed",
+                extra={
+                    "run_id": run_id,
+                    "source_id": source_id,
+                    "status": "success",
+                    "phase_durations_ms": stats.get("phase_durations_ms", {}),
+                },
+            )
             
         except Exception as e:
             logger.error(f"Pipeline failed for {source_id}: {e}")
@@ -538,6 +561,7 @@ class PipelineOrchestrator:
             self._check_memory()
 
             # Fetch
+            fetch_started = time.perf_counter()
             method = fetch_config.get("method", "GET")
             headers = fetch_config.get("headers")
             fetched = await self.fetcher.fetch(
@@ -546,13 +570,22 @@ class PipelineOrchestrator:
                 method=method,
                 headers=headers,
             )
+            fetch_duration_ms = round((time.perf_counter() - fetch_started) * 1000, 2)
+            stats["fetch_duration_ms_total"] = round(
+                stats.get("fetch_duration_ms_total", 0.0) + fetch_duration_ms, 2
+            )
 
             # Parse
+            parse_started = time.perf_counter()
             parser_config = dict(parse_config)
             parser_config.setdefault("source_id", source_id)
             parsed = None
             if parser_config.get("input_format") or parser_config.get("format"):
                 parsed = await self.parser.parse(fetched, parser_config)
+            parse_duration_ms = round((time.perf_counter() - parse_started) * 1000, 2)
+            stats["parse_duration_ms_total"] = round(
+                stats.get("parse_duration_ms_total", 0.0) + parse_duration_ms, 2
+            )
             
             # Atualiza estatísticas
             stats["documents_fetched"] = stats.get("documents_fetched", 0) + 1

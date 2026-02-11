@@ -17,7 +17,6 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
-import pytest_asyncio
 
 from gabi.pipeline.deduplication import DedupConfig, Deduplicator
 from gabi.types import DocumentStatus
@@ -74,7 +73,7 @@ def concurrent_fingerprints() -> list[str]:
     ]
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def redis_with_lock_mock() -> Mock:
     """Mock do Redis que simula comportamento de lock real."""
     client = Mock()
@@ -113,7 +112,7 @@ async def redis_with_lock_mock() -> Mock:
     return client
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def redis_with_lock_contention() -> Mock:
     """Mock do Redis que simula alta contenção de locks."""
     client = Mock()

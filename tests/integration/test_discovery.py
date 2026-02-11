@@ -20,7 +20,6 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import pytest
-import pytest_asyncio
 import respx
 
 from gabi.services.discovery import (
@@ -41,7 +40,7 @@ from gabi.pipeline.contracts import DiscoveredURL, DiscoveryResult
 # Fixtures
 # =============================================================================
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def http_client() -> AsyncGenerator[httpx.AsyncClient, None]:
     """Cria cliente HTTP para testes.
     

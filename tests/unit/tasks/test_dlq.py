@@ -8,7 +8,6 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import pytest_asyncio
 
 from gabi.models.dlq import DLQStatus
 from gabi.tasks.dlq import (

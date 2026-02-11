@@ -319,7 +319,7 @@ run-prod: ## Roda API em modo produção (sem reload)
 .PHONY: worker
 worker: ## Roda Celery worker localmente
 	@echo "$(BLUE)⚙️  Iniciando Celery Worker...$(RESET)"
-	cd src && $(CELERY) -A gabi.worker worker -l info -Q default,priority --concurrency=2
+	cd src && $(CELERY) -A gabi.worker worker -l info -Q gabi.default,gabi.sync,gabi.sync.high,gabi.sync.normal,gabi.sync.bulk,gabi.dlq --concurrency=2
 
 .PHONY: worker-beat
 worker-beat: ## Roda Celery beat (scheduler)
@@ -343,6 +343,56 @@ all: ## Inicia toda a stack localmente (docker + migrate + api + worker)
 	@echo "$(YELLOW)   (Use Ctrl+C para parar)$(RESET)"
 	@trap '$(MAKE) docker-down' EXIT; \
 	(make run & make worker)
+
+# =============================================================================
+# MCP Hybrid Search Server
+# =============================================================================
+
+.PHONY: mcp-hybrid-run
+mcp-hybrid-run: ## Roda MCP Hybrid Search Server localmente
+	@echo "$(BLUE)🔌 Iniciando MCP Hybrid Search Server...$(RESET)"
+	@echo "$(YELLOW)   Acesse: http://localhost:8001$(RESET)"
+	@echo "$(YELLOW)   SSE: http://localhost:8001/mcp/sse$(RESET)"
+	@echo "$(YELLOW)   Health: http://localhost:8001/health$(RESET)"
+	@echo ""
+	cd src && $(UVICORN) gabi.mcp.server_hybrid:app --reload --host 0.0.0.0 --port 8001
+
+.PHONY: mcp-hybrid-run-prod
+mcp-hybrid-run-prod: ## Roda MCP Hybrid em modo produção
+	@echo "$(BLUE)🔌 Iniciando MCP Hybrid Search Server (produção)...$(RESET)"
+	cd src && $(UVICORN) gabi.mcp.server_hybrid:app --host 0.0.0.0 --port 8001 --workers 2
+
+.PHONY: mcp-hybrid-docker
+mcp-hybrid-docker: ## Inicia apenas MCP Hybrid no Docker
+	@echo "$(BLUE)🐳 Iniciando MCP Hybrid no Docker...$(RESET)"
+	$(DOCKER_COMPOSE) -f docker-compose.yml -f docker/docker-compose.mcp-hybrid.yml up -d mcp-hybrid
+	@echo "$(GREEN)✅ MCP Hybrid iniciado!$(RESET)"
+	@echo "$(YELLOW)   Acesse: http://localhost:8001$(RESET)"
+
+.PHONY: mcp-hybrid-test
+mcp-hybrid-test: ## Executa testes do MCP Hybrid
+	@echo "$(BLUE)🧪 Executando testes do MCP Hybrid...$(RESET)"
+	$(PYTEST) tests/test_mcp_hybrid.py -v
+
+.PHONY: mcp-hybrid-migrate
+mcp-hybrid-migrate: ## Migra do MCP Legacy para Hybrid
+	@echo "$(BLUE)🔄 Migrando para MCP Hybrid...$(RESET)"
+	$(PYTHON) scripts/migrate_mcp_to_hybrid.py --migrate
+
+.PHONY: mcp-hybrid-check
+mcp-hybrid-check: ## Verifica estado da migração MCP
+	@echo "$(BLUE)🔍 Verificando estado do MCP...$(RESET)"
+	$(PYTHON) scripts/migrate_mcp_to_hybrid.py --check-only
+
+.PHONY: mcp-hybrid-health
+mcp-hybrid-health: ## Verifica health do MCP Hybrid
+	@echo "$(BLUE)🏥 Verificando health do MCP Hybrid...$(RESET)"
+	@curl -s http://localhost:8001/health | $(PYTHON) -m json.tool
+
+.PHONY: mcp-hybrid-logs
+mcp-hybrid-logs: ## Mostra logs do MCP Hybrid
+	@echo "$(BLUE)📋 Logs do MCP Hybrid...$(RESET)"
+	$(DOCKER_COMPOSE) logs -f mcp-hybrid
 
 # =============================================================================
 # Pipeline e Ingestão
@@ -421,3 +471,133 @@ ci-lint: ## Executa lint em modo CI (sem auto-fix)
 # =============================================================================
 
 .DEFAULT_GOAL := help
+
+
+# =============================================================================
+# Fly.io Deployment
+# =============================================================================
+
+.PHONY: fly-setup
+fly-setup: ## Setup Fly.io infrastructure (postgres, redis, apps)
+	@echo "$(BLUE)🚀 Setting up Fly.io infrastructure...$(RESET)"
+	chmod +x flyio/scripts/*.sh
+	./flyio/scripts/01-setup-infrastructure.sh
+
+.PHONY: fly-secrets
+fly-secrets: ## Configure secrets for Fly.io
+	@echo "$(BLUE)🔐 Configuring Fly.io secrets...$(RESET)"
+	./flyio/scripts/02-setup-secrets.sh
+
+.PHONY: fly-deploy
+fly-deploy: ## Deploy all apps to Fly.io
+	@echo "$(BLUE)🚀 Deploying to Fly.io...$(RESET)"
+	./flyio/scripts/03-deploy.sh
+
+.PHONY: fly-deploy-api
+fly-deploy-api: ## Deploy API to Fly.io only
+	@echo "$(BLUE)🚀 Deploying API to Fly.io...$(RESET)"
+	cd flyio/api && fly deploy
+
+.PHONY: fly-deploy-mcp
+fly-deploy-mcp: ## Deploy MCP to Fly.io only
+	@echo "$(BLUE)🚀 Deploying MCP to Fly.io...$(RESET)"
+	cd flyio/mcp && fly deploy
+
+.PHONY: fly-deploy-worker
+fly-deploy-worker: ## Deploy Worker to Fly.io only
+	@echo "$(BLUE)🚀 Deploying Worker to Fly.io...$(RESET)"
+	cd flyio/worker && fly deploy
+
+.PHONY: fly-migrate
+fly-migrate: ## Migrate data from local to Fly.io
+	@echo "$(BLUE)📦 Migrating data to Fly.io...$(RESET)"
+	./flyio/scripts/04-migrate-data.sh
+
+.PHONY: fly-rollback
+fly-rollback: ## Rollback procedures
+	@echo "$(BLUE)⏮️  Rollback menu...$(RESET)"
+	./flyio/scripts/rollback.sh
+
+.PHONY: fly-monitor
+fly-monitor: ## Monitor Fly.io services
+	@echo "$(BLUE)📊 Monitoring Fly.io services...$(RESET)"
+	./flyio/scripts/monitoring.sh
+
+.PHONY: fly-logs-api
+fly-logs-api: ## View API logs
+	@fly logs --app gabi-api
+
+.PHONY: fly-logs-mcp
+fly-logs-mcp: ## View MCP logs
+	@fly logs --app gabi-mcp
+
+.PHONY: fly-logs-worker
+fly-logs-worker: ## View Worker logs
+	@fly logs --app gabi-worker
+
+.PHONY: fly-status
+fly-status: ## Check status of all Fly.io apps
+	@echo "$(BLUE)📋 Fly.io App Status$(RESET)"
+	@echo "$(YELLOW)--- gabi-api ---$(RESET)"
+	@fly status --app gabi-api
+	@echo ""
+	@echo "$(YELLOW)--- gabi-mcp ---$(RESET)"
+	@fly status --app gabi-mcp
+	@echo ""
+	@echo "$(YELLOW)--- gabi-worker ---$(RESET)"
+	@fly status --app gabi-worker
+	@echo ""
+	@echo "$(YELLOW)--- gabi-db ---$(RESET)"
+	@fly status --app gabi-db || echo "Database status check completed"
+
+.PHONY: fly-destroy
+fly-destroy: ## ⚠️  DESTROY all Fly.io resources (USE WITH CAUTION!)
+	@echo "$(RED)⚠️  WARNING: This will destroy all Fly.io resources!$(RESET)"
+	@echo "$(RED)   Apps to be destroyed: gabi-api, gabi-mcp, gabi-worker, gabi-db$(RESET)"
+	@read -p "Type 'DESTROY' to confirm: " confirm && [ "$$confirm" = "DESTROY" ] || (echo "Aborted." && exit 1)
+	@echo "$(RED)Destroying apps...$(RESET)"
+	-fly apps destroy gabi-api --yes
+	-fly apps destroy gabi-mcp --yes
+	-fly apps destroy gabi-worker --yes
+	-fly apps destroy gabi-db --yes
+	@echo "$(GREEN)Cleanup complete.$(RESET)"
+
+.PHONY: fly-ssh-api
+fly-ssh-api: ## SSH into API container
+	@fly ssh console --app gabi-api
+
+.PHONY: fly-ssh-mcp
+fly-ssh-mcp: ## SSH into MCP container
+	@fly ssh console --app gabi-mcp
+
+.PHONY: fly-ssh-worker
+fly-ssh-worker: ## SSH into Worker container
+	@fly ssh console --app gabi-worker
+
+.PHONY: fly-db-connect
+fly-db-connect: ## Connect to Fly PostgreSQL
+	@fly postgres connect --app gabi-db
+
+.PHONY: fly-db-proxy
+fly-db-proxy: ## Start local proxy to Fly PostgreSQL
+	@fly proxy 5433:5432 --app gabi-db
+
+.PHONY: fly-scale-api
+fly-scale-api: ## Scale API (use: make fly-scale-api COUNT=3)
+ifndef COUNT
+	@echo "$(RED)❌ Error: Define the scale count$(RESET)"
+	@echo "$(YELLOW)   Usage: make fly-scale-api COUNT=3$(RESET)"
+	@exit 1
+endif
+	@echo "$(BLUE)Scaling gabi-api to $(COUNT) machines...$(RESET)"
+	@fly scale count $(COUNT) --app gabi-api
+
+.PHONY: fly-scale-worker
+fly-scale-worker: ## Scale Worker (use: make fly-scale-worker COUNT=2)
+ifndef COUNT
+	@echo "$(RED)❌ Error: Define the scale count$(RESET)"
+	@echo "$(YELLOW)   Usage: make fly-scale-worker COUNT=2$(RESET)"
+	@exit 1
+endif
+	@echo "$(BLUE)Scaling gabi-worker to $(COUNT) machines...$(RESET)"
+	@fly scale count $(COUNT) --app gabi-worker
