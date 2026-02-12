@@ -1,0 +1,425 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# GABI-SYNC: Source Definitions (v2 - Clean Architecture)
+# ═══════════════════════════════════════════════════════════════════════════════
+# This file defines WHAT sources to ingest. The pipeline configuration (HOW)
+# is separate and modular.
+#
+# Architecture alignment:
+# - contracts/: Maps directly to Pydantic contracts
+# - discover/: Consumes 'discovery' section
+# - ingest/: Consumes 'fetch', 'parse', 'transform' sections
+# - sync/: Consumes 'pipeline' orchestration config
+#
+# Version: 2.0.0
+# ═══════════════════════════════════════════════════════════════════════════════
+
+apiVersion: gabi.io/v2
+kind: SourceCatalog
+defaults:
+  # Default pipeline configuration (can be overridden per source)
+  pipeline:
+    retry:
+      max_attempts: 3
+      backoff: exponential
+      initial_delay: 1s
+      max_delay: 60s
+    
+    # Resource limits (safety guards)
+    limits:
+      max_file_size: 100MB
+      max_documents: null  # null = unlimited
+      timeout: 5m
+      memory_threshold: 300MB
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SOURCES
+# ═══════════════════════════════════════════════════════════════════════════════
+sources:
+  
+  # ─────────────────────────────────────────────────────────────────────────────
+  # TCU - Acórdãos (Pattern-based discovery)
+  # ─────────────────────────────────────────────────────────────────────────────
+  tcu_acordaos:
+    # Identity (who/what is this source)
+    identity:
+      name: "TCU - Acórdãos"
+      description: "Acórdãos completos do Tribunal de Contas da União"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: jurisprudence
+      
+    # Discovery phase: Where to find content
+    discovery:
+      strategy: url_pattern
+      config:
+        template: "https://sites.tcu.gov.br/dados-abertos/jurisprudencia/arquivos/acordao-completo/acordao-completo-{year}.csv"
+        parameters:
+          year:
+            type: range
+            start: 1992
+            end: current
+            step: 1
+        change_detection:
+          method: etag
+          fingerprint_headers: [last-modified, content-length]
+      
+    # Fetch phase: How to retrieve
+    fetch:
+      protocol: https
+      method: GET
+      headers:
+        Accept: text/csv,application/octet-stream
+        User-Agent: "GABI-Sync/2.0 (TCU Data Ingestion)"
+      
+      # Format-specific options
+      format:
+        type: csv
+        encoding: utf-8
+        delimiter: "|"
+        quotechar: '"'
+        escapechar: null
+        doublequote: true
+        skipinitialspace: true
+        lineterminator: auto
+      
+      # Streaming configuration (file-size independent)
+      streaming:
+        enabled: true
+        chunk_size: 64KB
+        queue_size: 1000
+        decode_unicode: true
+      
+      limits:
+        max_size: 500MB  # Per-year files are smaller
+        connect_timeout: 30s
+        read_timeout: null  # Streaming = no timeout
+    
+    # Parse phase: Convert raw bytes to documents
+    parse:
+      strategy: csv_row_to_document
+      
+      # Row-level configuration
+      row:
+        header_row: 0
+        skip_rows: 0
+        id_column: KEY
+        
+      # Field extraction (maps CSV columns to document fields)
+      fields:
+        # Identity fields
+        document_id:
+          source: KEY
+          transforms: [strip_quotes]
+          required: true
+          
+        year:
+          source: ANOACORDAO
+          transforms: [strip_quotes, parse_int]
+          required: true
+          
+        number:
+          source: NUMACORDAO
+          transforms: [strip_quotes]
+          required: true
+          
+        # Content fields (full text)
+        content:
+          source: ACORDAO
+          transforms: [strip_quotes, strip_html]
+          required: true
+          store: true  # Store in PG
+          index: true  # Index in ES
+          chunk: true  # Create embeddings
+          
+        # Additional text fields
+        text_relatorio:
+          source: RELATORIO
+          transforms: [strip_quotes, strip_html]
+          chunk: true
+          
+        text_voto:
+          source: VOTO
+          transforms: [strip_quotes, strip_html]
+          chunk: true
+          
+        text_decisao:
+          source: DECISAO
+          transforms: [strip_quotes, strip_html]
+          chunk: true
+          
+        # Metadata fields
+        metadata:
+          # Static metadata
+          tipo: {source: TIPO, transforms: [strip_quotes]}
+          colegiado: {source: COLEGIADO, transforms: [strip_quotes]}
+          relator: {source: RELATOR, transforms: [strip_quotes]}
+          situacao: {source: SITUACAO, transforms: [strip_quotes]}
+          assunto: {source: ASSUNTO, transforms: [strip_quotes]}
+          data_sessao: {source: DATASESSAO, transforms: [strip_quotes, parse_date]}
+          processo: {source: PROC, transforms: [strip_quotes]}
+          numata: {source: NUMATA, transforms: [strip_quotes]}
+          titulo: {source: TITULO, transforms: [strip_quotes]}
+      
+      # Document composition
+      document:
+        id_template: "acordao-{number}/{year}"
+        title_template: "Acórdão {number}/{year}"
+        content_fields: [content, text_relatorio, text_voto, text_decisao]
+        
+    # Transform phase: Post-processing (optional)
+    transform:
+      # Validation rules
+      validate:
+        - rule: required_fields
+          fields: [document_id, year, number, content]
+        - rule: field_format
+          field: year
+          pattern: "^\\d{4}$"
+        - rule: content_length
+          field: content
+          min: 100  # Characters
+          
+      # Enrichment
+      enrich:
+        - action: add_timestamp
+          field: ingested_at
+        - action: compute_hash
+          field: content_hash
+          source: content
+          algorithm: sha256
+    
+    # Pipeline configuration (orchestration)
+    pipeline:
+      enabled: true
+      schedule: "0 2 * * *"  # Daily at 2 AM
+      mode: incremental
+      
+      # Phase enablement (all true by default)
+      phases:
+        discover: true
+        fetch: true
+        parse: true
+        transform: true
+        deduplicate: true
+        chunk: true
+      
+      # Optional phases (require additional infrastructure)
+      optional:
+        embed:  # Requires TEI container
+          enabled: true
+          batch_size: 32
+          
+        index:  # Requires ES container
+          enabled: true
+          target: elasticsearch
+          index_name: gabi_documents_v1
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # TCU - Normas (Single static URL with streaming)
+  # ─────────────────────────────────────────────────────────────────────────────
+  tcu_normas:
+    identity:
+      name: "TCU - Normas Internas"
+      description: "Normas internas do TCU (Portarias, Resoluções, etc.)"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: legislation
+      
+    discovery:
+      strategy: static_url
+      config:
+        url: "https://sites.tcu.gov.br/dados-abertos/normas/arquivos/norma.csv"
+        change_detection:
+          method: etag
+          
+    fetch:
+      protocol: https
+      method: GET
+      
+      format:
+        type: csv
+        encoding: utf-8
+        delimiter: "|"
+        quotechar: '"'
+        
+      streaming:
+        enabled: true
+        # Critical: 587MB file requires streaming
+        chunk_size: 64KB
+        queue_size: 1000
+        
+      limits:
+        max_size: 1GB  # File is 587MB
+        
+    parse:
+      strategy: csv_row_to_document
+      
+      row:
+        header_row: 0
+        id_column: KEY
+        
+      fields:
+        document_id:
+          source: KEY
+          transforms: [strip_quotes]
+          required: true
+          
+        year:
+          source: ANONORMA
+          transforms: [strip_quotes, parse_int]
+          
+        number:
+          source: NUMNORMA
+          transforms: [strip_quotes]
+          
+        type:
+          source: TIPONORMA
+          transforms: [strip_quotes]
+          
+        content:
+          source: TEXTONORMA
+          transforms: [strip_quotes, strip_html]
+          required: true
+          store: true
+          index: true
+          chunk: true
+          
+        metadata:
+          titulo: {source: TITULO, transforms: [strip_quotes]}
+          assunto: {source: ASSUNTO, transforms: [strip_quotes]}
+          situacao: {source: SITUACAO, transforms: [strip_quotes]}
+          url: {source: LINKBTCU, transforms: [strip_quotes]}
+          
+      document:
+        id_template: "norma-{type}-{number}/{year}"
+        title_template: "{type} nº {number}/{year}"
+        content_fields: [content]
+        
+    pipeline:
+      enabled: true
+      schedule: "0 3 * * *"
+      mode: full_reload  # Single file, always full reload
+      
+      optional:
+        embed:
+          enabled: true
+          chunking:
+            strategy: semantic
+            unit: article
+            overlap_tokens: 0
+            
+  # ─────────────────────────────────────────────────────────────────────────────
+  # TCU - Súmulas
+  # ─────────────────────────────────────────────────────────────────────────────
+  tcu_sumulas:
+    identity:
+      name: "TCU - Súmulas"
+      description: "Súmulas do Tribunal de Contas da União"
+      provider: TCU
+      domain: legal
+      category: jurisprudence_highlight
+      
+    discovery:
+      strategy: static_url
+      config:
+        url: "https://sites.tcu.gov.br/dados-abertos/jurisprudencia/arquivos/sumula/sumula.csv"
+        
+    fetch:
+      protocol: https
+      method: GET
+      format:
+        type: csv
+        delimiter: "|"
+        
+    parse:
+      strategy: csv_row_to_document
+      fields:
+        document_id:
+          source: KEY
+          transforms: [strip_quotes]
+          required: true
+          
+        number:
+          source: NUMERO
+          transforms: [strip_quotes]
+          
+        year:
+          source: ANOAPROVACAO
+          transforms: [strip_quotes, parse_int]
+          
+        content:
+          source: ENUNCIADO
+          transforms: [strip_quotes]
+          required: true
+          store: true
+          index: true
+          chunk: true
+          
+        metadata:
+          excerto: {source: EXCERTO, transforms: [strip_quotes]}
+          vigente: {source: VIGENTE, transforms: [parse_boolean]}
+          
+      document:
+        id_template: "sumula-{number}/{year}"
+        title_template: "Súmula {number}"
+        content_fields: [content]
+        
+    pipeline:
+      enabled: true
+      schedule: "0 4 * * *"
+      mode: full_reload
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TRANSFORMS (Reusable transform functions)
+# ═══════════════════════════════════════════════════════════════════════════════
+transforms:
+  strip_quotes:
+    description: "Remove surrounding quotes from string"
+    type: builtin
+    
+  strip_quotes_and_html:
+    description: "Remove quotes and HTML tags"
+    type: builtin
+    pipeline: [strip_quotes, strip_html]
+    
+  strip_html:
+    description: "Remove HTML tags from content"
+    type: builtin
+    options:
+      allowed_tags: []  # Empty = strip all
+      
+  parse_int:
+    description: "Parse string to integer"
+    type: builtin
+    
+  parse_date:
+    description: "Parse date string to ISO format"
+    type: builtin
+    options:
+      input_formats: ["%d/%m/%Y", "%Y-%m-%d"]
+      output_format: "iso"
+      
+  parse_boolean:
+    description: "Parse various boolean representations"
+    type: builtin
+    options:
+      true_values: ["true", "1", "yes", "sim", "S", "s"]
+      false_values: ["false", "0", "no", "nao", "N", "n"]
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VALIDATION RULES (Reusable validation rules)
+# ═══════════════════════════════════════════════════════════════════════════════
+validation_rules:
+  required_fields:
+    description: "Ensure specified fields are present and non-empty"
+    
+  field_format:
+    description: "Validate field matches regex pattern"
+    
+  content_length:
+    description: "Validate content meets minimum length"
+    
+  unique_document_id:
+    description: "Ensure document_id is unique within source"

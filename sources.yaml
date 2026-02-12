@@ -118,6 +118,7 @@ sources:
     fetch:
       protocol: https
       method: GET
+      max_size_mb: 1024  # Allow 1GB (587MB file + margin) - enables streaming large files
       output:
         format: csv
         encoding: utf-8
@@ -127,6 +128,10 @@ sources:
     parse:
       input_format: csv
       strategy: row_to_document
+      streaming: true  # TRUE streaming - file-size independent, works with timeout=None
+      batch_size: 10  # Process and commit documents in batches of 10
+      max_rows: 1000000  # Safety limit
+      max_parse_size_bytes: 1073741824  # 1GB - match fetcher limit (fallback for non-streaming)
 
     mapping:
       document_id: {from: "KEY", transform: strip_quotes}

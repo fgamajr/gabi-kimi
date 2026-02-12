@@ -1,1 +1,0 @@
-"""Test suite do GABI."""

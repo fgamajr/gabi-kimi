@@ -1,0 +1,2 @@
+  tei_cache:
+    driver: local
