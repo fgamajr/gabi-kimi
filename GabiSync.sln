@@ -1,0 +1,62 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{3C177E6B-B9B4-4478-AC5B-DC13C1798664}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Gabi.Contracts", "src\Gabi.Contracts\Gabi.Contracts.csproj", "{1DAFF018-6961-4E86-A1DD-3F37304A1CE3}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Gabi.Postgres", "src\Gabi.Postgres\Gabi.Postgres.csproj", "{A18B213B-FC1B-43B0-9B36-1CE3D7BE246A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Gabi.Discover", "src\Gabi.Discover\Gabi.Discover.csproj", "{CD45B435-474E-4362-8B8B-C9D66B525572}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Gabi.Ingest", "src\Gabi.Ingest\Gabi.Ingest.csproj", "{59D93E5F-E6C5-4D20-8FBB-8E56C77329CC}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Gabi.Sync", "src\Gabi.Sync\Gabi.Sync.csproj", "{074EB7D5-7AF8-4B44-8E31-40BB1E5A85B3}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Gabi.Worker", "src\Gabi.Worker\Gabi.Worker.csproj", "{E8CC45E0-CA0A-4F83-8140-7CA859D2C1C7}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{1DAFF018-6961-4E86-A1DD-3F37304A1CE3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1DAFF018-6961-4E86-A1DD-3F37304A1CE3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1DAFF018-6961-4E86-A1DD-3F37304A1CE3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1DAFF018-6961-4E86-A1DD-3F37304A1CE3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A18B213B-FC1B-43B0-9B36-1CE3D7BE246A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A18B213B-FC1B-43B0-9B36-1CE3D7BE246A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A18B213B-FC1B-43B0-9B36-1CE3D7BE246A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A18B213B-FC1B-43B0-9B36-1CE3D7BE246A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CD45B435-474E-4362-8B8B-C9D66B525572}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CD45B435-474E-4362-8B8B-C9D66B525572}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CD45B435-474E-4362-8B8B-C9D66B525572}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CD45B435-474E-4362-8B8B-C9D66B525572}.Release|Any CPU.Build.0 = Release|Any CPU
+		{59D93E5F-E6C5-4D20-8FBB-8E56C77329CC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{59D93E5F-E6C5-4D20-8FBB-8E56C77329CC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{59D93E5F-E6C5-4D20-8FBB-8E56C77329CC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{59D93E5F-E6C5-4D20-8FBB-8E56C77329CC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{074EB7D5-7AF8-4B44-8E31-40BB1E5A85B3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{074EB7D5-7AF8-4B44-8E31-40BB1E5A85B3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{074EB7D5-7AF8-4B44-8E31-40BB1E5A85B3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{074EB7D5-7AF8-4B44-8E31-40BB1E5A85B3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E8CC45E0-CA0A-4F83-8140-7CA859D2C1C7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E8CC45E0-CA0A-4F83-8140-7CA859D2C1C7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E8CC45E0-CA0A-4F83-8140-7CA859D2C1C7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E8CC45E0-CA0A-4F83-8140-7CA859D2C1C7}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{1DAFF018-6961-4E86-A1DD-3F37304A1CE3} = {3C177E6B-B9B4-4478-AC5B-DC13C1798664}
+		{A18B213B-FC1B-43B0-9B36-1CE3D7BE246A} = {3C177E6B-B9B4-4478-AC5B-DC13C1798664}
+		{CD45B435-474E-4362-8B8B-C9D66B525572} = {3C177E6B-B9B4-4478-AC5B-DC13C1798664}
+		{59D93E5F-E6C5-4D20-8FBB-8E56C77329CC} = {3C177E6B-B9B4-4478-AC5B-DC13C1798664}
+		{074EB7D5-7AF8-4B44-8E31-40BB1E5A85B3} = {3C177E6B-B9B4-4478-AC5B-DC13C1798664}
+		{E8CC45E0-CA0A-4F83-8140-7CA859D2C1C7} = {3C177E6B-B9B4-4478-AC5B-DC13C1798664}
+	EndGlobalSection
+EndGlobal

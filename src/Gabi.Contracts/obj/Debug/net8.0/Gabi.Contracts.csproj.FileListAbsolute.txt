@@ -1,0 +1,12 @@
+/home/fgamajr/dev/gabi-kimi/src/Gabi.Contracts/bin/Debug/net8.0/Gabi.Contracts.deps.json
+/home/fgamajr/dev/gabi-kimi/src/Gabi.Contracts/bin/Debug/net8.0/Gabi.Contracts.dll
+/home/fgamajr/dev/gabi-kimi/src/Gabi.Contracts/bin/Debug/net8.0/Gabi.Contracts.pdb
+/home/fgamajr/dev/gabi-kimi/src/Gabi.Contracts/obj/Debug/net8.0/Gabi.Contracts.GeneratedMSBuildEditorConfig.editorconfig
+/home/fgamajr/dev/gabi-kimi/src/Gabi.Contracts/obj/Debug/net8.0/Gabi.Contracts.AssemblyInfoInputs.cache
+/home/fgamajr/dev/gabi-kimi/src/Gabi.Contracts/obj/Debug/net8.0/Gabi.Contracts.AssemblyInfo.cs
+/home/fgamajr/dev/gabi-kimi/src/Gabi.Contracts/obj/Debug/net8.0/Gabi.Contracts.csproj.CoreCompileInputs.cache
+/home/fgamajr/dev/gabi-kimi/src/Gabi.Contracts/obj/Debug/net8.0/Gabi.Contracts.sourcelink.json
+/home/fgamajr/dev/gabi-kimi/src/Gabi.Contracts/obj/Debug/net8.0/Gabi.Contracts.dll
+/home/fgamajr/dev/gabi-kimi/src/Gabi.Contracts/obj/Debug/net8.0/refint/Gabi.Contracts.dll
+/home/fgamajr/dev/gabi-kimi/src/Gabi.Contracts/obj/Debug/net8.0/Gabi.Contracts.pdb
+/home/fgamajr/dev/gabi-kimi/src/Gabi.Contracts/obj/Debug/net8.0/ref/Gabi.Contracts.dll
