@@ -237,6 +237,12 @@ public class Phase0Orchestrator : IPhase0Orchestrator
             finalLinks.Add(comparison.UpdatedLink);
         }
 
+        // Add unchanged links that were skipped from metadata fetching
+        var unchangedLinks = comparisonResults
+            .Where(r => r.Status == LinkDiscoveryStatus.Unchanged)
+            .Select(r => r.UpdatedLink);
+        finalLinks.AddRange(unchangedLinks);
+
         return finalLinks;
     }
 
@@ -415,8 +421,8 @@ public class LinkComparator : ILinkComparator
         Contracts.Pipeline.DiscoveredLink? existing,
         MetadataFetchResult? fetchedMetadata)
     {
-        // New link
-        if (existing == null)
+        // New link (null or Id = 0 indicates not yet persisted)
+        if (existing == null || existing.Id == 0)
         {
             return new LinkComparisonResult
             {

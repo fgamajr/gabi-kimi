@@ -172,7 +172,8 @@ public class Phase0OrchestratorTests
         // No existing links for new ones
         SetupNoExistingLink(sourceId, "http://example.com/new1");
         SetupNoExistingLink(sourceId, "http://example.com/new2");
-        SetupNoExistingLink(sourceId, "http://example.com/changed");
+        // Changed link has existing entry with different metadata (will be detected as changed)
+        SetupExistingLink(sourceId, "http://example.com/changed", unchanged: false);
         SetupExistingLink(sourceId, "http://example.com/unchanged", unchanged: true);
 
         SetupMetadataFetcher("http://example.com/new1", 1000);

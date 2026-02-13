@@ -19,13 +19,7 @@
 /home/fgamajr/dev/gabi-kimi/src/Gabi.Api/bin/Debug/net8.0/Microsoft.EntityFrameworkCore.Abstractions.dll
 /home/fgamajr/dev/gabi-kimi/src/Gabi.Api/bin/Debug/net8.0/Microsoft.EntityFrameworkCore.Design.dll
 /home/fgamajr/dev/gabi-kimi/src/Gabi.Api/bin/Debug/net8.0/Microsoft.EntityFrameworkCore.Relational.dll
-/home/fgamajr/dev/gabi-kimi/src/Gabi.Api/bin/Debug/net8.0/Microsoft.Extensions.Caching.Memory.dll
-/home/fgamajr/dev/gabi-kimi/src/Gabi.Api/bin/Debug/net8.0/Microsoft.Extensions.DependencyInjection.dll
-/home/fgamajr/dev/gabi-kimi/src/Gabi.Api/bin/Debug/net8.0/Microsoft.Extensions.DependencyInjection.Abstractions.dll
 /home/fgamajr/dev/gabi-kimi/src/Gabi.Api/bin/Debug/net8.0/Microsoft.Extensions.DependencyModel.dll
-/home/fgamajr/dev/gabi-kimi/src/Gabi.Api/bin/Debug/net8.0/Microsoft.Extensions.Logging.dll
-/home/fgamajr/dev/gabi-kimi/src/Gabi.Api/bin/Debug/net8.0/Microsoft.Extensions.Logging.Abstractions.dll
-/home/fgamajr/dev/gabi-kimi/src/Gabi.Api/bin/Debug/net8.0/Microsoft.Extensions.Options.dll
 /home/fgamajr/dev/gabi-kimi/src/Gabi.Api/bin/Debug/net8.0/Microsoft.IdentityModel.Abstractions.dll
 /home/fgamajr/dev/gabi-kimi/src/Gabi.Api/bin/Debug/net8.0/Microsoft.IdentityModel.JsonWebTokens.dll
 /home/fgamajr/dev/gabi-kimi/src/Gabi.Api/bin/Debug/net8.0/Microsoft.IdentityModel.Logging.dll
