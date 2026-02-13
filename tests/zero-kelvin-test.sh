@@ -108,17 +108,24 @@ phase_destroy() {
     log "Limpando logs e arquivos temporários..."
     rm -rf /tmp/gabi-logs /tmp/gabi-*.pid 2>/dev/null || true
     
+    # Garantir que containers do projeto não seguram portas (ex.: Redis 6379)
+    log "Parando containers que usam portas do projeto..."
+    for port in 6379 5433 9200 5100 3000; do
+        docker ps -q --filter "publish=$port" 2>/dev/null | xargs -r docker stop 2>/dev/null || true
+    done
+    sleep 2
+
     # Verificar portas livres
     local ports_free=true
-    for port in 5100 3000 5433 9200; do
+    for port in 6379 5100 3000 5433 9200; do
         if lsof -i :$port 2>/dev/null | grep -q .; then
-            fail "Porta $port ainda em uso"
+            fail "Porta $port ainda em uso (liberar antes do teste)"
             ports_free=false
         fi
     done
-    
+
     if $ports_free; then
-        pass "Todas as portas estão livres (5100, 3000, 5433, 9200)"
+        pass "Todas as portas estão livres (6379, 5100, 3000, 5433, 9200)"
     fi
     
     # Verificar que não há containers

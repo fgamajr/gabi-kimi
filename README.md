@@ -32,7 +32,7 @@ Se a porta 5100 já estiver em uso, mate o processo (`pkill -f "dotnet.*Gabi.Api
 
 **Terminal 3 - Web:** (requer **Node 18+** — Vite 5 usa top-level await)
 ```bash
-cd web && npm run dev
+cd src/Gabi.Web && npm run dev
 ```
 Se aparecer `SyntaxError: Unexpected reserved word` no web.log, atualize o Node: `nvm install 20 && nvm use 20` (ou instale Node 18+).
 
@@ -200,17 +200,9 @@ docker compose exec redis redis-cli ping
 │   ├── Gabi.Ingest/         # Fetch e Parse
 │   ├── Gabi.Postgres/       # EF Core + PostgreSQL
 │   ├── Gabi.Sync/           # Engine de sync
-│   ├── Gabi.Web/            # Frontend SPA (placeholder)
+│   ├── Gabi.Web/            # Frontend React + Vite + TypeScript
 │   └── Gabi.Worker/         # Entry point (Worker Service)
 ├── tests/                    # Testes
-├── web/                      # Frontend Vite (standalone)
-│   ├── src/
-│   │   ├── components/      # Source list, detail
-│   │   ├── api.js           # Client HTTP
-│   │   ├── style.css        # Dark theme
-│   │   └── main.js          # Entry point
-│   ├── package.json
-│   └── vite.config.js
 ├── scripts/                  # Scripts de conveniência
 ├── docker/
 │   └── postgres/init/        # Scripts SQL de inicialização
