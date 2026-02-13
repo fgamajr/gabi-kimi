@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Serilog;
 using Serilog.Formatting.Compact;
@@ -74,6 +75,17 @@ builder.Services.AddSwaggerGen(c =>
 });
 
 var app = builder.Build();
+
+// Aplicar migrations na subida quando em container (Zero Kelvin / deploy sem dotnet ef no host)
+var runMigrations = string.Equals(Environment.GetEnvironmentVariable("GABI_RUN_MIGRATIONS"), "true", StringComparison.OrdinalIgnoreCase);
+if (runMigrations && !string.IsNullOrWhiteSpace(connectionString))
+{
+    using (var scope = app.Services.CreateScope())
+    {
+        var db = scope.ServiceProvider.GetRequiredService<GabiDbContext>();
+        db.Database.Migrate();
+    }
+}
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Middleware Pipeline - ORDEM É CRÍTICA
@@ -295,11 +307,41 @@ app.MapPost("/api/v1/dashboard/sources/{sourceId}/refresh", [Authorize(Policy = 
 })
 .RequireRateLimiting("write");
 
-// POST /api/v1/dashboard/seed - Seed sources from YAML
+// POST /api/v1/dashboard/seed - Enfileira job de seed (Worker persiste YAML no banco com retry e registra em seed_runs)
 app.MapPost("/api/v1/dashboard/seed", [Authorize(Policy = "RequireOperator")] async (IDashboardService dashboard, CancellationToken ct) =>
 {
-    var success = await dashboard.SeedSourcesAsync(ct);
-    return success ? Results.Ok(new { message = "Sources seeded successfully" }) : Results.Problem("Failed to seed sources");
+    var result = await dashboard.SeedSourcesAsync(ct);
+    return Results.Ok(result);
+})
+.RequireRateLimiting("write");
+
+// GET /api/v1/dashboard/seed/last - Última execução do seed (para discovery saber se o catálogo está pronto)
+app.MapGet("/api/v1/dashboard/seed/last", [Authorize(Policy = "RequireViewer")] async (IDashboardService dashboard, CancellationToken ct) =>
+{
+    var last = await dashboard.GetLastSeedRunAsync(ct);
+    return last != null ? Results.Ok(last) : Results.NotFound();
+})
+.RequireRateLimiting("read");
+
+// GET /api/v1/dashboard/pipeline/phases - List pipeline phases (seed, discovery, fetch, ingest) for frontend
+app.MapGet("/api/v1/dashboard/pipeline/phases", [Authorize(Policy = "RequireViewer")] async (IDashboardService dashboard, CancellationToken ct) =>
+{
+    var phases = await dashboard.GetPipelinePhasesAsync(ct);
+    return Results.Ok(phases);
+})
+.RequireRateLimiting("read");
+
+// POST /api/v1/dashboard/sources/{sourceId}/phases/{phase} - Start a pipeline phase (discovery | fetch | ingest)
+app.MapPost("/api/v1/dashboard/sources/{sourceId}/phases/{phase}", [Authorize(Policy = "RequireOperator")] async (
+    string sourceId,
+    string phase,
+    IDashboardService dashboard,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(phase) || !new[] { "discovery", "fetch", "ingest" }.Contains(phase.ToLowerInvariant()))
+        return Results.BadRequest(new { error = "phase must be discovery, fetch, or ingest" });
+    var result = await dashboard.StartPhaseAsync(sourceId, phase, ct);
+    return result.Success ? Results.Ok(result) : Results.NotFound(result);
 })
 .RequireRateLimiting("write");
 

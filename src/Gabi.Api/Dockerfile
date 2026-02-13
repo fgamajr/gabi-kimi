@@ -6,6 +6,7 @@ WORKDIR /src
 COPY GabiSync.sln .
 COPY src/Gabi.Contracts/Gabi.Contracts.csproj src/Gabi.Contracts/
 COPY src/Gabi.Discover/Gabi.Discover.csproj src/Gabi.Discover/
+COPY src/Gabi.Postgres/Gabi.Postgres.csproj src/Gabi.Postgres/
 COPY src/Gabi.Api/Gabi.Api.csproj src/Gabi.Api/
 
 # Restore dependencies

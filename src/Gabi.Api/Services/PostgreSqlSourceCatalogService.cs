@@ -45,7 +45,7 @@ public class PostgreSqlSourceCatalogService : ISourceCatalog
         try
         {
             using var scope = _serviceProvider.CreateScope();
-            var repo = scope.ServiceProvider.GetRequiredService<SourceRegistryRepository>();
+            var repo = scope.ServiceProvider.GetRequiredService<ISourceRegistryRepository>();
 
             _logger.LogInformation("Attempting to load sources from: {Path}", _sourcesPath);
             
@@ -453,9 +453,10 @@ public class PostgreSqlSourceCatalogService : ISourceCatalog
         return Path.Combine(env.ContentRootPath, configPath);
     }
 
-    // YAML Models
+    // YAML Models (YAML root key "sources" is lowercase; alias ensures match)
     private class YamlDocument
     {
+        [YamlDotNet.Serialization.YamlMember(Alias = "sources")]
         public Dictionary<string, SourceDefinition>? Sources { get; set; }
     }
 

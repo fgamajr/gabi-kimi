@@ -5,8 +5,10 @@ using System.Text.Json;
 using Gabi.Contracts.Api;
 using Gabi.Contracts.Dashboard;
 using Gabi.Contracts.Jobs;
+using Gabi.Postgres;
 using Gabi.Postgres.Entities;
 using Gabi.Postgres.Repositories;
+using Microsoft.EntityFrameworkCore;
 
 namespace Gabi.Api.Services;
 
@@ -21,7 +23,10 @@ public interface IDashboardService
     Task<IReadOnlyList<PipelineStage>> GetPipelineAsync(CancellationToken ct = default);
     Task<SystemHealthResponse> GetSystemHealthAsync(CancellationToken ct = default);
     Task<RefreshSourceResponse> RefreshSourceAsync(string sourceId, RefreshSourceRequest request, CancellationToken ct = default);
-    Task<bool> SeedSourcesAsync(CancellationToken ct = default);
+    /// <summary>Enfileira job de seed (catalog_seed). O Worker persiste o YAML no banco com retry e registra em seed_runs.</summary>
+    Task<SeedResponse> SeedSourcesAsync(CancellationToken ct = default);
+    /// <summary>Última execução do seed (para a fase de discovery saber se o catálogo está pronto).</summary>
+    Task<SeedRunDto?> GetLastSeedRunAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Obtém detalhes completos de uma source com estatísticas.
@@ -42,6 +47,16 @@ public interface IDashboardService
     /// Obtém detalhamento por safra (ano) para uma source.
     /// </summary>
     Task<SafraResponse> GetSafraAsync(string? sourceId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Inicia uma fase do pipeline para uma source (discovery, fetch, ingest). Retorna job enfileirado.
+    /// </summary>
+    Task<RefreshSourceResponse> StartPhaseAsync(string sourceId, string phase, CancellationToken ct = default);
+
+    /// <summary>
+    /// Lista fases do pipeline com disponibilidade e como disparar (para o frontend).
+    /// </summary>
+    Task<IReadOnlyList<PipelinePhaseDto>> GetPipelinePhasesAsync(CancellationToken ct = default);
 }
 
 public class DashboardService : IDashboardService
@@ -63,18 +78,63 @@ public class DashboardService : IDashboardService
         _sourceCatalog = sourceCatalog;
     }
 
-    public async Task<bool> SeedSourcesAsync(CancellationToken ct = default)
+    public async Task<SeedResponse> SeedSourcesAsync(CancellationToken ct = default)
     {
-        try
+        using var scope = _serviceProvider.CreateScope();
+        var jobQueue = scope.ServiceProvider.GetRequiredService<IJobQueueRepository>();
+
+        var latest = await jobQueue.GetLatestByJobTypeAsync("catalog_seed", ct);
+        if (latest?.Status is JobStatus.Running or JobStatus.Pending)
         {
-            await _sourceCatalog.InitializeAsync(ct);
-            return true;
+            return new SeedResponse
+            {
+                Success = true,
+                JobId = latest.Id,
+                Message = "Seed already in progress. Poll GET /api/v1/dashboard/jobs for status."
+            };
         }
-        catch (Exception ex)
+
+        var job = new IngestJob
         {
-            _logger.LogError(ex, "Failed to seed sources");
-            return false;
-        }
+            Id = Guid.NewGuid(),
+            JobType = "catalog_seed",
+            SourceId = string.Empty,
+            Payload = new Dictionary<string, object> { ["run_id"] = Guid.NewGuid().ToString() },
+            Status = JobStatus.Pending,
+            Priority = JobPriority.Normal,
+            ScheduledAt = DateTime.UtcNow,
+            MaxRetries = 3
+        };
+        var jobId = await jobQueue.EnqueueAsync(job, ct);
+        _logger.LogInformation("Enqueued catalog_seed job {JobId}", jobId);
+        return new SeedResponse
+        {
+            Success = true,
+            JobId = jobId,
+            Message = "Seed job enqueued. Worker will load sources from YAML, persist with retry, and register in seed_runs. Poll GET /api/v1/dashboard/jobs or GET /api/v1/dashboard/seed/last for result."
+        };
+    }
+
+    public async Task<SeedRunDto?> GetLastSeedRunAsync(CancellationToken ct = default)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<GabiDbContext>();
+        var last = await context.SeedRuns
+            .OrderByDescending(r => r.CompletedAt)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(ct);
+        if (last == null) return null;
+        return new SeedRunDto
+        {
+            Id = last.Id,
+            JobId = last.JobId,
+            CompletedAt = last.CompletedAt,
+            SourcesTotal = last.SourcesTotal,
+            SourcesSeeded = last.SourcesSeeded,
+            SourcesFailed = last.SourcesFailed,
+            Status = last.Status,
+            ErrorSummary = last.ErrorSummary
+        };
     }
 
     public async Task<DashboardStatsResponse> GetStatsAsync(CancellationToken ct = default)
@@ -388,6 +448,74 @@ public class DashboardService : IDashboardService
             JobId = jobId,
             Message = $"Refresh queued for {sourceId}"
         };
+    }
+
+    public async Task<RefreshSourceResponse> StartPhaseAsync(string sourceId, string phase, CancellationToken ct = default)
+    {
+        var normalized = phase?.ToLowerInvariant().Trim() ?? "";
+        if (normalized == "discovery")
+            return await RefreshSourceAsync(sourceId, new RefreshSourceRequest { Force = true }, ct);
+
+        using var scope = _serviceProvider.CreateScope();
+        var sourceRepo = scope.ServiceProvider.GetRequiredService<ISourceRegistryRepository>();
+        var jobQueue = scope.ServiceProvider.GetRequiredService<IJobQueueRepository>();
+
+        var source = await sourceRepo.GetByIdAsync(sourceId, ct);
+        if (source == null)
+        {
+            return new RefreshSourceResponse { Success = false, Message = $"Source not found: {sourceId}" };
+        }
+
+        var latestJob = await jobQueue.GetLatestForSourceAsync(sourceId, ct);
+        if (latestJob?.Status is JobStatus.Running or JobStatus.Pending)
+        {
+            return new RefreshSourceResponse
+            {
+                Success = true,
+                JobId = latestJob.Id,
+                Message = $"Job already in progress for {sourceId}"
+            };
+        }
+
+        string jobType = normalized switch
+        {
+            "fetch" => "fetch",
+            "ingest" => "ingest",
+            _ => throw new ArgumentException($"Unknown phase: {phase}. Use discovery, fetch, or ingest.", nameof(phase))
+        };
+
+        var job = new IngestJob
+        {
+            Id = Guid.NewGuid(),
+            JobType = jobType,
+            SourceId = sourceId,
+            Payload = new Dictionary<string, object> { ["phase"] = normalized },
+            Status = JobStatus.Pending,
+            Priority = JobPriority.Normal,
+            ScheduledAt = DateTime.UtcNow
+        };
+
+        var jobId = await jobQueue.EnqueueAsync(job, ct);
+        _logger.LogInformation("Enqueued {Phase} job {JobId} for source {SourceId}", normalized, jobId, sourceId);
+
+        return new RefreshSourceResponse
+        {
+            Success = true,
+            JobId = jobId,
+            Message = $"{normalized} queued for {sourceId}"
+        };
+    }
+
+    public Task<IReadOnlyList<PipelinePhaseDto>> GetPipelinePhasesAsync(CancellationToken ct = default)
+    {
+        var phases = new List<PipelinePhaseDto>
+        {
+            new() { Id = "seed", Name = "Seed", Description = "Carregar fontes do YAML no banco", Availability = "available", TriggerEndpoint = "POST /api/v1/dashboard/seed" },
+            new() { Id = "discovery", Name = "Discovery", Description = "Descobrir URLs das fontes", Availability = "available", TriggerEndpoint = "POST /api/v1/dashboard/sources/{sourceId}/refresh" },
+            new() { Id = "fetch", Name = "Fetch", Description = "Baixar conteúdo dos links descobertos", Availability = "requires_previous", TriggerEndpoint = "POST /api/v1/dashboard/sources/{sourceId}/phases/fetch" },
+            new() { Id = "ingest", Name = "Ingest", Description = "Processar e indexar documentos", Availability = "requires_previous", TriggerEndpoint = "POST /api/v1/dashboard/sources/{sourceId}/phases/ingest" }
+        };
+        return Task.FromResult<IReadOnlyList<PipelinePhaseDto>>(phases);
     }
 
     /// <summary>

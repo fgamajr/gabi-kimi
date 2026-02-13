@@ -22,8 +22,12 @@ builder.Services.AddScoped<IDiscoveredLinkRepository, DiscoveredLinkRepository>(
 builder.Services.AddScoped<JobQueueRepository>();
 builder.Services.AddScoped<IJobQueueRepository>(sp => sp.GetRequiredService<JobQueueRepository>());
 
-// Job executors
+// Job executors (catalog_seed = seed YAML → DB + seed_runs; source_discovery; sync; fetch/ingest stubs)
+builder.Services.AddScoped<IJobExecutor, CatalogSeedJobExecutor>();
 builder.Services.AddScoped<IJobExecutor, SourceSyncJobExecutor>();
+builder.Services.AddScoped<IJobExecutor, SourceDiscoveryJobExecutor>();
+builder.Services.AddScoped<IJobExecutor, FetchJobExecutor>();
+builder.Services.AddScoped<IJobExecutor, IngestJobExecutor>();
 
 // Worker pool options
 builder.Services.Configure<WorkerPoolOptions>(options =>

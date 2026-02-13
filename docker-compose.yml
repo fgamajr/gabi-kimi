@@ -80,7 +80,7 @@ services:
     restart: unless-stopped
     command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
     ports:
-      - "6379:6379"
+      - "6380:6379"   # 6380 no host para não conflitar com Redis do sistema (interno: redis:6379)
     volumes:
       - redis_data:/data
     healthcheck:
@@ -112,6 +112,8 @@ services:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:8080
       - GABI_SOURCES_PATH=/app/sources_v2.yaml
+      - GABI_RUN_MIGRATIONS=true
+      - ConnectionStrings__Default=Host=postgres;Port=5432;Database=gabi;Username=gabi;Password=gabi_dev_password
     volumes:
       - ./sources_v2.yaml:/app/sources_v2.yaml:ro
     depends_on:
@@ -126,6 +128,34 @@ services:
     profiles:
       - api
 
+  # Gabi.Worker - Background worker (discovery, fetch, jobs)
+  # Usage: docker compose --profile worker up -d
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      - ConnectionStrings__Default=Host=postgres;Port=5432;Database=gabi;Username=gabi;Password=gabi_dev_password
+      - GABI_SOURCES_PATH=/app/sources_v2.yaml
+      - Gabi__ElasticsearchUrl=http://elasticsearch:9200
+      - Gabi__RedisUrl=redis://redis:6379/0
+    volumes:
+      - ./sources_v2.yaml:/app/sources_v2.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+    profiles:
+      - worker
+
   # Gabi.Web - Frontend SPA (optional)
   # Usage: docker compose --profile web up -d
   web:
@@ -135,7 +165,7 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./web:/app
+      - ./src/Gabi.Web:/app
     environment:
       - NODE_ENV=development
     depends_on:

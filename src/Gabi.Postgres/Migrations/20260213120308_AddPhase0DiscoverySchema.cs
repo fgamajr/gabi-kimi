@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -29,14 +29,9 @@ namespace Gabi.Postgres.Migrations
                 table: "documents",
                 newName: "UpdatedBy");
 
-            migrationBuilder.AlterColumn<Guid>(
-                name: "Id",
-                table: "ingest_jobs",
-                type: "uuid",
-                nullable: false,
-                oldClrType: typeof(long),
-                oldType: "bigint")
-                .OldAnnotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn);
+            // Postgres: drop identity then change bigint -> uuid (USING required; gen_random_uuid() for empty table or existing rows)
+            migrationBuilder.Sql(@"ALTER TABLE ingest_jobs ALTER COLUMN ""Id"" DROP IDENTITY IF EXISTS;");
+            migrationBuilder.Sql(@"ALTER TABLE ingest_jobs ALTER COLUMN ""Id"" SET DATA TYPE uuid USING gen_random_uuid();");
 
             migrationBuilder.AlterColumn<string>(
                 name: "Title",

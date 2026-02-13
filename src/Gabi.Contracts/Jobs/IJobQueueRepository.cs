@@ -54,6 +54,11 @@ public interface IJobQueueRepository
     /// <param name="ct">Cancellation token.</param>
     /// <returns>True if the job is still claimed by this worker.</returns>
     Task<bool> HeartbeatAsync(Guid jobId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Updates progress (percent, message, links discovered) for a running job so the frontend can show it.
+    /// </summary>
+    Task UpdateProgressAsync(Guid jobId, int percent, string? message, int? linksDiscovered, CancellationToken ct = default);
     
     /// <summary>
     /// Gets the current status of a job.
@@ -93,6 +98,11 @@ public interface IJobQueueRepository
     /// <param name="ct">Cancellation token.</param>
     /// <returns>The latest job, or null if no jobs found.</returns>
     Task<IngestJob?> GetLatestForSourceAsync(string sourceId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Gets the latest job of a given type (e.g. catalog_seed). Used to detect "already in progress".
+    /// </summary>
+    Task<IngestJob?> GetLatestByJobTypeAsync(string jobType, CancellationToken ct = default);
     
     /// <summary>
     /// Gets recent jobs for the dashboard.

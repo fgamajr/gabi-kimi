@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Gabi.Sync")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+642c58a82fd75a3cda24a19602e036463be9299a")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+da3dd73e705e34dd0cb750aa31e722b5feeaa658")]
 [assembly: System.Reflection.AssemblyProductAttribute("Gabi.Sync")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Gabi.Sync")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
