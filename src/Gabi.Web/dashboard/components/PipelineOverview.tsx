@@ -1,10 +1,10 @@
-import { 
-  Download, 
-  Database, 
-  FileSearch, 
+import {
+  Download,
+  Database,
+  FileSearch,
   Brain,
   Search as SearchIcon,
-  ArrowRight 
+  ArrowRight
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { PipelineStage } from '../types/api';
@@ -23,34 +23,34 @@ const stageIcons = {
 
 const stageColors = {
   discovery: {
-    bg: 'bg-blue-100',
-    text: 'text-blue-600',
-    border: 'border-blue-200',
-    progress: 'bg-blue-500',
+    bg: 'bg-violet-100 dark:bg-violet-900/20',
+    text: 'text-violet-600 dark:text-violet-400',
+    border: 'border-violet-200 dark:border-violet-800',
+    progress: 'bg-violet-600 dark:bg-violet-500',
   },
   ingest: {
-    bg: 'bg-gray-100',
-    text: 'text-gray-500',
-    border: 'border-gray-200',
-    progress: 'bg-gray-400',
+    bg: 'bg-blue-100 dark:bg-blue-900/20',
+    text: 'text-blue-600 dark:text-blue-400',
+    border: 'border-blue-200 dark:border-blue-800',
+    progress: 'bg-blue-600 dark:bg-blue-500',
   },
   processing: {
-    bg: 'bg-gray-100',
-    text: 'text-gray-500',
-    border: 'border-gray-200',
-    progress: 'bg-gray-400',
+    bg: 'bg-amber-100 dark:bg-amber-900/20',
+    text: 'text-amber-600 dark:text-amber-400',
+    border: 'border-amber-200 dark:border-amber-800',
+    progress: 'bg-amber-600 dark:bg-amber-500',
   },
   embedding: {
-    bg: 'bg-gray-100',
-    text: 'text-gray-500',
-    border: 'border-gray-200',
-    progress: 'bg-gray-400',
+    bg: 'bg-pink-100 dark:bg-pink-900/20',
+    text: 'text-pink-600 dark:text-pink-400',
+    border: 'border-pink-200 dark:border-pink-800',
+    progress: 'bg-pink-600 dark:bg-pink-500',
   },
   indexing: {
-    bg: 'bg-gray-100',
-    text: 'text-gray-500',
-    border: 'border-gray-200',
-    progress: 'bg-gray-400',
+    bg: 'bg-emerald-100 dark:bg-emerald-900/20',
+    text: 'text-emerald-600 dark:text-emerald-400',
+    border: 'border-emerald-200 dark:border-emerald-800',
+    progress: 'bg-emerald-600 dark:bg-emerald-500',
   },
 };
 
@@ -63,14 +63,15 @@ export function PipelineOverview({ stages }: PipelineOverviewProps) {
           <p className="text-sm text-muted-foreground">Document processing pipeline</p>
         </div>
       </div>
-      
+
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
         {stages.map((stage, index) => {
-          const Icon = stageIcons[stage.name];
-          const colors = stageColors[stage.name];
+          const key = stage.name.toLowerCase() as keyof typeof stageIcons;
+          const Icon = stageIcons[key] ?? Download;
+          const colors = stageColors[key] ?? stageColors.discovery;
           const isAvailable = stage.availability === 'available';
           const percentage = stage.total > 0 ? (stage.count / stage.total) * 100 : 0;
-          
+
           return (
             <div key={stage.name} className="relative">
               {index < stages.length - 1 && (
@@ -78,8 +79,8 @@ export function PipelineOverview({ stages }: PipelineOverviewProps) {
                   <ArrowRight className="h-4 w-4 text-muted-foreground/40" />
                 </div>
               )}
-              
-              <div 
+
+              <div
                 className={cn(
                   "relative overflow-hidden rounded-xl border bg-card p-5",
                   "transition-all duration-200",
@@ -95,7 +96,7 @@ export function PipelineOverview({ stages }: PipelineOverviewProps) {
                     </span>
                   </div>
                 )}
-                
+
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-3">
                     <div className={cn(
@@ -109,15 +110,15 @@ export function PipelineOverview({ stages }: PipelineOverviewProps) {
                       <p className="text-xs text-muted-foreground">{stage.description}</p>
                     </div>
                   </div>
-                  
+
                   <div className={cn(
                     "w-2 h-2 rounded-full",
-                    stage.status === 'active' && "bg-green-500 animate-pulse",
-                    stage.status === 'idle' && "bg-gray-400",
-                    stage.status === 'error' && "bg-red-500"
+                    stage.status.toLowerCase() === 'active' && "bg-green-500 animate-pulse",
+                    stage.status.toLowerCase() === 'idle' && "bg-gray-400",
+                    stage.status.toLowerCase() === 'error' && "bg-red-500"
                   )} />
                 </div>
-                
+
                 <div className="mb-4">
                   <div className="metric-value text-2xl text-foreground">
                     {stage.count.toLocaleString()}
@@ -126,7 +127,7 @@ export function PipelineOverview({ stages }: PipelineOverviewProps) {
                     of {stage.total.toLocaleString()} documents
                   </p>
                 </div>
-                
+
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-muted-foreground">Progress</span>
@@ -135,7 +136,7 @@ export function PipelineOverview({ stages }: PipelineOverviewProps) {
                     </span>
                   </div>
                   <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                    <div 
+                    <div
                       className={cn(
                         "h-full rounded-full transition-all duration-500",
                         colors.progress,
@@ -145,7 +146,7 @@ export function PipelineOverview({ stages }: PipelineOverviewProps) {
                     />
                   </div>
                 </div>
-                
+
                 {stage.message && (
                   <div className="mt-3 pt-3 border-t border-border/50">
                     <p className="text-xs text-muted-foreground">{stage.message}</p>

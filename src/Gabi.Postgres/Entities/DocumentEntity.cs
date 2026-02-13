@@ -33,6 +33,29 @@ public class DocumentEntity : AuditableEntity
     public string? DocumentId { get; set; }
 
     /// <summary>
+    /// Natural key from source system (unique per source).
+    /// </summary>
+    [MaxLength(255)]
+    public string? ExternalId { get; set; }
+
+    /// <summary>
+    /// Hash from source for content comparison.
+    /// </summary>
+    [MaxLength(64)]
+    public string? SourceContentHash { get; set; }
+
+    /// <summary>
+    /// When the document was removed from source (soft delete timestamp).
+    /// </summary>
+    public DateTime? RemovedFromSourceAt { get; set; }
+
+    /// <summary>
+    /// Reason why the document was removed from source.
+    /// </summary>
+    [MaxLength(100)]
+    public string? RemovedReason { get; set; }
+
+    /// <summary>
     /// Document title or summary.
     /// </summary>
     public string? Title { get; set; }

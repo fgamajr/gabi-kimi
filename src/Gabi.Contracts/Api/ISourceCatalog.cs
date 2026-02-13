@@ -52,4 +52,9 @@ public interface ISourceCatalog
     /// Obtém links descobertos de uma fonte com paginação e filtro.
     /// </summary>
     Task<PagedResult<DiscoveredLinkDto>> GetLinksAsync(string sourceId, int page, int pageSize, string? status, string? sort, CancellationToken ct = default);
+
+    /// <summary>
+    /// Inicializa o catálogo de fontes a partir da configuração (YAML).
+    /// </summary>
+    Task InitializeAsync(CancellationToken ct = default);
 }

@@ -32,6 +32,12 @@ public class SourceCatalogService : ISourceCatalog
         LoadSources();
     }
 
+    public Task InitializeAsync(CancellationToken ct = default)
+    {
+        LoadSources();
+        return Task.CompletedTask;
+    }
+
     /// <summary>
     /// Resolves sources_v2.yaml path: ENV var → walk up from content root → fallback.
     /// </summary>

@@ -34,20 +34,30 @@ public class PostgreSqlSourceCatalogService : ISourceCatalog
         _sourcesPath = ResolveSourcesPath(configuration, env);
 
         // Initialize sources from YAML on startup (fire and forget)
-        _ = Task.Run(async () => await InitializeSourcesAsync());
+        _ = Task.Run(async () => await InitializeAsync());
     }
 
     /// <summary>
     /// Initialize source registry from YAML file.
     /// </summary>
-    private async Task InitializeSourcesAsync()
+    public async Task InitializeAsync(CancellationToken ct = default)
     {
         try
         {
             using var scope = _serviceProvider.CreateScope();
             var repo = scope.ServiceProvider.GetRequiredService<SourceRegistryRepository>();
 
+            _logger.LogInformation("Attempting to load sources from: {Path}", _sourcesPath);
+            
+            if (!File.Exists(_sourcesPath)) 
+            {
+                 _logger.LogError("Sources file NOT FOUND at: {Path}", _sourcesPath);
+                 return;
+            }
+
             var sources = LoadSourcesFromYaml();
+            _logger.LogInformation("Parsed {Count} sources from YAML", sources.Count);
+
             foreach (var source in sources)
             {
                 await repo.UpsertAsync(source, CancellationToken.None);
@@ -57,7 +67,7 @@ public class PostgreSqlSourceCatalogService : ISourceCatalog
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to initialize sources from YAML");
+            _logger.LogError(ex, "Failed to initialize sources from YAML at {Path}", _sourcesPath);
         }
     }
 

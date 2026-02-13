@@ -73,4 +73,13 @@ public record IngestJob
     
     /// <summary>Timeout for the job in seconds.</summary>
     public int TimeoutSeconds { get; init; } = 3600; // 1 hour default
+    
+    /// <summary>When the job should be retried (for failed jobs).</summary>
+    public DateTime? RetryAt { get; init; }
+    
+    /// <summary>Parent job ID for hierarchical jobs.</summary>
+    public Guid? ParentJobId { get; init; }
+    
+    /// <summary>Document ID associated with this job (for document-level jobs).</summary>
+    public string? DocumentId { get; init; }
 }

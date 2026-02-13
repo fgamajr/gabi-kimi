@@ -27,11 +27,16 @@ pkill -f "Gabi.Api" 2>/dev/null || true
 pkill -f "vite" 2>/dev/null || true
 sleep 2
 
-# Start API
+# Start API (stdbuf unbuffers stdout so logs flush in real-time)
 log_info "Starting API (http://localhost:5100)..."
-nohup dotnet run --project "$GABI_API_PROJECT" --urls "http://localhost:5100" > "$GABI_LOG_DIR/api.log" 2>&1 &
+if command -v stdbuf >/dev/null 2>&1; then
+    nohup stdbuf -oL dotnet run --project "$GABI_API_PROJECT" --urls "http://localhost:5100" > "$GABI_LOG_DIR/api.log" 2>&1 &
+else
+    nohup dotnet run --project "$GABI_API_PROJECT" --urls "http://localhost:5100" > "$GABI_LOG_DIR/api.log" 2>&1 &
+fi
 API_PID=$!
-echo "  PID: $API_PID"
+echo "$API_PID" > "$GABI_LOG_DIR/api.pid"
+echo "  PID: $API_PID (saved to $GABI_LOG_DIR/api.pid)"
 
 # Wait for API health
 echo -n "  Waiting for API"
@@ -56,7 +61,8 @@ cd "$GABI_WEB_DIR"
 nohup npm run dev > "$GABI_LOG_DIR/web.log" 2>&1 &
 WEB_PID=$!
 cd "$GABI_ROOT"
-echo "  PID: $WEB_PID"
+echo "$WEB_PID" > "$GABI_LOG_DIR/web.pid"
+echo "  PID: $WEB_PID (saved to $GABI_LOG_DIR/web.pid)"
 
 # Wait for Web
 echo -n "  Waiting for Web"
@@ -83,8 +89,8 @@ echo "│     • Web:     http://localhost:3000         │"
 echo "│     • API:     http://localhost:5100         │"
 echo "│     • Swagger: http://localhost:5100/swagger │"
 echo "│                                              │"
-echo "│  📊 Status:  ./scripts/app-status.sh         │"
-echo "│  🛑 Stop:    ./scripts/app-stop.sh           │"
-echo "│  📝 Logs:    ./scripts/app-logs.sh           │"
+echo "│  📊 Status:  ./scripts/dev app status        │"
+echo "│  🛑 Stop:    ./scripts/dev app stop          │"
+echo "│  📝 Logs:    ./scripts/dev app logs          │"
 echo "└──────────────────────────────────────────────┘"
 echo ""

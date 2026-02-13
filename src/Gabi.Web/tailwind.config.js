@@ -3,7 +3,9 @@ export default {
   darkMode: ["class"],
   content: [
     "./index.html",
-    "./**/*.{js,ts,jsx,tsx}",
+    "./dashboard/**/*.{js,ts,jsx,tsx}",
+    "./lib/**/*.{js,ts,jsx,tsx}",
+    "./*.{js,ts,jsx,tsx}",
   ],
   theme: {
     container: {

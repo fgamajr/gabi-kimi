@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Gabi.Contracts\Gabi.Contracts.csproj" />
+    <PackageReference Include="YamlDotNet" Version="15.1.0" />
   </ItemGroup>
 
   <PropertyGroup>

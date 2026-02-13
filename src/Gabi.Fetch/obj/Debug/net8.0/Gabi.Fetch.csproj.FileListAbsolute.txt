@@ -1,0 +1,16 @@
+/home/fgamajr/dev/gabi-kimi/src/Gabi.Fetch/bin/Debug/net8.0/Gabi.Fetch.deps.json
+/home/fgamajr/dev/gabi-kimi/src/Gabi.Fetch/bin/Debug/net8.0/Gabi.Fetch.dll
+/home/fgamajr/dev/gabi-kimi/src/Gabi.Fetch/bin/Debug/net8.0/Gabi.Fetch.pdb
+/home/fgamajr/dev/gabi-kimi/src/Gabi.Fetch/bin/Debug/net8.0/Gabi.Contracts.dll
+/home/fgamajr/dev/gabi-kimi/src/Gabi.Fetch/bin/Debug/net8.0/Gabi.Contracts.pdb
+/home/fgamajr/dev/gabi-kimi/src/Gabi.Fetch/obj/Debug/net8.0/Gabi.Fetch.csproj.AssemblyReference.cache
+/home/fgamajr/dev/gabi-kimi/src/Gabi.Fetch/obj/Debug/net8.0/Gabi.Fetch.GeneratedMSBuildEditorConfig.editorconfig
+/home/fgamajr/dev/gabi-kimi/src/Gabi.Fetch/obj/Debug/net8.0/Gabi.Fetch.AssemblyInfoInputs.cache
+/home/fgamajr/dev/gabi-kimi/src/Gabi.Fetch/obj/Debug/net8.0/Gabi.Fetch.AssemblyInfo.cs
+/home/fgamajr/dev/gabi-kimi/src/Gabi.Fetch/obj/Debug/net8.0/Gabi.Fetch.csproj.CoreCompileInputs.cache
+/home/fgamajr/dev/gabi-kimi/src/Gabi.Fetch/obj/Debug/net8.0/Gabi.Fetch.sourcelink.json
+/home/fgamajr/dev/gabi-kimi/src/Gabi.Fetch/obj/Debug/net8.0/Gabi.Fetch.csproj.Up2Date
+/home/fgamajr/dev/gabi-kimi/src/Gabi.Fetch/obj/Debug/net8.0/Gabi.Fetch.dll
+/home/fgamajr/dev/gabi-kimi/src/Gabi.Fetch/obj/Debug/net8.0/refint/Gabi.Fetch.dll
+/home/fgamajr/dev/gabi-kimi/src/Gabi.Fetch/obj/Debug/net8.0/Gabi.Fetch.pdb
+/home/fgamajr/dev/gabi-kimi/src/Gabi.Fetch/obj/Debug/net8.0/ref/Gabi.Fetch.dll

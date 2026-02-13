@@ -438,3 +438,326 @@
   dotnet run --project src/Gabi.Api  # Terminal 1
   dotnet run --project src/Gabi.Worker # Terminal 2
   cd web && npm run dev              # Terminal 3
+
+✅ FASE 3: Dashboard + Security Hardening - COMPLETA!
+
+  ## 📊 Dashboard API + Frontend Integration
+
+  | Componente              | Status | Descrição                                      |
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  | DashboardModels         | ✅     | DTOs alinhados com React frontend              |
+  | SourceDetailsResponse   | ✅     | Detalhes de fonte com estatísticas             |
+  | DiscoveredLinkDetailDto | ✅     | Link com status, pipeline, metadata            |
+  | LinkListResponse        | ✅     | Resposta paginada de links                     |
+  | DashboardService        | ✅     | Serviço de orquestração do dashboard           |
+  | PostgreSqlCatalogService| ✅     | Implementação PostgreSQL do catálogo           |
+
+  ## 🔐 Security Stack (Zero Trust)
+
+  | Componente              | Status | Descrição                                      |
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  | JWT Bearer Auth         | ✅     | Tokens com claims role/permissions             |
+  | RBAC Policies           | ✅     | Admin/Operator/Viewer com [Authorize]          |
+  | Rate Limiting           | ✅     | 100 req/min read, 10 req/min write             |
+  | Security Headers        | ✅     | HSTS, X-Content-Type-Options, etc.             |
+  | Global Exception Handler| ✅     | Erros padronizados, sem stack trace leak       |
+  | CORS                    | ✅     | Restrito ao dashboard origin                   |
+  | Request Limits          | ✅     | Body size limit (10MB)                         |
+
+  ## 🌐 Endpoints Protegidos
+
+  ```
+  GET  /api/v1/dashboard/stats              → Stats gerais
+  GET  /api/v1/dashboard/jobs               → Lista de jobs
+  GET  /api/v1/dashboard/pipeline           → Estágios do pipeline
+  GET  /api/v1/dashboard/health             → Health do sistema
+  GET  /api/v1/dashboard/safra              → Safra details
+  POST /api/v1/dashboard/sources/{id}/refresh → Refresh async
+  POST /api/v1/dashboard/seed               → Seed do YAML
+  GET  /api/v1/sources/{id}/links           → Links paginados
+  GET  /api/v1/sources/{id}/links/{linkId}  → Detalhe do link
+  ```
+
+  ## 🎨 Frontend (web/)
+
+  | Componente        | Status | Descrição                                      |
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  | PipelineOverview  | ✅     | Visualização dos 5 estágios do pipeline        |
+  | SourcesTable      | ✅     | Listagem de fontes com ações                   |
+  | LinkDetailsModal  | ✅     | Modal de detalhes do link                      |
+  | JobsPanel         | ✅     | Lista de jobs com progresso                    |
+  | Auth Integration  | ✅     | Login + JWT storage + interceptors             |
+
+  Resultado: Dashboard funcional com segurança de produção!
+
+  ---
+
+🚀 FASE 4: Pipeline Completo (Zero Kelvin → Discovery → Fetch → Jobs → Hash → Crawler)
+
+  ## 🎯 Objetivo
+
+  Pipeline end-to-end: do Zero Kelvin até processamento completo com hasher e crawler.
+
+  ```
+  sources.yaml
+     ↓
+  Discovery (coleta de links)
+     ↓
+  Fetcher (contagem + metadata)
+     ↓
+  JobFactory
+     ├── Job por Source
+     └── Job por Documento
+              ↓
+          Hasher (fingerprint)
+              ↓
+  Crawler (quando necessário)
+  ```
+
+  ## 📋 Estado por Fonte (sources_v2.yaml)
+
+  | Fonte                     | Tipo           | Discovery | Fetch | Jobs | Hash | Crawler |
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  | tcu_acordaos              | CSV (pattern)  | ✅        | 🔴    | 🟡   | 🔴   | N/A     |
+  | tcu_normas                | CSV (static)   | ✅        | 🔴    | 🟡   | 🔴   | N/A     |
+  | tcu_sumulas               | CSV (static)   | ✅        | 🔴    | 🟡   | 🔴   | N/A     |
+  | tcu_jurisprudencia_*      | CSV (static)   | ✅        | 🔴    | 🟡   | 🔴   | N/A     |
+  | tcu_resposta_consulta     | CSV (static)   | ✅        | 🔴    | 🟡   | 🔴   | N/A     |
+  | tcu_informativo_lc        | CSV (static)   | ✅        | 🔴    | 🟡   | 🔴   | N/A     |
+  | tcu_boletim_juris         | CSV (static)   | ✅        | 🔴    | 🟡   | 🔴   | N/A     |
+  | tcu_boletim_pessoal       | CSV (static)   | ✅        | 🔴    | 🟡   | 🔴   | N/A     |
+  | tcu_publicacoes           | PDF Crawler    | 🔴        | 🔴    | 🔴   | 🔴   | 🆕      |
+  | tcu_notas_tecnicas_ti     | PDF Crawler    | 🔴        | 🔴    | 🔴   | 🔴   | 🆕      |
+  | camara_leis_ordinarias    | API Pagination | 🔴        | 🔴    | 🔴   | 🔴   | 🆕      |
+  | stf_decisoes              | INACTIVE       | ⏸️        | ⏸️    | ⏸️   | ⏸️   | N/A     |
+  | stj_acordaos              | INACTIVE       | ⏸️        | ⏸️    | ⏸️   | ⏸️   | N/A     |
+
+  Legenda: ✅ Feito  🟡 Parcial  🔴 Não existe  🆕 Novo  ⏸️ Inativo
+
+  ## 🏗️ Módulos a Criar
+
+  ### CAMINHO C: Arquitetura Primeiro (Fundação)
+
+  1. **Gabi.Jobs** (extrair de Gabi.Sync)
+     - JobFactory (criação de jobs hierárquicos)
+     - SourceJobCreator (job pai por source)
+     - DocumentJobCreator (jobs filhos por documento)
+     - JobStateMachine (transições de estado)
+     - Workers especializados por tipo
+
+  2. **Gabi.Pipeline** (orquestração)
+     - PipelineOrchestrator (coordena fases)
+     - PhaseCoordinator (discovery → fetch → hash → parse → chunk → index)
+     - Circuit Breaker (proteção contra falhas em cascata)
+
+  ### CAMINHO A: Fontes Estruturadas (CSV)
+
+  3. **Gabi.Fetch** (novo módulo)
+     - ContentFetcher (HTTP com streaming)
+     - DocumentCounter (conta docs em CSV/JSON)
+     - MetadataExtractor (título, data, identificador)
+     - CsvFetchStrategy (stream de grandes arquivos)
+
+  4. **Gabi.Hash** (novo módulo)
+     - ContentHasher (SHA-256 determinístico)
+     - DeduplicationService (verifica duplicatas)
+     - FingerprintComparer (compara hashes)
+
+  5. **Gabi.Ingest.Parser** (expandir)
+     - CsvParser (streaming de linhas)
+     - DocumentNormalizer (limpeza de texto)
+     - ContentValidator (regras do YAML)
+
+  ### CAMINHO B: Fontes Não-Estruturadas (Crawler)
+
+  6. **Gabi.Crawler** (novo módulo)
+     - WebCrawler (navegação recursiva)
+     - PdfDownloader (download + parsing)
+     - LinkExtractor (CSS selectors)
+     - PolitenessPolicy (rate limiting, robots.txt)
+
+  7. **Gabi.Crawler.Strategies**
+     - TcuPublicationsCrawler (tcu_publicacoes)
+     - TcuTechnicalNotesCrawler (tcu_notas_tecnicas_ti)
+     - CamaraApiAdapter (camara_leis_ordinarias)
+
+  8. **Expandir DiscoveryEngine**
+     - WebCrawlStrategy (para fontes tipo tcu_publicacoes)
+     - ApiPaginationStrategy (para APIs da Câmara)
+
+  ## 📊 Modelo de Dados Expandido
+
+  ### IngestJobEntity (jobs hierárquicos)
+
+  ```csharp
+  public class IngestJobEntity
+  {
+      // Identificação
+      public Guid Id { get; set; }
+      public string? ParentJobId { get; set; }  // Para jobs filhos
+      
+      // Tipo e Contexto
+      public string JobType { get; set; }  // discover, fetch, hash, parse, chunk, embed, index
+      public string SourceId { get; set; }
+      public long? LinkId { get; set; }
+      public string? DocumentId { get; set; }
+      
+      // Progresso
+      public string Status { get; set; }  // pending, running, completed, failed, skipped
+      public int ProgressPercent { get; set; }
+      
+      // Retry
+      public int Attempts { get; set; }
+      public int MaxAttempts { get; set; } = 3;
+      public DateTime? RetryAt { get; set; }
+      
+      // Execução
+      public string? WorkerId { get; set; }
+      public DateTime? LockedAt { get; set; }
+      
+      // Resultado
+      public int? LinksDiscovered { get; set; }
+      public int? DocumentsProcessed { get; set; }
+      
+      // Hash/Deduplicação
+      public string? ContentHash { get; set; }
+      public bool? IsDuplicate { get; set; }
+      public string? OriginalDocumentId { get; set; }
+      
+      // Timestamps
+      public DateTime ScheduledAt { get; set; }
+      public DateTime? StartedAt { get; set; }
+      public DateTime? CompletedAt { get; set; }
+  }
+  ```
+
+  ### DocumentEntity (expandido)
+
+  ```csharp
+  public class DocumentEntity
+  {
+      public Guid Id { get; set; }
+      public string DocumentId { get; set; }  // ID externo
+      public string SourceId { get; set; }
+      
+      // Conteúdo
+      public string Title { get; set; }
+      public string Content { get; set; }
+      
+      // Fingerprint
+      public string ContentHash { get; set; }
+      public string HashAlgorithm { get; set; } = "sha256";
+      public long ContentSize { get; set; }
+      
+      // Metadados
+      public string Metadata { get; set; }  // JSON
+      public DateTime? DocumentDate { get; set; }
+      
+      // Status
+      public string Status { get; set; }  // discovered, fetched, hashed, parsed, chunked, indexed
+      public bool IsDuplicate { get; set; }
+      
+      // Timestamps
+      public DateTime DiscoveredAt { get; set; }
+      public DateTime? FetchedAt { get; set; }
+      public DateTime? HashedAt { get; set; }
+      public DateTime? IndexedAt { get; set; }
+  }
+  ```
+
+  ## 🧪 Teste Zero Kelvin Alvo
+
+  ```bash
+  # 1. Destruir tudo
+  docker compose down -v
+  rm -rf /tmp/gabi-*
+
+  # 2. Setup
+  ./scripts/setup.sh
+
+  # 3. Iniciar
+  ./scripts/dev app start
+
+  # 4. Executar pipeline completo
+  curl -X POST http://localhost:5100/api/v1/pipeline/run \
+    -H "Authorization: Bearer $TOKEN" \
+    -d '{"source": "tcu_acordaos", "phases": ["discover", "fetch", "hash", "parse"]}'
+
+  # 5. Verificar progresso
+  curl http://localhost:5100/api/v1/jobs/status \
+    -H "Authorization: Bearer $TOKEN"
+
+  # Resultado esperado:
+  # - Links descobertos: ~35 (1 por ano de 1992-2026)
+  # - Documentos contados: ~500.000 (acórdãos totais)
+  # - Jobs criados: ~500.000 (1 por documento)
+  # - Hashes gerados: ~500.000
+  # - Duplicatas: 0 (primeira execução)
+  ```
+
+  ## 📈 Métricas de Sucesso
+
+  | Métrica | Alvo |
+  |---------|------|
+  | Fontes configuradas | 13 (11 ativas) |
+  | Fontes funcionando end-to-end | 11 |
+  | Throughput (docs/seg) | > 100 |
+  | Tempo Zero Kelvin → Indexed | < 24h (full load) |
+  | Taxa de duplicatas | < 0.1% |
+  | Retry sucesso | > 95% |
+
+  ---
+
+  ## 🗺️ Plano de Execução (24 Agentes)
+
+  ### Sprint 1: Caminho C - Arquitetura (7 agentes)
+
+  | Agente | Tarefa | Módulo |
+  |--------|--------|--------|
+  | C1 | Criar projeto Gabi.Jobs + JobFactory | Gabi.Jobs |
+  | C2 | Implementar SourceJobCreator | Gabi.Jobs |
+  | C3 | Implementar DocumentJobCreator | Gabi.Jobs |
+  | C4 | Criar JobStateMachine + transições | Gabi.Jobs |
+  | C5 | Criar projeto Gabi.Pipeline + Orchestrator | Gabi.Pipeline |
+  | C6 | Implementar PhaseCoordinator + Circuit Breaker | Gabi.Pipeline |
+
+  ### Sprint 2: Caminho A - Estruturadas (8 agentes)
+
+  | Agente | Tarefa | Módulo |
+  |--------|--------|--------|
+  | A1 | Criar projeto Gabi.Fetch + ContentFetcher | Gabi.Fetch |
+  | A2 | Implementar DocumentCounter (CSV) | Gabi.Fetch |
+  | A3 | Implementar MetadataExtractor | Gabi.Fetch |
+  | A4 | Criar projeto Gabi.Hash + ContentHasher | Gabi.Hash |
+  | A5 | Implementar DeduplicationService | Gabi.Hash |
+  | A6 | Implementar CsvFetchStrategy (streaming) | Gabi.Fetch |
+  | A7 | Expandir Gabi.Ingest.Parser (CSV streaming) | Gabi.Ingest |
+  | A8 | Integrar fetch + hash + parse no pipeline | Gabi.Pipeline |
+
+  ### Sprint 3: Caminho B - Crawler (8 agentes)
+
+  | Agente | Tarefa | Módulo |
+  |--------|--------|--------|
+  | B1 | Criar projeto Gabi.Crawler + WebCrawler | Gabi.Crawler |
+  | B2 | Implementar LinkExtractor (CSS selectors) | Gabi.Crawler |
+  | B3 | Implementar PdfDownloader + parser | Gabi.Crawler |
+  | B4 | Implementar PolitenessPolicy | Gabi.Crawler |
+  | B5 | Implementar TcuPublicationsCrawler | Gabi.Crawler |
+  | B6 | Implementar CamaraApiAdapter | Gabi.Crawler |
+  | B7 | Expandir DiscoveryEngine (WebCrawlStrategy) | Gabi.Discover |
+  | B8 | Expandir DiscoveryEngine (ApiPaginationStrategy) | Gabi.Discover |
+
+  ### Sprint 4: Integração (2 agentes)
+
+  | Agente | Tarefa |
+  |--------|--------|
+  | I1 | API endpoints para pipeline (/api/v1/pipeline/run, /status) |
+  | I2 | Testes Zero Kelvin end-to-end |
+
+  ---
+
+  ## 📚 Documentação Relacionada
+
+  - `PIPELINE_COMPLETO_ROADMAP.md` - Detalhamento completo do pipeline
+  - `README.md` - Teste Zero Kelvin e Idempotência
+  - `day_sprint.md` - Tarefas do sprint atual

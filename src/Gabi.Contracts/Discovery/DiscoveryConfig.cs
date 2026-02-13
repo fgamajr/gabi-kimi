@@ -39,9 +39,11 @@ public record UrlPatternConfig
     /// <summary>Template de URL com placeholders (ex: {year}).</summary>
     public string Template { get; init; } = string.Empty;
     
-    /// <summary>Parâmetros do template.</summary>
-    public IReadOnlyDictionary<string, ParameterRange> Parameters { get; init; } = 
-        new Dictionary<string, ParameterRange>();
+    /// <summary>Parâmetros do template (legacy - use YearRange for simple year patterns).</summary>
+    public IReadOnlyDictionary<string, ParameterRange>? Parameters { get; init; }
+    
+    /// <summary>Year range for year-based URL patterns.</summary>
+    public RangeParameter? YearRange { get; init; }
 }
 
 /// <summary>
@@ -128,14 +130,34 @@ public enum DiscoveryMode
 /// </summary>
 public record DiscoveryConfig
 {
-    /// <summary>Estratégia de descoberta (modo).</summary>
-    public DiscoveryStrategy Strategy { get; init; } = DiscoveryStrategy.StaticUrl;
+    /// <summary>
+    /// Estratégia de descoberta (modo) as string.
+    /// Values: "static_url", "url_pattern", "web_crawl", "api_pagination"
+    /// </summary>
+    public string Strategy { get; init; } = "static_url";
+    
+    /// <summary>Estratégia de descoberta (modo) como enum.</summary>
+    public DiscoveryStrategy StrategyEnum => Strategy.ToLowerInvariant() switch
+    {
+        "static_url" or "staticurl" => DiscoveryStrategy.StaticUrl,
+        "url_pattern" or "urlpattern" => DiscoveryStrategy.UrlPattern,
+        "web_crawl" or "webcrawl" => DiscoveryStrategy.WebCrawl,
+        "api_pagination" or "apipagination" => DiscoveryStrategy.ApiPagination,
+        _ => DiscoveryStrategy.StaticUrl
+    };
     
     /// <summary>Modo de descoberta (alias para Strategy).</summary>
     public DiscoveryMode Mode
     {
-        get => (DiscoveryMode)Strategy;
-        init => Strategy = (DiscoveryStrategy)value;
+        get => (DiscoveryMode)StrategyEnum;
+        init => Strategy = value.ToString().ToLowerInvariant() switch
+        {
+            "staticurl" => "static_url",
+            "urlpattern" => "url_pattern",
+            "webcrawl" => "web_crawl",
+            "apipagination" => "api_pagination",
+            _ => "static_url"
+        };
     }
     
     /// <summary>URL estático (para StaticUrl).</summary>

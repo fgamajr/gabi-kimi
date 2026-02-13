@@ -104,6 +104,12 @@
       "frameworks": {
         "net8.0": {
           "targetAlias": "net8.0",
+          "dependencies": {
+            "YamlDotNet": {
+              "target": "Package",
+              "version": "[15.1.0, )"
+            }
+          },
           "imports": [
             "net461",
             "net462",
@@ -146,6 +152,9 @@
           "net8.0": {
             "targetAlias": "net8.0",
             "projectReferences": {
+              "/home/fgamajr/dev/gabi-kimi/src/Gabi.Contracts/Gabi.Contracts.csproj": {
+                "projectPath": "/home/fgamajr/dev/gabi-kimi/src/Gabi.Contracts/Gabi.Contracts.csproj"
+              },
               "/home/fgamajr/dev/gabi-kimi/src/Gabi.Discover/Gabi.Discover.csproj": {
                 "projectPath": "/home/fgamajr/dev/gabi-kimi/src/Gabi.Discover/Gabi.Discover.csproj"
               }

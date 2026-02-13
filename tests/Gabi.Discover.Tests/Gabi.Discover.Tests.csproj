@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Gabi.Discover\Gabi.Discover.csproj" />
+    <ProjectReference Include="..\..\src\Gabi.Contracts\Gabi.Contracts.csproj" />
   </ItemGroup>
 
 </Project>

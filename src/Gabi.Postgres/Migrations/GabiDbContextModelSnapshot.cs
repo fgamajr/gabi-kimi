@@ -17,7 +17,7 @@ namespace Gabi.Postgres.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "8.0.2")
+                .HasAnnotation("ProductVersion", "8.0.24")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -125,6 +125,9 @@ namespace Gabi.Postgres.Migrations
                     b.Property<DateTime>("DiscoveredAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int?>("DocumentCount")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Etag")
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)");
@@ -149,6 +152,10 @@ namespace Gabi.Postgres.Migrations
                         .IsRequired()
                         .HasColumnType("jsonb");
 
+                    b.Property<string>("MetadataHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<int>("ProcessAttempts")
                         .HasColumnType("integer");
 
@@ -161,6 +168,9 @@ namespace Gabi.Postgres.Migrations
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
+
+                    b.Property<long?>("TotalSizeBytes")
+                        .HasColumnType("bigint");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -202,13 +212,130 @@ namespace Gabi.Postgres.Migrations
                     b.ToTable("discovered_links", (string)null);
                 });
 
-            modelBuilder.Entity("Gabi.Postgres.Entities.IngestJobEntity", b =>
+            modelBuilder.Entity("Gabi.Postgres.Entities.DocumentEntity", b =>
                 {
-                    b.Property<long>("Id")
+                    b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Content")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ContentHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ContentUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("DocumentId")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("ElasticsearchId")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<Guid?>("EmbeddingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ExternalId")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<long>("LinkId")
                         .HasColumnType("bigint");
 
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+                    b.Property<string>("Metadata")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTime?>("ProcessingCompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ProcessingStage")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime?>("ProcessingStartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("RemovedFromSourceAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RemovedReason")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("SourceContentHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("SourceId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Title")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ContentHash");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("DocumentId");
+
+                    b.HasIndex("ExternalId");
+
+                    b.HasIndex("LinkId");
+
+                    b.HasIndex("RemovedFromSourceAt");
+
+                    b.HasIndex("SourceId");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("SourceId", "ExternalId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Documents_SourceId_ExternalId_Active")
+                        .HasFilter("\"RemovedFromSourceAt\" IS NULL");
+
+                    b.ToTable("documents", (string)null);
+                });
+
+            modelBuilder.Entity("Gabi.Postgres.Entities.IngestJobEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
 
                     b.Property<int>("Attempts")
                         .HasColumnType("integer");
@@ -516,63 +643,6 @@ namespace Gabi.Postgres.Migrations
                     b.ToTable("source_registry", (string)null);
                 });
 
-            modelBuilder.Entity("Gabi.Postgres.Repositories.DocumentEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ContentHash")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("ContentPreview")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("DocumentId")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
-
-                    b.Property<string>("Fingerprint")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("SourceId")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<int>("Status")
-                        .HasMaxLength(20)
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("DocumentId")
-                        .IsUnique();
-
-                    b.HasIndex("Fingerprint")
-                        .IsUnique();
-
-                    b.HasIndex("SourceId");
-
-                    b.ToTable("documents", (string)null);
-                });
-
             modelBuilder.Entity("Gabi.Postgres.Entities.DiscoveredLinkEntity", b =>
                 {
                     b.HasOne("Gabi.Postgres.Entities.SourceRegistryEntity", "Source")
@@ -582,6 +652,17 @@ namespace Gabi.Postgres.Migrations
                         .IsRequired();
 
                     b.Navigation("Source");
+                });
+
+            modelBuilder.Entity("Gabi.Postgres.Entities.DocumentEntity", b =>
+                {
+                    b.HasOne("Gabi.Postgres.Entities.DiscoveredLinkEntity", "Link")
+                        .WithMany("Documents")
+                        .HasForeignKey("LinkId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Link");
                 });
 
             modelBuilder.Entity("Gabi.Postgres.Entities.IngestJobEntity", b =>
@@ -614,6 +695,8 @@ namespace Gabi.Postgres.Migrations
 
             modelBuilder.Entity("Gabi.Postgres.Entities.DiscoveredLinkEntity", b =>
                 {
+                    b.Navigation("Documents");
+
                     b.Navigation("Jobs");
                 });
 

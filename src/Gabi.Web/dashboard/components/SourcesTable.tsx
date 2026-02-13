@@ -8,6 +8,7 @@ interface SourcesTableProps {
   sources: Source[];
   isLoading: boolean;
   onRefresh: (sourceId: string) => Promise<void>;
+  onSeed?: () => Promise<void>;
 }
 
 const sourceTypeIcons: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -17,9 +18,10 @@ const sourceTypeIcons: Record<string, React.ComponentType<{ className?: string }
   default: Database,
 };
 
-export function SourcesTable({ sources, isLoading, onRefresh }: SourcesTableProps) {
+export function SourcesTable({ sources, isLoading, onRefresh, onSeed }: SourcesTableProps) {
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
   const [refreshingSource, setRefreshingSource] = useState<string | null>(null);
+  const [isSeeding, setIsSeeding] = useState(false);
 
   const handleRefresh = async (sourceId: string) => {
     setRefreshingSource(sourceId);
@@ -27,6 +29,16 @@ export function SourcesTable({ sources, isLoading, onRefresh }: SourcesTableProp
       await onRefresh(sourceId);
     } finally {
       setRefreshingSource(null);
+    }
+  };
+
+  const handleSeed = async () => {
+    if (!onSeed) return;
+    setIsSeeding(true);
+    try {
+      await onSeed();
+    } finally {
+      setIsSeeding(false);
     }
   };
 
@@ -40,9 +52,26 @@ export function SourcesTable({ sources, isLoading, onRefresh }: SourcesTableProp
 
   if (sources.length === 0) {
     return (
-      <div className="text-center py-12 text-muted-foreground">
+      <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-xl">
         <Database className="h-12 w-12 mx-auto mb-4 opacity-50" />
-        <p>No sources configured</p>
+        <h3 className="text-lg font-medium text-foreground mb-2">No sources configured</h3>
+        <p className="mb-6 max-w-sm mx-auto">
+          The system needs source definitions to start discovering content.
+        </p>
+        {onSeed && (
+          <button
+            onClick={handleSeed}
+            disabled={isSeeding}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
+          >
+            {isSeeding ? (
+              <RefreshCw className="h-4 w-4 animate-spin" />
+            ) : (
+              <Database className="h-4 w-4" />
+            )}
+            {isSeeding ? 'Initializing...' : 'Initialize Default Sources'}
+          </button>
+        )}
       </div>
     );
   }
@@ -53,7 +82,7 @@ export function SourcesTable({ sources, isLoading, onRefresh }: SourcesTableProp
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {sources.map((source) => {
             const Icon = sourceTypeIcons[source.source_type] || sourceTypeIcons.default;
-            
+
             return (
               <div
                 key={source.id}
@@ -80,7 +109,7 @@ export function SourcesTable({ sources, isLoading, onRefresh }: SourcesTableProp
                       </p>
                     </div>
                   </div>
-                  
+
                   <div className={cn(
                     "w-2 h-2 rounded-full",
                     source.enabled ? "bg-green-500" : "bg-gray-400"

@@ -152,6 +152,15 @@ public record DashboardStatsResponse
 
     [JsonPropertyName("elasticsearch_available")]
     public bool ElasticsearchAvailable { get; init; }
+
+    [JsonPropertyName("sync_status")]
+    public SyncStatusDto? SyncStatus { get; init; }
+
+    [JsonPropertyName("throughput")]
+    public ThroughputDto? Throughput { get; init; }
+
+    [JsonPropertyName("rag_stats")]
+    public RagStatsDto? RagStats { get; init; }
 }
 
 /// <summary>
@@ -405,4 +414,68 @@ public record LinkListRequest
 
     [JsonPropertyName("sort")]
     public string? Sort { get; init; } = "discoveredAt_desc";
+}
+
+public record SyncStatusDto
+{
+    [JsonPropertyName("synced_count")]
+    public int SyncedCount { get; init; }
+    [JsonPropertyName("processing_count")]
+    public int ProcessingCount { get; init; }
+    [JsonPropertyName("total_count")]
+    public int TotalCount { get; init; }
+}
+
+public record ThroughputDto
+{
+    [JsonPropertyName("docs_per_min")]
+    public double DocsPerMin { get; init; }
+    [JsonPropertyName("eta_minutes")]
+    public double? EtaMinutes { get; init; }
+}
+
+public record RagStatsDto
+{
+    [JsonPropertyName("indexed_count")]
+    public int IndexedCount { get; init; }
+    [JsonPropertyName("indexed_percentage")]
+    public double IndexedPercentage { get; init; }
+    [JsonPropertyName("vector_chunks_count")]
+    public int VectorChunksCount { get; init; }
+    [JsonPropertyName("index_size_mb")]
+    public double IndexSizeMb { get; init; }
+}
+
+public record SafraResponse
+{
+    [JsonPropertyName("years")]
+    public IReadOnlyList<SafraYearStatsDto> Years { get; init; } = Array.Empty<SafraYearStatsDto>();
+    [JsonPropertyName("throughput_docs_min")]
+    public double ThroughputDocsMin { get; init; }
+    [JsonPropertyName("rag_percentage")]
+    public double RagPercentage { get; init; }
+}
+
+public record SafraYearStatsDto
+{
+    [JsonPropertyName("year")]
+    public int Year { get; init; }
+    
+    [JsonPropertyName("sync_count")]
+    public int SyncCount { get; init; }
+    [JsonPropertyName("sync_total")]
+    public int SyncTotal { get; init; }
+    
+    [JsonPropertyName("index_count")]
+    public int IndexCount { get; init; }
+    [JsonPropertyName("index_total")]
+    public int IndexTotal { get; init; }
+    
+    [JsonPropertyName("rag_count")]
+    public int RagCount { get; init; }
+    [JsonPropertyName("rag_total")]
+    public int RagTotal { get; init; }
+    
+    [JsonPropertyName("status")]
+    public string Status { get; init; } = "pending";
 }

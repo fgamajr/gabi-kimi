@@ -47,4 +47,19 @@ public interface IDocumentRepository
     /// Busca documentos por link.
     /// </summary>
     Task<IReadOnlyList<DocumentEntity>> GetByLinkAsync(long linkId, CancellationToken ct = default);
+    
+    /// <summary>
+    /// Busca documento pelo ExternalId (natural key from source).
+    /// </summary>
+    Task<DocumentEntity?> GetByExternalIdAsync(string sourceId, string externalId, CancellationToken ct = default);
+    
+    /// <summary>
+    /// Busca documentos ativos (não removidos) por source.
+    /// </summary>
+    Task<IReadOnlyList<DocumentEntity>> GetActiveBySourceAsync(string sourceId, CancellationToken ct = default);
+    
+    /// <summary>
+    /// Marca documento como removido da fonte (soft delete from source).
+    /// </summary>
+    Task MarkAsRemovedAsync(string sourceId, string externalId, string reason, CancellationToken ct = default);
 }

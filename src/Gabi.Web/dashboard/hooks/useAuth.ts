@@ -5,6 +5,7 @@ interface AuthState {
   isAuthenticated: boolean;
   token: string | null;
   role: string | null;
+  user: { name: string; initials: string } | null;
   isLoading: boolean;
   error: string | null;
 }
@@ -25,6 +26,7 @@ export function useAuth() {
     isAuthenticated: false,
     token: null,
     role: null,
+    user: null,
     isLoading: true,
     error: null,
   });
@@ -34,10 +36,14 @@ export function useAuth() {
     if (token) {
       const payload = decodeJwtPayload(token);
       const role = (payload?.role as string) ?? (payload?.['http://schemas.microsoft.com/ws/2008/06/identity/claims/role'] as string) ?? null;
+      const name = (payload?.unique_name as string) ?? (payload?.name as string) ?? 'Admin User';
+      const initials = name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+
       setState({
         isAuthenticated: true,
         token,
         role,
+        user: { name, initials },
         isLoading: false,
         error: null,
       });
@@ -54,10 +60,15 @@ export function useAuth() {
 
       if (response.success && response.token) {
         api.setToken(response.token);
+        const payload = decodeJwtPayload(response.token);
+        const name = (payload?.unique_name as string) ?? (payload?.name as string) ?? 'Admin User';
+        const initials = name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+
         setState({
           isAuthenticated: true,
           token: response.token,
           role: response.role,
+          user: { name, initials },
           isLoading: false,
           error: null,
         });
@@ -86,6 +97,7 @@ export function useAuth() {
       isAuthenticated: false,
       token: null,
       role: null,
+      user: null,
       isLoading: false,
       error: null,
     });

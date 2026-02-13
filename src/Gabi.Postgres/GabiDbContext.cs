@@ -85,6 +85,7 @@ public class GabiDbContext : DbContext
             entity.Property(e => e.Status).HasMaxLength(20);
             entity.Property(e => e.ContentHash).HasMaxLength(64);
             entity.Property(e => e.LastContentHash).HasMaxLength(64);
+            entity.Property(e => e.MetadataHash).HasMaxLength(64);
 
             // JSONB column for flexible metadata
             entity.Property(e => e.Metadata).HasColumnType("jsonb").IsRequired();
@@ -208,6 +209,9 @@ public class GabiDbContext : DbContext
 
             entity.Property(e => e.SourceId).HasMaxLength(100).IsRequired();
             entity.Property(e => e.DocumentId).HasMaxLength(255);
+            entity.Property(e => e.ExternalId).HasMaxLength(255);
+            entity.Property(e => e.SourceContentHash).HasMaxLength(64);
+            entity.Property(e => e.RemovedReason).HasMaxLength(100);
             entity.Property(e => e.ContentHash).HasMaxLength(64);
             entity.Property(e => e.Status).HasMaxLength(20);
             entity.Property(e => e.ProcessingStage).HasMaxLength(50);
@@ -230,6 +234,14 @@ public class GabiDbContext : DbContext
             entity.HasIndex(e => e.CreatedAt);
             entity.HasIndex(e => e.DocumentId);
             entity.HasIndex(e => e.ContentHash);
+            entity.HasIndex(e => e.ExternalId);
+            entity.HasIndex(e => e.RemovedFromSourceAt);
+
+            // Unique index on (SourceId, ExternalId) where RemovedFromSourceAt IS NULL
+            entity.HasIndex(e => new { e.SourceId, e.ExternalId })
+                .IsUnique()
+                .HasFilter("\"RemovedFromSourceAt\" IS NULL")
+                .HasDatabaseName("IX_Documents_SourceId_ExternalId_Active");
         });
     }
 }
