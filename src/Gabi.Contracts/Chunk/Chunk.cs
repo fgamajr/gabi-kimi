@@ -34,9 +34,35 @@ public enum ChunkType
 /// <param name="Text">Texto do chunk.</param>
 /// <param name="TokenCount">Número aproximado de tokens.</param>
 /// <param name="Type">Tipo/seção do chunk.</param>
+/// <param name="SectionType">Tipo de seção específica: "artigo", "paragrafo", "ementa", "voto", etc.</param>
+/// <param name="Metadata">Metadados adicionais.</param>
 public record Chunk(
     int Index,
     string Text,
     int TokenCount,
-    ChunkType Type
-);
+    ChunkType Type,
+    string? SectionType = null,
+    IReadOnlyDictionary<string, object>? Metadata = null
+)
+{
+    /// <summary>Contagem de caracteres.</summary>
+    public int CharCount => Text?.Length ?? 0;
+}
+
+/// <summary>
+/// Resultado do chunking de um documento.
+/// </summary>
+/// <param name="DocumentId">ID do documento.</param>
+/// <param name="Chunks">Chunks gerados.</param>
+/// <param name="TotalTokens">Total de tokens.</param>
+/// <param name="Strategy">Estratégia: legal_hierarchical, whole_document, semantic_section.</param>
+public record ChunkingResult(
+    string DocumentId,
+    IReadOnlyList<Chunk> Chunks,
+    int TotalTokens,
+    string Strategy = "legal_hierarchical"
+)
+{
+    /// <summary>Total de chunks.</summary>
+    public int TotalChunks => Chunks?.Count ?? 0;
+}

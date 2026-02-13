@@ -1,0 +1,34 @@
+# GABI API - Fly.io Configuration
+# Deploy: fly deploy --config fly.api.toml
+# App name: gabi-api (crie com: fly apps create gabi-api)
+
+app = 'gabi-api'
+primary_region = 'gru'
+
+[build]
+  dockerfile = "src/Gabi.Api/Dockerfile"
+
+[env]
+  ASPNETCORE_ENVIRONMENT = "Production"
+  ASPNETCORE_URLS = "http://+:8080"
+  GABI_SOURCES_PATH = "/app/sources_v2.yaml"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 250
+    soft_limit = 200
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '512mb'
+
+# Secrets (configure via: fly secrets set -a gabi-api)
+# - ConnectionStrings__Default  (quando a API usar PostgreSQL)

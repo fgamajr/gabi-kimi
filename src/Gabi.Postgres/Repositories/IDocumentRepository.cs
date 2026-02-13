@@ -1,4 +1,5 @@
 using Gabi.Contracts.Enums;
+using Gabi.Postgres.Entities;
 
 namespace Gabi.Postgres.Repositories;
 
@@ -36,21 +37,14 @@ public interface IDocumentRepository
     /// Conta documentos por source.
     /// </summary>
     Task<int> CountBySourceAsync(string sourceId, CancellationToken ct = default);
-}
-
-/// <summary>
-/// Entidade de documento (simplificada para início).
-/// </summary>
-public class DocumentEntity
-{
-    public Guid Id { get; set; }
-    public string SourceId { get; set; } = string.Empty;
-    public string DocumentId { get; set; } = string.Empty;
-    public string Title { get; set; } = string.Empty;
-    public string ContentPreview { get; set; } = string.Empty;
-    public string Fingerprint { get; set; } = string.Empty;
-    public string ContentHash { get; set; } = string.Empty;
-    public DocumentStatus Status { get; set; } = DocumentStatus.Active;
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    
+    /// <summary>
+    /// Conta documentos por link.
+    /// </summary>
+    Task<int> CountByLinkAsync(long linkId, CancellationToken ct = default);
+    
+    /// <summary>
+    /// Busca documentos por link.
+    /// </summary>
+    Task<IReadOnlyList<DocumentEntity>> GetByLinkAsync(long linkId, CancellationToken ct = default);
 }

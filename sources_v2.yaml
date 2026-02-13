@@ -5,11 +5,12 @@
 # is separate and modular.
 #
 # Architecture alignment:
-# - contracts/: Maps directly to Pydantic contracts
+# - contracts/: Maps directly to C# contracts
 # - discover/: Consumes 'discovery' section
 # - ingest/: Consumes 'fetch', 'parse', 'transform' sections
 # - sync/: Consumes 'pipeline' orchestration config
 #
+# Sources: 13 total (11 active, 2 inactive)
 # Version: 2.0.0
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -37,17 +38,18 @@ defaults:
 sources:
   
   # ─────────────────────────────────────────────────────────────────────────────
-  # TCU - Acórdãos (Pattern-based discovery)
+  # 1. TCU - Acórdãos (Pattern-based discovery)
   # ─────────────────────────────────────────────────────────────────────────────
   tcu_acordaos:
     # Identity (who/what is this source)
     identity:
       name: "TCU - Acórdãos"
-      description: "Acórdãos completos do Tribunal de Contas da União"
+      description: "Acórdãos completos do Tribunal de Contas da União (1992-current)"
       provider: TCU
       domain: legal
       jurisdiction: BR
       category: jurisprudence
+      canonical_type: legal_decision
       
     # Discovery phase: Where to find content
     discovery:
@@ -150,7 +152,6 @@ sources:
           
         # Metadata fields
         metadata:
-          # Static metadata
           tipo: {source: TIPO, transforms: [strip_quotes]}
           colegiado: {source: COLEGIADO, transforms: [strip_quotes]}
           relator: {source: RELATOR, transforms: [strip_quotes]}
@@ -216,7 +217,7 @@ sources:
           index_name: gabi_documents_v1
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # TCU - Normas (Single static URL with streaming)
+  # 2. TCU - Normas Internas (Single static URL with streaming)
   # ─────────────────────────────────────────────────────────────────────────────
   tcu_normas:
     identity:
@@ -226,6 +227,7 @@ sources:
       domain: legal
       jurisdiction: BR
       category: legislation
+      canonical_type: legal_norm
       
     discovery:
       strategy: static_url
@@ -296,7 +298,12 @@ sources:
         id_template: "norma-{type}-{number}/{year}"
         title_template: "{type} nº {number}/{year}"
         content_fields: [content]
-        
+
+    transform:
+      validate:
+        - rule: required_fields
+          fields: [document_id, number, type, content]
+
     pipeline:
       enabled: true
       schedule: "0 3 * * *"
@@ -311,7 +318,7 @@ sources:
             overlap_tokens: 0
             
   # ─────────────────────────────────────────────────────────────────────────────
-  # TCU - Súmulas
+  # 3. TCU - Súmulas
   # ─────────────────────────────────────────────────────────────────────────────
   tcu_sumulas:
     identity:
@@ -319,7 +326,9 @@ sources:
       description: "Súmulas do Tribunal de Contas da União"
       provider: TCU
       domain: legal
+      jurisdiction: BR
       category: jurisprudence_highlight
+      canonical_type: jurisprudence_highlight
       
     discovery:
       strategy: static_url
@@ -335,6 +344,7 @@ sources:
         
     parse:
       strategy: csv_row_to_document
+      
       fields:
         document_id:
           source: KEY
@@ -365,11 +375,648 @@ sources:
         id_template: "sumula-{number}/{year}"
         title_template: "Súmula {number}"
         content_fields: [content]
-        
+
+    transform:
+      validate:
+        - rule: required_fields
+          fields: [number, content]
+
     pipeline:
       enabled: true
       schedule: "0 4 * * *"
       mode: full_reload
+
+      optional:
+        embed:
+          enabled: true
+          chunking:
+            strategy: whole_document
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 4. TCU - Jurisprudência Selecionada
+  # ─────────────────────────────────────────────────────────────────────────────
+  tcu_jurisprudencia_selecionada:
+    identity:
+      name: "TCU - Jurisprudência Selecionada"
+      description: "Jurisprudência selecionada do TCU com enunciados e excertos"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: jurisprudence_highlight
+      canonical_type: jurisprudence_highlight
+
+    discovery:
+      strategy: static_url
+      config:
+        url: "https://sites.tcu.gov.br/dados-abertos/jurisprudencia/arquivos/jurisprudencia-selecionada/jurisprudencia-selecionada.csv"
+
+    fetch:
+      protocol: https
+      method: GET
+      format:
+        type: csv
+        delimiter: "|"
+
+    parse:
+      strategy: csv_row_to_document
+
+      fields:
+        document_id:
+          source: KEY
+          transforms: [strip_quotes]
+          required: true
+
+        number:
+          source: NUMACORDAO
+          transforms: [strip_quotes]
+
+        year:
+          source: ANOACORDAO
+          transforms: [strip_quotes, parse_int]
+
+        content:
+          source: ENUNCIADO
+          transforms: [strip_quotes]
+          required: true
+          store: true
+          index: true
+          chunk: true
+
+        text_excerto:
+          source: EXCERTO
+          transforms: [strip_quotes]
+          chunk: true
+
+        text_paragrafo:
+          source: PARAGRAFOLC
+          transforms: [strip_quotes]
+          chunk: true
+
+        metadata: {}
+
+      document:
+        id_template: "jurisprudencia-selecionada-{number}/{year}"
+        title_template: "Jurisprudência Selecionada - Acórdão {number}/{year}"
+        content_fields: [content, text_excerto, text_paragrafo]
+
+    pipeline:
+      enabled: true
+      schedule: "0 4 * * *"
+      mode: full_reload
+
+      optional:
+        embed:
+          enabled: true
+          chunking:
+            strategy: whole_document
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 5. TCU - Resposta a Consulta
+  # ─────────────────────────────────────────────────────────────────────────────
+  tcu_resposta_consulta:
+    identity:
+      name: "TCU - Resposta a Consulta"
+      description: "Respostas a consultas do TCU com enunciados e excertos"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: jurisprudence_highlight
+      canonical_type: jurisprudence_highlight
+
+    discovery:
+      strategy: static_url
+      config:
+        url: "https://sites.tcu.gov.br/dados-abertos/jurisprudencia/arquivos/resposta-consulta/resposta-consulta.csv"
+
+    fetch:
+      protocol: https
+      method: GET
+      format:
+        type: csv
+        delimiter: "|"
+
+    parse:
+      strategy: csv_row_to_document
+
+      fields:
+        document_id:
+          source: KEY
+          transforms: [strip_quotes]
+          required: true
+
+        number:
+          source: NUMACORDAO
+          transforms: [strip_quotes]
+
+        year:
+          source: ANOACORDAO
+          transforms: [strip_quotes, parse_int]
+
+        content:
+          source: ENUNCIADO
+          transforms: [strip_quotes]
+          required: true
+          store: true
+          index: true
+          chunk: true
+
+        text_excerto:
+          source: EXCERTO
+          transforms: [strip_quotes]
+          chunk: true
+
+        metadata: {}
+
+      document:
+        id_template: "resposta-consulta-{number}/{year}"
+        title_template: "Resposta a Consulta - Acórdão {number}/{year}"
+        content_fields: [content, text_excerto]
+
+    pipeline:
+      enabled: true
+      schedule: "0 4 * * *"
+      mode: full_reload
+
+      optional:
+        embed:
+          enabled: true
+          chunking:
+            strategy: whole_document
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 6. TCU - Informativo de Licitações e Contratos
+  # ─────────────────────────────────────────────────────────────────────────────
+  tcu_informativo_lc:
+    identity:
+      name: "TCU - Informativo de Licitações e Contratos"
+      description: "Boletim informativo de licitações e contratos do TCU"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: jurisprudence_highlight
+      canonical_type: jurisprudence_highlight
+
+    discovery:
+      strategy: static_url
+      config:
+        url: "https://sites.tcu.gov.br/dados-abertos/jurisprudencia/arquivos/boletim-informativo-lc/boletim-informativo-lc.csv"
+
+    fetch:
+      protocol: https
+      method: GET
+      format:
+        type: csv
+        delimiter: "|"
+
+    parse:
+      strategy: csv_row_to_document
+
+      fields:
+        document_id:
+          source: KEY
+          transforms: [strip_quotes]
+          required: true
+
+        title:
+          source: TITULO
+          transforms: [strip_quotes]
+
+        number:
+          source: NUMERO
+          transforms: [strip_quotes]
+
+        content:
+          source: ENUNCIADO
+          transforms: [strip_quotes]
+          required: true
+          store: true
+          index: true
+          chunk: true
+
+        text_acordao:
+          source: TEXTOACORDAO
+          transforms: [strip_quotes]
+          chunk: true
+
+        text_info:
+          source: TEXTOINFO
+          transforms: [strip_quotes]
+          chunk: true
+
+        metadata: {}
+
+      document:
+        id_template: "informativo-lc-{number}"
+        title_template: "Informativo LC - {title}"
+        content_fields: [content, text_acordao, text_info]
+
+    pipeline:
+      enabled: true
+      schedule: "0 5 * * *"
+      mode: full_reload
+
+      optional:
+        embed:
+          enabled: true
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 7. TCU - Boletim de Jurisprudência
+  # ─────────────────────────────────────────────────────────────────────────────
+  tcu_boletim_jurisprudencia:
+    identity:
+      name: "TCU - Boletim de Jurisprudência"
+      description: "Boletim de jurisprudência do TCU com enunciados e referências"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: jurisprudence_highlight
+      canonical_type: jurisprudence_highlight
+
+    discovery:
+      strategy: static_url
+      config:
+        url: "https://sites.tcu.gov.br/dados-abertos/jurisprudencia/arquivos/boletim-jurisprudencia/boletim-jurisprudencia.csv"
+
+    fetch:
+      protocol: https
+      method: GET
+      format:
+        type: csv
+        delimiter: "|"
+
+    parse:
+      strategy: csv_row_to_document
+
+      fields:
+        document_id:
+          source: KEY
+          transforms: [strip_quotes]
+          required: true
+
+        title:
+          source: TITULO
+          transforms: [strip_quotes]
+
+        content:
+          source: ENUNCIADO
+          transforms: [strip_quotes]
+          required: true
+          store: true
+          index: true
+          chunk: true
+
+        text_referencia:
+          source: REFERENCIA
+          transforms: [strip_quotes]
+          chunk: true
+
+        text_acordao:
+          source: TEXTOACORDAO
+          transforms: [strip_quotes]
+          chunk: true
+
+        metadata: {}
+
+      document:
+        id_template: "boletim-jurisprudencia-{document_id}"
+        title_template: "Boletim de Jurisprudência - {title}"
+        content_fields: [content, text_referencia, text_acordao]
+
+    pipeline:
+      enabled: true
+      schedule: "0 5 * * *"
+      mode: full_reload
+
+      optional:
+        embed:
+          enabled: true
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 8. TCU - Boletim de Pessoal
+  # ─────────────────────────────────────────────────────────────────────────────
+  tcu_boletim_pessoal:
+    identity:
+      name: "TCU - Boletim de Pessoal"
+      description: "Boletim de pessoal do TCU com jurisprudência em matéria de pessoal"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: jurisprudence_highlight
+      canonical_type: jurisprudence_highlight
+
+    discovery:
+      strategy: static_url
+      config:
+        url: "https://sites.tcu.gov.br/dados-abertos/jurisprudencia/arquivos/boletim-pessoal/boletim-pessoal.csv"
+
+    fetch:
+      protocol: https
+      method: GET
+      format:
+        type: csv
+        delimiter: "|"
+
+    parse:
+      strategy: csv_row_to_document
+
+      fields:
+        document_id:
+          source: KEY
+          transforms: [strip_quotes]
+          required: true
+
+        title:
+          source: TITULO
+          transforms: [strip_quotes]
+
+        number:
+          source: NUMERO
+          transforms: [strip_quotes]
+
+        content:
+          source: ENUNCIADO
+          transforms: [strip_quotes]
+          required: true
+          store: true
+          index: true
+          chunk: true
+
+        text_referencia:
+          source: REFERENCIA
+          transforms: [strip_quotes]
+          chunk: true
+
+        text_acordao:
+          source: TEXTOACORDAO
+          transforms: [strip_quotes]
+          chunk: true
+
+        metadata: {}
+
+      document:
+        id_template: "boletim-pessoal-{number}"
+        title_template: "Boletim de Pessoal - {title}"
+        content_fields: [content, text_referencia, text_acordao]
+
+    pipeline:
+      enabled: true
+      schedule: "0 5 * * *"
+      mode: full_reload
+
+      optional:
+        embed:
+          enabled: true
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 9. TCU - Publicações Institucionais (PDF Crawler)
+  # ─────────────────────────────────────────────────────────────────────────────
+  tcu_publicacoes:
+    identity:
+      name: "TCU - Publicações Institucionais"
+      description: "Publicações institucionais em PDF do TCU"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: publication
+      canonical_type: publication
+
+    discovery:
+      strategy: web_crawl
+      config:
+        root_url: "https://portal.tcu.gov.br/publicacoes-institucionais/todas"
+        rules:
+          pagination_param: "pagina"
+          link_selector: "a[href*='/publicacoes-institucionais/']:not([href$='todas'])"
+          asset_selector: "a[href$='.pdf']"
+          max_depth: 2
+          rate_limit: 1.0
+
+    fetch:
+      protocol: https
+      method: GET
+      format:
+        type: pdf
+
+    parse:
+      strategy: layout_aware
+      tool: pymupdf
+
+      fields:
+        title:
+          source: metadata.title
+
+        source_url:
+          source: metadata.url
+
+        metadata: {}
+
+      document:
+        id_template: "publicacao-{document_id}"
+        content_fields: [content]
+
+    transform:
+      validate:
+        - rule: required_fields
+          fields: [title]
+
+    pipeline:
+      enabled: true
+      schedule: "0 6 * * 0"  # Weekly on Sunday
+      mode: incremental
+
+      optional:
+        embed:
+          enabled: true
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 10. TCU - Notas Técnicas SEFTI (PDF Crawler)
+  # ─────────────────────────────────────────────────────────────────────────────
+  tcu_notas_tecnicas_ti:
+    identity:
+      name: "TCU - Notas Técnicas SEFTI"
+      description: "Notas técnicas da SEFTI (Secretaria de Fiscalização de TI) do TCU"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: technical_note
+      canonical_type: technical_note
+
+    discovery:
+      strategy: web_crawl
+      config:
+        root_url: "https://portal.tcu.gov.br/tecnologia-da-informacao/notas-tecnicas"
+        rules:
+          asset_selector: "a[href$='.pdf']"
+          max_depth: 1
+
+    fetch:
+      protocol: https
+      method: GET
+      format:
+        type: pdf
+
+    parse:
+      strategy: layout_aware
+
+      fields:
+        title:
+          source: link_text_or_metadata
+
+        source_url:
+          source: url
+
+        metadata: {}
+
+      document:
+        id_template: "nota-tecnica-{document_id}"
+        content_fields: [content]
+
+    pipeline:
+      enabled: true
+      schedule: "0 6 * * 0"  # Weekly on Sunday
+      mode: incremental
+
+      optional:
+        embed:
+          enabled: true
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 11. Câmara dos Deputados - Leis Ordinárias (API Query)
+  # ─────────────────────────────────────────────────────────────────────────────
+  camara_leis_ordinarias:
+    identity:
+      name: "Câmara dos Deputados - Leis Ordinárias"
+      description: "Leis ordinárias da Câmara dos Deputados (1980-current)"
+      provider: CAMARA
+      domain: legal
+      jurisdiction: BR
+      category: legislation
+      canonical_type: legislation
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: camara_api_v1
+        parameters:
+          start_year:
+            type: range
+            start: 1980
+            end: current
+
+    fetch:
+      protocol: https
+      method: GET
+      format:
+        type: html
+
+    parse:
+      strategy: legislation_structure
+      tool: built_in
+
+      rules:
+        content_selector: "div#content"
+        remove: [".revogado", "strike"]
+
+      fields:
+        title:
+          source: metadata.title
+
+        number:
+          source: metadata.number
+
+        year:
+          source: metadata.year
+
+        metadata: {}
+
+      document:
+        id_template: "lei-{number}/{year}"
+        title_template: "Lei nº {number}/{year}"
+        content_fields: [content]
+
+    pipeline:
+      enabled: true
+      schedule: "0 7 * * 0"  # Weekly on Sunday
+      mode: incremental
+
+      optional:
+        embed:
+          enabled: true
+        index:
+          enabled: true
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 12. STF - Decisões (INACTIVE)
+  # ─────────────────────────────────────────────────────────────────────────────
+  stf_decisoes:
+    enabled: false
+
+    identity:
+      name: "STF - Decisões"
+      description: "Decisões do Supremo Tribunal Federal"
+      provider: STF
+      domain: legal
+      jurisdiction: BR
+      category: jurisprudence
+      canonical_type: legal_decision
+
+    discovery:
+      strategy: static_url
+      config:
+        url: "https://api.stf.jus.br/decisoes.csv"
+
+    fetch:
+      protocol: https
+      method: GET
+      format:
+        type: csv
+
+    parse:
+      strategy: csv_row_to_document
+
+    pipeline:
+      enabled: false
+      schedule: "0 8 * * *"
+      mode: incremental
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 13. STJ - Acórdãos (INACTIVE)
+  # ─────────────────────────────────────────────────────────────────────────────
+  stj_acordaos:
+    enabled: false
+
+    identity:
+      name: "STJ - Acórdãos"
+      description: "Acórdãos do Superior Tribunal de Justiça"
+      provider: STJ
+      domain: legal
+      jurisdiction: BR
+      category: jurisprudence
+      canonical_type: legal_decision
+
+    discovery:
+      strategy: url_pattern
+      config:
+        template: "https://api.stj.jus.br/acordaos/{year}.csv"
+        parameters:
+          year:
+            type: range
+            start: 2020
+            end: current
+
+    fetch:
+      protocol: https
+      method: GET
+      format:
+        type: csv
+
+    parse:
+      strategy: csv_row_to_document
+
+    pipeline:
+      enabled: false
+      schedule: "0 8 * * *"
+      mode: incremental
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TRANSFORMS (Reusable transform functions)

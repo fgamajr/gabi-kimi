@@ -1,0 +1,14 @@
+{
+    "profiles": {
+        "Gabi.Api": {
+            "commandName": "Project",
+            "dotnetRunMessages": true,
+            "launchBrowser": false,
+            "applicationUrl": "http://localhost:5100",
+            "environmentVariables": {
+                "ASPNETCORE_ENVIRONMENT": "Development",
+                "GABI_SOURCES_PATH": "../../sources_v2.yaml"
+            }
+        }
+    }
+}
