@@ -61,6 +61,95 @@ pkill -f "vite"  # Para Web
 
 ---
 
+## 🧊 Teste Zero Kelvin
+
+O **Teste Zero Kelvin** valida que o sistema pode ser reconstruído do absoluto zero — sem containers, sem banco, sem caches. É o teste definitivo de reproducibilidade do ambiente de desenvolvimento.
+
+### O que é
+
+Como a temperatura zero Kelvin é o estado fundamental da matéria, este teste leva o sistema ao seu estado fundamental (completamente destruído) e verifica se consegue subir e funcionar 100% apenas com os scripts automatizados.
+
+### Como executar (Automatizado)
+
+```bash
+# Teste completo Zero Kelvin (recomendado)
+./tests/zero-kelvin-test.sh
+
+# Teste de idempotência (setup 2x)
+./tests/zero-kelvin-test.sh idempotency
+```
+
+### Como executar (Manual)
+
+```bash
+# 1. Destruir tudo (remover containers, volumes, processos, logs)
+docker compose down -v --remove-orphans
+./scripts/app-stop.sh
+rm -rf /tmp/gabi-logs /tmp/gabi-*.pid
+
+# 2. Setup Zero Kelvin (reconstruir do zero)
+./scripts/setup.sh
+
+# 3. Iniciar aplicações em modo detached (background)
+./scripts/dev app start
+
+# 4. Verificar status
+./scripts/dev app status
+```
+
+### Critérios de sucesso
+
+| Verificação | Comando | Esperado |
+|-------------|---------|----------|
+| Health API | `curl http://localhost:5100/health` | `Healthy` |
+| Swagger | `curl http://localhost:5100/swagger` | `200 OK` |
+| Stats API | `curl http://localhost:5100/api/v1/stats` | JSON válido |
+| Web UI | `curl http://localhost:3000` | `200 OK` |
+| PostgreSQL | `docker compose ps postgres` | `healthy` |
+| Elasticsearch | `curl http://localhost:9200/_cluster/health` | `status:green` |
+
+### Checklist completo
+
+Veja o [checklist detalhado](docs/zero-kelvin-checklist.md) com todos os passos, comandos exatos e debugging.
+
+### Por que é importante
+
+- **CI/CD**: Garante que pipelines de build funcionam em ambientes limpos
+- **Onboarding**: Novos devs conseguem subir o sistema sem conhecimento tribal
+- **Reproducibilidade**: Elimina "funciona na minha máquina"
+- **Backup & Restore**: Valida que o sistema pode ser recriado em caso de desastre
+
+### ♻️ Idempotência
+
+Os scripts do Zero Kelvin são **idempotentes** — podem ser executados múltiplas vezes sem efeitos colaterais:
+
+```bash
+# Rodar 3x seguidas: o resultado final é o mesmo
+./scripts/setup.sh && ./scripts/setup.sh && ./scripts/setup.sh
+```
+
+Isso significa que:
+- **Migrações**: Só aplicam novas migrations (já aplicadas são ignoradas)
+- **Containers**: Docker Compose recria apenas o que mudou
+- **Dependências**: NPM instala apenas pacotes faltantes
+- **Processos**: Scripts de stop matam apenas processos que existem
+
+#### Teste de Idempotência
+
+```bash
+# Teste rápido de idempotência
+./scripts/setup.sh        # Primeira vez (lento)
+./scripts/setup.sh        # Segunda vez (rápido, sem alterações)
+./scripts/dev app start   # Inicia
+./scripts/dev app start   # Não duplica processos
+./scripts/dev app stop    # Para
+./scripts/dev app stop    # Segunda vez: "nada para parar"
+```
+
+A idempotência torna o sistema **previsível** e **seguro** para automação.
+
+---
+
 ## 🎨 Frontend
 
 O frontend é uma SPA em Vite que consome a API:

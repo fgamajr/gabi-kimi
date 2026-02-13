@@ -18,5 +18,11 @@ public enum JobStatus
     Failed,
     
     /// <summary>Job was cancelled manually or by timeout.</summary>
-    Cancelled
+    Cancelled,
+    
+    /// <summary>Job was skipped (e.g., duplicate or no changes).</summary>
+    Skipped,
+    
+    /// <summary>Job is scheduled for retry.</summary>
+    Retrying
 }

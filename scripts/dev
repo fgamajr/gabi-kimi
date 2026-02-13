@@ -14,11 +14,15 @@ show_help() {
     echo ""
     echo "Commands:"
     echo "  setup              One-time setup (deps, infra, db, web install)"
+    echo "  destroy            Destroy everything (alias for infra destroy)"
     echo "  infra up           Start Docker (Postgres, Elastic, Redis)"
     echo "  infra down         Stop Docker (keep volumes)"
     echo "  infra destroy      Stop Docker and delete all data"
     echo "  app up             Start API + Web (foreground until Ctrl+C)"
-    echo "  app down           Stop API + Web"
+    echo "  app down           Stop API + Web (foreground mode)"
+    echo "  app start          Start API + Web (background / detached)"
+    echo "  app stop           Stop API + Web (background mode)"
+    echo "  app status         Show running status of API + Web + Infra"
     echo "  app logs [api|web] Tail application logs"
     echo "  db apply           Apply pending migrations"
     echo "  db create <Name>   Create new migration"
@@ -41,6 +45,9 @@ shift 2 2>/dev/null || true
 case "$cmd" in
     setup)
         "$GABI_SCRIPTS/setup.sh"
+        ;;
+    destroy)
+        "$GABI_SCRIPTS/infra-destroy.sh"
         ;;
     infra)
         case "$sub" in

@@ -106,4 +106,61 @@ public class DocumentRepository : IDocumentRepository
             .OrderByDescending(d => d.CreatedAt)
             .ToListAsync(ct);
     }
+
+    /// <inheritdoc />
+    public async Task<DocumentEntity?> GetByExternalIdAsync(string sourceId, string externalId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(sourceId) || string.IsNullOrEmpty(externalId))
+            return null;
+
+        return await _context.Documents
+            .AsNoTracking()
+            .FirstOrDefaultAsync(d => 
+                d.SourceId == sourceId && 
+                d.ExternalId == externalId && 
+                d.RemovedFromSourceAt == null, ct);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<DocumentEntity>> GetActiveBySourceAsync(string sourceId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(sourceId))
+            return Array.Empty<DocumentEntity>();
+
+        return await _context.Documents
+            .AsNoTracking()
+            .Where(d => 
+                d.SourceId == sourceId && 
+                d.RemovedFromSourceAt == null)
+            .OrderByDescending(d => d.CreatedAt)
+            .ToListAsync(ct);
+    }
+
+    /// <inheritdoc />
+    public async Task MarkAsRemovedAsync(string sourceId, string externalId, string reason, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(sourceId) || string.IsNullOrEmpty(externalId))
+            return;
+
+        var document = await _context.Documents
+            .FirstOrDefaultAsync(d => 
+                d.SourceId == sourceId && 
+                d.ExternalId == externalId && 
+                d.RemovedFromSourceAt == null, ct);
+
+        if (document == null)
+        {
+            _logger.LogWarning("Document with ExternalId {ExternalId} from source {SourceId} not found for removal", 
+                externalId, sourceId);
+            return;
+        }
+
+        document.RemovedFromSourceAt = DateTime.UtcNow;
+        document.RemovedReason = reason;
+        document.UpdatedAt = DateTime.UtcNow;
+
+        _context.Documents.Update(document);
+        _logger.LogInformation("Marked document {ExternalId} from source {SourceId} as removed from source", 
+            externalId, sourceId);
+    }
 }

@@ -295,6 +295,22 @@ app.MapPost("/api/v1/dashboard/sources/{sourceId}/refresh", [Authorize(Policy = 
 })
 .RequireRateLimiting("write");
 
+// POST /api/v1/dashboard/seed - Seed sources from YAML
+app.MapPost("/api/v1/dashboard/seed", [Authorize(Policy = "RequireOperator")] async (IDashboardService dashboard, CancellationToken ct) =>
+{
+    var success = await dashboard.SeedSourcesAsync(ct);
+    return success ? Results.Ok(new { message = "Sources seeded successfully" }) : Results.Problem("Failed to seed sources");
+})
+.RequireRateLimiting("write");
+
+// GET /api/v1/dashboard/safra - Safra details (matches React frontend contract)
+app.MapGet("/api/v1/dashboard/safra", [Authorize(Policy = "RequireViewer")] async (string? sourceId, IDashboardService dashboard, CancellationToken ct) =>
+{
+    var safra = await dashboard.GetSafraAsync(sourceId, ct);
+    return Results.Ok(safra);
+})
+.RequireRateLimiting("read");
+
 // Novos endpoints de links (protegidos)
 app.MapGet("/api/v1/sources/{sourceId}/links", [Authorize(Policy = "RequireViewer")] async (
     string sourceId,

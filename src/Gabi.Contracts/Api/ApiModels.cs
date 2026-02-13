@@ -54,7 +54,13 @@ public record SourceDetailDto(
     bool Enabled,
     IReadOnlyList<DiscoveredLinkDto> Links, 
     SourceMetadataDto Metadata
-);
+)
+{
+    /// <summary>
+    /// Configuração de discovery (opcional, carregada dinamicamente).
+    /// </summary>
+    public Gabi.Contracts.Discovery.DiscoveryConfig? DiscoveryConfig { get; init; }
+};
 
 /// <summary>
 /// Metadados de uma fonte.

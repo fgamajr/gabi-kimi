@@ -1,3 +1,5 @@
+using Gabi.Contracts.Comparison;
+
 namespace Gabi.Contracts.Discovery;
 
 /// <summary>
@@ -8,12 +10,16 @@ public record DiscoveryResult
     /// <summary>ID da fonte.</summary>
     public string SourceId { get; init; } = string.Empty;
     
-    /// <summary>URLs descobertas.</summary>
+    /// <summary>URLs descobertas (legacy - use Links for new code).</summary>
     public IReadOnlyList<DiscoveredSource> Urls { get; init; } = 
         new List<DiscoveredSource>();
     
+    /// <summary>Links descobertos com hash e metadata.</summary>
+    public IReadOnlyList<DiscoveredLink> Links { get; init; } = 
+        new List<DiscoveredLink>();
+    
     /// <summary>Total descoberto.</summary>
-    public int TotalDiscovered => Urls.Count;
+    public int TotalDiscovered => Links.Count > 0 ? Links.Count : Urls.Count;
     
     /// <summary>Erros durante discovery.</summary>
     public IReadOnlyList<string> Errors { get; init; } = 

@@ -1,11 +1,13 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Login } from './dashboard/pages/Login';
 import { Dashboard } from './dashboard/pages/Dashboard';
+import { SafraDetails } from './dashboard/pages/SafraDetails';
+import { DashboardLayout } from './dashboard/pages/DashboardLayout';
 import { useAuth } from './dashboard/hooks/useAuth';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
-  
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-screen bg-background">
@@ -13,23 +15,26 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-  
+
   return isAuthenticated ? <>{children}</> : <Navigate to="/login" />;
 }
 
 function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route
-          path="/dashboard/*"
+          path="/dashboard"
           element={
             <PrivateRoute>
-              <Dashboard />
+              <DashboardLayout />
             </PrivateRoute>
           }
-        />
+        >
+          <Route index element={<Dashboard />} />
+          <Route path="safra" element={<SafraDetails />} />
+        </Route>
         <Route path="/" element={<Navigate to="/dashboard" />} />
       </Routes>
     </BrowserRouter>

@@ -23,7 +23,7 @@ export function useApi<T>(
 
   const fetchData = useCallback(async () => {
     setState(prev => ({ ...prev, isLoading: true, error: null }));
-    
+
     try {
       const data = await fetchFn();
       setState({ data, isLoading: false, error: null });
@@ -55,6 +55,10 @@ export function usePipeline() {
   return useApi(() => api.getPipeline(), []);
 }
 
+export function useJobs() {
+  return useApi(() => api.getJobs(), []);
+}
+
 export function useSources() {
   return useApi(() => api.getSources(), []);
 }
@@ -75,5 +79,12 @@ export function useSourceLinks(
   return useApi(
     () => (sourceId ? api.getSourceLinks(sourceId, page, pageSize, status) : Promise.resolve(null)),
     [sourceId, page, pageSize, status]
+  );
+}
+
+export function useSafra(sourceId?: string) {
+  return useApi(
+    () => api.getSafra(sourceId),
+    [sourceId]
   );
 }

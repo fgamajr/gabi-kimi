@@ -81,6 +81,44 @@ export interface DashboardStats {
   sources: Source[];
   total_documents: number;
   elasticsearch_available: boolean;
+  sync_status?: SyncStatus;
+  throughput?: Throughput;
+  rag_stats?: RagStats;
+}
+
+export interface SyncStatus {
+  synced_count: number;
+  processing_count: number;
+  total_count: number;
+}
+
+export interface Throughput {
+  docs_per_min: number;
+  eta_minutes: number | null;
+}
+
+export interface RagStats {
+  indexed_count: number;
+  indexed_percentage: number;
+  vector_chunks_count: number;
+  index_size_mb: number;
+}
+
+export interface SafraResponse {
+  years: SafraYearStats[];
+  throughput_docs_min: number;
+  rag_percentage: number;
+}
+
+export interface SafraYearStats {
+  year: number;
+  sync_count: number;
+  sync_total: number;
+  index_count: number;
+  index_total: number;
+  rag_count: number;
+  rag_total: number;
+  status: 'completed' | 'active' | 'pending';
 }
 
 export interface LoginRequest {

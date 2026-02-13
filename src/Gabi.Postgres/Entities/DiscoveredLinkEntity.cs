@@ -80,6 +80,22 @@ public class DiscoveredLinkEntity : AuditableEntity
     public string? LastContentHash { get; set; }
 
     /// <summary>
+    /// Number of documents in this link (if known).
+    /// </summary>
+    public int? DocumentCount { get; set; }
+
+    /// <summary>
+    /// Total size in bytes (if known).
+    /// </summary>
+    public long? TotalSizeBytes { get; set; }
+
+    /// <summary>
+    /// Hash of metadata for change detection.
+    /// </summary>
+    [MaxLength(64)]
+    public string? MetadataHash { get; set; }
+
+    /// <summary>
     /// Flexible metadata stored as JSONB.
     /// </summary>
     [Column(TypeName = "jsonb")]

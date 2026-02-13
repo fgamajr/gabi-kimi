@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Gabi.Contracts")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+695eaabab86f03ef22d3395bc0491d64b923cde0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+0c056838351036aef7c76983544b8f41924e5cd6")]
 [assembly: System.Reflection.AssemblyProductAttribute("Gabi.Contracts")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Gabi.Contracts")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

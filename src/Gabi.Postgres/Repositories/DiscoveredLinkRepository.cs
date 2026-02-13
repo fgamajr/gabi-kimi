@@ -37,6 +37,11 @@ public interface IDiscoveredLinkRepository
     Task<DiscoveredLinkEntity?> GetByUrlAsync(string sourceId, string url, CancellationToken ct = default);
 
     /// <summary>
+    /// Gets a discovered link by URL hash only.
+    /// </summary>
+    Task<DiscoveredLinkEntity?> GetByUrlHashAsync(string urlHash, CancellationToken ct = default);
+
+    /// <summary>
     /// Counts links by status for a source.
     /// </summary>
     Task<int> CountByStatusAsync(string sourceId, string status, CancellationToken ct = default);
@@ -107,6 +112,11 @@ public interface IDiscoveredLinkRepository
     /// Obtém a data da última descoberta para uma source.
     /// </summary>
     Task<DateTime?> GetLatestDiscoveryAsync(string sourceId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Updates metadata and metadata hash for a link.
+    /// </summary>
+    Task UpdateMetadataAsync(long linkId, string metadataHash, Dictionary<string, object> metadata, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -426,6 +436,35 @@ public class DiscoveredLinkRepository : IDiscoveredLinkRepository
             .OrderByDescending(l => l.DiscoveredAt)
             .Select(l => (DateTime?)l.DiscoveredAt)
             .FirstOrDefaultAsync(ct);
+    }
+
+    public async Task<DiscoveredLinkEntity?> GetByUrlHashAsync(string urlHash, CancellationToken ct = default)
+    {
+        return await _context.DiscoveredLinks
+            .AsNoTracking()
+            .FirstOrDefaultAsync(l => l.UrlHash == urlHash, ct);
+    }
+
+    public async Task UpdateMetadataAsync(long linkId, string metadataHash, Dictionary<string, object> metadata, CancellationToken ct = default)
+    {
+        var link = await _context.DiscoveredLinks
+            .FirstOrDefaultAsync(l => l.Id == linkId, ct);
+
+        if (link == null)
+        {
+            _logger.LogWarning("Link {LinkId} not found for metadata update", linkId);
+            return;
+        }
+
+        // Serialize metadata to JSON
+        var metadataJson = System.Text.Json.JsonSerializer.Serialize(metadata);
+        
+        link.Metadata = metadataJson;
+        link.UpdatedAt = DateTime.UtcNow;
+
+        _context.DiscoveredLinks.Update(link);
+        
+        _logger.LogDebug("Updated metadata for link {LinkId}", linkId);
     }
 
     private static string ComputeHash(string input)
