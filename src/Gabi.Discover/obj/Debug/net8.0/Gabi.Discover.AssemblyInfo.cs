@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Gabi.Discover")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+1f5bbb0a70da6df2db8eac822ad2ed8cf1370b96")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+4fe16bb4cedf4eb05c8c8211e688d0699fe9302f")]
 [assembly: System.Reflection.AssemblyProductAttribute("Gabi.Discover")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Gabi.Discover")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
