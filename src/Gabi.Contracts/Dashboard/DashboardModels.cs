@@ -232,6 +232,72 @@ public record RefreshSourceResponse
     public string Message { get; init; } = null!;
 }
 
+/// <summary>
+/// Resposta do seed: job enfileirado para o Worker processar (persistência com retry + registro em seed_runs).
+/// </summary>
+public record SeedResponse
+{
+    [JsonPropertyName("success")]
+    public bool Success { get; init; }
+
+    [JsonPropertyName("job_id")]
+    public Guid? JobId { get; init; }
+
+    [JsonPropertyName("message")]
+    public string Message { get; init; } = null!;
+}
+
+/// <summary>
+/// Última execução do seed (tabela seed_runs). Usado pela fase de discovery para saber se o catálogo está pronto.
+/// </summary>
+public record SeedRunDto
+{
+    [JsonPropertyName("id")]
+    public Guid Id { get; init; }
+
+    [JsonPropertyName("job_id")]
+    public Guid JobId { get; init; }
+
+    [JsonPropertyName("completed_at")]
+    public DateTime CompletedAt { get; init; }
+
+    [JsonPropertyName("sources_total")]
+    public int SourcesTotal { get; init; }
+
+    [JsonPropertyName("sources_seeded")]
+    public int SourcesSeeded { get; init; }
+
+    [JsonPropertyName("sources_failed")]
+    public int SourcesFailed { get; init; }
+
+    [JsonPropertyName("status")]
+    public string Status { get; init; } = null!; // completed | partial | failed
+
+    [JsonPropertyName("error_summary")]
+    public string? ErrorSummary { get; init; }
+}
+
+/// <summary>
+/// Fase do pipeline (para listagem no frontend: seed, discovery, fetch, ingest).
+/// </summary>
+public record PipelinePhaseDto
+{
+    [JsonPropertyName("id")]
+    public string Id { get; init; } = null!;
+
+    [JsonPropertyName("name")]
+    public string Name { get; init; } = null!;
+
+    [JsonPropertyName("description")]
+    public string Description { get; init; } = null!;
+
+    [JsonPropertyName("availability")]
+    public string Availability { get; init; } = "available"; // available | requires_previous | coming_soon
+
+    [JsonPropertyName("trigger_endpoint")]
+    public string TriggerEndpoint { get; init; } = null!;
+}
+
 // ============================================
 // NOVOS CONTRATOS PARA DETALHAMENTO DE SOURCE
 // ============================================

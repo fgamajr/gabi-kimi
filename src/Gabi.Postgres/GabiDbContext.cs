@@ -20,6 +20,7 @@ public class GabiDbContext : DbContext
     public DbSet<DiscoveredLinkEntity> DiscoveredLinks => Set<DiscoveredLinkEntity>();
     public DbSet<IngestJobEntity> IngestJobs => Set<IngestJobEntity>();
     public DbSet<AuditLogEntity> AuditLogs => Set<AuditLogEntity>();
+    public DbSet<SeedRunEntity> SeedRuns => Set<SeedRunEntity>();
 
     // Documents (extracted from links for future ingest phase)
     public DbSet<DocumentEntity> Documents => Set<DocumentEntity>();
@@ -34,6 +35,18 @@ public class GabiDbContext : DbContext
         ConfigureIngestJobs(modelBuilder);
         ConfigureAuditLog(modelBuilder);
         ConfigureDocumentEntity(modelBuilder);
+        ConfigureSeedRun(modelBuilder);
+    }
+
+    private static void ConfigureSeedRun(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<SeedRunEntity>(entity =>
+        {
+            entity.ToTable("seed_runs");
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.CompletedAt);
+            entity.HasIndex(e => e.JobId);
+        });
     }
 
     private static void ConfigureSourceRegistry(ModelBuilder modelBuilder)

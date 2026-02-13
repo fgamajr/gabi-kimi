@@ -267,6 +267,13 @@ public class JobQueueRepository : IJobQueueRepository
     }
 
     /// <inheritdoc />
+    public Task UpdateProgressAsync(Guid jobId, int percent, string? message, int? linksDiscovered, CancellationToken ct = default)
+    {
+        // Sync.JobQueueRepository: optional implementation; Worker uses Postgres.Repositories.JobQueueRepository for progress
+        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
     public async Task<JobStatus?> GetStatusAsync(Guid jobId, CancellationToken ct = default)
     {
         var id = GuidToId(jobId);
@@ -404,6 +411,26 @@ public class JobQueueRepository : IJobQueueRepository
 
         var result = await _connection.QueryFirstOrDefaultAsync<JobRow>(
             new CommandDefinition(sql, new { SourceId = sourceId }, cancellationToken: ct));
+
+        return result == null ? null : MapToIngestJob(result);
+    }
+
+    /// <inheritdoc />
+    public async Task<IngestJob?> GetLatestByJobTypeAsync(string jobType, CancellationToken ct = default)
+    {
+        const string sql = @"
+            SELECT 
+                id, source_id, job_type, status, priority,
+                payload, max_attempts, attempts, created_at, scheduled_at,
+                started_at, worker_id, locked_at, lock_expires_at,
+                progress_percent, progress_message, last_error
+            FROM ingest_jobs
+            WHERE job_type = @JobType
+            ORDER BY created_at DESC
+            LIMIT 1";
+
+        var result = await _connection.QueryFirstOrDefaultAsync<JobRow>(
+            new CommandDefinition(sql, new { JobType = jobType }, cancellationToken: ct));
 
         return result == null ? null : MapToIngestJob(result);
     }

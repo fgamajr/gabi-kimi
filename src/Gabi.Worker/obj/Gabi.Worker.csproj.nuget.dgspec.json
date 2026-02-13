@@ -434,6 +434,14 @@
             "Microsoft.Extensions.Hosting": {
               "target": "Package",
               "version": "[8.0.1, )"
+            },
+            "Polly": {
+              "target": "Package",
+              "version": "[8.4.2, )"
+            },
+            "YamlDotNet": {
+              "target": "Package",
+              "version": "[15.1.0, )"
             }
           },
           "imports": [

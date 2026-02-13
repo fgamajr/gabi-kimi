@@ -103,17 +103,17 @@ public class JobWorkerHostedService : IHostedService
             "Worker {WorkerId} processing job {JobId} for source {SourceId}",
             workerId, job.Id, job.SourceId);
 
-        // Create progress reporter
+        // Create progress reporter so frontend can show progress via GET /api/v1/jobs/{sourceId}/status
         var progress = new Progress<JobProgress>(async p =>
         {
             try
             {
-                // Progress updates would need to be added to IJobQueueRepository
-                await jobQueue.HeartbeatAsync(job.Id, CancellationToken.None);
+                var linksFound = p.Metrics != null && p.Metrics.TryGetValue("linksFound", out var v) && v is int n ? n : (int?)null;
+                await jobQueue.UpdateProgressAsync(job.Id, p.PercentComplete, p.Message, linksFound, CancellationToken.None);
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "Failed to send heartbeat for job {JobId}", job.Id);
+                _logger.LogDebug(ex, "Failed to update progress for job {JobId}", job.Id);
             }
         });
 

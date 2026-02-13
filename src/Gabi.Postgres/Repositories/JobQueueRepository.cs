@@ -21,13 +21,16 @@ public class JobQueueRepository : IJobQueueRepository
 
     public async Task<Guid> EnqueueAsync(IngestJob job, CancellationToken ct = default)
     {
+        var id = job.Id == Guid.Empty ? Guid.NewGuid() : job.Id;
         var entity = new IngestJobEntity
         {
-            Id = job.Id == Guid.Empty ? Guid.NewGuid() : job.Id,
+            Id = id,
             JobType = job.JobType,
             Payload = System.Text.Json.JsonSerializer.Serialize(job.Payload),
-            PayloadHash = ComputeHash(job.SourceId + job.JobType),
-            SourceId = job.SourceId,
+            PayloadHash = job.JobType == "catalog_seed"
+                ? ComputeHash("catalog_seed" + id.ToString())
+                : ComputeHash(job.SourceId + job.JobType),
+            SourceId = string.IsNullOrEmpty(job.SourceId) ? null : job.SourceId,
             Status = MapStatus(job.Status),
             Priority = (int)job.Priority,
             ScheduledAt = job.ScheduledAt ?? DateTime.UtcNow,
@@ -157,6 +160,19 @@ public class JobQueueRepository : IJobQueueRepository
         return true;
     }
 
+    public async Task UpdateProgressAsync(Guid jobId, int percent, string? message, int? linksDiscovered, CancellationToken ct = default)
+    {
+        var entity = await _context.IngestJobs.FindAsync(new object[] { jobId }, ct);
+        if (entity == null) return;
+
+        entity.ProgressPercent = percent;
+        entity.ProgressMessage = message;
+        if (linksDiscovered.HasValue)
+            entity.LinksDiscovered = linksDiscovered.Value;
+        entity.LockExpiresAt = DateTime.UtcNow.AddMinutes(2);
+        await _context.SaveChangesAsync(ct);
+    }
+
     public async Task<Gabi.Contracts.Jobs.JobStatus?> GetStatusAsync(Guid jobId, CancellationToken ct = default)
     {
         var entity = await _context.IngestJobs
@@ -265,6 +281,17 @@ public class JobQueueRepository : IJobQueueRepository
         return entity == null ? null : MapToIngestJob(entity);
     }
 
+    /// <inheritdoc />
+    public async Task<IngestJob?> GetLatestByJobTypeAsync(string jobType, CancellationToken ct = default)
+    {
+        var entity = await _context.IngestJobs
+            .AsNoTracking()
+            .Where(j => j.JobType == jobType)
+            .OrderByDescending(j => j.CreatedAt)
+            .FirstOrDefaultAsync(ct);
+        return entity == null ? null : MapToIngestJob(entity);
+    }
+
     /// <summary>
     /// Gets recent jobs for the dashboard.
     /// </summary>
@@ -306,6 +333,8 @@ public class JobQueueRepository : IJobQueueRepository
 
     private static IngestJob MapToIngestJob(IngestJobEntity entity)
     {
+        var discoveryConfig = ParseDiscoveryConfigFromPayload(entity.Payload);
+
         return new IngestJob
         {
             Id = entity.Id,
@@ -322,8 +351,64 @@ public class JobQueueRepository : IJobQueueRepository
             LastHeartbeatAt = entity.LockedAt,
             ErrorMessage = entity.LastError,
             ProgressPercent = entity.ProgressPercent ?? 0,
-            ProgressMessage = entity.ProgressMessage
+            ProgressMessage = entity.ProgressMessage,
+            DiscoveryConfig = discoveryConfig ?? new Gabi.Contracts.Discovery.DiscoveryConfig(),
+            Payload = ParsePayload(entity.Payload)
         };
+    }
+
+    private static Dictionary<string, object> ParsePayload(string? payloadJson)
+    {
+        if (string.IsNullOrWhiteSpace(payloadJson)) return new Dictionary<string, object>();
+        try
+        {
+            var doc = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(payloadJson);
+            return JsonElementToDictionary(doc);
+        }
+        catch
+        {
+            return new Dictionary<string, object>();
+        }
+    }
+
+    private static Dictionary<string, object> JsonElementToDictionary(System.Text.Json.JsonElement el)
+    {
+        var d = new Dictionary<string, object>();
+        foreach (var p in el.EnumerateObject())
+        {
+            d[p.Name] = p.Value.ValueKind switch
+            {
+                System.Text.Json.JsonValueKind.Object => JsonElementToDictionary(p.Value),
+                System.Text.Json.JsonValueKind.Array => p.Value.EnumerateArray().Select(e => (object)e.Clone()).ToList(),
+                System.Text.Json.JsonValueKind.String => p.Value.GetString() ?? "",
+                System.Text.Json.JsonValueKind.Number => p.Value.TryGetInt64(out var n) ? n : p.Value.GetDouble(),
+                System.Text.Json.JsonValueKind.True => true,
+                System.Text.Json.JsonValueKind.False => false,
+                _ => p.Value.Clone()
+            };
+        }
+        return d;
+    }
+
+    private static Gabi.Contracts.Discovery.DiscoveryConfig? ParseDiscoveryConfigFromPayload(string? payloadJson)
+    {
+        if (string.IsNullOrWhiteSpace(payloadJson)) return null;
+        try
+        {
+            var doc = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(payloadJson);
+            if (!doc.TryGetProperty("discoveryConfig", out var dc)) return null;
+            // discoveryConfig can be stored as JSON object or as string (from SourceRegistryEntity)
+            if (dc.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                var inner = dc.GetString();
+                return string.IsNullOrEmpty(inner) ? null : System.Text.Json.JsonSerializer.Deserialize<Gabi.Contracts.Discovery.DiscoveryConfig>(inner);
+            }
+            return System.Text.Json.JsonSerializer.Deserialize<Gabi.Contracts.Discovery.DiscoveryConfig>(dc.GetRawText());
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static string MapStatus(Gabi.Contracts.Jobs.JobStatus status) => status.ToString().ToLowerInvariant();
