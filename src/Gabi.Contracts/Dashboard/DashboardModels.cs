@@ -278,6 +278,67 @@ public record SeedRunDto
 }
 
 /// <summary>
+/// Última execução de discovery para uma fonte (tabela discovery_runs).
+/// Usado pela fase fetch e pelo frontend para saber o resultado do discovery.
+/// </summary>
+public record DiscoveryRunDto
+{
+    [JsonPropertyName("id")]
+    public Guid Id { get; init; }
+
+    [JsonPropertyName("job_id")]
+    public Guid JobId { get; init; }
+
+    [JsonPropertyName("source_id")]
+    public string SourceId { get; init; } = null!;
+
+    [JsonPropertyName("completed_at")]
+    public DateTime CompletedAt { get; init; }
+
+    [JsonPropertyName("links_total")]
+    public int LinksTotal { get; init; }
+
+    [JsonPropertyName("status")]
+    public string Status { get; init; } = null!; // completed | partial | failed
+
+    [JsonPropertyName("error_summary")]
+    public string? ErrorSummary { get; init; }
+}
+
+/// <summary>
+/// Última execução de fetch para uma fonte (tabela fetch_runs).
+/// </summary>
+public record FetchRunDto
+{
+    [JsonPropertyName("id")]
+    public Guid Id { get; init; }
+
+    [JsonPropertyName("job_id")]
+    public Guid JobId { get; init; }
+
+    [JsonPropertyName("source_id")]
+    public string SourceId { get; init; } = null!;
+
+    [JsonPropertyName("completed_at")]
+    public DateTime CompletedAt { get; init; }
+
+    [JsonPropertyName("items_total")]
+    public int ItemsTotal { get; init; }
+
+    [JsonPropertyName("items_completed")]
+    public int ItemsCompleted { get; init; }
+
+    [JsonPropertyName("items_failed")]
+    public int ItemsFailed { get; init; }
+
+    [JsonPropertyName("status")]
+    public string Status { get; init; } = null!;
+
+    [JsonPropertyName("error_summary")]
+    public string? ErrorSummary { get; init; }
+}
+
+/// <summary>
 /// Fase do pipeline (para listagem no frontend: seed, discovery, fetch, ingest).
 /// </summary>
 public record PipelinePhaseDto

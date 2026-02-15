@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Gabi.Contracts.Discovery;
 
@@ -83,22 +84,16 @@ public class DiscoveryEngine : IDiscoveryEngine
         var paramName = param.Key;
         var paramValue = param.Value;
 
-        // Parse parameter range using reflection or dictionary
+        // Parse parameter range using reflection or dictionary (accept Start/start, End/end, Step/step)
         int start, end, step = 1;
-
-        if (paramValue is Dictionary<string, object> dict)
+        var dict = AsDictionary(paramValue);
+        if (dict != null)
         {
-            start = Convert.ToInt32(dict["Start"]);
-            // Handle End as int, string, or ParameterRangeEnd
-            end = dict["End"] switch
-            {
-                int i => i,
-                string s when s.Equals("current", StringComparison.OrdinalIgnoreCase) => DateTime.UtcNow.Year,
-                ParameterRangeEnd pre => pre.Resolve(),
-                _ => Convert.ToInt32(dict["End"])
-            };
-            if (dict.TryGetValue("Step", out var stepVal))
-                step = Convert.ToInt32(stepVal);
+            start = GetInt(dict, "Start", "start");
+            var endVal = GetObject(dict, "End", "end");
+            end = ResolveEndValue(endVal);
+            step = GetInt(dict, "Step", "step");
+            if (step <= 0) step = 1;
         }
         else if (paramValue is ParameterRange range)
         {
@@ -146,5 +141,58 @@ public class DiscoveryEngine : IDiscoveryEngine
             // Simulate async work
             await Task.Yield();
         }
+    }
+
+    private static Dictionary<string, object>? AsDictionary(object? value)
+    {
+        if (value is Dictionary<string, object> d) return d;
+        if (value is JsonElement je && je.ValueKind == JsonValueKind.Object)
+        {
+            var dict = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            foreach (var p in je.EnumerateObject())
+                dict[p.Name] = p.Value.ValueKind switch
+                {
+                    JsonValueKind.Number => p.Value.TryGetInt32(out var i) ? i : p.Value.GetDouble(),
+                    JsonValueKind.String => p.Value.GetString() ?? "",
+                    JsonValueKind.Object => AsDictionary(p.Value) ?? (object)p.Value,
+                    _ => p.Value.Clone()
+                };
+            return dict;
+        }
+        return null;
+    }
+
+    private static int GetInt(Dictionary<string, object> dict, string key1, string key2)
+    {
+        var v = GetObject(dict, key1, key2);
+        if (v == null) return 0;
+        return v switch
+        {
+            int i => i,
+            long l => (int)l,
+            JsonElement je when je.ValueKind == JsonValueKind.Number => je.TryGetInt32(out var i) ? i : (int)je.GetDouble(),
+            _ => Convert.ToInt32(v)
+        };
+    }
+
+    private static object? GetObject(Dictionary<string, object> dict, string key1, string key2)
+    {
+        if (dict.TryGetValue(key1, out var v)) return v;
+        if (dict.TryGetValue(key2, out v)) return v;
+        return null;
+    }
+
+    private static int ResolveEndValue(object? endVal)
+    {
+        return endVal switch
+        {
+            int i => i,
+            long l => (int)l,
+            string s when s.Equals("current", StringComparison.OrdinalIgnoreCase) => DateTime.UtcNow.Year,
+            ParameterRangeEnd pre => pre.Resolve(),
+            JsonElement je when je.ValueKind == JsonValueKind.String => je.GetString()?.Equals("current", StringComparison.OrdinalIgnoreCase) == true ? DateTime.UtcNow.Year : int.Parse(je.GetString() ?? "0"),
+            JsonElement je when je.ValueKind == JsonValueKind.Number => je.TryGetInt32(out var i) ? i : (int)je.GetDouble(),
+            _ => endVal is int i2 ? i2 : (endVal is string ? DateTime.UtcNow.Year : Convert.ToInt32(endVal))
+        };
     }
 }

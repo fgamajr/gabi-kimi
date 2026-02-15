@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Gabi.Contracts.Discovery;
 
 /// <summary>
@@ -173,7 +175,8 @@ public record DiscoveryConfig
     /// <summary>Configuração de URL pattern (para UrlPattern).</summary>
     public UrlPatternConfig? UrlPattern { get; init; }
     
-    /// <summary>Template de URL (alias para UrlPattern.Template).</summary>
+    /// <summary>Template de URL (alias para UrlPattern.Template). Aceita "template" ou "urlTemplate" no JSON.</summary>
+    [JsonPropertyName("template")]
     public string? UrlTemplate
     {
         get => UrlPattern?.Template;
@@ -186,7 +189,8 @@ public record DiscoveryConfig
         }
     }
     
-    /// <summary>Parâmetros do template (alias dinâmico).</summary>
+    /// <summary>Parâmetros do template (alias dinâmico). Mapeia do JSON "parameters".</summary>
+    [JsonPropertyName("parameters")]
     public IReadOnlyDictionary<string, object>? Params { get; set; }
     
     /// <summary>Configuração de detecção de mudanças.</summary>

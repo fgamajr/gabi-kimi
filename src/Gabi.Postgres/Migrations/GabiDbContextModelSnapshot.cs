@@ -17,7 +17,7 @@ namespace Gabi.Postgres.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "8.0.24")
+                .HasAnnotation("ProductVersion", "8.0.2")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -125,6 +125,13 @@ namespace Gabi.Postgres.Migrations
                     b.Property<DateTime>("DiscoveredAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("DiscoveryStatus")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("completed");
+
                     b.Property<int?>("DocumentCount")
                         .HasColumnType("integer");
 
@@ -132,8 +139,22 @@ namespace Gabi.Postgres.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)");
 
+                    b.Property<string>("FetchStatus")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("pending");
+
                     b.Property<DateTime>("FirstSeenAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("IngestStatus")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("pending");
 
                     b.Property<string>("LastContentHash")
                         .HasMaxLength(64)
@@ -212,6 +233,49 @@ namespace Gabi.Postgres.Migrations
                     b.ToTable("discovered_links", (string)null);
                 });
 
+            modelBuilder.Entity("Gabi.Postgres.Entities.DiscoveryRunEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ErrorSummary")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<Guid>("JobId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("LinksTotal")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SourceId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompletedAt");
+
+                    b.HasIndex("JobId");
+
+                    b.HasIndex("SourceId");
+
+                    b.ToTable("discovery_runs", (string)null);
+                });
+
             modelBuilder.Entity("Gabi.Postgres.Entities.DocumentEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -250,6 +314,9 @@ namespace Gabi.Postgres.Migrations
                     b.Property<string>("ExternalId")
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)");
+
+                    b.Property<long?>("FetchItemId")
+                        .HasColumnType("bigint");
 
                     b.Property<long>("LinkId")
                         .HasColumnType("bigint");
@@ -315,6 +382,8 @@ namespace Gabi.Postgres.Migrations
 
                     b.HasIndex("ExternalId");
 
+                    b.HasIndex("FetchItemId");
+
                     b.HasIndex("LinkId");
 
                     b.HasIndex("RemovedFromSourceAt");
@@ -329,6 +398,138 @@ namespace Gabi.Postgres.Migrations
                         .HasFilter("\"RemovedFromSourceAt\" IS NULL");
 
                     b.ToTable("documents", (string)null);
+                });
+
+            modelBuilder.Entity("Gabi.Postgres.Entities.FetchItemEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long>("DiscoveredLinkId")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("FetchRunId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<int>("MaxAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SourceId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("UrlHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DiscoveredLinkId");
+
+                    b.HasIndex("FetchRunId");
+
+                    b.HasIndex("DiscoveredLinkId", "UrlHash")
+                        .IsUnique();
+
+                    b.HasIndex("SourceId", "Status");
+
+                    b.ToTable("fetch_items", (string)null);
+                });
+
+            modelBuilder.Entity("Gabi.Postgres.Entities.FetchRunEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ErrorSummary")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<int>("ItemsCompleted")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ItemsFailed")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ItemsTotal")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("JobId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SourceId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompletedAt");
+
+                    b.HasIndex("JobId");
+
+                    b.HasIndex("SourceId");
+
+                    b.ToTable("fetch_runs", (string)null);
                 });
 
             modelBuilder.Entity("Gabi.Postgres.Entities.IngestJobEntity", b =>
@@ -352,6 +553,9 @@ namespace Gabi.Postgres.Migrations
 
                     b.Property<string>("ErrorDetails")
                         .HasColumnType("jsonb");
+
+                    b.Property<long?>("FetchItemId")
+                        .HasColumnType("bigint");
 
                     b.Property<string>("JobType")
                         .IsRequired()
@@ -434,6 +638,8 @@ namespace Gabi.Postgres.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("FetchItemId");
+
                     b.HasIndex("LinkId");
 
                     b.HasIndex("PayloadHash")
@@ -451,6 +657,205 @@ namespace Gabi.Postgres.Migrations
                     b.HasIndex(new[] { "Status", "Priority", "ScheduledAt", "CreatedAt" }, "idx_jobs_available");
 
                     b.ToTable("ingest_jobs", (string)null);
+                });
+
+            modelBuilder.Entity("Gabi.Postgres.Entities.PipelineActionEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Actor")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("At")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Params")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("SourceId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("At");
+
+                    b.HasIndex("SourceId");
+
+                    b.ToTable("pipeline_actions", (string)null);
+                });
+
+            modelBuilder.Entity("Gabi.Postgres.Entities.SeedRunEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ErrorSummary")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<Guid>("JobId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("SourcesFailed")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SourcesSeeded")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SourcesTotal")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompletedAt");
+
+                    b.HasIndex("JobId");
+
+                    b.ToTable("seed_runs", (string)null);
+                });
+
+            modelBuilder.Entity("Gabi.Postgres.Entities.JobRegistryEntity", b =>
+                {
+                    b.Property<Guid>("JobId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("HangfireJobId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("JobType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int>("ProgressPercent")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ProgressMessage")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("SourceId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("JobId");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("JobType");
+
+                    b.HasIndex("SourceId");
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("job_registry", (string)null);
+                });
+
+            modelBuilder.Entity("Gabi.Postgres.Entities.JobRegistryEntity", b =>
+                {
+                    b.Property<Guid>("JobId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("HangfireJobId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("JobType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int>("ProgressPercent")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ProgressMessage")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("SourceId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("JobId");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("JobType");
+
+                    b.HasIndex("SourceId");
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("job_registry", (string)null);
                 });
 
             modelBuilder.Entity("Gabi.Postgres.Entities.SourceRefreshEntity", b =>
@@ -643,48 +1048,6 @@ namespace Gabi.Postgres.Migrations
                     b.ToTable("source_registry", (string)null);
                 });
 
-            modelBuilder.Entity("Gabi.Postgres.Entities.SeedRunEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CompletedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("ErrorSummary")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
-
-                    b.Property<Guid>("JobId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("StartedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("SourcesFailed")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("SourcesSeeded")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("SourcesTotal")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CompletedAt");
-
-                    b.HasIndex("JobId");
-
-                    b.ToTable("seed_runs", (string)null);
-                });
-
             modelBuilder.Entity("Gabi.Postgres.Entities.DiscoveredLinkEntity", b =>
                 {
                     b.HasOne("Gabi.Postgres.Entities.SourceRegistryEntity", "Source")
@@ -698,17 +1061,46 @@ namespace Gabi.Postgres.Migrations
 
             modelBuilder.Entity("Gabi.Postgres.Entities.DocumentEntity", b =>
                 {
+                    b.HasOne("Gabi.Postgres.Entities.FetchItemEntity", "FetchItem")
+                        .WithMany()
+                        .HasForeignKey("FetchItemId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Gabi.Postgres.Entities.DiscoveredLinkEntity", "Link")
                         .WithMany("Documents")
                         .HasForeignKey("LinkId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.Navigation("FetchItem");
+
                     b.Navigation("Link");
+                });
+
+            modelBuilder.Entity("Gabi.Postgres.Entities.FetchItemEntity", b =>
+                {
+                    b.HasOne("Gabi.Postgres.Entities.DiscoveredLinkEntity", "DiscoveredLink")
+                        .WithMany("FetchItems")
+                        .HasForeignKey("DiscoveredLinkId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Gabi.Postgres.Entities.FetchRunEntity", "FetchRun")
+                        .WithMany()
+                        .HasForeignKey("FetchRunId");
+
+                    b.Navigation("DiscoveredLink");
+
+                    b.Navigation("FetchRun");
                 });
 
             modelBuilder.Entity("Gabi.Postgres.Entities.IngestJobEntity", b =>
                 {
+                    b.HasOne("Gabi.Postgres.Entities.FetchItemEntity", "FetchItem")
+                        .WithMany()
+                        .HasForeignKey("FetchItemId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Gabi.Postgres.Entities.DiscoveredLinkEntity", "Link")
                         .WithMany("Jobs")
                         .HasForeignKey("LinkId")
@@ -718,6 +1110,8 @@ namespace Gabi.Postgres.Migrations
                         .WithMany()
                         .HasForeignKey("SourceId")
                         .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("FetchItem");
 
                     b.Navigation("Link");
 
@@ -738,6 +1132,8 @@ namespace Gabi.Postgres.Migrations
             modelBuilder.Entity("Gabi.Postgres.Entities.DiscoveredLinkEntity", b =>
                 {
                     b.Navigation("Documents");
+
+                    b.Navigation("FetchItems");
 
                     b.Navigation("Jobs");
                 });

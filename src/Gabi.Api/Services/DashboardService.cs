@@ -28,6 +28,11 @@ public interface IDashboardService
     /// <summary>Última execução do seed (para a fase de discovery saber se o catálogo está pronto).</summary>
     Task<SeedRunDto?> GetLastSeedRunAsync(CancellationToken ct = default);
 
+    /// <summary>Última execução de discovery para uma fonte (ou última global se sourceId for null).</summary>
+    Task<DiscoveryRunDto?> GetLastDiscoveryRunAsync(string? sourceId, CancellationToken ct = default);
+    /// <summary>Última execução de fetch para uma fonte (ou última global se sourceId for null).</summary>
+    Task<FetchRunDto?> GetLastFetchRunAsync(string? sourceId, CancellationToken ct = default);
+
     /// <summary>
     /// Obtém detalhes completos de uma source com estatísticas.
     /// </summary>
@@ -120,7 +125,7 @@ public class DashboardService : IDashboardService
         using var scope = _serviceProvider.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<GabiDbContext>();
         var last = await context.SeedRuns
-            .OrderByDescending(r => r.CompletedAt)
+            .OrderByDescending(r => r.StartedAt)
             .AsNoTracking()
             .FirstOrDefaultAsync(ct);
         if (last == null) return null;
@@ -132,6 +137,50 @@ public class DashboardService : IDashboardService
             SourcesTotal = last.SourcesTotal,
             SourcesSeeded = last.SourcesSeeded,
             SourcesFailed = last.SourcesFailed,
+            Status = last.Status,
+            ErrorSummary = last.ErrorSummary
+        };
+    }
+
+    public async Task<DiscoveryRunDto?> GetLastDiscoveryRunAsync(string? sourceId, CancellationToken ct = default)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<GabiDbContext>();
+        IQueryable<DiscoveryRunEntity> query = context.DiscoveryRuns.AsNoTracking();
+        if (!string.IsNullOrEmpty(sourceId))
+            query = query.Where(r => r.SourceId == sourceId);
+        var last = await query.OrderByDescending(r => r.CompletedAt).FirstOrDefaultAsync(ct);
+        if (last == null) return null;
+        return new DiscoveryRunDto
+        {
+            Id = last.Id,
+            JobId = last.JobId,
+            SourceId = last.SourceId,
+            CompletedAt = last.CompletedAt,
+            LinksTotal = last.LinksTotal,
+            Status = last.Status,
+            ErrorSummary = last.ErrorSummary
+        };
+    }
+
+    public async Task<FetchRunDto?> GetLastFetchRunAsync(string? sourceId, CancellationToken ct = default)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<GabiDbContext>();
+        IQueryable<FetchRunEntity> query = context.FetchRuns.AsNoTracking();
+        if (!string.IsNullOrEmpty(sourceId))
+            query = query.Where(r => r.SourceId == sourceId);
+        var last = await query.OrderByDescending(r => r.CompletedAt).FirstOrDefaultAsync(ct);
+        if (last == null) return null;
+        return new FetchRunDto
+        {
+            Id = last.Id,
+            JobId = last.JobId,
+            SourceId = last.SourceId,
+            CompletedAt = last.CompletedAt,
+            ItemsTotal = last.ItemsTotal,
+            ItemsCompleted = last.ItemsCompleted,
+            ItemsFailed = last.ItemsFailed,
             Status = last.Status,
             ErrorSummary = last.ErrorSummary
         };
@@ -492,7 +541,8 @@ public class DashboardService : IDashboardService
             Payload = new Dictionary<string, object> { ["phase"] = normalized },
             Status = JobStatus.Pending,
             Priority = JobPriority.Normal,
-            ScheduledAt = DateTime.UtcNow
+            ScheduledAt = DateTime.UtcNow,
+            IdempotencyKey = Guid.NewGuid().ToString()
         };
 
         var jobId = await jobQueue.EnqueueAsync(job, ct);

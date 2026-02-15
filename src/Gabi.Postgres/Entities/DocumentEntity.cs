@@ -22,6 +22,11 @@ public class DocumentEntity : AuditableEntity
     [ForeignKey(nameof(LinkId))]
     public DiscoveredLinkEntity Link { get; set; } = null!;
 
+    public long? FetchItemId { get; set; }
+
+    [ForeignKey(nameof(FetchItemId))]
+    public FetchItemEntity? FetchItem { get; set; }
+
     [Required]
     [MaxLength(100)]
     public string SourceId { get; set; } = string.Empty;

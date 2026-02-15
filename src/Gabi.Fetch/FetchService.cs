@@ -92,26 +92,25 @@ public class FetchService : IFetchService
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            var errorMsg = $"Request timed out after {options.Timeout}";
+            var errorMsg = "Fonte indisponível: requisição expirou (timeout). Servidor pode estar lento ou fora.";
             _logger?.LogWarning(errorMsg);
-            
-            return new FetchResult
-            {
-                Success = false,
-                ErrorMessage = errorMsg,
-                Metadata = metadata
-            };
+            return new FetchResult { Success = false, ErrorMessage = errorMsg, Metadata = metadata };
+        }
+        catch (HttpRequestException ex)
+        {
+            var msg = ex.InnerException?.Message ?? ex.Message;
+            var friendly = (msg.Contains("Connection refused", StringComparison.OrdinalIgnoreCase) ||
+                            msg.Contains("No connection could be made", StringComparison.OrdinalIgnoreCase))
+                ? "Fonte indisponível: não foi possível conectar (servidor pode estar fora do ar)."
+                : "Fonte indisponível: erro de rede ao acessar o servidor.";
+            _logger?.LogWarning(ex, "Fetch failed for {Url}: {Message}", url, friendly);
+            return new FetchResult { Success = false, ErrorMessage = friendly, Metadata = metadata };
         }
         catch (Exception ex)
         {
             _logger?.LogError(ex, "Failed to fetch content from {Url}", url);
-            
-            return new FetchResult
-            {
-                Success = false,
-                ErrorMessage = ex.Message,
-                Metadata = metadata
-            };
+            var friendly = ex is HttpRequestException ? "Fonte indisponível: erro de rede." : ex.Message;
+            return new FetchResult { Success = false, ErrorMessage = friendly, Metadata = metadata };
         }
     }
 

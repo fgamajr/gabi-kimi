@@ -111,6 +111,9 @@ public interface IJobQueueRepository
     /// <param name="ct">Cancellation token.</param>
     /// <returns>List of recent jobs.</returns>
     Task<IReadOnlyList<IngestJob>> GetRecentJobsAsync(int limit = 50, CancellationToken ct = default);
+
+    /// <summary>Gets job status DTO for a source (API polling).</summary>
+    Task<Gabi.Contracts.Api.JobStatusDto?> GetJobStatusDtoAsync(string sourceId, CancellationToken ct = default);
 }
 
 /// <summary>

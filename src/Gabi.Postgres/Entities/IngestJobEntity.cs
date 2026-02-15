@@ -34,6 +34,11 @@ public class IngestJobEntity : AuditableEntity
     [ForeignKey(nameof(LinkId))]
     public DiscoveredLinkEntity? Link { get; set; }
 
+    public long? FetchItemId { get; set; }
+
+    [ForeignKey(nameof(FetchItemId))]
+    public FetchItemEntity? FetchItem { get; set; }
+
     [MaxLength(100)]
     public string? SourceId { get; set; }
 

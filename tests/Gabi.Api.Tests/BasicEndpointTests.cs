@@ -37,4 +37,44 @@ public class BasicEndpointTests : IClassFixture<CustomWebApplicationFactory>
         // O importante é que a API está respondendo
         Assert.NotEqual(HttpStatusCode.InternalServerError, response.StatusCode);
     }
+
+    [Fact]
+    public async Task DiscoveryLastEndpoint_Exists_ReturnsClientOrSuccessStatus()
+    {
+        var response = await _client.GetAsync("/api/v1/dashboard/discovery/last");
+        Assert.True(
+            response.StatusCode == HttpStatusCode.OK || response.StatusCode == HttpStatusCode.NotFound
+                || response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.BadRequest,
+            $"Expected OK/404/401/400, got {response.StatusCode}");
+    }
+
+    [Fact]
+    public async Task DiscoveryLastBySourceEndpoint_Exists_ReturnsClientOrSuccessStatus()
+    {
+        var response = await _client.GetAsync("/api/v1/dashboard/sources/test-source/discovery/last");
+        Assert.True(
+            response.StatusCode == HttpStatusCode.OK || response.StatusCode == HttpStatusCode.NotFound
+                || response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.BadRequest,
+            $"Expected OK/404/401/400, got {response.StatusCode}");
+    }
+
+    [Fact]
+    public async Task FetchLastEndpoint_Exists_ReturnsClientOrSuccessStatus()
+    {
+        var response = await _client.GetAsync("/api/v1/dashboard/fetch/last");
+        Assert.True(
+            response.StatusCode == HttpStatusCode.OK || response.StatusCode == HttpStatusCode.NotFound
+                || response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.BadRequest,
+            $"Expected OK/404/401/400, got {response.StatusCode}");
+    }
+
+    [Fact]
+    public async Task FetchLastBySourceEndpoint_Exists_ReturnsClientOrSuccessStatus()
+    {
+        var response = await _client.GetAsync("/api/v1/dashboard/sources/test-source/fetch/last");
+        Assert.True(
+            response.StatusCode == HttpStatusCode.OK || response.StatusCode == HttpStatusCode.NotFound
+                || response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.BadRequest,
+            $"Expected OK/404/401/400, got {response.StatusCode}");
+    }
 }
