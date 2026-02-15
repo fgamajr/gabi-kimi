@@ -57,7 +57,7 @@ public class GabiJobRunner : IGabiJobRunner
 
         var progress = new Progress<JobProgress>(p =>
         {
-            _ = UpdateProgressAsync(context, jobId, p.PercentComplete, p.Message);
+            _ = UpdateProgressAsync(jobId, p.PercentComplete, p.Message);
         });
 
         try
@@ -84,10 +84,13 @@ public class GabiJobRunner : IGabiJobRunner
         await context.SaveChangesAsync();
     }
 
-    private static async Task UpdateProgressAsync(GabiDbContext context, Guid jobId, int percent, string? message)
+    private async Task UpdateProgressAsync(Guid jobId, int percent, string? message)
     {
         try
         {
+            using var scope = _serviceProvider.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<GabiDbContext>();
+
             var reg = await context.JobRegistry.FirstOrDefaultAsync(r => r.JobId == jobId);
             if (reg == null) return;
             reg.ProgressPercent = percent;
