@@ -49,11 +49,18 @@ public class CatalogSeedJobExecutor : IJobExecutor
         var sourcesPath = ResolveSourcesPath();
         if (string.IsNullOrEmpty(sourcesPath) || !File.Exists(sourcesPath))
         {
-            _logger.LogError("Sources file not found: {Path}", sourcesPath ?? "(null)");
+            var cwd = Directory.GetCurrentDirectory();
+            var envValue = Environment.GetEnvironmentVariable("GABI_SOURCES_PATH");
+            _logger.LogError(
+                "Sources file not found. Path={Path}, CWD={Cwd}, ENV_VAR={EnvVar}, Exists={Exists}",
+                sourcesPath ?? "(null)",
+                cwd,
+                envValue ?? "(null)",
+                sourcesPath != null && File.Exists(sourcesPath));
             return new JobResult
             {
                 Success = false,
-                ErrorMessage = $"Sources file not found at {sourcesPath ?? "GABI_SOURCES_PATH not set"}"
+                ErrorMessage = $"Sources file not found. Path={sourcesPath ?? "(null)"}, CWD={cwd}"
             };
         }
 
@@ -75,9 +82,25 @@ public class CatalogSeedJobExecutor : IJobExecutor
             Metrics = new Dictionary<string, object> { ["total"] = sources.Count }
         });
 
+        var total = sources.Count;
+        var seedRun = new SeedRunEntity
+        {
+            Id = Guid.NewGuid(),
+            JobId = job.Id,
+            StartedAt = startedAt,
+            CompletedAt = startedAt,
+            SourcesTotal = total,
+            SourcesSeeded = 0,
+            SourcesFailed = 0,
+            Status = "processing",
+            ErrorSummary = null
+        };
+        _context.SeedRuns.Add(seedRun);
+        await _context.SaveChangesAsync(ct);
+        _logger.LogDebug("Seed run {SeedRunId} created (processing), will update after upserts", seedRun.Id);
+
         var seeded = 0;
         var failedIds = new List<string>();
-        var total = sources.Count;
 
         for (var i = 0; i < sources.Count; i++)
         {
@@ -102,19 +125,11 @@ public class CatalogSeedJobExecutor : IJobExecutor
             ? string.Join(", ", failedIds.Take(50)) + (failedIds.Count > 50 ? $" (+{failedIds.Count - 50} mais)" : null)
             : null;
 
-        var seedRun = new SeedRunEntity
-        {
-            Id = Guid.NewGuid(),
-            JobId = job.Id,
-            StartedAt = startedAt,
-            CompletedAt = DateTime.UtcNow,
-            SourcesTotal = total,
-            SourcesSeeded = seeded,
-            SourcesFailed = failedIds.Count,
-            Status = status,
-            ErrorSummary = errorSummary
-        };
-        _context.SeedRuns.Add(seedRun);
+        seedRun.CompletedAt = DateTime.UtcNow;
+        seedRun.SourcesSeeded = seeded;
+        seedRun.SourcesFailed = failedIds.Count;
+        seedRun.Status = status;
+        seedRun.ErrorSummary = errorSummary;
         await _context.SaveChangesAsync(ct);
 
         progress.Report(new JobProgress
@@ -145,9 +160,34 @@ public class CatalogSeedJobExecutor : IJobExecutor
     private string? ResolveSourcesPath()
     {
         var envPath = Environment.GetEnvironmentVariable("GABI_SOURCES_PATH");
-        if (!string.IsNullOrEmpty(envPath))
+        if (string.IsNullOrEmpty(envPath))
+            envPath = _configuration["GABI_SOURCES_PATH"];
+        if (string.IsNullOrEmpty(envPath))
+        {
+            _logger.LogDebug("GABI_SOURCES_PATH not set");
+            return null;
+        }
+        envPath = envPath.Trim();
+        if (Path.IsPathRooted(envPath))
+        {
+            _logger.LogDebug("GABI_SOURCES_PATH (absolute): {Path}", envPath);
             return envPath;
-        return _configuration["GABI_SOURCES_PATH"];
+        }
+        var baseDir = AppContext.BaseDirectory;
+        var resolved = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "..", "..", envPath));
+        if (File.Exists(resolved))
+        {
+            _logger.LogDebug("GABI_SOURCES_PATH (resolved relative): {Path}", resolved);
+            return resolved;
+        }
+        resolved = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), envPath));
+        if (File.Exists(resolved))
+        {
+            _logger.LogDebug("GABI_SOURCES_PATH (resolved from CWD): {Path}", resolved);
+            return resolved;
+        }
+        _logger.LogDebug("GABI_SOURCES_PATH (using as-is): {Path}", envPath);
+        return envPath;
     }
 
     private async Task<bool> UpsertWithRetryAsync(SourceRegistryEntity source, CancellationToken ct)
@@ -202,8 +242,10 @@ public class CatalogSeedJobExecutor : IJobExecutor
                         DiscoveryStrategy = sourceDef.Discovery?.Strategy ?? "unknown",
                         DiscoveryConfig = JsonSerializer.Serialize(new
                         {
+                            strategy = sourceDef.Discovery?.Strategy ?? "static_url",
                             url = sourceDef.Discovery?.Config?.Url,
                             template = sourceDef.Discovery?.Config?.Template,
+                            urlTemplate = sourceDef.Discovery?.Config?.Template,
                             parameters = sourceDef.Discovery?.Config?.Parameters
                         }),
                         Enabled = sourceDef.Enabled

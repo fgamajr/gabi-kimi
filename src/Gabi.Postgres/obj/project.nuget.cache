@@ -1,10 +1,11 @@
 {
   "version": 2,
-  "dgSpecHash": "o8wSv1mg/XU=",
+  "dgSpecHash": "+r0775uo3yA=",
   "success": true,
   "projectFilePath": "/home/fgamajr/dev/gabi-kimi/src/Gabi.Postgres/Gabi.Postgres.csproj",
   "expectedPackageFiles": [
     "/home/fgamajr/.nuget/packages/dapper/2.1.35/dapper.2.1.35.nupkg.sha512",
+    "/home/fgamajr/.nuget/packages/hangfire.core/1.8.17/hangfire.core.1.8.17.nupkg.sha512",
     "/home/fgamajr/.nuget/packages/humanizer.core/2.14.1/humanizer.core.2.14.1.nupkg.sha512",
     "/home/fgamajr/.nuget/packages/microsoft.bcl.asyncinterfaces/6.0.0/microsoft.bcl.asyncinterfaces.6.0.0.nupkg.sha512",
     "/home/fgamajr/.nuget/packages/microsoft.codeanalysis.analyzers/3.3.3/microsoft.codeanalysis.analyzers.3.3.3.nupkg.sha512",
@@ -30,6 +31,7 @@
     "/home/fgamajr/.nuget/packages/microsoft.netcore.platforms/1.1.0/microsoft.netcore.platforms.1.1.0.nupkg.sha512",
     "/home/fgamajr/.nuget/packages/microsoft.netcore.targets/1.1.0/microsoft.netcore.targets.1.1.0.nupkg.sha512",
     "/home/fgamajr/.nuget/packages/mono.texttemplating/2.2.1/mono.texttemplating.2.2.1.nupkg.sha512",
+    "/home/fgamajr/.nuget/packages/newtonsoft.json/11.0.1/newtonsoft.json.11.0.1.nupkg.sha512",
     "/home/fgamajr/.nuget/packages/npgsql/8.0.2/npgsql.8.0.2.nupkg.sha512",
     "/home/fgamajr/.nuget/packages/npgsql.entityframeworkcore.postgresql/8.0.2/npgsql.entityframeworkcore.postgresql.8.0.2.nupkg.sha512",
     "/home/fgamajr/.nuget/packages/system.codedom/4.4.0/system.codedom.4.4.0.nupkg.sha512",

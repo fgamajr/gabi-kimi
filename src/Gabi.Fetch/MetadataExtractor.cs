@@ -45,13 +45,19 @@ public class MetadataExtractor : IMetadataExtractor
                 metadata = metadata with { Filename = contentDispositionFilename };
             }
 
-            // Handle error responses
+            // Handle error responses — mensagem clara para operador (ex.: página TCU fora)
             if (!response.IsSuccessStatusCode)
             {
-                metadata = metadata with 
-                { 
-                    ErrorMessage = $"HTTP {(int)response.StatusCode}: {response.ReasonPhrase}" 
+                var friendly = response.StatusCode switch
+                {
+                    HttpStatusCode.ServiceUnavailable => "Fonte indisponível: serviço temporariamente fora (503). Tente mais tarde.",
+                    HttpStatusCode.BadGateway => "Fonte indisponível: gateway indisponível (502). Servidor remoto pode estar fora.",
+                    HttpStatusCode.GatewayTimeout => "Fonte indisponível: timeout do gateway (504). Servidor remoto não respondeu a tempo.",
+                    HttpStatusCode.NotFound => "Recurso não encontrado (404). URL pode ter mudado ou recurso foi removido.",
+                    HttpStatusCode.Forbidden => "Acesso negado (403). Recurso existe mas não está acessível.",
+                    _ => $"HTTP {(int)response.StatusCode}: {response.ReasonPhrase}"
                 };
+                metadata = metadata with { ErrorMessage = friendly };
             }
 
             return metadata;
@@ -62,16 +68,21 @@ public class MetadataExtractor : IMetadataExtractor
             {
                 Url = url,
                 Filename = ExtractFilenameFromUrl(url),
-                ErrorMessage = "Request timed out"
+                ErrorMessage = "Fonte indisponível: requisição expirou (timeout). Servidor pode estar lento ou fora."
             };
         }
         catch (HttpRequestException ex)
         {
+            var msg = ex.InnerException?.Message ?? ex.Message;
+            var friendly = (msg.Contains("Connection refused", StringComparison.OrdinalIgnoreCase) ||
+                            msg.Contains("No connection could be made", StringComparison.OrdinalIgnoreCase))
+                ? "Fonte indisponível: não foi possível conectar (servidor pode estar fora do ar)."
+                : "Fonte indisponível: erro de rede ao acessar o servidor.";
             return new ResourceMetadata
             {
                 Url = url,
                 Filename = ExtractFilenameFromUrl(url),
-                ErrorMessage = ex.Message
+                ErrorMessage = friendly
             };
         }
     }

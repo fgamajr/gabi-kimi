@@ -2,47 +2,40 @@ using Gabi.Contracts.Jobs;
 using Gabi.Postgres;
 using Gabi.Postgres.Repositories;
 using Gabi.Worker.Jobs;
+using Hangfire;
+using Hangfire.PostgreSql;
 using Microsoft.EntityFrameworkCore;
 
 var builder = Host.CreateApplicationBuilder(args);
 
-// Database
 var connectionString = builder.Configuration.GetConnectionString("Default");
 if (string.IsNullOrWhiteSpace(connectionString))
-{
     throw new InvalidOperationException("ConnectionStrings:Default is required");
-}
 
 builder.Services.AddDbContext<GabiDbContext>(options =>
     options.UseNpgsql(connectionString));
 
-// Repositories
+builder.Services.AddHangfire(config => config
+    .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+    .UseSimpleAssemblyNameTypeSerializer()
+    .UseRecommendedSerializerSettings()
+    .UsePostgreSqlStorage(o => o.UseNpgsqlConnection(connectionString)));
+builder.Services.AddHangfireServer(options =>
+{
+    options.WorkerCount = builder.Configuration.GetValue<int>("WorkerPool:WorkerCount", 2);
+    options.Queues = new[] { "seed", "discovery", "fetch", "ingest", "default" };
+});
+
 builder.Services.AddScoped<ISourceRegistryRepository, SourceRegistryRepository>();
 builder.Services.AddScoped<IDiscoveredLinkRepository, DiscoveredLinkRepository>();
-builder.Services.AddScoped<JobQueueRepository>();
-builder.Services.AddScoped<IJobQueueRepository>(sp => sp.GetRequiredService<JobQueueRepository>());
+builder.Services.AddScoped<IFetchItemRepository, FetchItemRepository>();
 
-// Job executors (catalog_seed = seed YAML → DB + seed_runs; source_discovery; sync; fetch/ingest stubs)
+builder.Services.AddScoped<IGabiJobRunner, GabiJobRunner>();
 builder.Services.AddScoped<IJobExecutor, CatalogSeedJobExecutor>();
 builder.Services.AddScoped<IJobExecutor, SourceSyncJobExecutor>();
 builder.Services.AddScoped<IJobExecutor, SourceDiscoveryJobExecutor>();
 builder.Services.AddScoped<IJobExecutor, FetchJobExecutor>();
 builder.Services.AddScoped<IJobExecutor, IngestJobExecutor>();
-
-// Worker pool options
-builder.Services.Configure<WorkerPoolOptions>(options =>
-{
-    options.WorkerCount = builder.Configuration.GetValue<int>("WorkerPool:WorkerCount", 1);
-    options.PollInterval = builder.Configuration.GetValue<TimeSpan>("WorkerPool:PollInterval", TimeSpan.FromSeconds(5));
-    options.HeartbeatInterval = builder.Configuration.GetValue<TimeSpan>("WorkerPool:HeartbeatInterval", TimeSpan.FromSeconds(30));
-    options.LeaseDuration = builder.Configuration.GetValue<TimeSpan>("WorkerPool:LeaseDuration", TimeSpan.FromMinutes(2));
-    options.ShutdownTimeout = builder.Configuration.GetValue<TimeSpan>("WorkerPool:ShutdownTimeout", TimeSpan.FromMinutes(1));
-    options.RecoveryInterval = builder.Configuration.GetValue<TimeSpan>("WorkerPool:RecoveryInterval", TimeSpan.FromMinutes(1));
-    options.StallTimeout = builder.Configuration.GetValue<TimeSpan>("WorkerPool:StallTimeout", TimeSpan.FromMinutes(5));
-});
-
-// Hosted service
-builder.Services.AddHostedService<JobWorkerHostedService>();
 
 var host = builder.Build();
 host.Run();

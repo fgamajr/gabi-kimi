@@ -199,6 +199,9 @@ public class DiscoveredLinkRepository : IDiscoveredLinkRepository
             existing.ContentHash = link.ContentHash ?? existing.ContentHash;
             existing.Metadata = link.Metadata;
             existing.Status = link.Status;
+            existing.DiscoveryStatus = link.DiscoveryStatus;
+            existing.FetchStatus = link.FetchStatus;
+            existing.IngestStatus = link.IngestStatus;
             existing.UpdatedAt = DateTime.UtcNow;
             existing.DiscoveredAt = DateTime.UtcNow;
 
@@ -265,6 +268,9 @@ public class DiscoveredLinkRepository : IDiscoveredLinkRepository
                 existing.ContentHash = link.ContentHash ?? existing.ContentHash;
                 existing.Metadata = link.Metadata;
                 existing.Status = link.Status;
+                existing.DiscoveryStatus = link.DiscoveryStatus;
+                existing.FetchStatus = link.FetchStatus;
+                existing.IngestStatus = link.IngestStatus;
                 existing.UpdatedAt = DateTime.UtcNow;
                 existing.DiscoveredAt = DateTime.UtcNow;
 

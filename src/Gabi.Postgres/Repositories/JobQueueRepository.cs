@@ -22,14 +22,16 @@ public class JobQueueRepository : IJobQueueRepository
     public async Task<Guid> EnqueueAsync(IngestJob job, CancellationToken ct = default)
     {
         var id = job.Id == Guid.Empty ? Guid.NewGuid() : job.Id;
+        var payloadJson = System.Text.Json.JsonSerializer.Serialize(job.Payload);
+        var hashInput = !string.IsNullOrWhiteSpace(job.IdempotencyKey)
+            ? $"idem|{job.JobType}|{job.SourceId}|{job.IdempotencyKey}"
+            : $"job|{job.JobType}|{job.SourceId}|{payloadJson}";
         var entity = new IngestJobEntity
         {
             Id = id,
             JobType = job.JobType,
-            Payload = System.Text.Json.JsonSerializer.Serialize(job.Payload),
-            PayloadHash = job.JobType == "catalog_seed"
-                ? ComputeHash("catalog_seed" + id.ToString())
-                : ComputeHash(job.SourceId + job.JobType),
+            Payload = payloadJson,
+            PayloadHash = ComputeHash(hashInput),
             SourceId = string.IsNullOrEmpty(job.SourceId) ? null : job.SourceId,
             Status = MapStatus(job.Status),
             Priority = (int)job.Priority,
@@ -96,45 +98,57 @@ public class JobQueueRepository : IJobQueueRepository
 
     public async Task CompleteAsync(Guid jobId, CancellationToken ct = default)
     {
-        var entity = await _context.IngestJobs.FindAsync(new object[] { jobId }, ct);
-        if (entity == null) return;
+        var updated = await _context.IngestJobs
+            .Where(j => j.Id == jobId)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(j => j.Status, "completed")
+                .SetProperty(j => j.WorkerId, (string?)null)
+                .SetProperty(j => j.LockedAt, (DateTime?)null)
+                .SetProperty(j => j.LockExpiresAt, (DateTime?)null)
+                .SetProperty(j => j.CompletedAt, DateTime.UtcNow)
+                .SetProperty(j => j.ProgressPercent, 100), ct);
 
-        entity.Status = "completed";
-        entity.WorkerId = null;
-        entity.LockedAt = null;
-        entity.LockExpiresAt = null;
-        entity.CompletedAt = DateTime.UtcNow;
-        entity.ProgressPercent = 100;
-
-        await _context.SaveChangesAsync(ct);
-        _logger.LogInformation("Job {JobId} completed", jobId);
+        if (updated > 0)
+            _logger.LogInformation("Job {JobId} completed", jobId);
     }
 
     public async Task FailAsync(Guid jobId, string error, bool shouldRetry, CancellationToken ct = default)
     {
-        var entity = await _context.IngestJobs.FindAsync(new object[] { jobId }, ct);
-        if (entity == null) return;
-
-        entity.LastError = error;
-        entity.WorkerId = null;
-        entity.LockedAt = null;
-        entity.LockExpiresAt = null;
-        entity.CompletedAt = DateTime.UtcNow;
+        var entity = await _context.IngestJobs
+            .AsNoTracking()
+            .FirstOrDefaultAsync(j => j.Id == jobId, ct);
+        if (entity == null)
+            return;
 
         if (shouldRetry && entity.Attempts < entity.MaxAttempts)
         {
-            entity.Status = "pending";
             var delay = TimeSpan.FromMinutes(Math.Pow(2, entity.Attempts));
-            entity.RetryAt = DateTime.UtcNow.Add(delay);
+            var retryAt = DateTime.UtcNow.Add(delay);
+            await _context.IngestJobs
+                .Where(j => j.Id == jobId)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(j => j.LastError, error)
+                    .SetProperty(j => j.WorkerId, (string?)null)
+                    .SetProperty(j => j.LockedAt, (DateTime?)null)
+                    .SetProperty(j => j.LockExpiresAt, (DateTime?)null)
+                    .SetProperty(j => j.CompletedAt, DateTime.UtcNow)
+                    .SetProperty(j => j.Status, "pending")
+                    .SetProperty(j => j.RetryAt, retryAt), ct);
             _logger.LogWarning("Job {JobId} failed, will retry. Error: {Error}", jobId, error);
         }
         else
         {
-            entity.Status = "failed";
+            await _context.IngestJobs
+                .Where(j => j.Id == jobId)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(j => j.LastError, error)
+                    .SetProperty(j => j.WorkerId, (string?)null)
+                    .SetProperty(j => j.LockedAt, (DateTime?)null)
+                    .SetProperty(j => j.LockExpiresAt, (DateTime?)null)
+                    .SetProperty(j => j.CompletedAt, DateTime.UtcNow)
+                    .SetProperty(j => j.Status, "failed"), ct);
             _logger.LogError("Job {JobId} failed permanently. Error: {Error}", jobId, error);
         }
-
-        await _context.SaveChangesAsync(ct);
     }
 
     public async Task ReleaseLeaseAsync(Guid jobId, CancellationToken ct = default)
@@ -152,25 +166,31 @@ public class JobQueueRepository : IJobQueueRepository
 
     public async Task<bool> HeartbeatAsync(Guid jobId, CancellationToken ct = default)
     {
-        var entity = await _context.IngestJobs.FindAsync(new object[] { jobId }, ct);
-        if (entity == null) return false;
-
-        entity.LockExpiresAt = DateTime.UtcNow.AddMinutes(2);
-        await _context.SaveChangesAsync(ct);
-        return true;
+        var updated = await _context.IngestJobs
+            .Where(j => j.Id == jobId)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(j => j.LockExpiresAt, DateTime.UtcNow.AddMinutes(2)), ct);
+        return updated > 0;
     }
 
     public async Task UpdateProgressAsync(Guid jobId, int percent, string? message, int? linksDiscovered, CancellationToken ct = default)
     {
-        var entity = await _context.IngestJobs.FindAsync(new object[] { jobId }, ct);
-        if (entity == null) return;
-
-        entity.ProgressPercent = percent;
-        entity.ProgressMessage = message;
+        var query = _context.IngestJobs.Where(j => j.Id == jobId);
         if (linksDiscovered.HasValue)
-            entity.LinksDiscovered = linksDiscovered.Value;
-        entity.LockExpiresAt = DateTime.UtcNow.AddMinutes(2);
-        await _context.SaveChangesAsync(ct);
+        {
+            await query.ExecuteUpdateAsync(setters => setters
+                .SetProperty(j => j.ProgressPercent, percent)
+                .SetProperty(j => j.ProgressMessage, message)
+                .SetProperty(j => j.LinksDiscovered, linksDiscovered.Value)
+                .SetProperty(j => j.LockExpiresAt, DateTime.UtcNow.AddMinutes(2)), ct);
+        }
+        else
+        {
+            await query.ExecuteUpdateAsync(setters => setters
+                .SetProperty(j => j.ProgressPercent, percent)
+                .SetProperty(j => j.ProgressMessage, message)
+                .SetProperty(j => j.LockExpiresAt, DateTime.UtcNow.AddMinutes(2)), ct);
+        }
     }
 
     public async Task<Gabi.Contracts.Jobs.JobStatus?> GetStatusAsync(Guid jobId, CancellationToken ct = default)
@@ -309,26 +329,25 @@ public class JobQueueRepository : IJobQueueRepository
     /// <summary>
     /// Get job status with details for API.
     /// </summary>
-    public async Task<JobStatusDto?> GetJobStatusDtoAsync(string sourceId, CancellationToken ct = default)
+    public async Task<Gabi.Contracts.Api.JobStatusDto?> GetJobStatusDtoAsync(string sourceId, CancellationToken ct = default)
     {
         var entity = await _context.IngestJobs
             .AsNoTracking()
             .Where(j => j.SourceId == sourceId)
             .OrderByDescending(j => j.CreatedAt)
-            .Select(j => new JobStatusDto(
-                j.Id.ToString(),
-                j.SourceId ?? string.Empty,
-                j.Status,
-                j.ProgressPercent ?? 0,
-                j.ProgressMessage,
-                j.LinksDiscovered,
-                j.StartedAt,
-                j.CompletedAt,
-                j.LastError
-            ))
             .FirstOrDefaultAsync(ct);
-
-        return entity;
+        if (entity == null) return null;
+        return new Gabi.Contracts.Api.JobStatusDto(
+            entity.Id.ToString(),
+            entity.SourceId ?? string.Empty,
+            entity.Status,
+            entity.ProgressPercent ?? 0,
+            entity.ProgressMessage,
+            entity.LinksDiscovered,
+            entity.StartedAt,
+            entity.CompletedAt,
+            entity.LastError
+        );
     }
 
     private static IngestJob MapToIngestJob(IngestJobEntity entity)
@@ -397,13 +416,35 @@ public class JobQueueRepository : IJobQueueRepository
         {
             var doc = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(payloadJson);
             if (!doc.TryGetProperty("discoveryConfig", out var dc)) return null;
-            // discoveryConfig can be stored as JSON object or as string (from SourceRegistryEntity)
-            if (dc.ValueKind == System.Text.Json.JsonValueKind.String)
+            var innerJson = dc.ValueKind == System.Text.Json.JsonValueKind.String ? dc.GetString() : dc.GetRawText();
+            if (string.IsNullOrWhiteSpace(innerJson)) return null;
+            var options = new System.Text.Json.JsonSerializerOptions
             {
-                var inner = dc.GetString();
-                return string.IsNullOrEmpty(inner) ? null : System.Text.Json.JsonSerializer.Deserialize<Gabi.Contracts.Discovery.DiscoveryConfig>(inner);
+                PropertyNameCaseInsensitive = true,
+                ReadCommentHandling = System.Text.Json.JsonCommentHandling.Skip,
+                AllowTrailingCommas = true
+            };
+            try
+            {
+                return System.Text.Json.JsonSerializer.Deserialize<Gabi.Contracts.Discovery.DiscoveryConfig>(innerJson, options);
             }
-            return System.Text.Json.JsonSerializer.Deserialize<Gabi.Contracts.Discovery.DiscoveryConfig>(dc.GetRawText());
+            catch
+            {
+                var fallback = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(innerJson);
+                var strategy = fallback.TryGetProperty("strategy", out var s) ? s.GetString() : null;
+                var urlTemplate = fallback.TryGetProperty("urlTemplate", out var u) ? u.GetString() : null;
+                if (string.IsNullOrEmpty(urlTemplate) && fallback.TryGetProperty("template", out var t))
+                    urlTemplate = t.GetString();
+                var url = fallback.TryGetProperty("url", out var urlNode) ? urlNode.GetString() : null;
+                if (string.IsNullOrEmpty(strategy) && !string.IsNullOrEmpty(urlTemplate)) strategy = "url_pattern";
+                if (string.IsNullOrEmpty(strategy)) strategy = "static_url";
+                return new Gabi.Contracts.Discovery.DiscoveryConfig
+                {
+                    Strategy = strategy ?? "static_url",
+                    UrlTemplate = urlTemplate ?? "",
+                    Url = url
+                };
+            }
         }
         catch
         {
@@ -440,19 +481,4 @@ public record RecentJobView(
     DateTime? CompletedAt,
     DateTime? StartedAt,
     DateTime CreatedAt
-);
-
-/// <summary>
-/// Extended job status DTO for API responses.
-/// </summary>
-public record JobStatusDto(
-    string JobId,
-    string SourceId,
-    string Status,
-    int ProgressPercent,
-    string? ProgressMessage,
-    int LinksDiscovered,
-    DateTime? StartedAt,
-    DateTime? CompletedAt,
-    string? ErrorMessage
 );

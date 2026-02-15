@@ -67,6 +67,18 @@ public class DiscoveredLinkEntity : AuditableEntity
     [MaxLength(20)]
     public string Status { get; set; } = "pending";
 
+    /// <summary>Status na fase discovery: completed quando o link foi descoberto e persistido.</summary>
+    [MaxLength(20)]
+    public string DiscoveryStatus { get; set; } = "completed";
+
+    /// <summary>Status na fase fetch: pending até o fetch processar este link.</summary>
+    [MaxLength(20)]
+    public string FetchStatus { get; set; } = "pending";
+
+    /// <summary>Status na fase ingest: pending até o ingest processar.</summary>
+    [MaxLength(20)]
+    public string IngestStatus { get; set; } = "pending";
+
     public DateTime? LastProcessedAt { get; set; }
 
     public int ProcessAttempts { get; set; }
@@ -103,6 +115,7 @@ public class DiscoveredLinkEntity : AuditableEntity
 
     // Navigation
     public ICollection<IngestJobEntity> Jobs { get; set; } = new List<IngestJobEntity>();
+    public ICollection<FetchItemEntity> FetchItems { get; set; } = new List<FetchItemEntity>();
     
     /// <summary>
     /// Documents extracted from this link.

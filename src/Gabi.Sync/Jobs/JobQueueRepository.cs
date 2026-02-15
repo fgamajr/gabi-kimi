@@ -454,6 +454,32 @@ public class JobQueueRepository : IJobQueueRepository
         return results.Select(MapToIngestJob).ToList();
     }
 
+    /// <inheritdoc />
+    public async Task<Gabi.Contracts.Api.JobStatusDto?> GetJobStatusDtoAsync(string sourceId, CancellationToken ct = default)
+    {
+        const string sql = @"
+            SELECT id, source_id, status, progress_percent, progress_message,
+                   started_at, completed_at, last_error
+            FROM ingest_jobs
+            WHERE source_id = @SourceId
+            ORDER BY created_at DESC
+            LIMIT 1";
+        var row = await _connection.QueryFirstOrDefaultAsync<JobStatusRow>(
+            new CommandDefinition(sql, new { SourceId = sourceId }, cancellationToken: ct));
+        if (row == null) return null;
+        return new Gabi.Contracts.Api.JobStatusDto(
+            IdToGuid(row.id).ToString(),
+            row.source_id ?? string.Empty,
+            row.status,
+            row.progress_percent ?? 0,
+            row.progress_message,
+            0,
+            row.started_at,
+            row.completed_at,
+            row.last_error
+        );
+    }
+
     private static IngestJob MapToIngestJob(JobRow row)
     {
         var payload = DeserializeOrDefault<Dictionary<string, object>>(row.payload);
@@ -551,6 +577,8 @@ public class JobQueueRepository : IJobQueueRepository
         string? last_error);
 
     private record RetryResult(int attempts, int max_attempts, string? source_id);
+
+    private record JobStatusRow(long id, string? source_id, string status, int? progress_percent, string? progress_message, DateTime? started_at, DateTime? completed_at, string? last_error);
     
     private record StalledJobRow(long id, string? source_id, string? worker_id);
     

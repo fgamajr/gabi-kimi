@@ -88,8 +88,6 @@ public class JobWorkerHostedService : IHostedService
         using var scope = _serviceProvider.CreateScope();
         var jobQueue = scope.ServiceProvider.GetRequiredService<IJobQueueRepository>();
         var executors = scope.ServiceProvider.GetRequiredService<IEnumerable<IJobExecutor>>();
-        var logger = scope.ServiceProvider.GetRequiredService<ILogger<SourceSyncJobExecutor>>();
-        var linkRepo = scope.ServiceProvider.GetRequiredService<IDiscoveredLinkRepository>();
 
         var executor = executors.FirstOrDefault(e => e.JobType == job.JobType);
         if (executor == null)
@@ -104,22 +102,14 @@ public class JobWorkerHostedService : IHostedService
             workerId, job.Id, job.SourceId);
 
         // Create progress reporter so frontend can show progress via GET /api/v1/jobs/{sourceId}/status
-        var progress = new Progress<JobProgress>(async p =>
+        var progress = new Progress<JobProgress>(p =>
         {
-            try
-            {
-                var linksFound = p.Metrics != null && p.Metrics.TryGetValue("linksFound", out var v) && v is int n ? n : (int?)null;
-                await jobQueue.UpdateProgressAsync(job.Id, p.PercentComplete, p.Message, linksFound, CancellationToken.None);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Failed to update progress for job {JobId}", job.Id);
-            }
+            _ = UpdateProgressIsolatedAsync(job.Id, p);
         });
 
         // Start heartbeat
         using var heartbeatCts = new CancellationTokenSource();
-        var heartbeatTask = SendHeartbeatsAsync(jobQueue, job.Id, heartbeatCts.Token);
+        var heartbeatTask = SendHeartbeatsAsync(job.Id, heartbeatCts.Token);
 
         try
         {
@@ -155,13 +145,35 @@ public class JobWorkerHostedService : IHostedService
         }
     }
 
-    private async Task SendHeartbeatsAsync(IJobQueueRepository jobQueue, Guid jobId, CancellationToken ct)
+    private async Task UpdateProgressIsolatedAsync(Guid jobId, JobProgress progress)
+    {
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var jobQueue = scope.ServiceProvider.GetRequiredService<IJobQueueRepository>();
+            var linksFound = progress.Metrics != null &&
+                             progress.Metrics.TryGetValue("linksFound", out var v) &&
+                             v is int n
+                ? n
+                : (int?)null;
+
+            await jobQueue.UpdateProgressAsync(jobId, progress.PercentComplete, progress.Message, linksFound, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to update progress for job {JobId}", jobId);
+        }
+    }
+
+    private async Task SendHeartbeatsAsync(Guid jobId, CancellationToken ct)
     {
         try
         {
             while (!ct.IsCancellationRequested)
             {
                 await Task.Delay(_options.HeartbeatInterval, ct);
+                using var scope = _serviceProvider.CreateScope();
+                var jobQueue = scope.ServiceProvider.GetRequiredService<IJobQueueRepository>();
                 await jobQueue.HeartbeatAsync(jobId, CancellationToken.None);
             }
         }

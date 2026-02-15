@@ -21,6 +21,11 @@ public class GabiDbContext : DbContext
     public DbSet<IngestJobEntity> IngestJobs => Set<IngestJobEntity>();
     public DbSet<AuditLogEntity> AuditLogs => Set<AuditLogEntity>();
     public DbSet<SeedRunEntity> SeedRuns => Set<SeedRunEntity>();
+    public DbSet<DiscoveryRunEntity> DiscoveryRuns => Set<DiscoveryRunEntity>();
+    public DbSet<FetchRunEntity> FetchRuns => Set<FetchRunEntity>();
+    public DbSet<FetchItemEntity> FetchItems => Set<FetchItemEntity>();
+    public DbSet<PipelineActionEntity> PipelineActions => Set<PipelineActionEntity>();
+    public DbSet<JobRegistryEntity> JobRegistry => Set<JobRegistryEntity>();
 
     // Documents (extracted from links for future ingest phase)
     public DbSet<DocumentEntity> Documents => Set<DocumentEntity>();
@@ -36,6 +41,90 @@ public class GabiDbContext : DbContext
         ConfigureAuditLog(modelBuilder);
         ConfigureDocumentEntity(modelBuilder);
         ConfigureSeedRun(modelBuilder);
+        ConfigureDiscoveryRun(modelBuilder);
+        ConfigureFetchRun(modelBuilder);
+        ConfigureFetchItem(modelBuilder);
+        ConfigurePipelineAction(modelBuilder);
+        ConfigureJobRegistry(modelBuilder);
+    }
+
+    private static void ConfigureJobRegistry(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<JobRegistryEntity>(entity =>
+        {
+            entity.ToTable("job_registry");
+            entity.HasKey(e => e.JobId);
+            entity.HasIndex(e => e.SourceId);
+            entity.HasIndex(e => e.JobType);
+            entity.HasIndex(e => e.CreatedAt);
+            entity.HasIndex(e => e.Status);
+        });
+    }
+
+    private static void ConfigureFetchRun(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<FetchRunEntity>(entity =>
+        {
+            entity.ToTable("fetch_runs");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.SourceId).HasMaxLength(100).IsRequired();
+            entity.Property(e => e.Status).HasMaxLength(20).IsRequired();
+            entity.Property(e => e.ErrorSummary).HasMaxLength(2000);
+            entity.HasIndex(e => e.SourceId);
+            entity.HasIndex(e => e.CompletedAt);
+            entity.HasIndex(e => e.JobId);
+        });
+    }
+
+    private static void ConfigureFetchItem(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<FetchItemEntity>(entity =>
+        {
+            entity.ToTable("fetch_items");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.SourceId).HasMaxLength(100).IsRequired();
+            entity.Property(e => e.UrlHash).HasMaxLength(64).IsRequired();
+            entity.Property(e => e.Status).HasMaxLength(20).IsRequired();
+            entity.Property(e => e.LastError).HasMaxLength(2000);
+
+            entity.HasIndex(e => new { e.DiscoveredLinkId, e.UrlHash }).IsUnique();
+            entity.HasIndex(e => new { e.SourceId, e.Status });
+            entity.HasIndex(e => e.FetchRunId);
+
+            entity.HasOne(e => e.DiscoveredLink)
+                .WithMany(l => l.FetchItems)
+                .HasForeignKey(e => e.DiscoveredLinkId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+    }
+
+    private static void ConfigurePipelineAction(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<PipelineActionEntity>(entity =>
+        {
+            entity.ToTable("pipeline_actions");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Action).HasMaxLength(50).IsRequired();
+            entity.Property(e => e.Scope).HasMaxLength(30).IsRequired();
+            entity.Property(e => e.SourceId).HasMaxLength(100);
+            entity.Property(e => e.Actor).HasMaxLength(100).IsRequired();
+            entity.Property(e => e.Params).HasColumnType("jsonb").IsRequired();
+            entity.HasIndex(e => e.SourceId);
+            entity.HasIndex(e => e.At);
+        });
+    }
+
+    private static void ConfigureDiscoveryRun(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<DiscoveryRunEntity>(entity =>
+        {
+            entity.ToTable("discovery_runs");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.SourceId).HasMaxLength(100).IsRequired();
+            entity.HasIndex(e => e.SourceId);
+            entity.HasIndex(e => e.CompletedAt);
+            entity.HasIndex(e => e.JobId);
+        });
     }
 
     private static void ConfigureSeedRun(ModelBuilder modelBuilder)
@@ -96,6 +185,9 @@ public class GabiDbContext : DbContext
             entity.Property(e => e.UrlHash).HasMaxLength(64).IsRequired();
             entity.Property(e => e.Etag).HasMaxLength(255);
             entity.Property(e => e.Status).HasMaxLength(20);
+            entity.Property(e => e.DiscoveryStatus).HasMaxLength(20).HasDefaultValue("completed");
+            entity.Property(e => e.FetchStatus).HasMaxLength(20).HasDefaultValue("pending");
+            entity.Property(e => e.IngestStatus).HasMaxLength(20).HasDefaultValue("pending");
             entity.Property(e => e.ContentHash).HasMaxLength(64);
             entity.Property(e => e.LastContentHash).HasMaxLength(64);
             entity.Property(e => e.MetadataHash).HasMaxLength(64);
@@ -164,6 +256,7 @@ public class GabiDbContext : DbContext
                   .HasDatabaseName("idx_jobs_available");
             entity.HasIndex(e => new { e.Status, e.WorkerId, e.LockedAt });
             entity.HasIndex(e => e.LinkId);
+            entity.HasIndex(e => e.FetchItemId);
             entity.HasIndex(e => e.SourceId);
             entity.HasIndex(e => e.RetryAt);
 
@@ -171,6 +264,11 @@ public class GabiDbContext : DbContext
             entity.HasOne(e => e.Link)
                   .WithMany(l => l.Jobs)
                   .HasForeignKey(e => e.LinkId)
+                  .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(e => e.FetchItem)
+                  .WithMany()
+                  .HasForeignKey(e => e.FetchItemId)
                   .OnDelete(DeleteBehavior.SetNull);
 
             entity.HasOne(e => e.Source)
@@ -242,6 +340,7 @@ public class GabiDbContext : DbContext
 
             // Indexes
             entity.HasIndex(e => e.LinkId);
+            entity.HasIndex(e => e.FetchItemId);
             entity.HasIndex(e => e.SourceId);
             entity.HasIndex(e => e.Status);
             entity.HasIndex(e => e.CreatedAt);
@@ -255,6 +354,11 @@ public class GabiDbContext : DbContext
                 .IsUnique()
                 .HasFilter("\"RemovedFromSourceAt\" IS NULL")
                 .HasDatabaseName("IX_Documents_SourceId_ExternalId_Active");
+
+            entity.HasOne(e => e.FetchItem)
+                .WithMany()
+                .HasForeignKey(e => e.FetchItemId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
     }
 }
