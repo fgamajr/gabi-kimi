@@ -1,3 +1,4 @@
+using Gabi.Api;
 using Gabi.Api.Configuration;
 using Gabi.Api.Middleware;
 using Gabi.Api.Services;
@@ -15,6 +16,9 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Serilog;
 using Serilog.Formatting.Compact;
 using Microsoft.EntityFrameworkCore;
+using Hangfire;
+using Hangfire.Dashboard;
+using Hangfire.PostgreSql;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -43,11 +47,25 @@ builder.Services.AddCorsConfig(builder.Configuration, builder.Environment);
 // Services
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 
+// Hangfire (enqueue + dashboard; Worker processa com Hangfire Server)
+if (!string.IsNullOrWhiteSpace(connectionString))
+{
+    builder.Services.AddHangfire(config => config
+        .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+        .UseSimpleAssemblyNameTypeSerializer()
+        .UseRecommendedSerializerSettings()
+        .UsePostgreSqlStorage(o => o.UseNpgsqlConnection(connectionString)));
+}
+
 // Repositories
 builder.Services.AddScoped<ISourceRegistryRepository, SourceRegistryRepository>();
 builder.Services.AddScoped<IDiscoveredLinkRepository, DiscoveredLinkRepository>();
-builder.Services.AddScoped<JobQueueRepository>();
-builder.Services.AddScoped<IJobQueueRepository>(sp => sp.GetRequiredService<JobQueueRepository>());
+builder.Services.AddScoped<IFetchItemRepository, FetchItemRepository>();
+builder.Services.AddScoped<HangfireJobQueueRepository>();
+builder.Services.AddScoped<IJobQueueRepository>(sp => sp.GetRequiredService<HangfireJobQueueRepository>());
+
+// Stub for Hangfire job serialization (Worker executes the real implementation)
+builder.Services.AddScoped<IGabiJobRunner, Gabi.Api.Jobs.StubGabiJobRunner>();
 
 // Source Catalog Service (PostgreSQL version)
 builder.Services.AddSingleton<ISourceCatalog>(sp =>
@@ -127,6 +145,15 @@ app.UseAuthentication();
 
 // 8. Authorization
 app.UseAuthorization();
+
+// Hangfire Dashboard (requer usuário autenticado)
+if (!string.IsNullOrWhiteSpace(connectionString))
+{
+    app.UseHangfireDashboard("/hangfire", new DashboardOptions
+    {
+        Authorization = new[] { new HangfireDashboardAuthFilter() }
+    });
+}
 
 // Swagger em desenvolvimento
 if (app.Environment.IsDevelopment())
@@ -239,7 +266,7 @@ app.MapGet(ApiRoutes.Pipeline, [Authorize(Policy = "RequireViewer")] async (ISou
 .RequireRateLimiting("read");
 
 // GET /api/v1/jobs/{sourceId}/status - Get job status for a source
-app.MapGet("/api/v1/jobs/{sourceId}/status", [Authorize(Policy = "RequireViewer")] async (string sourceId, JobQueueRepository jobQueue, CancellationToken ct) =>
+app.MapGet("/api/v1/jobs/{sourceId}/status", [Authorize(Policy = "RequireViewer")] async (string sourceId, IJobQueueRepository jobQueue, CancellationToken ct) =>
 {
     var status = await jobQueue.GetJobStatusDtoAsync(sourceId, ct);
     return Results.Ok(new ApiEnvelope<Gabi.Contracts.Api.JobStatusDto?>(
@@ -293,14 +320,15 @@ app.MapGet("/api/v1/dashboard/health", [Authorize(Policy = "RequireViewer")] asy
 })
 .RequireRateLimiting("read");
 
-// POST /api/v1/dashboard/sources/{sourceId}/refresh - Refresh source
+// POST /api/v1/dashboard/sources/{sourceId}/refresh - Refresh source (body optional; empty => Force = true)
 app.MapPost("/api/v1/dashboard/sources/{sourceId}/refresh", [Authorize(Policy = "RequireOperator")] async (
-    string sourceId, 
-    RefreshSourceRequest request, 
-    IDashboardService dashboard, 
+    string sourceId,
+    RefreshSourceRequest? request,
+    IDashboardService dashboard,
     CancellationToken ct) =>
 {
-    var result = await dashboard.RefreshSourceAsync(sourceId, request, ct);
+    var req = request ?? new RefreshSourceRequest { Force = true };
+    var result = await dashboard.RefreshSourceAsync(sourceId, req, ct);
     return result.Success 
         ? Results.Ok(result)
         : Results.NotFound(result);
@@ -319,6 +347,38 @@ app.MapPost("/api/v1/dashboard/seed", [Authorize(Policy = "RequireOperator")] as
 app.MapGet("/api/v1/dashboard/seed/last", [Authorize(Policy = "RequireViewer")] async (IDashboardService dashboard, CancellationToken ct) =>
 {
     var last = await dashboard.GetLastSeedRunAsync(ct);
+    return last != null ? Results.Ok(last) : Results.NotFound();
+})
+.RequireRateLimiting("read");
+
+// GET /api/v1/dashboard/discovery/last - Última execução de discovery (opcional: ?sourceId= para filtrar por fonte)
+app.MapGet("/api/v1/dashboard/discovery/last", [Authorize(Policy = "RequireViewer")] async (IDashboardService dashboard, string? sourceId, CancellationToken ct) =>
+{
+    var last = await dashboard.GetLastDiscoveryRunAsync(sourceId, ct);
+    return last != null ? Results.Ok(last) : Results.NotFound();
+})
+.RequireRateLimiting("read");
+
+// GET /api/v1/dashboard/sources/{sourceId}/discovery/last - Última execução de discovery para a fonte
+app.MapGet("/api/v1/dashboard/sources/{sourceId}/discovery/last", [Authorize(Policy = "RequireViewer")] async (IDashboardService dashboard, string sourceId, CancellationToken ct) =>
+{
+    var last = await dashboard.GetLastDiscoveryRunAsync(sourceId, ct);
+    return last != null ? Results.Ok(last) : Results.NotFound();
+})
+.RequireRateLimiting("read");
+
+// GET /api/v1/dashboard/fetch/last - Última execução de fetch (opcional: ?sourceId= para filtrar por fonte)
+app.MapGet("/api/v1/dashboard/fetch/last", [Authorize(Policy = "RequireViewer")] async (IDashboardService dashboard, string? sourceId, CancellationToken ct) =>
+{
+    var last = await dashboard.GetLastFetchRunAsync(sourceId, ct);
+    return last != null ? Results.Ok(last) : Results.NotFound();
+})
+.RequireRateLimiting("read");
+
+// GET /api/v1/dashboard/sources/{sourceId}/fetch/last - Última execução de fetch para a fonte
+app.MapGet("/api/v1/dashboard/sources/{sourceId}/fetch/last", [Authorize(Policy = "RequireViewer")] async (IDashboardService dashboard, string sourceId, CancellationToken ct) =>
+{
+    var last = await dashboard.GetLastFetchRunAsync(sourceId, ct);
     return last != null ? Results.Ok(last) : Results.NotFound();
 })
 .RequireRateLimiting("read");
