@@ -12,6 +12,7 @@ public class FetchItemRepositoryTests : IDisposable
 {
     private readonly GabiDbContext _context;
     private readonly FetchItemRepository _repository;
+    private readonly DiscoveredLinkRepository _linkRepository;
 
     public FetchItemRepositoryTests()
     {
@@ -22,19 +23,14 @@ public class FetchItemRepositoryTests : IDisposable
         _context = new GabiDbContext(options);
         var loggerMock = new Mock<ILogger<FetchItemRepository>>();
         _repository = new FetchItemRepository(_context, loggerMock.Object);
+        var linkLoggerMock = new Mock<ILogger<DiscoveredLinkRepository>>();
+        _linkRepository = new DiscoveredLinkRepository(_context, linkLoggerMock.Object);
     }
 
     [Fact]
     public async Task EnsurePendingForLinksAsync_ShouldCreateOneFetchItemPerLink_AndBeIdempotent()
     {
-        var source = new SourceRegistryEntity
-        {
-            Id = "tcu_acordaos",
-            Name = "TCU - Acordaos",
-            Provider = "TCU",
-            DiscoveryStrategy = "url_pattern",
-            DiscoveryConfig = "{}"
-        };
+        var source = CreateTestSource();
         _context.SourceRegistries.Add(source);
 
         var links = new[]
@@ -54,6 +50,45 @@ public class FetchItemRepositoryTests : IDisposable
         (await _context.FetchItems.CountAsync(i => i.Status == "pending")).Should().Be(2);
     }
 
+    [Fact]
+    public async Task DiscoveryFlow_BulkUpsertThenEnsurePending_ShouldCreateFetchItemsForAllPersistedLinks()
+    {
+        var source = CreateTestSource();
+        _context.SourceRegistries.Add(source);
+        await _context.SaveChangesAsync();
+
+        var linksToUpsert = new[]
+        {
+            new DiscoveredLinkEntity { SourceId = source.Id, Url = "https://example.com/a.csv", Metadata = "{}" },
+            new DiscoveredLinkEntity { SourceId = source.Id, Url = "https://example.com/b.csv", Metadata = "{}" }
+        }.ToList();
+
+        await _linkRepository.BulkUpsertAsync(linksToUpsert);
+        await _context.SaveChangesAsync();
+
+        var urlHashes = linksToUpsert.Select(l => l.UrlHash).ToList();
+        var persistedLinks = await _context.DiscoveredLinks
+            .Where(l => l.SourceId == source.Id && urlHashes.Contains(l.UrlHash))
+            .ToListAsync();
+
+        var created = await _repository.EnsurePendingForLinksAsync(persistedLinks);
+
+        created.Should().Be(2);
+        (await _context.FetchItems.CountAsync(i => i.SourceId == source.Id)).Should().Be(2);
+    }
+
+    private static SourceRegistryEntity CreateTestSource()
+    {
+        var sourceId = $"test_source_{Guid.NewGuid():N}";
+        return new SourceRegistryEntity
+        {
+            Id = sourceId,
+            Name = $"Test Source {sourceId}",
+            Provider = "TEST",
+            DiscoveryStrategy = "url_pattern",
+            DiscoveryConfig = "{}"
+        };
+    }
+
     public void Dispose() => _context.Dispose();
 }
-

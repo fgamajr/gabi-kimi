@@ -91,13 +91,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 1G
         reservations:
-          memory: 64M
-
-  # ═════════════════════════════════════════════════════════════════════════════
-  # OPTIONAL SERVICES (use --profile to enable)
-  # ═════════════════════════════════════════════════════════════════════════════
+          memory: 256M
 
   # Gabi.Api - REST API (optional, for full-docker development)
   # Usage: docker compose --profile api up -d
@@ -114,10 +110,14 @@ services:
       - GABI_SOURCES_PATH=/app/sources_v2.yaml
       - GABI_RUN_MIGRATIONS=true
       - ConnectionStrings__Default=Host=postgres;Port=5432;Database=gabi;Username=gabi;Password=gabi_dev_password
+      - Gabi__ElasticsearchUrl=http://elasticsearch:9200
+      - Gabi__RedisUrl=redis://redis:6379/0
     volumes:
       - ./sources_v2.yaml:/app/sources_v2.yaml:ro
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     deploy:
       resources:
@@ -150,9 +150,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 1G
         reservations:
-          memory: 128M
+          memory: 256M
     profiles:
       - worker
 

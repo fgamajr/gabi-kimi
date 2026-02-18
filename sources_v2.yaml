@@ -783,6 +783,7 @@ sources:
     discovery:
       strategy: web_crawl
       config:
+        driver: "curl_html_v1"
         root_url: "https://portal.tcu.gov.br/publicacoes-institucionais/todas"
         rules:
           pagination_param: "pagina"
@@ -790,6 +791,12 @@ sources:
           asset_selector: "a[href$='.pdf']"
           max_depth: 2
           rate_limit: 1.0
+        http:
+          user_agent_mode: rotate
+          user_agents:
+            - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+            - "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+          timeout: "180s"
 
     fetch:
       protocol: https
@@ -844,6 +851,7 @@ sources:
     discovery:
       strategy: web_crawl
       config:
+        driver: "curl_html_v1"
         root_url: "https://portal.tcu.gov.br/tecnologia-da-informacao/notas-tecnicas"
         rules:
           asset_selector: "a[href$='.pdf']"
@@ -897,11 +905,19 @@ sources:
       strategy: api_pagination
       config:
         driver: camara_api_v1
+        endpoint_template: "https://dadosabertos.camara.leg.br/api/v2/proposicoes?siglaTipo=PL&ano={year}&itens=100&ordem=ASC&ordenarPor=id"
         parameters:
           start_year:
             type: range
             start: 1980
             end: current
+        http:
+          user_agent_mode: rotate
+          user_agents:
+            - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+            - "GabiBot/1.0 (+https://example.org/bot)"
+          timeout: "180s"
+          request_delay_ms: 1000
 
     fetch:
       protocol: https

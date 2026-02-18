@@ -54,7 +54,14 @@ if (!string.IsNullOrWhiteSpace(connectionString))
         .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
         .UseSimpleAssemblyNameTypeSerializer()
         .UseRecommendedSerializerSettings()
-        .UsePostgreSqlStorage(o => o.UseNpgsqlConnection(connectionString)));
+        .UsePostgreSqlStorage(
+            connectionString,
+            new PostgreSqlStorageOptions
+            {
+                QueuePollInterval = TimeSpan.FromSeconds(5),
+                InvisibilityTimeout = TimeSpan.FromMinutes(10),
+                UseSlidingInvisibilityTimeout = true
+            }));
 }
 
 // Repositories
@@ -78,6 +85,9 @@ builder.Services.AddSingleton<ISourceCatalog>(sp =>
 
 // Dashboard Service
 builder.Services.AddScoped<IDashboardService, DashboardService>();
+
+// DLQ Service
+builder.Services.AddScoped<IDlqService, DlqService>();
 
 // Health checks
 var healthBuilder = builder.Services.AddHealthChecks()
@@ -395,12 +405,13 @@ app.MapGet("/api/v1/dashboard/pipeline/phases", [Authorize(Policy = "RequireView
 app.MapPost("/api/v1/dashboard/sources/{sourceId}/phases/{phase}", [Authorize(Policy = "RequireOperator")] async (
     string sourceId,
     string phase,
+    StartPhaseRequest? request,
     IDashboardService dashboard,
     CancellationToken ct) =>
 {
     if (string.IsNullOrWhiteSpace(phase) || !new[] { "discovery", "fetch", "ingest" }.Contains(phase.ToLowerInvariant()))
         return Results.BadRequest(new { error = "phase must be discovery, fetch, or ingest" });
-    var result = await dashboard.StartPhaseAsync(sourceId, phase, ct);
+    var result = await dashboard.StartPhaseAsync(sourceId, phase, request, ct);
     return result.Success ? Results.Ok(result) : Results.NotFound(result);
 })
 .RequireRateLimiting("write");
@@ -442,6 +453,58 @@ app.MapGet("/api/v1/sources/{sourceId}/links/{linkId:long}", [Authorize(Policy =
     return link != null ? Results.Ok(link) : Results.NotFound();
 })
 .RequireRateLimiting("read");
+
+// ═════════════════════════════════════════════════════════════════════════════
+// DLQ (Dead Letter Queue) Endpoints
+// ═════════════════════════════════════════════════════════════════════════════
+
+// GET /api/v1/dlq - List DLQ entries
+app.MapGet("/api/v1/dlq", [Authorize(Policy = "RequireViewer")] async (
+    int page,
+    int pageSize,
+    string? status,
+    IDlqService dlqService,
+    CancellationToken ct) =>
+{
+    var result = await dlqService.GetEntriesAsync(page > 0 ? page : 1, pageSize > 0 ? pageSize : 20, status, ct);
+    return Results.Ok(result);
+})
+.RequireRateLimiting("read");
+
+// GET /api/v1/dlq/stats - DLQ statistics
+app.MapGet("/api/v1/dlq/stats", [Authorize(Policy = "RequireViewer")] async (
+    IDlqService dlqService,
+    CancellationToken ct) =>
+{
+    var stats = await dlqService.GetStatsAsync(ct);
+    return Results.Ok(stats);
+})
+.RequireRateLimiting("read");
+
+// GET /api/v1/dlq/{id} - Get single DLQ entry
+app.MapGet("/api/v1/dlq/{id:guid}", [Authorize(Policy = "RequireViewer")] async (
+    Guid id,
+    IDlqService dlqService,
+    CancellationToken ct) =>
+{
+    var entry = await dlqService.GetEntryAsync(id, ct);
+    return entry != null ? Results.Ok(entry) : Results.NotFound();
+})
+.RequireRateLimiting("read");
+
+// POST /api/v1/dlq/{id}/replay - Replay a DLQ entry
+app.MapPost("/api/v1/dlq/{id:guid}/replay", [Authorize(Policy = "RequireOperator")] async (
+    Guid id,
+    string? notes,
+    IDlqService dlqService,
+    CancellationToken ct) =>
+{
+    var result = await dlqService.ReplayAsync(id, notes, ct);
+    return result.Success
+        ? Results.Ok(result)
+        : Results.BadRequest(result);
+})
+.RequireRateLimiting("write");
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Start

@@ -12,8 +12,10 @@ public static class JobPayloadParser
         if (string.IsNullOrWhiteSpace(payloadJson)) return new Dictionary<string, object>();
         try
         {
-            var doc = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(payloadJson);
-            return JsonElementToDictionary(doc);
+            var doc = ParsePossiblyDoubleEncodedJson(payloadJson);
+            return doc.HasValue && doc.Value.ValueKind == System.Text.Json.JsonValueKind.Object
+                ? JsonElementToDictionary(doc.Value)
+                : new Dictionary<string, object>();
         }
         catch
         {
@@ -26,8 +28,13 @@ public static class JobPayloadParser
         if (string.IsNullOrWhiteSpace(payloadJson)) return null;
         try
         {
-            var doc = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(payloadJson);
-            if (!doc.TryGetProperty("discoveryConfig", out var dc)) return null;
+            var doc = ParsePossiblyDoubleEncodedJson(payloadJson);
+            if (!doc.HasValue || doc.Value.ValueKind != System.Text.Json.JsonValueKind.Object)
+                return null;
+
+            if (!doc.Value.TryGetProperty("discoveryConfig", out var dc))
+                return null;
+
             var innerJson = dc.ValueKind == System.Text.Json.JsonValueKind.String ? dc.GetString() : dc.GetRawText();
             if (string.IsNullOrWhiteSpace(innerJson)) return null;
             var options = new System.Text.Json.JsonSerializerOptions
@@ -38,7 +45,20 @@ public static class JobPayloadParser
             };
             try
             {
-                return System.Text.Json.JsonSerializer.Deserialize<DiscoveryConfig>(innerJson, options);
+                var parsed = System.Text.Json.JsonSerializer.Deserialize<DiscoveryConfig>(innerJson, options);
+                if (parsed == null)
+                    return null;
+
+                // Some persisted discoveryConfig payloads omit "strategy" but include template/urlTemplate.
+                // In that case, infer url_pattern so discovery engine doesn't default to static_url.
+                var inferredStrategy = parsed.Strategy;
+                if ((string.IsNullOrWhiteSpace(inferredStrategy) || inferredStrategy.Equals("static_url", StringComparison.OrdinalIgnoreCase))
+                    && !string.IsNullOrWhiteSpace(parsed.UrlTemplate))
+                {
+                    inferredStrategy = "url_pattern";
+                }
+
+                return parsed with { Strategy = inferredStrategy };
             }
             catch
             {
@@ -62,6 +82,21 @@ public static class JobPayloadParser
         {
             return null;
         }
+    }
+
+    private static System.Text.Json.JsonElement? ParsePossiblyDoubleEncodedJson(string json)
+    {
+        var root = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(json);
+        if (root.ValueKind == System.Text.Json.JsonValueKind.String)
+        {
+            var inner = root.GetString();
+            if (!string.IsNullOrWhiteSpace(inner))
+            {
+                return System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(inner);
+            }
+        }
+
+        return root;
     }
 
     private static Dictionary<string, object> JsonElementToDictionary(System.Text.Json.JsonElement el)

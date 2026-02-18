@@ -26,6 +26,7 @@ public class GabiDbContext : DbContext
     public DbSet<FetchItemEntity> FetchItems => Set<FetchItemEntity>();
     public DbSet<PipelineActionEntity> PipelineActions => Set<PipelineActionEntity>();
     public DbSet<JobRegistryEntity> JobRegistry => Set<JobRegistryEntity>();
+    public DbSet<DlqEntryEntity> DlqEntries => Set<DlqEntryEntity>();
 
     // Documents (extracted from links for future ingest phase)
     public DbSet<DocumentEntity> Documents => Set<DocumentEntity>();
@@ -46,6 +47,7 @@ public class GabiDbContext : DbContext
         ConfigureFetchItem(modelBuilder);
         ConfigurePipelineAction(modelBuilder);
         ConfigureJobRegistry(modelBuilder);
+        ConfigureDlqEntry(modelBuilder);
     }
 
     private static void ConfigureJobRegistry(ModelBuilder modelBuilder)
@@ -58,6 +60,29 @@ public class GabiDbContext : DbContext
             entity.HasIndex(e => e.JobType);
             entity.HasIndex(e => e.CreatedAt);
             entity.HasIndex(e => e.Status);
+        });
+    }
+
+    private static void ConfigureDlqEntry(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<DlqEntryEntity>(entity =>
+        {
+            entity.ToTable("dlq_entries");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.JobType).HasMaxLength(50).IsRequired();
+            entity.Property(e => e.SourceId).HasMaxLength(100);
+            entity.Property(e => e.HangfireJobId).HasMaxLength(100);
+            entity.Property(e => e.ErrorMessage).HasMaxLength(4000);
+            entity.Property(e => e.ErrorType).HasMaxLength(200);
+            entity.Property(e => e.ReplayedBy).HasMaxLength(100);
+            entity.Property(e => e.Status).HasMaxLength(20).IsRequired();
+            entity.Property(e => e.Notes).HasMaxLength(500);
+
+            entity.HasIndex(e => e.JobType);
+            entity.HasIndex(e => e.SourceId);
+            entity.HasIndex(e => e.Status);
+            entity.HasIndex(e => e.FailedAt);
+            entity.HasIndex(e => e.ReplayedAt);
         });
     }
 

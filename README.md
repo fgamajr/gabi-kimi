@@ -88,6 +88,100 @@ O Worker (Docker profile `worker`) executa os jobs (catalog_seed, discovery, fet
 
 ---
 
+## 🛡️ Stabilization Program (Feb 2026)
+
+Resumo do que foi endurecido no pipeline durante o programa de estabilização:
+
+### Concluído
+
+- **Discovery payload robustness (P0)**  
+  `JobPayloadParser` agora aceita payload JSON normal e double-encoded; `url_pattern` é inferido quando necessário para evitar fallback indevido em `static_url`.
+
+- **Materialização discovery -> fetch_items (P0)**  
+  Discovery garante criação/validação de `fetch_items` para links persistidos, com invariantes explícitos no fluxo.
+
+- **DLQ JSON serialization (P0)**  
+  Persistência DLQ trata payload e stack trace em JSON válido para `jsonb`, evitando erro de sintaxe no Postgres.
+
+- **Retry policy unificada (P1)**  
+  Uma única fonte de verdade: `Hangfire:RetryPolicy` em `appsettings`.  
+  Worker registra um único `AutomaticRetry` global e `DlqFilter` usa a mesma configuração.
+
+- **Compose/runtime consistency (P1)**  
+  `docker compose config` limpo e fluxo padrão com profiles (`api`, `worker`) sem warning de orphan no uso normal.
+
+- **Native capped stress mode (P1)**  
+  Fetch suporta cap nativo por fonte via payload `max_docs_per_source`, com parada graciosa e status final `capped`.
+
+### Resultado de stress (Zero Kelvin)
+
+- Execução completa `docker-20k` em `tcu_acordaos`:  
+  `docs=20000` (exato), `fetch_runs.status='capped'`, sem OOM.
+- Pico de memória observado no worker: **253 MiB**.
+
+### Zero-Kelvin targeted (novo)
+
+Agora o script suporta execução targeted por flags:
+
+```bash
+# Discovery only (source-specific)
+./tests/zero-kelvin-test.sh docker-only \
+  --source tcu_sumulas \
+  --phase discovery \
+  --report-json /tmp/gabi-zk-target.json
+
+# Full stress (discovery + fetch capped) com monitor de memória
+./tests/zero-kelvin-test.sh docker-only \
+  --source tcu_acordaos \
+  --phase full \
+  --max-docs 20000 \
+  --monitor-memory \
+  --report-json /tmp/gabi-zk-20k.json
+```
+
+Flags suportadas:
+- `--source <id>`
+- `--phase <discovery|fetch|full>`
+- `--max-docs <n>`
+- `--monitor-memory`
+- `--report-json <path>`
+
+Saída estruturada (JSON): inclui testes, métricas de pipeline, docs processados, pico de memória, breakdown de status e resumo de erro.
+
+### Como disparar fetch com cap nativo
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:5100/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"operator","password":"op123"}' | jq -r .token)
+
+curl -s -X POST "http://localhost:5100/api/v1/dashboard/sources/tcu_acordaos/phases/fetch" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"max_docs_per_source":20000}'
+```
+
+Variáveis úteis de telemetria/guardrails no Worker:
+- `GABI_FETCH_MAX_FIELD_CHARS` (default `262144`)  
+  Limite de tamanho de campo CSV; excedente é truncado com warning.
+- `GABI_FETCH_TELEMETRY_EVERY_ROWS` (default `1000`)  
+  Intervalo de logs de telemetria (`rows`, `docs`, truncações, heap, RSS, cgroup).
+
+### Prova runtime retry -> DLQ (determinística)
+
+Evidência coletada em execução real:
+
+- Job de discovery forçado a falhar por config inválida (`static_url` sem `url`).
+- Logs mostraram múltiplas falhas do mesmo `job_id`.
+- `DlqFilter` registrou: `failed after 3 attempts, moving to Dead Letter Queue`.
+- `dlq_entries` recebeu registro com:
+  - `JobType=RunAsync`
+  - `ErrorType=ArgumentException`
+  - `RetryCount=3`
+- `hangfire.state` mostrou `failed_states=4` para o job (falha inicial + retries).
+
+---
+
 ## 📡 Referência da API (endpoints e exemplos)
 
 Base URL: `http://localhost:5100`. Endpoints protegidos exigem **JWT**: `Authorization: Bearer <token>`. Obtenha o token em `POST /api/v1/auth/login`. Usuários: `operator` / `op123` (pode disparar seed/refresh/fases), `viewer` / `view123` (somente leitura).

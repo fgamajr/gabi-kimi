@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using System.Text.Json;
 
 namespace Gabi.Contracts.Discovery;
 
@@ -192,6 +193,13 @@ public record DiscoveryConfig
     /// <summary>Parâmetros do template (alias dinâmico). Mapeia do JSON "parameters".</summary>
     [JsonPropertyName("parameters")]
     public IReadOnlyDictionary<string, object>? Params { get; set; }
+
+    /// <summary>
+    /// Additional strategy-specific properties preserved from JSON payload
+    /// (e.g. root_url, rules, driver, endpoint).
+    /// </summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Extra { get; init; }
     
     /// <summary>Configuração de detecção de mudanças.</summary>
     public ChangeDetectionConfig ChangeDetection { get; init; } = new();

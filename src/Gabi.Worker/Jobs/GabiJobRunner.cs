@@ -1,6 +1,5 @@
 using Gabi.Contracts.Jobs;
 using Gabi.Postgres;
-using Hangfire;
 using Microsoft.EntityFrameworkCore;
 
 namespace Gabi.Worker.Jobs;
@@ -19,7 +18,6 @@ public class GabiJobRunner : IGabiJobRunner
         _logger = logger;
     }
 
-    [AutomaticRetry(Attempts = 3, DelaysInSeconds = new[] { 2, 8, 30 })]
     public async Task RunAsync(Guid jobId, string jobType, string sourceId, string payloadJson, CancellationToken ct)
     {
         using var scope = _serviceProvider.CreateScope();
@@ -31,6 +29,8 @@ public class GabiJobRunner : IGabiJobRunner
         {
             reg.Status = "processing";
             reg.StartedAt = DateTime.UtcNow;
+            reg.ErrorMessage = null;
+            reg.CompletedAt = null;
             await context.SaveChangesAsync(ct);
         }
 

@@ -240,14 +240,7 @@ public class CatalogSeedJobExecutor : IJobExecutor
                         Jurisdiction = sourceDef.Identity?.Jurisdiction,
                         Category = sourceDef.Identity?.Category,
                         DiscoveryStrategy = sourceDef.Discovery?.Strategy ?? "unknown",
-                        DiscoveryConfig = JsonSerializer.Serialize(new
-                        {
-                            strategy = sourceDef.Discovery?.Strategy ?? "static_url",
-                            url = sourceDef.Discovery?.Config?.Url,
-                            template = sourceDef.Discovery?.Config?.Template,
-                            urlTemplate = sourceDef.Discovery?.Config?.Template,
-                            parameters = sourceDef.Discovery?.Config?.Parameters
-                        }),
+                        DiscoveryConfig = JsonSerializer.Serialize(BuildDiscoveryConfigObject(sourceDef.Discovery)),
                         Enabled = sourceDef.Enabled
                     });
                 }
@@ -286,13 +279,83 @@ public class CatalogSeedJobExecutor : IJobExecutor
     private class SeedDiscoveryDefinition
     {
         public string? Strategy { get; set; }
-        public SeedDiscoveryConfigDefinition? Config { get; set; }
+        public object? Config { get; set; }
     }
 
-    private class SeedDiscoveryConfigDefinition
+    private static Dictionary<string, object?> BuildDiscoveryConfigObject(SeedDiscoveryDefinition? discovery)
     {
-        public string? Url { get; set; }
-        public string? Template { get; set; }
-        public Dictionary<string, object>? Parameters { get; set; }
+        var strategy = discovery?.Strategy ?? "static_url";
+        var map = NormalizeMap(discovery?.Config);
+        var result = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["strategy"] = strategy
+        };
+
+        foreach (var (key, value) in map)
+            result[key] = value;
+
+        return result;
+    }
+
+    private static string? GetConfigString(object? config, params string[] keys)
+    {
+        var map = NormalizeMap(config);
+        foreach (var key in keys)
+        {
+            if (map.TryGetValue(key, out var value) && value != null)
+                return value.ToString();
+        }
+        return null;
+    }
+
+    private static object? GetConfigValue(object? config, string key)
+    {
+        var map = NormalizeMap(config);
+        return map.TryGetValue(key, out var value) ? value : null;
+    }
+
+    private static Dictionary<string, object?> NormalizeMap(object? value)
+    {
+        var result = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+
+        if (value is IDictionary<object, object> objDict)
+        {
+            foreach (var (k, v) in objDict)
+                result[k?.ToString() ?? string.Empty] = NormalizeValue(v);
+            return result;
+        }
+
+        if (value is IDictionary<string, object> strDict)
+        {
+            foreach (var (k, v) in strDict)
+                result[k] = NormalizeValue(v);
+            return result;
+        }
+
+        return result;
+    }
+
+    private static object? NormalizeValue(object? value)
+    {
+        if (value is IDictionary<object, object> nestedObj)
+        {
+            var dict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (k, v) in nestedObj)
+                dict[k?.ToString() ?? string.Empty] = NormalizeValue(v);
+            return dict;
+        }
+
+        if (value is IDictionary<string, object> nestedStr)
+        {
+            var dict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (k, v) in nestedStr)
+                dict[k] = NormalizeValue(v);
+            return dict;
+        }
+
+        if (value is IList<object> list)
+            return list.Select(NormalizeValue).ToList();
+
+        return value;
     }
 }

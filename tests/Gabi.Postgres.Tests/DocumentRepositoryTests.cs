@@ -9,6 +9,7 @@ namespace Gabi.Postgres.Tests;
 
 public class DocumentRepositoryTests : IDisposable
 {
+    private const string TestSourceId = "test_source_docs";
     private readonly GabiDbContext _context;
     private readonly DocumentRepository _repository;
 
@@ -34,9 +35,9 @@ public class DocumentRepositoryTests : IDisposable
         // Arrange
         var source = new SourceRegistryEntity
         {
-            Id = "tcu-acordaos",
-            Name = "TCU Acordaos",
-            Provider = "TCU",
+            Id = TestSourceId,
+            Name = "Test Source Docs",
+            Provider = "TEST",
             DiscoveryStrategy = "WebScraper",
             DiscoveryConfig = "{}"
         };
@@ -44,7 +45,7 @@ public class DocumentRepositoryTests : IDisposable
 
         var link = new DiscoveredLinkEntity
         {
-            SourceId = "tcu-acordaos",
+            SourceId = TestSourceId,
             Url = "https://pesquisa.apps.tcu.gov.br/#/acordao-completo/1",
             UrlHash = "abc123hash"
         };
@@ -54,7 +55,7 @@ public class DocumentRepositoryTests : IDisposable
         var document = new DocumentEntity
         {
             LinkId = link.Id,
-            SourceId = "tcu-acordaos",
+            SourceId = TestSourceId,
             ExternalId = "ACORDAO-2024-12345",  // New field
             SourceContentHash = "sha256:abcdef123456",  // New field
             Title = "Test Document",
@@ -78,9 +79,9 @@ public class DocumentRepositoryTests : IDisposable
         // Arrange
         var source = new SourceRegistryEntity
         {
-            Id = "tcu-acordaos",
-            Name = "TCU Acordaos",
-            Provider = "TCU",
+            Id = TestSourceId,
+            Name = "Test Source Docs",
+            Provider = "TEST",
             DiscoveryStrategy = "WebScraper",
             DiscoveryConfig = "{}"
         };
@@ -88,7 +89,7 @@ public class DocumentRepositoryTests : IDisposable
 
         var link = new DiscoveredLinkEntity
         {
-            SourceId = "tcu-acordaos",
+            SourceId = TestSourceId,
             Url = "https://pesquisa.apps.tcu.gov.br/#/acordao-completo/1",
             UrlHash = "abc123hash"
         };
@@ -98,7 +99,7 @@ public class DocumentRepositoryTests : IDisposable
         var document = new DocumentEntity
         {
             LinkId = link.Id,
-            SourceId = "tcu-acordaos",
+            SourceId = TestSourceId,
             ExternalId = "ACORDAO-2024-99999",
             SourceContentHash = "sha256:uniquehash",
             Title = "Unique Document"
@@ -107,12 +108,12 @@ public class DocumentRepositoryTests : IDisposable
         await _context.SaveChangesAsync();
 
         // Act
-        var result = await _repository.GetByExternalIdAsync("tcu-acordaos", "ACORDAO-2024-99999");
+        var result = await _repository.GetByExternalIdAsync(TestSourceId, "ACORDAO-2024-99999");
 
         // Assert
         result.Should().NotBeNull();
         result!.ExternalId.Should().Be("ACORDAO-2024-99999");
-        result.SourceId.Should().Be("tcu-acordaos");
+        result.SourceId.Should().Be(TestSourceId);
     }
 
     [Fact]
@@ -131,9 +132,9 @@ public class DocumentRepositoryTests : IDisposable
         // Arrange
         var source = new SourceRegistryEntity
         {
-            Id = "tcu-acordaos",
-            Name = "TCU Acordaos",
-            Provider = "TCU",
+            Id = TestSourceId,
+            Name = "Test Source Docs",
+            Provider = "TEST",
             DiscoveryStrategy = "WebScraper",
             DiscoveryConfig = "{}"
         };
@@ -141,7 +142,7 @@ public class DocumentRepositoryTests : IDisposable
 
         var link = new DiscoveredLinkEntity
         {
-            SourceId = "tcu-acordaos",
+            SourceId = TestSourceId,
             Url = "https://pesquisa.apps.tcu.gov.br/#/acordao-completo/1",
             UrlHash = "abc123hash"
         };
@@ -151,7 +152,7 @@ public class DocumentRepositoryTests : IDisposable
         var document = new DocumentEntity
         {
             LinkId = link.Id,
-            SourceId = "tcu-acordaos",
+            SourceId = TestSourceId,
             ExternalId = "ACORDAO-TO-REMOVE",
             SourceContentHash = "sha256:removeme",
             Title = "Document to Remove"
@@ -160,7 +161,7 @@ public class DocumentRepositoryTests : IDisposable
         await _context.SaveChangesAsync();
 
         // Act
-        await _repository.MarkAsRemovedAsync("tcu-acordaos", "ACORDAO-TO-REMOVE", "Document removed from source");
+        await _repository.MarkAsRemovedAsync(TestSourceId, "ACORDAO-TO-REMOVE", "Document removed from source");
         await _context.SaveChangesAsync();
 
         // Assert
@@ -176,9 +177,9 @@ public class DocumentRepositoryTests : IDisposable
         // Arrange
         var source = new SourceRegistryEntity
         {
-            Id = "tcu-acordaos",
-            Name = "TCU Acordaos",
-            Provider = "TCU",
+            Id = TestSourceId,
+            Name = "Test Source Docs",
+            Provider = "TEST",
             DiscoveryStrategy = "WebScraper",
             DiscoveryConfig = "{}"
         };
@@ -186,7 +187,7 @@ public class DocumentRepositoryTests : IDisposable
 
         var link = new DiscoveredLinkEntity
         {
-            SourceId = "tcu-acordaos",
+            SourceId = TestSourceId,
             Url = "https://pesquisa.apps.tcu.gov.br/#/acordao-completo/1",
             UrlHash = "abc123hash"
         };
@@ -197,7 +198,7 @@ public class DocumentRepositoryTests : IDisposable
         var activeDoc = new DocumentEntity
         {
             LinkId = link.Id,
-            SourceId = "tcu-acordaos",
+            SourceId = TestSourceId,
             ExternalId = "ACTIVE-1",
             SourceContentHash = "hash1",
             Title = "Active Document"
@@ -208,7 +209,7 @@ public class DocumentRepositoryTests : IDisposable
         var activeDoc2 = new DocumentEntity
         {
             LinkId = link.Id,
-            SourceId = "tcu-acordaos",
+            SourceId = TestSourceId,
             ExternalId = "ACTIVE-2",
             SourceContentHash = "hash2",
             Title = "Another Active Document"
@@ -219,7 +220,7 @@ public class DocumentRepositoryTests : IDisposable
         var removedDoc = new DocumentEntity
         {
             LinkId = link.Id,
-            SourceId = "tcu-acordaos",
+            SourceId = TestSourceId,
             ExternalId = "REMOVED-1",
             SourceContentHash = "hash3",
             Title = "Removed Document",
@@ -231,7 +232,7 @@ public class DocumentRepositoryTests : IDisposable
         await _context.SaveChangesAsync();
 
         // Act
-        var activeDocs = await _repository.GetActiveBySourceAsync("tcu-acordaos");
+        var activeDocs = await _repository.GetActiveBySourceAsync(TestSourceId);
 
         // Assert
         activeDocs.Should().HaveCount(2);
