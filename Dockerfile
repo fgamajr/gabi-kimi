@@ -27,9 +27,13 @@ RUN dotnet publish src/Gabi.Worker/Gabi.Worker.csproj \
     -o /app/publish \
     /p:UseAppHost=false
 
-# Runtime: runtime (menor que aspnet; worker não expõe HTTP)
-FROM mcr.microsoft.com/dotnet/runtime:8.0 AS runtime
+# Runtime: aspnet (necessário para Hangfire.AspNetCore)
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
 WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends procps curl \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
 RUN adduser --disabled-password --gecos "" gabi
@@ -45,7 +49,7 @@ RUN chown -R gabi:gabi /app
 USER gabi
 
 # Health: processo ativo (Fly usa isso para manter a machine)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD pgrep -f "Gabi.Worker" || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD pgrep -f "dotnet Gabi.Worker.dll" >/dev/null || exit 1
 
 ENTRYPOINT ["dotnet", "Gabi.Worker.dll"]

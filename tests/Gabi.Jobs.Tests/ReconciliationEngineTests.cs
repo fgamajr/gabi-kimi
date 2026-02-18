@@ -10,6 +10,7 @@ namespace Gabi.Jobs.Tests;
 /// </summary>
 public class ReconciliationEngineTests
 {
+    private const string TestSourceId = "test_source_reconciliation";
     private readonly ReconciliationEngine _engine;
 
     public ReconciliationEngineTests()
@@ -21,7 +22,7 @@ public class ReconciliationEngineTests
     public void ReconcileAsync_NewDocumentsInSnapshot_ReturnsInsertOperations()
     {
         // Arrange - snapshot has 2 new documents not in database
-        var sourceId = "tcu_acordaos";
+        var sourceId = TestSourceId;
         var snapshot = new DocumentSnapshot
         {
             SourceId = sourceId,
@@ -48,7 +49,7 @@ public class ReconciliationEngineTests
     public void ReconcileAsync_ExistingDocumentsUnchanged_ReturnsNoOperations()
     {
         // Arrange - snapshot matches database exactly
-        var sourceId = "tcu_acordaos";
+        var sourceId = TestSourceId;
         var snapshot = new DocumentSnapshot
         {
             SourceId = sourceId,
@@ -76,7 +77,7 @@ public class ReconciliationEngineTests
     public void ReconcileAsync_ModifiedDocuments_ReturnsUpdateOperations()
     {
         // Arrange - document exists but hash changed (content modified)
-        var sourceId = "tcu_acordaos";
+        var sourceId = TestSourceId;
         var snapshot = new DocumentSnapshot
         {
             SourceId = sourceId,
@@ -105,7 +106,7 @@ public class ReconciliationEngineTests
     public void ReconcileAsync_RemovedDocuments_ReturnsDeleteOperations()
     {
         // Arrange - document exists in DB but not in snapshot (removed from source)
-        var sourceId = "tcu_acordaos";
+        var sourceId = TestSourceId;
         var snapshot = new DocumentSnapshot
         {
             SourceId = sourceId,
@@ -130,7 +131,7 @@ public class ReconciliationEngineTests
     public void ReconcileAsync_MixedOperations_ReturnsAllTypes()
     {
         // Arrange - combination of insert, update, delete, and unchanged
-        var sourceId = "tcu_acordaos";
+        var sourceId = TestSourceId;
         var snapshot = new DocumentSnapshot
         {
             SourceId = sourceId,
@@ -173,7 +174,7 @@ public class ReconciliationEngineTests
         // Arrange
         var snapshot = new DocumentSnapshot
         {
-            SourceId = "tcu_acordaos",
+            SourceId = TestSourceId,
             Documents = new List<SnapshotDocument>()
         };
         var existingDocuments = new List<ExistingDocument>();
@@ -192,7 +193,7 @@ public class ReconciliationEngineTests
     public void ReconcileAsync_SetsSourceIdOnResult()
     {
         // Arrange
-        var sourceId = "camara_proposicoes";
+        var sourceId = TestSourceId;
         var snapshot = new DocumentSnapshot
         {
             SourceId = sourceId,
@@ -214,7 +215,7 @@ public class ReconciliationEngineTests
         var beforeTest = DateTime.UtcNow.AddSeconds(-1);
         var snapshot = new DocumentSnapshot
         {
-            SourceId = "tcu_acordaos",
+            SourceId = TestSourceId,
             Documents = new List<SnapshotDocument>()
         };
         var existingDocuments = new List<ExistingDocument>();

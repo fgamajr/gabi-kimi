@@ -56,7 +56,7 @@ public interface IDashboardService
     /// <summary>
     /// Inicia uma fase do pipeline para uma source (discovery, fetch, ingest). Retorna job enfileirado.
     /// </summary>
-    Task<RefreshSourceResponse> StartPhaseAsync(string sourceId, string phase, CancellationToken ct = default);
+    Task<RefreshSourceResponse> StartPhaseAsync(string sourceId, string phase, StartPhaseRequest? request = null, CancellationToken ct = default);
 
     /// <summary>
     /// Lista fases do pipeline com disponibilidade e como disparar (para o frontend).
@@ -499,7 +499,7 @@ public class DashboardService : IDashboardService
         };
     }
 
-    public async Task<RefreshSourceResponse> StartPhaseAsync(string sourceId, string phase, CancellationToken ct = default)
+    public async Task<RefreshSourceResponse> StartPhaseAsync(string sourceId, string phase, StartPhaseRequest? request = null, CancellationToken ct = default)
     {
         var normalized = phase?.ToLowerInvariant().Trim() ?? "";
         if (normalized == "discovery")
@@ -533,12 +533,18 @@ public class DashboardService : IDashboardService
             _ => throw new ArgumentException($"Unknown phase: {phase}. Use discovery, fetch, or ingest.", nameof(phase))
         };
 
+        var payload = new Dictionary<string, object> { ["phase"] = normalized };
+        if (normalized == "fetch" && request?.MaxDocsPerSource is int maxDocsPerSource && maxDocsPerSource > 0)
+        {
+            payload["max_docs_per_source"] = maxDocsPerSource;
+        }
+
         var job = new IngestJob
         {
             Id = Guid.NewGuid(),
             JobType = jobType,
             SourceId = sourceId,
-            Payload = new Dictionary<string, object> { ["phase"] = normalized },
+            Payload = payload,
             Status = JobStatus.Pending,
             Priority = JobPriority.Normal,
             ScheduledAt = DateTime.UtcNow,

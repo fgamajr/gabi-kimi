@@ -218,6 +218,15 @@ public record RefreshSourceRequest
 }
 
 /// <summary>
+/// Optional payload for starting a specific phase.
+/// </summary>
+public record StartPhaseRequest
+{
+    [JsonPropertyName("max_docs_per_source")]
+    public int? MaxDocsPerSource { get; init; }
+}
+
+/// <summary>
 /// Refresh source response.
 /// </summary>
 public record RefreshSourceResponse

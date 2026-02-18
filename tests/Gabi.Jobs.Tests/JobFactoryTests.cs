@@ -9,6 +9,7 @@ namespace Gabi.Jobs.Tests;
 /// </summary>
 public class JobFactoryTests
 {
+    private const string TestSourceId = "test_source_jobs";
     private readonly JobFactory _factory;
 
     public JobFactoryTests()
@@ -20,7 +21,7 @@ public class JobFactoryTests
     public void CreateSourceJobAsync_WithValidSource_CreatesJobWithCorrectProperties()
     {
         // Arrange
-        var sourceId = "tcu_acordaos";
+        var sourceId = TestSourceId;
         var discoveryResult = new DiscoveryResult
         {
             SourceId = sourceId,
@@ -48,7 +49,7 @@ public class JobFactoryTests
     public void CreateSourceJobAsync_SetsTotalLinksInPayload()
     {
         // Arrange
-        var sourceId = "tcu_sumulas";
+        var sourceId = TestSourceId;
         var discoveryResult = new DiscoveryResult
         {
             SourceId = sourceId,
@@ -73,7 +74,7 @@ public class JobFactoryTests
     {
         // Arrange
         var parentJobId = Guid.NewGuid();
-        var sourceId = "tcu_acordaos";
+        var sourceId = TestSourceId;
         var docs = new List<DocumentInfo>
         {
             new("doc-001", "https://example.com/doc1.pdf", "Title 1", sourceId),
@@ -98,7 +99,7 @@ public class JobFactoryTests
     {
         // Arrange
         var parentJobId = Guid.NewGuid();
-        var sourceId = "tcu_acordaos";
+        var sourceId = TestSourceId;
         var docs = new List<DocumentInfo>
         {
             new("doc-001", "https://example.com/doc1.pdf", "Title 1", sourceId)
@@ -133,7 +134,7 @@ public class JobFactoryTests
     {
         // Arrange
         var jobType = "hash";
-        var sourceId = "tcu_acordaos";
+        var sourceId = TestSourceId;
         var payload = new JobPayload(new Dictionary<string, object> { ["documentId"] = "doc-001" });
 
         // Act
@@ -150,7 +151,7 @@ public class JobFactoryTests
     {
         // Arrange
         var parentJobId = Guid.NewGuid();
-        var sourceId = "tcu_acordaos";
+        var sourceId = TestSourceId;
         var docs = new List<DocumentInfo>
         {
             new("doc-001", "url", "Title", sourceId)

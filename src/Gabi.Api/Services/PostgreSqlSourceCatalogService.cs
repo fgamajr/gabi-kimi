@@ -380,12 +380,7 @@ public class PostgreSqlSourceCatalogService : ISourceCatalog
                         Jurisdiction = sourceDef.Identity?.Jurisdiction,
                         Category = sourceDef.Identity?.Category,
                         DiscoveryStrategy = sourceDef.Discovery?.Strategy ?? "unknown",
-                        DiscoveryConfig = System.Text.Json.JsonSerializer.Serialize(new
-                        {
-                            url = sourceDef.Discovery?.Config?.Url,
-                            template = sourceDef.Discovery?.Config?.Template,
-                            parameters = sourceDef.Discovery?.Config?.Parameters
-                        }),
+                        DiscoveryConfig = System.Text.Json.JsonSerializer.Serialize(BuildDiscoveryConfigObject(sourceDef.Discovery)),
                         Enabled = sourceDef.Enabled
                     };
 
@@ -403,29 +398,18 @@ public class PostgreSqlSourceCatalogService : ISourceCatalog
 
     private static DiscoveryConfig ParseDiscoveryConfig(string configJson)
     {
+        if (string.IsNullOrWhiteSpace(configJson))
+            return new DiscoveryConfig();
+
         try
         {
-            using var doc = System.Text.Json.JsonDocument.Parse(configJson);
-            var root = doc.RootElement;
-
-            var url = root.TryGetProperty("url", out var urlProp) && urlProp.ValueKind != System.Text.Json.JsonValueKind.Null
-                ? urlProp.GetString()
-                : null;
-
-            var template = root.TryGetProperty("template", out var templateProp) && templateProp.ValueKind != System.Text.Json.JsonValueKind.Null
-                ? templateProp.GetString()
-                : null;
-
-            var mode = !string.IsNullOrEmpty(url) ? DiscoveryMode.StaticUrl
-                : !string.IsNullOrEmpty(template) ? DiscoveryMode.UrlPattern
-                : DiscoveryMode.StaticUrl;
-
-            return new DiscoveryConfig
+            var options = new System.Text.Json.JsonSerializerOptions
             {
-                Mode = mode,
-                Url = url,
-                UrlTemplate = template
+                PropertyNameCaseInsensitive = true
             };
+
+            return System.Text.Json.JsonSerializer.Deserialize<DiscoveryConfig>(configJson, options)
+                ?? new DiscoveryConfig();
         }
         catch
         {
@@ -480,14 +464,67 @@ public class PostgreSqlSourceCatalogService : ISourceCatalog
     private class DiscoveryDefinition
     {
         public string? Strategy { get; set; }
-        public DiscoveryConfigDefinition? Config { get; set; }
+        public object? Config { get; set; }
     }
 
-    private class DiscoveryConfigDefinition
+    private static Dictionary<string, object?> BuildDiscoveryConfigObject(DiscoveryDefinition? discovery)
     {
-        public string? Url { get; set; }
-        public string? Template { get; set; }
-        public Dictionary<string, ParameterDefinition>? Parameters { get; set; }
+        var strategy = discovery?.Strategy ?? "static_url";
+        var map = NormalizeMap(discovery?.Config);
+        var result = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["strategy"] = strategy
+        };
+
+        foreach (var (key, value) in map)
+            result[key] = value;
+
+        return result;
+    }
+
+    private static Dictionary<string, object?> NormalizeMap(object? value)
+    {
+        var result = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+
+        if (value is IDictionary<object, object> objDict)
+        {
+            foreach (var (k, v) in objDict)
+                result[k?.ToString() ?? string.Empty] = NormalizeValue(v);
+            return result;
+        }
+
+        if (value is IDictionary<string, object> strDict)
+        {
+            foreach (var (k, v) in strDict)
+                result[k] = NormalizeValue(v);
+            return result;
+        }
+
+        return result;
+    }
+
+    private static object? NormalizeValue(object? value)
+    {
+        if (value is IDictionary<object, object> nestedObj)
+        {
+            var dict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (k, v) in nestedObj)
+                dict[k?.ToString() ?? string.Empty] = NormalizeValue(v);
+            return dict;
+        }
+
+        if (value is IDictionary<string, object> nestedStr)
+        {
+            var dict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (k, v) in nestedStr)
+                dict[k] = NormalizeValue(v);
+            return dict;
+        }
+
+        if (value is IList<object> list)
+            return list.Select(NormalizeValue).ToList();
+
+        return value;
     }
 
     private class ParameterDefinition

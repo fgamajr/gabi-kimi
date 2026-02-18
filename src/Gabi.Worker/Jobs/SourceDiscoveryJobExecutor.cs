@@ -6,19 +6,19 @@ using Gabi.Postgres;
 using Gabi.Postgres.Entities;
 using Gabi.Postgres.Repositories;
 using Microsoft.EntityFrameworkCore;
-using Polly;
-using Polly.Retry;
 
 namespace Gabi.Worker.Jobs;
 
 /// <summary>
 /// Job executor for source_discovery jobs (enqueued by dashboard refresh).
-/// Uses Polly retry (exponential backoff) and failsafe: 0 links from engine is success (LinksTotal=0).
+/// Retry handled by Hangfire global policy (configured in Worker Hangfire:RetryPolicy).
+/// Failsafe: 0 links from engine is success (LinksTotal=0) but logs warning.
 /// Persists links with DiscoveryStatus=completed, FetchStatus=IngestStatus=pending; records run in discovery_runs.
 /// </summary>
 public class SourceDiscoveryJobExecutor : IJobExecutor
 {
     public string JobType => "source_discovery";
+    private const int DiscoveryBatchSize = 1000;
 
     private readonly IDiscoveredLinkRepository _linkRepository;
     private readonly IFetchItemRepository _fetchItemRepository;
@@ -26,35 +26,18 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
     private readonly ILogger<SourceDiscoveryJobExecutor> _logger;
     private readonly DiscoveryEngine _discoveryEngine;
 
-    private const int MaxRetryAttempts = 3;
-    private static readonly TimeSpan InitialRetryDelay = TimeSpan.FromSeconds(1);
-
-    private static readonly ResiliencePipeline _retryPipeline = new ResiliencePipelineBuilder()
-        .AddRetry(new RetryStrategyOptions
-        {
-            MaxRetryAttempts = MaxRetryAttempts,
-            Delay = TimeSpan.FromSeconds(1),
-            BackoffType = DelayBackoffType.Exponential,
-            UseJitter = true,
-            OnRetry = args =>
-            {
-                // Log from executor
-                return ValueTask.CompletedTask;
-            }
-        })
-        .Build();
-
     public SourceDiscoveryJobExecutor(
         IDiscoveredLinkRepository linkRepository,
         IFetchItemRepository fetchItemRepository,
         GabiDbContext context,
+        DiscoveryEngine discoveryEngine,
         ILogger<SourceDiscoveryJobExecutor> logger)
     {
         _linkRepository = linkRepository;
         _fetchItemRepository = fetchItemRepository;
         _context = context;
+        _discoveryEngine = discoveryEngine;
         _logger = logger;
-        _discoveryEngine = new DiscoveryEngine();
     }
 
     public async Task<JobResult> ExecuteAsync(
@@ -67,8 +50,11 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
         var startedAt = DateTime.UtcNow;
 
         _logger.LogInformation(
-            "Starting discovery (source_discovery) for source {SourceId} with strategy {Strategy}",
-            sourceId, discoveryConfig.Strategy ?? "unknown");
+            "Starting discovery (source_discovery) for source {SourceId} with strategy {Strategy}, driver={Driver}, extraKeys=[{ExtraKeys}]",
+            sourceId,
+            discoveryConfig.Strategy ?? "unknown",
+            discoveryConfig.Extra != null && discoveryConfig.Extra.TryGetValue("driver", out var d) ? d.GetString() : "(none)",
+            discoveryConfig.Extra == null ? string.Empty : string.Join(",", discoveryConfig.Extra.Keys));
 
         progress.Report(new JobProgress
         {
@@ -77,101 +63,88 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
             Metrics = new Dictionary<string, object>()
         });
 
-        List<DiscoveredSource> discoveredUrls;
-        try
-        {
-            discoveredUrls = await _retryPipeline.ExecuteAsync(async token =>
-            {
-                var list = new List<DiscoveredSource>();
-                await foreach (var discovered in _discoveryEngine.DiscoverAsync(sourceId, discoveryConfig, token))
-                {
-                    list.Add(discovered);
-                    if (list.Count % 10 == 0)
-                    {
-                        progress.Report(new JobProgress
-                        {
-                            PercentComplete = Math.Min(40, list.Count),
-                            Message = $"Descobrindo... ({list.Count} links)",
-                            Metrics = new Dictionary<string, object> { ["linksFound"] = list.Count }
-                        });
-                    }
-                }
-                return list;
-            }, ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Discovery job failed for source {SourceId} after retries", sourceId);
-            var discoveryRun = new DiscoveryRunEntity
-            {
-                Id = Guid.NewGuid(),
-                JobId = job.Id,
-                SourceId = sourceId,
-                StartedAt = startedAt,
-                CompletedAt = DateTime.UtcNow,
-                LinksTotal = 0,
-                Status = "failed",
-                ErrorSummary = ex.Message.Length > 2000 ? ex.Message[..2000] : ex.Message
-            };
-            _context.DiscoveryRuns.Add(discoveryRun);
-            await _context.SaveChangesAsync(ct);
-            return new JobResult
-            {
-                Success = false,
-                ErrorMessage = ex.Message,
-                ErrorType = ex.GetType().Name
-            };
-        }
-
-        // Failsafe: 0 links is success (e.g. web_crawl / api_pagination not implemented yet)
-        var linksTotal = discoveredUrls.Count;
-
-        progress.Report(new JobProgress
-        {
-            PercentComplete = 50,
-            Message = linksTotal > 0 ? $"Salvando {linksTotal} links..." : "Nenhum link descoberto (registrando run).",
-            Metrics = new Dictionary<string, object> { ["linksFound"] = linksTotal }
-        });
-
-        if (linksTotal > 0)
-        {
-            var linksToUpsert = discoveredUrls.Select(d => new DiscoveredLinkEntity
-            {
-                SourceId = sourceId,
-                Url = d.Url,
-                DiscoveredAt = d.DiscoveredAt,
-                FirstSeenAt = d.DiscoveredAt,
-                Etag = d.Etag,
-                Status = LinkStatus.Pending.ToString().ToLowerInvariant(),
-                DiscoveryStatus = "completed",
-                FetchStatus = "pending",
-                IngestStatus = "pending",
-                Metadata = "{}"
-            }).ToList();
-
-            await _linkRepository.BulkUpsertAsync(linksToUpsert, ct);
-
-            var urlHashes = linksToUpsert.Select(l => l.UrlHash).ToList();
-            var persistedLinks = await _context.DiscoveredLinks
-                .Where(l => l.SourceId == sourceId && urlHashes.Contains(l.UrlHash))
-                .ToListAsync(ct);
-            await _fetchItemRepository.EnsurePendingForLinksAsync(persistedLinks, ct);
-        }
-
-        var runStatus = "completed";
+        var linksTotal = 0;
+        var fetchItemsCreatedTotal = 0;
+        var batchesPersisted = 0;
+        var batch = new List<DiscoveredSource>(DiscoveryBatchSize);
         var discoveryRunEntity = new DiscoveryRunEntity
         {
             Id = Guid.NewGuid(),
             JobId = job.Id,
             SourceId = sourceId,
             StartedAt = startedAt,
-            CompletedAt = DateTime.UtcNow,
-            LinksTotal = linksTotal,
-            Status = runStatus,
-            ErrorSummary = null
+            LinksTotal = 0,
+            Status = "running"
         };
         _context.DiscoveryRuns.Add(discoveryRunEntity);
         await _context.SaveChangesAsync(ct);
+
+        try
+        {
+            await foreach (var discovered in _discoveryEngine.DiscoverAsync(sourceId, discoveryConfig, ct))
+            {
+                batch.Add(discovered);
+                linksTotal++;
+
+                if (batch.Count >= DiscoveryBatchSize)
+                {
+                    fetchItemsCreatedTotal += await PersistBatchAsync(sourceId, batch, ct);
+                    batchesPersisted++;
+                    discoveryRunEntity.LinksTotal = linksTotal;
+                    await _context.SaveChangesAsync(ct);
+                    batch.Clear();
+
+                    progress.Report(new JobProgress
+                    {
+                        PercentComplete = Math.Min(90, 30 + (batchesPersisted * 5)),
+                        Message = $"Descobrindo... ({linksTotal} links, {batchesPersisted} lotes salvos)",
+                        Metrics = new Dictionary<string, object> { ["linksFound"] = linksTotal, ["batchesPersisted"] = batchesPersisted }
+                    });
+                }
+            }
+
+            if (batch.Count > 0)
+            {
+                fetchItemsCreatedTotal += await PersistBatchAsync(sourceId, batch, ct);
+                batchesPersisted++;
+                discoveryRunEntity.LinksTotal = linksTotal;
+                await _context.SaveChangesAsync(ct);
+                batch.Clear();
+            }
+
+            if (linksTotal == 0)
+            {
+                _logger.LogWarning(
+                    "Discovery for source {SourceId} returned 0 links. Strategy={Strategy}. This may indicate an unimplemented strategy (web_crawl, api_pagination) or source configuration issue.",
+                    sourceId, discoveryConfig.Strategy ?? "unknown");
+            }
+
+            if (linksTotal > 0 && fetchItemsCreatedTotal == 0)
+            {
+                var existingFetchItems = await _context.FetchItems.CountAsync(f => f.SourceId == sourceId, ct);
+                if (existingFetchItems == 0)
+                {
+                    throw new InvalidOperationException(
+                        $"Discovery persisted {linksTotal} links for source {sourceId}, but no fetch_items were materialized.");
+                }
+            }
+
+            discoveryRunEntity.CompletedAt = DateTime.UtcNow;
+            discoveryRunEntity.LinksTotal = linksTotal;
+            discoveryRunEntity.Status = "completed";
+            discoveryRunEntity.ErrorSummary = linksTotal == 0 ? "0 links discovered (check strategy implementation)" : null;
+            await _context.SaveChangesAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Discovery job failed for source {SourceId} after {LinksTotal} links", sourceId, linksTotal);
+            discoveryRunEntity.CompletedAt = DateTime.UtcNow;
+            discoveryRunEntity.LinksTotal = linksTotal;
+            discoveryRunEntity.Status = "failed";
+            discoveryRunEntity.ErrorSummary = ex.Message.Length > 2000 ? ex.Message[..2000] : ex.Message;
+            await _context.SaveChangesAsync(ct);
+            throw;
+        }
 
         progress.Report(new JobProgress
         {
@@ -182,7 +155,7 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
 
         _logger.LogInformation(
             "Discovery completed for source {SourceId}: {LinksTotal} links, status={Status}",
-            sourceId, linksTotal, runStatus);
+            sourceId, linksTotal, "completed");
 
         return new JobResult
         {
@@ -194,5 +167,40 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
                 ["discovery_run_id"] = discoveryRunEntity.Id.ToString()
             }
         };
+    }
+
+    private async Task<int> PersistBatchAsync(string sourceId, List<DiscoveredSource> batch, CancellationToken ct)
+    {
+        if (batch.Count == 0)
+            return 0;
+
+        var linksToUpsert = batch.Select(d => new DiscoveredLinkEntity
+        {
+            SourceId = sourceId,
+            Url = d.Url,
+            DiscoveredAt = d.DiscoveredAt,
+            FirstSeenAt = d.DiscoveredAt,
+            Etag = d.Etag,
+            Status = LinkStatus.Pending.ToString().ToLowerInvariant(),
+            DiscoveryStatus = "completed",
+            FetchStatus = "pending",
+            IngestStatus = "pending",
+            Metadata = "{}"
+        }).ToList();
+
+        await _linkRepository.BulkUpsertAsync(linksToUpsert, ct);
+        await _context.SaveChangesAsync(ct);
+
+        var urlHashes = linksToUpsert.Select(l => l.UrlHash).ToList();
+        var persistedLinks = await _context.DiscoveredLinks
+            .Where(l => l.SourceId == sourceId && urlHashes.Contains(l.UrlHash))
+            .ToListAsync(ct);
+        var createdFetchItems = await _fetchItemRepository.EnsurePendingForLinksAsync(persistedLinks, ct);
+
+        _logger.LogInformation(
+            "Discovery batch materialization for {SourceId}: linksToUpsert={LinksToUpsert}, persistedLinks={PersistedLinks}, createdFetchItems={CreatedFetchItems}",
+            sourceId, linksToUpsert.Count, persistedLinks.Count, createdFetchItems);
+
+        return createdFetchItems;
     }
 }
