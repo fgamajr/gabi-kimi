@@ -36,31 +36,7 @@ else
     echo "  API: not running"
 fi
 
-# Stop Web — try PID file first, then pgrep
-WEB_PID=""
-if [ -f "$GABI_LOG_DIR/web.pid" ]; then
-    WEB_PID=$(cat "$GABI_LOG_DIR/web.pid" 2>/dev/null)
-    if [ -n "$WEB_PID" ] && ! kill -0 "$WEB_PID" 2>/dev/null; then
-        WEB_PID=""
-    fi
-fi
-[ -z "$WEB_PID" ] && WEB_PID=$(pgrep -f "vite" | head -1 || echo "")
-
-if [ -n "$WEB_PID" ]; then
-    log_warn "  Stopping Web (PID: $WEB_PID)..."
-    kill "$WEB_PID" 2>/dev/null || true
-    sleep 2
-    # Force kill if still running
-    if pgrep -f "vite" >/dev/null 2>&1; then
-        pkill -9 -f "vite" 2>/dev/null || true
-    fi
-    rm -f "$GABI_LOG_DIR/web.pid"
-    log_ok "  Web stopped"
-    STOPPED=$((STOPPED + 1))
-else
-    rm -f "$GABI_LOG_DIR/web.pid"
-    echo "  Web: not running"
-fi
+rm -f "$GABI_LOG_DIR/web.pid"
 
 if [ $STOPPED -eq 0 ]; then
     log_warn "No applications were running"
@@ -73,4 +49,3 @@ fi
 echo ""
 echo "Port status:"
 lsof -i :5100 2>/dev/null && echo "  5100: in use" || echo "  5100: free"
-lsof -i :3000 2>/dev/null && echo "  3000: in use" || echo "  3000: free"

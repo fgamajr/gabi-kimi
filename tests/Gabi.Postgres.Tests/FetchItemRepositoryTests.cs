@@ -77,6 +77,51 @@ public class FetchItemRepositoryTests : IDisposable
         (await _context.FetchItems.CountAsync(i => i.SourceId == source.Id)).Should().Be(2);
     }
 
+    [Fact]
+    public async Task GetCandidateIdsBySourceAndStatusesAsync_ShouldReturnOrderedAndLimitedIds()
+    {
+        var source = CreateTestSource();
+        _context.SourceRegistries.Add(source);
+        await _context.SaveChangesAsync();
+
+        var items = new[]
+        {
+            new FetchItemEntity { SourceId = source.Id, Url = "https://a", UrlHash = "h1", Status = "pending", CreatedAt = DateTime.UtcNow.AddMinutes(-3) },
+            new FetchItemEntity { SourceId = source.Id, Url = "https://b", UrlHash = "h2", Status = "failed", CreatedAt = DateTime.UtcNow.AddMinutes(-2) },
+            new FetchItemEntity { SourceId = source.Id, Url = "https://c", UrlHash = "h3", Status = "pending", CreatedAt = DateTime.UtcNow.AddMinutes(-1) },
+            new FetchItemEntity { SourceId = source.Id, Url = "https://d", UrlHash = "h4", Status = "completed", CreatedAt = DateTime.UtcNow }
+        };
+        _context.FetchItems.AddRange(items);
+        await _context.SaveChangesAsync();
+
+        var ids = await _repository.GetCandidateIdsBySourceAndStatusesAsync(
+            source.Id,
+            limit: 2,
+            statuses: ["pending", "failed"]);
+
+        ids.Should().HaveCount(2);
+        ids.Should().ContainInOrder(items[0].Id, items[1].Id);
+    }
+
+    [Fact]
+    public async Task GetByIdsAsync_ShouldReturnOnlyRequestedIdsInCreatedOrder()
+    {
+        var source = CreateTestSource();
+        _context.SourceRegistries.Add(source);
+        await _context.SaveChangesAsync();
+
+        var a = new FetchItemEntity { SourceId = source.Id, Url = "https://a", UrlHash = "h1", Status = "pending", CreatedAt = DateTime.UtcNow.AddMinutes(-3) };
+        var b = new FetchItemEntity { SourceId = source.Id, Url = "https://b", UrlHash = "h2", Status = "pending", CreatedAt = DateTime.UtcNow.AddMinutes(-2) };
+        var c = new FetchItemEntity { SourceId = source.Id, Url = "https://c", UrlHash = "h3", Status = "pending", CreatedAt = DateTime.UtcNow.AddMinutes(-1) };
+        _context.FetchItems.AddRange(a, b, c);
+        await _context.SaveChangesAsync();
+
+        var batch = await _repository.GetByIdsAsync(source.Id, [c.Id, a.Id]);
+
+        batch.Select(x => x.Id).Should().ContainInOrder(a.Id, c.Id);
+        batch.Should().NotContain(x => x.Id == b.Id);
+    }
+
     private static SourceRegistryEntity CreateTestSource()
     {
         var sourceId = $"test_source_{Guid.NewGuid():N}";

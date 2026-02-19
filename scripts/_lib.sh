@@ -5,17 +5,6 @@
 # ─── Ensure dotnet tools are in PATH
 export PATH="$PATH:$HOME/.dotnet/tools"
 
-# ─── Load nvm if available (needed for non-interactive shells / CI)
-if [ -z "$(command -v nvm 2>/dev/null)" ]; then
-    export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
-    [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" --no-use
-    # Use latest installed node
-    if [ -d "$NVM_DIR/versions/node" ]; then
-        local_node=$(ls -1 "$NVM_DIR/versions/node" | sort -V | tail -1)
-        [ -n "$local_node" ] && export PATH="$NVM_DIR/versions/node/$local_node/bin:$PATH"
-    fi
-fi
-
 # ─── Repo root (must be set by caller or here)
 if [ -z "${GABI_ROOT}" ]; then
     GABI_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -25,7 +14,6 @@ cd "$GABI_ROOT" || exit 1
 
 # ─── Paths (single source of truth)
 export GABI_SCRIPTS="$GABI_ROOT/scripts"
-export GABI_WEB_DIR="$GABI_ROOT/src/Gabi.Web"
 export GABI_API_PROJECT="$GABI_ROOT/src/Gabi.Api"
 export GABI_POSTGRES_PROJECT="$GABI_ROOT/src/Gabi.Postgres"
 export GABI_LOG_DIR="${GABI_LOG_DIR:-/tmp/gabi-logs}"
@@ -97,24 +85,21 @@ infra_is_running() {
     docker compose ps 2>/dev/null | grep -qi "postgres.*\(running\|healthy\|up\)"
 }
 
-# ─── Ensure dependencies for app (dotnet, node). Exit 1 if missing.
+# ─── Ensure dependencies for app (dotnet). Exit 1 if missing.
 require_app_deps() {
     local err=0
     check_cmd "dotnet" "https://dotnet.microsoft.com/download" || err=$((err + 1))
-    check_cmd "node"   "https://nodejs.org/ (v18+)" "18"     || err=$((err + 1))
     if [ "$err" -gt 0 ]; then
         log_error "Install missing dependencies and try again."
         exit 1
     fi
 }
 
-# ─── Ensure dependencies for setup (dotnet, docker, node 18+, npm). Exit 1 if missing.
+# ─── Ensure dependencies for setup (dotnet, docker). Exit 1 if missing.
 require_setup_deps() {
     local err=0
     check_cmd "dotnet" "https://dotnet.microsoft.com/download" || err=$((err + 1))
     check_cmd "docker" "https://docs.docker.com/get-docker/"    || err=$((err + 1))
-    check_cmd "node"   "https://nodejs.org/ (v18+)" "18"       || err=$((err + 1))
-    check_cmd "npm"    "https://nodejs.org/"                    || err=$((err + 1))
     if [ "$err" -gt 0 ]; then
         echo ""
         log_error "Please install missing dependencies and run setup again."

@@ -801,6 +801,7 @@ sources:
     fetch:
       protocol: https
       method: GET
+      content_strategy: link_only
       format:
         type: pdf
 
@@ -860,6 +861,7 @@ sources:
     fetch:
       protocol: https
       method: GET
+      content_strategy: link_only
       format:
         type: pdf
 
@@ -889,12 +891,205 @@ sources:
           enabled: true
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # 11. Câmara dos Deputados - Leis Ordinárias (API Query)
+  # 11. TCU - BTCU (Boletim do TCU) - Discovery via API paginada
+  # ─────────────────────────────────────────────────────────────────────────────
+  tcu_btcu_administrativo:
+    identity:
+      name: "TCU - BTCU Administrativo"
+      description: "Boletim do TCU - Caderno Administrativo"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: publication
+      canonical_type: publication
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: btcu_api_v1
+        endpoint_template: "https://btcu.apps.tcu.gov.br/api/filtrarBtcuPublicados/page/{page}"
+        pdf_endpoint_template: "https://btcu.apps.tcu.gov.br/api/obterDocumentoPdf/{id}"
+        request_body:
+          tipo: "1"
+        page_start: 0
+        max_pages: 500
+        http:
+          user_agent_mode: fixed
+          user_agent: "curl/8.5.0"
+          timeout: "180s"
+          request_delay_ms: 600
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      format:
+        type: pdf
+
+    pipeline:
+      enabled: true
+      schedule: "0 6 * * 1"
+      mode: incremental
+
+  tcu_btcu_especial:
+    identity:
+      name: "TCU - BTCU Especial"
+      description: "Boletim do TCU - Caderno Especial"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: publication
+      canonical_type: publication
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: btcu_api_v1
+        endpoint_template: "https://btcu.apps.tcu.gov.br/api/filtrarBtcuPublicados/page/{page}"
+        pdf_endpoint_template: "https://btcu.apps.tcu.gov.br/api/obterDocumentoPdf/{id}"
+        request_body:
+          tipo: "2"
+        page_start: 0
+        max_pages: 500
+        http:
+          user_agent_mode: fixed
+          user_agent: "curl/8.5.0"
+          timeout: "180s"
+          request_delay_ms: 600
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      format:
+        type: pdf
+
+    pipeline:
+      enabled: true
+      schedule: "0 6 * * 1"
+      mode: incremental
+
+  tcu_btcu_controle_externo:
+    identity:
+      name: "TCU - BTCU Controle Externo"
+      description: "Boletim do TCU - Caderno Controle Externo"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: publication
+      canonical_type: publication
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: btcu_api_v1
+        endpoint_template: "https://btcu.apps.tcu.gov.br/api/filtrarBtcuPublicados/page/{page}"
+        pdf_endpoint_template: "https://btcu.apps.tcu.gov.br/api/obterDocumentoPdf/{id}"
+        request_body:
+          tipo: "3"
+        page_start: 0
+        max_pages: 500
+        http:
+          user_agent_mode: fixed
+          user_agent: "curl/8.5.0"
+          timeout: "180s"
+          request_delay_ms: 600
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      format:
+        type: pdf
+
+    pipeline:
+      enabled: true
+      schedule: "0 6 * * 1"
+      mode: incremental
+
+  tcu_btcu_deliberacoes:
+    identity:
+      name: "TCU - BTCU Deliberações"
+      description: "Boletim do TCU - Caderno Deliberações"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: publication
+      canonical_type: publication
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: btcu_api_v1
+        endpoint_template: "https://btcu.apps.tcu.gov.br/api/filtrarBtcuPublicados/page/{page}"
+        pdf_endpoint_template: "https://btcu.apps.tcu.gov.br/api/obterDocumentoPdf/{id}"
+        request_body:
+          tipo: "4"
+        page_start: 0
+        max_pages: 500
+        http:
+          user_agent_mode: fixed
+          user_agent: "curl/8.5.0"
+          timeout: "180s"
+          request_delay_ms: 600
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      format:
+        type: pdf
+
+    pipeline:
+      enabled: true
+      schedule: "0 6 * * 1"
+      mode: incremental
+
+  tcu_btcu_deliberacoes_extra:
+    identity:
+      name: "TCU - BTCU Deliberações Extra"
+      description: "Boletim do TCU - Caderno Deliberações (tipo 5)"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: publication
+      canonical_type: publication
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: btcu_api_v1
+        endpoint_template: "https://btcu.apps.tcu.gov.br/api/filtrarBtcuPublicados/page/{page}"
+        pdf_endpoint_template: "https://btcu.apps.tcu.gov.br/api/obterDocumentoPdf/{id}"
+        request_body:
+          tipo: "5"
+        page_start: 0
+        max_pages: 500
+        http:
+          user_agent_mode: fixed
+          user_agent: "curl/8.5.0"
+          timeout: "180s"
+          request_delay_ms: 600
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      format:
+        type: pdf
+
+    pipeline:
+      enabled: true
+      schedule: "0 6 * * 1"
+      mode: incremental
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 12. Câmara dos Deputados - Leis Ordinárias (API Query)
   # ─────────────────────────────────────────────────────────────────────────────
   camara_leis_ordinarias:
     identity:
-      name: "Câmara dos Deputados - Leis Ordinárias"
-      description: "Leis ordinárias da Câmara dos Deputados (1980-current)"
+      name: "Câmara dos Deputados - Proposições PL (não normas vigentes)"
+      description: "Proposições do tipo PL na API da Câmara (tramitação legislativa, não legislação consolidada)"
       provider: CAMARA
       domain: legal
       jurisdiction: BR
@@ -922,6 +1117,7 @@ sources:
     fetch:
       protocol: https
       method: GET
+      content_strategy: link_only
       format:
         type: html
 
@@ -960,6 +1156,398 @@ sources:
           enabled: true
         index:
           enabled: true
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 12b. Câmara dos Deputados - Projetos por tipo (API de Proposições)
+  # Fonte oficial de tipos: /api/v2/referencias/proposicoes/siglaTipo
+  # ─────────────────────────────────────────────────────────────────────────────
+  camara_projetos_lei_complementar:
+    identity:
+      name: "Câmara dos Deputados - Projetos de Lei Complementar (PLP)"
+      description: "Proposições do tipo PLP na API de Dados Abertos da Câmara"
+      provider: CAMARA
+      domain: legal
+      jurisdiction: BR
+      category: legislation
+      canonical_type: legislation
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: camara_api_v1
+        endpoint_template: "https://dadosabertos.camara.leg.br/api/v2/proposicoes?siglaTipo=PLP&ano={year}&itens=100&ordem=ASC&ordenarPor=id"
+        parameters:
+          start_year:
+            type: range
+            start: 1988
+            end: current
+        http:
+          user_agent_mode: rotate
+          timeout: "180s"
+          request_delay_ms: 1000
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      format:
+        type: json
+
+    pipeline:
+      enabled: true
+      schedule: "0 7 * * 0"
+      mode: incremental
+
+  camara_propostas_emenda_constitucional:
+    identity:
+      name: "Câmara dos Deputados - PEC"
+      description: "Propostas de Emenda à Constituição (PEC)"
+      provider: CAMARA
+      domain: legal
+      jurisdiction: BR
+      category: constitutional
+      canonical_type: constitutional_amendment
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: camara_api_v1
+        endpoint_template: "https://dadosabertos.camara.leg.br/api/v2/proposicoes?siglaTipo=PEC&ano={year}&itens=100&ordem=ASC&ordenarPor=id"
+        parameters:
+          start_year:
+            type: range
+            start: 1988
+            end: current
+        http:
+          user_agent_mode: rotate
+          timeout: "180s"
+          request_delay_ms: 1000
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: json_api
+      extract:
+        title_path: "DetalheDocumento.documentos.documento[0].normaNome"
+        content_path: "DetalheDocumento.documentos.documento[0].ementa"
+        id_path: "DetalheDocumento.documentos.documento[0].norma"
+        vides_path: "DetalheDocumento.documentos.documento[0].vides"
+      format:
+        type: json
+
+    pipeline:
+      enabled: true
+      schedule: "0 7 * * 0"
+      mode: incremental
+
+  camara_medidas_provisorias:
+    identity:
+      name: "Câmara dos Deputados - Medidas Provisórias (MPV)"
+      description: "Proposições do tipo Medida Provisória (MPV)"
+      provider: CAMARA
+      domain: legal
+      jurisdiction: BR
+      category: executive
+      canonical_type: provisional_measure
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: camara_api_v1
+        endpoint_template: "https://dadosabertos.camara.leg.br/api/v2/proposicoes?siglaTipo=MPV&ano={year}&itens=100&ordem=ASC&ordenarPor=id"
+        parameters:
+          start_year:
+            type: range
+            start: 1988
+            end: current
+        http:
+          user_agent_mode: rotate
+          timeout: "180s"
+          request_delay_ms: 1000
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      format:
+        type: json
+
+    pipeline:
+      enabled: true
+      schedule: "0 7 * * 0"
+      mode: incremental
+
+  camara_projetos_decreto_legislativo:
+    identity:
+      name: "Câmara dos Deputados - Projetos de Decreto Legislativo (PDC)"
+      description: "Proposições do tipo PDC"
+      provider: CAMARA
+      domain: legal
+      jurisdiction: BR
+      category: legislation
+      canonical_type: decree
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: camara_api_v1
+        endpoint_template: "https://dadosabertos.camara.leg.br/api/v2/proposicoes?siglaTipo=PDC&ano={year}&itens=100&ordem=ASC&ordenarPor=id"
+        parameters:
+          start_year:
+            type: range
+            start: 1988
+            end: current
+        http:
+          user_agent_mode: rotate
+          timeout: "180s"
+          request_delay_ms: 1000
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      format:
+        type: json
+
+    pipeline:
+      enabled: true
+      schedule: "0 7 * * 0"
+      mode: incremental
+
+  camara_projetos_resolucao:
+    identity:
+      name: "Câmara dos Deputados - Projetos de Resolução (PRC)"
+      description: "Proposições do tipo PRC"
+      provider: CAMARA
+      domain: legal
+      jurisdiction: BR
+      category: legislation
+      canonical_type: resolution
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: camara_api_v1
+        endpoint_template: "https://dadosabertos.camara.leg.br/api/v2/proposicoes?siglaTipo=PRC&ano={year}&itens=100&ordem=ASC&ordenarPor=id"
+        parameters:
+          start_year:
+            type: range
+            start: 1988
+            end: current
+        http:
+          user_agent_mode: rotate
+          timeout: "180s"
+          request_delay_ms: 1000
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      format:
+        type: json
+
+    pipeline:
+      enabled: true
+      schedule: "0 7 * * 0"
+      mode: incremental
+
+  camara_projetos_lei_conversao:
+    identity:
+      name: "Câmara dos Deputados - Projetos de Lei de Conversão (PLV)"
+      description: "Proposições do tipo PLV"
+      provider: CAMARA
+      domain: legal
+      jurisdiction: BR
+      category: legislation
+      canonical_type: legislation
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: camara_api_v1
+        endpoint_template: "https://dadosabertos.camara.leg.br/api/v2/proposicoes?siglaTipo=PLV&ano={year}&itens=100&ordem=ASC&ordenarPor=id"
+        parameters:
+          start_year:
+            type: range
+            start: 1988
+            end: current
+        http:
+          user_agent_mode: rotate
+          timeout: "180s"
+          request_delay_ms: 1000
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      format:
+        type: json
+
+    pipeline:
+      enabled: true
+      schedule: "0 7 * * 0"
+      mode: incremental
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 12c. Senado Federal - Legislação (Normas aprovadas)
+  # Fonte: https://legis.senado.leg.br/dadosabertos/legislacao/lista
+  # ─────────────────────────────────────────────────────────────────────────────
+  senado_legislacao_leis_ordinarias:
+    identity:
+      name: "Senado Federal - Leis Ordinárias"
+      description: "Normas do tipo LEI na API de Legislação do Senado"
+      provider: SENADO
+      domain: legal
+      jurisdiction: BR
+      category: legislation
+      canonical_type: legislation
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: senado_legislacao_api_v1
+        endpoint_template: "https://legis.senado.leg.br/dadosabertos/legislacao/lista?tipo={tipo}&ano={year}"
+        tipo: "LEI"
+        parameters:
+          start_year:
+            type: range
+            start: 1988
+            end: current
+        http:
+          user_agent_mode: rotate
+          timeout: "180s"
+          request_delay_ms: 800
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: json_api
+      extract:
+        title_path: "DetalheDocumento.documentos.documento[0].normaNome"
+        content_path: "DetalheDocumento.documentos.documento[0].ementa"
+        id_path: "DetalheDocumento.documentos.documento[0].norma"
+        vides_path: "DetalheDocumento.documentos.documento[0].vides"
+      format:
+        type: json
+
+    pipeline:
+      enabled: true
+      schedule: "0 6 * * 1"
+      mode: incremental
+
+  senado_legislacao_leis_complementares:
+    identity:
+      name: "Senado Federal - Leis Complementares"
+      description: "Normas do tipo LCP na API de Legislação do Senado"
+      provider: SENADO
+      domain: legal
+      jurisdiction: BR
+      category: legislation
+      canonical_type: legislation
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: senado_legislacao_api_v1
+        endpoint_template: "https://legis.senado.leg.br/dadosabertos/legislacao/lista?tipo={tipo}&ano={year}"
+        tipo: "LCP"
+        parameters:
+          start_year:
+            type: range
+            start: 1988
+            end: current
+        http:
+          user_agent_mode: rotate
+          timeout: "180s"
+          request_delay_ms: 800
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      format:
+        type: json
+
+    pipeline:
+      enabled: true
+      schedule: "15 6 * * 1"
+      mode: incremental
+
+  senado_legislacao_decretos_lei:
+    identity:
+      name: "Senado Federal - Decretos-Lei"
+      description: "Normas do tipo DEL na API de Legislação do Senado"
+      provider: SENADO
+      domain: legal
+      jurisdiction: BR
+      category: legislation
+      canonical_type: decree
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: senado_legislacao_api_v1
+        endpoint_template: "https://legis.senado.leg.br/dadosabertos/legislacao/lista?tipo={tipo}&ano={year}"
+        tipo: "DEL"
+        parameters:
+          start_year:
+            type: range
+            start: 1940
+            end: current
+        http:
+          user_agent_mode: rotate
+          timeout: "180s"
+          request_delay_ms: 800
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      format:
+        type: json
+
+    pipeline:
+      enabled: true
+      schedule: "30 6 * * 1"
+      mode: incremental
+
+  senado_legislacao_leis_delegadas:
+    identity:
+      name: "Senado Federal - Leis Delegadas"
+      description: "Normas do tipo LDL na API de Legislação do Senado"
+      provider: SENADO
+      domain: legal
+      jurisdiction: BR
+      category: legislation
+      canonical_type: legislation
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: senado_legislacao_api_v1
+        endpoint_template: "https://legis.senado.leg.br/dadosabertos/legislacao/lista?tipo={tipo}&ano={year}"
+        tipo: "LDL"
+        parameters:
+          start_year:
+            type: range
+            start: 1940
+            end: current
+        http:
+          user_agent_mode: rotate
+          timeout: "180s"
+          request_delay_ms: 800
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      format:
+        type: json
+
+    pipeline:
+      enabled: true
+      schedule: "45 6 * * 1"
+      mode: incremental
 
   # ─────────────────────────────────────────────────────────────────────────────
   # 12. STF - Decisões (INACTIVE)

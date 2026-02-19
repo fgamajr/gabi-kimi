@@ -29,7 +29,6 @@ echo ""
 
 log_warn "Stopping applications (if running)..."
 pkill -f "Gabi.Api" 2>/dev/null || true
-pkill -f "vite" 2>/dev/null || true
 sleep 1
 
 log_warn "Removing containers and volumes..."

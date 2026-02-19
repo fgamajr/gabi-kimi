@@ -8,6 +8,9 @@ public interface IFetchItemRepository
 {
     Task<int> EnsurePendingForLinksAsync(IReadOnlyList<DiscoveredLinkEntity> links, CancellationToken ct = default);
     Task<IReadOnlyList<FetchItemEntity>> GetBySourceAndStatusesAsync(string sourceId, int limit, string[] statuses, CancellationToken ct = default);
+    Task<IReadOnlyList<long>> GetCandidateIdsBySourceAndStatusesAsync(string sourceId, int limit, string[] statuses, CancellationToken ct = default);
+    Task<IReadOnlyList<FetchItemEntity>> GetByIdsAsync(string sourceId, IReadOnlyCollection<long> ids, CancellationToken ct = default);
+    Task<int> CountBySourceAndStatusesAsync(string sourceId, string[] statuses, CancellationToken ct = default);
     Task<int> CountBySourceAndStatusAsync(string sourceId, string status, CancellationToken ct = default);
 }
 
@@ -63,9 +66,35 @@ public class FetchItemRepository : IFetchItemRepository
             .ToListAsync(ct);
     }
 
+    public async Task<IReadOnlyList<long>> GetCandidateIdsBySourceAndStatusesAsync(string sourceId, int limit, string[] statuses, CancellationToken ct = default)
+    {
+        return await _context.FetchItems
+            .AsNoTracking()
+            .Where(i => i.SourceId == sourceId && statuses.Contains(i.Status))
+            .OrderBy(i => i.CreatedAt)
+            .Select(i => i.Id)
+            .Take(limit)
+            .ToListAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<FetchItemEntity>> GetByIdsAsync(string sourceId, IReadOnlyCollection<long> ids, CancellationToken ct = default)
+    {
+        if (ids.Count == 0)
+            return Array.Empty<FetchItemEntity>();
+
+        return await _context.FetchItems
+            .Where(i => i.SourceId == sourceId && ids.Contains(i.Id))
+            .OrderBy(i => i.CreatedAt)
+            .ToListAsync(ct);
+    }
+
+    public Task<int> CountBySourceAndStatusesAsync(string sourceId, string[] statuses, CancellationToken ct = default)
+    {
+        return _context.FetchItems.CountAsync(i => i.SourceId == sourceId && statuses.Contains(i.Status), ct);
+    }
+
     public Task<int> CountBySourceAndStatusAsync(string sourceId, string status, CancellationToken ct = default)
     {
         return _context.FetchItems.CountAsync(i => i.SourceId == sourceId && i.Status == status, ct);
     }
 }
-

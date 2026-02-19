@@ -13,17 +13,17 @@ show_help() {
     echo "Usage: ./scripts/dev <command> [options]"
     echo ""
     echo "Commands:"
-    echo "  setup              One-time setup (deps, infra, db, web install)"
+    echo "  setup              One-time setup (deps, infra, db)"
     echo "  destroy            Destroy everything (alias for infra destroy)"
     echo "  infra up           Start Docker (Postgres, Elastic, Redis)"
     echo "  infra down         Stop Docker (keep volumes)"
     echo "  infra destroy      Stop Docker and delete all data"
-    echo "  app up             Start API + Web (foreground until Ctrl+C)"
-    echo "  app down           Stop API + Web (foreground mode)"
-    echo "  app start          Start API + Web (background / detached)"
-    echo "  app stop           Stop API + Web (background mode)"
-    echo "  app status         Show running status of API + Web + Infra"
-    echo "  app logs [api|web] Tail application logs"
+    echo "  app up             Start API (foreground until Ctrl+C)"
+    echo "  app down           Stop API (foreground mode)"
+    echo "  app start          Start API (background / detached)"
+    echo "  app stop           Stop API (background mode)"
+    echo "  app status         Show running status of API + Infra"
+    echo "  app logs [api]     Tail application logs"
     echo "  db apply           Apply pending migrations"
     echo "  db create <Name>   Create new migration"
     echo "  db status          List migrations"
@@ -65,7 +65,7 @@ case "$cmd" in
             stop)       "$GABI_SCRIPTS/app-stop.sh" ;;
             status)     "$GABI_SCRIPTS/app-status.sh" ;;
             logs)       "$GABI_SCRIPTS/app-logs.sh" "${1:-all}" ;;
-            *)          echo "Usage: dev app up|down|start|stop|status|logs [api|web]"; exit 1 ;;
+            *)          echo "Usage: dev app up|down|start|stop|status|logs [api]"; exit 1 ;;
         esac
         ;;
     db)

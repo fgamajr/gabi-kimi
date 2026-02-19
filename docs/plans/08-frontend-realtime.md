@@ -1,3 +1,6 @@
+> Status: **histórico / deprecated (backend-only desde 2026-02-19)**  
+> Este plano referencia frontend legado e não representa o runtime atual.
+
 # GABI Frontend Real-Time Updates Design
 
 **Date:** 2026-02-12  

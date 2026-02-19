@@ -1,3 +1,6 @@
+> Status: **histórico / deprecated (backend-only desde 2026-02-19)**  
+> Este plano referencia `Gabi.Web` e não representa o runtime atual.
+
 # Dashboard Fix Plan (all-in-one)
 
 Plano concreto para alinhar o dashboard atual ao projeto visual: navegação, cards, pipeline e dados.

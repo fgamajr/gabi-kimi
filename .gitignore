@@ -163,6 +163,14 @@ Desktop.ini
 *~
 *.orig
 
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.DotSettings.user
+
 # Node (in case of mixed projects)
 node_modules/
 npm-debug.log*

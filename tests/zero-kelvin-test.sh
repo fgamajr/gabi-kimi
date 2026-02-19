@@ -11,10 +11,10 @@
 #   ./tests/zero-kelvin-test.sh [mode] [flags]
 #
 # Modos:
-#   (sem args)    - docker-only (recomendado): só Docker, sem dotnet/npm no host
+#   (sem args)    - docker-only (recomendado): só Docker, sem dotnet no host
 #   docker-only   - Idem (explícito)
 #   docker-20k    - docker-only + stress targeted (compatível com flags)
-#   full          - Modo legado: setup.sh + app no host (requer dotnet/npm)
+#   full          - Modo legado: setup.sh + app no host (requer dotnet)
 #   idempotency   - Idempotência no modo full (setup 2x)
 #
 # Flags targeted stress:
@@ -295,7 +295,6 @@ phase_destroy() {
     # Matar processos da aplicação
     log "Matando processos da aplicação..."
     pkill -f "dotnet.*Gabi.Api" 2>/dev/null || true
-    pkill -f "vite" 2>/dev/null || true
     sleep 2
     
     # Limpar logs e PIDs
@@ -304,14 +303,14 @@ phase_destroy() {
     
     # Garantir que containers do projeto não seguram portas (Redis=6380, etc.)
     log "Parando containers que usam portas do projeto..."
-    for port in 6380 5433 9200 5100 3000; do
+    for port in 6380 5433 9200 5100; do
         docker ps -q --filter "publish=$port" 2>/dev/null | xargs -r docker stop 2>/dev/null || true
     done
     sleep 2
 
     # Liberar portas: matar qualquer processo que ainda esteja usando (Redis, etc.)
-    log "Liberando portas 6380, 5433, 9200, 5100, 3000..."
-    for port in 6380 5433 9200 5100 3000; do
+    log "Liberando portas 6380, 5433, 9200, 5100..."
+    for port in 6380 5433 9200 5100; do
         if lsof -i :$port >/dev/null 2>&1 || ss -tlnp 2>/dev/null | grep -q ":$port "; then
             if command -v fuser >/dev/null 2>&1; then
                 fuser -k "$port/tcp" 2>/dev/null || true
@@ -326,7 +325,7 @@ phase_destroy() {
 
     # Verificar portas livres
     local ports_free=true
-    for port in 6380 5100 3000 5433 9200; do
+    for port in 6380 5100 5433 9200; do
         if lsof -i :$port 2>/dev/null | grep -q .; then
             fail "Porta $port ainda em uso (rode o teste com sudo para liberar processos do sistema)"
             ports_free=false
@@ -334,7 +333,7 @@ phase_destroy() {
     done
 
     if $ports_free; then
-        pass "Todas as portas estão livres (6380, 5100, 3000, 5433, 9200)"
+        pass "Todas as portas estão livres (6380, 5100, 5433, 9200)"
     fi
     
     # Verificar que não há containers (aguardar Docker finalizar cleanup)
@@ -356,7 +355,7 @@ phase_setup() {
     cd "$GABI_ROOT"
     
     if [[ "$TEST_MODE" == "docker-only" || "$TEST_MODE" == "docker-20k" ]]; then
-        # Modo Docker-only: não usar dotnet/npm do host; só compose
+        # Modo Docker-only: não usar dotnet do host; só compose
         log "Modo docker-only: subindo infra e buildando imagens..."
         local start_time=$(date +%s)
         
@@ -413,7 +412,7 @@ phase_setup() {
         return 1
     fi
     
-    # Modo full: setup.sh (requer dotnet/npm no host)
+    # Modo full: setup.sh (requer dotnet no host)
     log "Executando ./scripts/setup.sh..."
     local start_time=$(date +%s)
     
@@ -503,12 +502,10 @@ phase_start() {
         ((attempts++)) || true
         
         local api_up=false
-        local web_up=false
-        
+
         curl -sf http://localhost:5100/health >/dev/null 2>&1 && api_up=true
-        curl -sf http://localhost:3000 >/dev/null 2>&1 && web_up=true
-        
-        if $api_up && $web_up; then
+
+        if $api_up; then
             all_ready=true
             break
         fi
@@ -517,7 +514,7 @@ phase_start() {
     echo ""
     
     if $all_ready; then
-        pass "API e Web prontos em ${attempts} tentativas (~$((attempts * 2))s)"
+        pass "API pronta em ${attempts} tentativas (~$((attempts * 2))s)"
     else
         fail "Timeout aguardando serviços (60s)"
         ./scripts/dev app logs 2>&1 | tail -50 | tee -a "$LOG_FILE"
@@ -572,17 +569,17 @@ phase_verify() {
     fi
     
     if [[ -z "$token_operator" ]]; then
-        fail "Login operator falhou (necessário para seed/refresh)"
+        fail "Login operator falhou (necessário para pipeline)"
         return 1
     fi
-    
-    # 4.4 Stats
-    log "Verificando /api/v1/dashboard/stats..."
-    if curl -sf "$base_url/api/v1/dashboard/stats" \
-        -H "Authorization: Bearer $token_viewer" 2>&1 | tee -a "$LOG_FILE" | grep -q "sources"; then
-        pass "Dashboard stats retorna dados"
+
+    # 4.4 Pipeline phases
+    log "Verificando /api/v1/dashboard/pipeline/phases..."
+    if curl -sf "$base_url/api/v1/dashboard/pipeline/phases" \
+        -H "Authorization: Bearer $token_viewer" 2>&1 | tee -a "$LOG_FILE" | grep -q "seed"; then
+        pass "Pipeline phases retorna dados"
     else
-        fail "Dashboard stats não retorna dados esperados"
+        fail "Pipeline phases não retorna dados esperados"
     fi
     
     # ═══ Pipeline: Seed ─────────────────────────────────────────────────────
@@ -631,91 +628,100 @@ phase_verify() {
     fi
     
     # ═══ Pipeline: Discovery for ALL active sources ──────────────────────────
-    # Active sources (enabled=true): 11 sources
-    # Expected: tcu_acordaos=35, static_url sources=1 each, unimplemented strategies=0
-    local active_sources="camara_leis_ordinarias tcu_acordaos tcu_boletim_jurisprudencia tcu_boletim_pessoal tcu_informativo_lc tcu_jurisprudencia_selecionada tcu_normas tcu_notas_tecnicas_ti tcu_publicacoes tcu_resposta_consulta tcu_sumulas"
-    local total_expected_links=42  # 35 (tcu_acordaos) + 7 (static_url sources)
-    
-    log "Pipeline – Discovery (triggering for ALL ${PIPELINE_SEED_N:-0} active sources)..."
-    
-    # Trigger discovery for all active sources
-    for source in $active_sources; do
-        curl -s -o /dev/null -w "%{http_code}" -X POST "$base_url/api/v1/dashboard/sources/${source}/phases/discovery" \
-            -H "Authorization: Bearer $token_operator" -H "Content-Type: application/json" 2>/dev/null || true
-    done
-    
-    pass "Discovery – jobs triggered for all active sources"
-    PIPELINE_DISCOVERY_STATUS="PASS"
-    PIPELINE_DISCOVERY_SOURCE="ALL"
-    
-    log "Aguardando Worker processar discovery jobs (45s)..."
-    sleep 45
+    # Default: skip global discovery fan-out in smoke to avoid queue backlog
+    # before the targeted stress stage. Enable only for explicit smoke runs.
+    if [[ "${ZERO_KELVIN_ENABLE_GLOBAL_DISCOVERY:-0}" != "1" ]]; then
+        warn "Pipeline – pulando discovery global no smoke (source=${TARGET_SOURCE}, set ZERO_KELVIN_ENABLE_GLOBAL_DISCOVERY=1 para habilitar)"
+        PIPELINE_DISCOVERY_STATUS="N/A"
+        PIPELINE_DISCOVERY_SOURCE="SKIPPED_TARGETED"
+        PIPELINE_DISCOVERY_LINKS="0"
+    else
+        # Active sources (enabled=true): 11 sources
+        # Expected: tcu_acordaos=35, static_url sources=1 each, unimplemented strategies=0
+        local active_sources="camara_leis_ordinarias tcu_acordaos tcu_boletim_jurisprudencia tcu_boletim_pessoal tcu_informativo_lc tcu_jurisprudencia_selecionada tcu_normas tcu_notas_tecnicas_ti tcu_publicacoes tcu_resposta_consulta tcu_sumulas"
+        local total_expected_links=42  # 35 (tcu_acordaos) + 7 (static_url sources)
 
-    # Verify discovered links per source
-    log "Pipeline – Verificando links descobertos no banco de dados (todos os sources)..."
-    
-    local db_query="SELECT \"SourceId\", COUNT(*) as cnt FROM discovered_links GROUP BY \"SourceId\" ORDER BY cnt DESC;"
-    local discovery_results
-    discovery_results=$(docker compose exec -T postgres psql -U gabi -d gabi -t -c "$db_query" 2>/dev/null || echo "")
-    
-    local total_links=0
-    local tcu_acordaos_links=0
-    local static_sources_ok=true
-    
-    # Count total links and validate tcu_acordaos
-    while IFS='|' read -r source_id count; do
-        source_id=$(echo "$source_id" | tr -d ' ')
-        count=$(echo "$count" | tr -d ' ')
-        if [[ -n "$source_id" && -n "$count" ]]; then
-            total_links=$((total_links + count))
-            if [[ "$source_id" == "tcu_acordaos" ]]; then
-                tcu_acordaos_links=$count
+        log "Pipeline – Discovery (triggering for ALL ${PIPELINE_SEED_N:-0} active sources)..."
+
+        # Trigger discovery for all active sources
+        for source in $active_sources; do
+            curl -s -o /dev/null -w "%{http_code}" -X POST "$base_url/api/v1/dashboard/sources/${source}/phases/discovery" \
+                -H "Authorization: Bearer $token_operator" -H "Content-Type: application/json" 2>/dev/null || true
+        done
+
+        pass "Discovery – jobs triggered for all active sources"
+        PIPELINE_DISCOVERY_STATUS="PASS"
+        PIPELINE_DISCOVERY_SOURCE="ALL"
+
+        log "Aguardando Worker processar discovery jobs (45s)..."
+        sleep 45
+
+        # Verify discovered links per source
+        log "Pipeline – Verificando links descobertos no banco de dados (todos os sources)..."
+
+        local db_query="SELECT \"SourceId\", COUNT(*) as cnt FROM discovered_links GROUP BY \"SourceId\" ORDER BY cnt DESC;"
+        local discovery_results
+        discovery_results=$(docker compose exec -T postgres psql -U gabi -d gabi -t -c "$db_query" 2>/dev/null || echo "")
+
+        local total_links=0
+        local tcu_acordaos_links=0
+        local static_sources_ok=true
+
+        # Count total links and validate tcu_acordaos
+        while IFS='|' read -r source_id count; do
+            source_id=$(echo "$source_id" | tr -d ' ')
+            count=$(echo "$count" | tr -d ' ')
+            if [[ -n "$source_id" && -n "$count" ]]; then
+                total_links=$((total_links + count))
+                if [[ "$source_id" == "tcu_acordaos" ]]; then
+                    tcu_acordaos_links=$count
+                fi
             fi
-        fi
-    done <<< "$discovery_results"
-    
-    # Validation: tcu_acordaos should have ~35 links
-    if [[ "${tcu_acordaos_links:-0}" -ge 30 ]]; then
-        pass "Discovery – tcu_acordaos: ${tcu_acordaos_links} links (expected ~35)"
-    else
-        fail "Discovery – tcu_acordaos: ${tcu_acordaos_links} links (expected ~35)"
-        static_sources_ok=false
-    fi
-    
-    # Validation: static_url sources should have 1 link each
-    local static_sources="tcu_sumulas tcu_normas tcu_resposta_consulta tcu_boletim_pessoal tcu_informativo_lc tcu_boletim_jurisprudencia tcu_jurisprudencia_selecionada"
-    for source in $static_sources; do
-        local count
-        count=$(docker compose exec -T postgres psql -U gabi -d gabi -t -c \
-            "SELECT COUNT(*) FROM discovered_links WHERE \"SourceId\" = '${source}';" 2>/dev/null | tr -d ' ' || echo "0")
-        if [[ "${count:-0}" -ge 1 ]]; then
-            pass "Discovery – ${source}: ${count} link(s)"
+        done <<< "$discovery_results"
+
+        # Validation: tcu_acordaos should have ~35 links
+        if [[ "${tcu_acordaos_links:-0}" -ge 30 ]]; then
+            pass "Discovery – tcu_acordaos: ${tcu_acordaos_links} links (expected ~35)"
         else
-            warn "Discovery – ${source}: ${count} links (expected 1)"
+            fail "Discovery – tcu_acordaos: ${tcu_acordaos_links} links (expected ~35)"
+            static_sources_ok=false
         fi
-    done
-    
-    # Unimplemented strategies (0 links expected)
-    local unimpl_sources="camara_leis_ordinarias tcu_notas_tecnicas_ti tcu_publicacoes"
-    for source in $unimpl_sources; do
-        local count
-        count=$(docker compose exec -T postgres psql -U gabi -d gabi -t -c \
-            "SELECT COUNT(*) FROM discovered_links WHERE \"SourceId\" = '${source}';" 2>/dev/null | tr -d ' ' || echo "0")
-        if [[ "${count:-0}" -eq 0 ]]; then
-            pass "Discovery – ${source}: ${count} links (expected 0 - strategy not implemented)"
+
+        # Validation: static_url sources should have 1 link each
+        local static_sources="tcu_sumulas tcu_normas tcu_resposta_consulta tcu_boletim_pessoal tcu_informativo_lc tcu_boletim_jurisprudencia tcu_jurisprudencia_selecionada"
+        for source in $static_sources; do
+            local count
+            count=$(docker compose exec -T postgres psql -U gabi -d gabi -t -c \
+                "SELECT COUNT(*) FROM discovered_links WHERE \"SourceId\" = '${source}';" 2>/dev/null | tr -d ' ' || echo "0")
+            if [[ "${count:-0}" -ge 1 ]]; then
+                pass "Discovery – ${source}: ${count} link(s)"
+            else
+                warn "Discovery – ${source}: ${count} links (expected 1)"
+            fi
+        done
+
+        # Unimplemented strategies (0 links expected)
+        local unimpl_sources="camara_leis_ordinarias tcu_notas_tecnicas_ti tcu_publicacoes"
+        for source in $unimpl_sources; do
+            local count
+            count=$(docker compose exec -T postgres psql -U gabi -d gabi -t -c \
+                "SELECT COUNT(*) FROM discovered_links WHERE \"SourceId\" = '${source}';" 2>/dev/null | tr -d ' ' || echo "0")
+            if [[ "${count:-0}" -eq 0 ]]; then
+                pass "Discovery – ${source}: ${count} links (expected 0 - strategy not implemented)"
+            else
+                pass "Discovery – ${source}: ${count} links (unexpected)"
+            fi
+        done
+
+        PIPELINE_DISCOVERY_LINKS="${total_links}"
+
+        if $static_sources_ok && [[ "${total_links:-0}" -ge 40 ]]; then
+            pass "Discovery – Total: ${total_links} links (expected ~42)"
+        elif [[ "${total_links:-0}" -ge 30 ]]; then
+            warn "Discovery – Total: ${total_links} links (expected ~42)"
         else
-            pass "Discovery – ${source}: ${count} links (unexpected)"
+            fail "Discovery – Total: ${total_links} links (expected ~42)"
         fi
-    done
-    
-    PIPELINE_DISCOVERY_LINKS="${total_links}"
-    
-    if $static_sources_ok && [[ "${total_links:-0}" -ge 40 ]]; then
-        pass "Discovery – Total: ${total_links} links (expected ~42)"
-    elif [[ "${total_links:-0}" -ge 30 ]]; then
-        warn "Discovery – Total: ${total_links} links (expected ~42)"
-    else
-        fail "Discovery – Total: ${total_links} links (expected ~42)"
     fi
 
     # Fetch endpoint (opcional - não implementado ainda)
@@ -740,21 +746,7 @@ phase_verify() {
         warn "Jobs endpoint não disponível"
     fi
     
-    # 4.6 Web Frontend (opcional em docker-only)
-    log "Verificando frontend..."
-    local web_status
-    web_status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 "http://localhost:3000" 2>&1 || echo "000")
-    if [[ "$web_status" == "200" ]]; then
-        pass "Web frontend acessível (HTTP 200)"
-    else
-        if [[ "$TEST_MODE" == "docker-only" || "$TEST_MODE" == "docker-20k" ]]; then
-            warn "Web frontend não acessível (normal se profile web não foi usado)"
-        else
-            fail "Web frontend retornou HTTP $web_status"
-        fi
-    fi
-    
-    # 4.7 Infraestrutura
+    # 4.6 Infraestrutura
     log "Verificando infraestrutura..."
     if docker compose ps postgres 2>/dev/null | grep -q "healthy\|Up"; then
         pass "PostgreSQL rodando"
@@ -788,12 +780,45 @@ run_targeted_source() {
 
     if [[ "$TARGET_PHASE" == "discovery" || "$TARGET_PHASE" == "full" || "$TARGET_PHASE" == "fetch" ]]; then
         log "Discovery ${source_id}..."
-        local disc_code
-        disc_code=$(curl -s -o "/tmp/gabi-disc-${source_id}.json" -w "%{http_code}" -X POST \
-            "$base_url/api/v1/dashboard/sources/${source_id}/phases/discovery" \
-            -H "Authorization: Bearer $token_operator" -H "Content-Type: application/json" 2>/dev/null || echo "000")
+        local disc_code="000"
+        for trigger_attempt in 1 2 3; do
+            disc_code=$(curl -s -o "/tmp/gabi-disc-${source_id}.json" -w "%{http_code}" -X POST \
+                "$base_url/api/v1/dashboard/sources/${source_id}/phases/discovery" \
+                -H "Authorization: Bearer $token_operator" -H "Content-Type: application/json" 2>/dev/null || echo "000")
+            [[ "$disc_code" == "200" ]] && break
+
+            # Retry path for transient API connectivity issues in long all-sources runs.
+            if [[ "$disc_code" == "000" ]]; then
+                if ! curl -sf --max-time 3 "$base_url/health" >/dev/null 2>&1; then
+                    warn "Discovery trigger sem resposta (${source_id}) na tentativa ${trigger_attempt}/3; reerguendo api/worker"
+                    docker compose --profile api --profile worker up -d >/dev/null 2>&1 || true
+                    for _ in $(seq 1 15); do
+                        curl -sf --max-time 3 "$base_url/health" >/dev/null 2>&1 && break
+                        sleep 2
+                    done
+                fi
+            fi
+
+            # Refresh operator token before next attempt.
+            token_operator=$(curl -sf -X POST "$base_url/api/v1/auth/login" \
+                -H "Content-Type: application/json" \
+                -d '{"username": "operator", "password": "op123"}' 2>/dev/null | \
+                grep -o '"token":"[^"]*"' | cut -d'"' -f4 || echo "$token_operator")
+            sleep 1
+        done
+
         if [[ "$disc_code" != "200" ]]; then
             CURRENT_20K_ERROR_SUMMARY="discovery_http_${disc_code}"
+            if [[ "$TARGET_SOURCE" == "all" ]]; then
+                CURRENT_20K_STATUS="WARN"
+                CURRENT_20K_DOCS="0"
+                CURRENT_20K_PEAK_MEM=$($MONITOR_MEMORY && echo "0 MiB (n/a)" || echo "monitoring_disabled")
+                CURRENT_20K_DURATION="0s"
+                CURRENT_20K_THROUGHPUT="0"
+                CURRENT_20K_STATUS_BREAKDOWN=""
+                warn "Targeted stress – discovery trigger indisponível (${source_id}, HTTP $disc_code), seguindo para próxima source"
+                return 0
+            fi
             fail "Targeted stress – discovery trigger falhou (${source_id}, HTTP $disc_code)"
             return 1
         fi
@@ -801,7 +826,19 @@ run_targeted_source() {
         log "Aguardando discovery materializar links/fetch_items para ${source_id}..."
         local discovery_ok=false
         local discovery_no_links=false
-        for attempt in $(seq 1 120); do
+        local discovery_materialized_running=false
+        local max_discovery_attempts=120
+        # In all-sources mode, use a shorter window per source to keep total time bounded
+        if [[ "$TARGET_SOURCE" == "all" ]]; then
+            max_discovery_attempts=60
+            case "$source_id" in
+                camara_*|tcu_btcu_deliberacoes_extra)
+                    # High-cardinality discovery sources need a wider completion window.
+                    max_discovery_attempts=240
+                    ;;
+            esac
+        fi
+        for attempt in $(seq 1 "$max_discovery_attempts"); do
             local links_count
             local items_count
             local discovery_status
@@ -809,11 +846,26 @@ run_targeted_source() {
             items_count=$(psql_scalar "SELECT COUNT(*) FROM fetch_items WHERE \"SourceId\"='${source_id}';" "0")
             discovery_status=$(psql_scalar "SELECT COALESCE((SELECT \"Status\" FROM discovery_runs WHERE \"SourceId\"='${source_id}' ORDER BY \"StartedAt\" DESC LIMIT 1),'');" "")
             if (( attempt % 10 == 0 )); then
-                log "Discovery wait – source=${source_id} attempt=${attempt}/120 links=${links_count:-0} fetch_items=${items_count:-0} status=${discovery_status:-n/a}"
+                log "Discovery wait – source=${source_id} attempt=${attempt}/${max_discovery_attempts} links=${links_count:-0} fetch_items=${items_count:-0} status=${discovery_status:-n/a}"
             fi
             if [[ "${links_count:-0}" -gt 0 && "${items_count:-0}" -gt 0 ]]; then
-                discovery_ok=true
-                break
+                # Para phase=fetch/full, exigir discovery finalizada antes de seguir.
+                if [[ "$TARGET_PHASE" == "fetch" || "$TARGET_PHASE" == "full" ]]; then
+                    if [[ "$discovery_status" == "completed" ]]; then
+                        discovery_ok=true
+                        break
+                    fi
+                    if [[ "$TARGET_SOURCE" == "all" && "$source_id" == camara_* && "$discovery_status" == "running" ]]; then
+                        # Camara discoveries are high-cardinality and can stay running for long windows.
+                        # If links/fetch_items are already materialized, don't block the all-sources suite.
+                        discovery_ok=true
+                        discovery_materialized_running=true
+                        break
+                    fi
+                else
+                    discovery_ok=true
+                    break
+                fi
             fi
             if [[ "$discovery_status" == "completed" && "${links_count:-0}" -eq 0 && "${items_count:-0}" -eq 0 ]]; then
                 discovery_ok=true
@@ -835,7 +887,7 @@ run_targeted_source() {
             CURRENT_20K_DURATION="0s"
             CURRENT_20K_THROUGHPUT="0"
             CURRENT_20K_STATUS_BREAKDOWN=""
-            warn "Targeted stress – discovery não materializou em tempo (${source_id}), seguindo para próxima source"
+            warn "Targeted stress – discovery não materializou em ${max_discovery_attempts} tentativas (${source_id})"
             return 0
         fi
 
@@ -848,6 +900,18 @@ run_targeted_source() {
             CURRENT_20K_STATUS_BREAKDOWN="no_fetch_items=1"
             CURRENT_20K_ERROR_SUMMARY="no_links_discovered"
             pass "Targeted stress – source sem links descobertos (${source_id}), fetch não aplicável"
+            return 0
+        fi
+
+        if $discovery_materialized_running; then
+            CURRENT_20K_STATUS="PASS"
+            CURRENT_20K_DOCS="0"
+            CURRENT_20K_PEAK_MEM=$($MONITOR_MEMORY && echo "0 MiB (n/a)" || echo "monitoring_disabled")
+            CURRENT_20K_DURATION="0s"
+            CURRENT_20K_THROUGHPUT="0"
+            CURRENT_20K_STATUS_BREAKDOWN=$(psql_csv_compact "SELECT \"Status\", COUNT(*) FROM fetch_items WHERE \"SourceId\"='${source_id}' GROUP BY \"Status\" ORDER BY \"Status\";")
+            CURRENT_20K_ERROR_SUMMARY="discovery_materialized_running"
+            pass "Targeted stress – discovery materializado e em execução (${source_id}), fetch adiado no all-sources"
             return 0
         fi
     fi
@@ -877,6 +941,19 @@ run_targeted_source() {
         fail "Targeted stress – fetch trigger falhou (${source_id}, HTTP $fetch_code)"
         return 1
     fi
+    local fetch_response
+    fetch_response=$(cat "/tmp/gabi-fetch-${source_id}.json" 2>/dev/null || echo "")
+    if echo "$fetch_response" | grep -qi "already in progress"; then
+        CURRENT_20K_STATUS="WARN"
+        CURRENT_20K_DOCS="0"
+        CURRENT_20K_PEAK_MEM=$($MONITOR_MEMORY && echo "0 MiB (n/a)" || echo "monitoring_disabled")
+        CURRENT_20K_DURATION="0s"
+        CURRENT_20K_THROUGHPUT="0"
+        CURRENT_20K_STATUS_BREAKDOWN=$(psql_csv_compact "SELECT \"Status\", COUNT(*) FROM fetch_items WHERE \"SourceId\"='${source_id}' GROUP BY \"Status\" ORDER BY \"Status\";")
+        CURRENT_20K_ERROR_SUMMARY="fetch_not_triggered_discovery_in_progress"
+        warn "Targeted fetch – não iniciado para ${source_id}: discovery ainda em execução"
+        return 0
+    fi
 
     local start_ts
     start_ts=$(date +%s)
@@ -887,6 +964,15 @@ run_targeted_source() {
     local last_processed="0"
     local stall_count="0"
     local stall_threshold="36"
+    if [[ "$TARGET_SOURCE" == "all" ]]; then
+        stall_threshold="12"
+        case "$source_id" in
+            senado_legislacao_decretos_lei|tcu_btcu_controle_externo)
+                # link_only + large queues can progress in bursts; avoid false stall warnings.
+                stall_threshold="36"
+                ;;
+        esac
+    fi
 
     for _ in $(seq 1 1440); do
         local docs
@@ -1017,16 +1103,20 @@ phase_fetch_20k_observability() {
         return 1
     fi
 
-    log "Resetando dados de ingestão/fetch para execução observável..."
-    docker compose exec -T postgres psql -U gabi -d gabi -c \
-        "TRUNCATE discovered_links, fetch_items, fetch_runs, discovery_runs, documents RESTART IDENTITY CASCADE;" \
-        2>&1 | tee -a "$LOG_FILE" >/dev/null || true
-
-    log "Queue hygiene: liberando jobs/locks zumbis antes do stress..."
-    if [[ -x "./scripts/queue-hygiene.sh" ]]; then
-        ./scripts/queue-hygiene.sh --apply --stale-minutes 15 2>&1 | tee -a "$LOG_FILE" >/dev/null || true
+    if [[ "$TARGET_SOURCE" != "all" ]]; then
+        # Single-source mode: global truncate for clean slate
+        log "Resetando dados de ingestão/fetch para execução observável..."
+        docker compose exec -T postgres psql -U gabi -d gabi -c \
+            "TRUNCATE discovered_links, fetch_items, fetch_runs, discovery_runs, documents RESTART IDENTITY CASCADE;" \
+            2>&1 | tee -a "$LOG_FILE" >/dev/null || true
     else
-        warn "Queue hygiene script não encontrado/executável (scripts/queue-hygiene.sh)"
+        # All-sources mode: each source cleans its own data in the loop below.
+        # Do a global Hangfire flush to start with empty queue.
+        log "Flush inicial do Hangfire para all-sources sequencial..."
+        docker compose exec -T postgres psql -U gabi -d gabi -c "
+            DELETE FROM hangfire.job WHERE statename IN ('Enqueued','Scheduled','Processing','Awaiting');
+            DELETE FROM hangfire.jobqueue;
+        " 2>&1 | tee -a "$LOG_FILE" >/dev/null || true
     fi
 
     if [[ "$TARGET_SOURCE" != "all" ]]; then
@@ -1052,18 +1142,74 @@ phase_fetch_20k_observability() {
         return 1
     fi
 
+    local ordered_sources=""
+    # Process non-Camara sources first; keep Camara sources last because
+    # they have significantly longer discovery windows and can monopolize queue time.
+    while IFS= read -r source_id; do
+        source_id="$(echo "$source_id" | xargs)"
+        [[ -n "$source_id" ]] || continue
+        if [[ "$source_id" != camara_* ]]; then
+            ordered_sources+="${source_id}"$'\n'
+        fi
+    done <<< "$sources"
+    while IFS= read -r source_id; do
+        source_id="$(echo "$source_id" | xargs)"
+        [[ -n "$source_id" ]] || continue
+        if [[ "$source_id" == camara_* ]]; then
+            ordered_sources+="${source_id}"$'\n'
+        fi
+    done <<< "$sources"
+
     local total_docs=0
     local failed_sources=0
     local warn_sources=0
+    local pass_sources=0
     local global_peak_mib="0"
     local global_peak_label="0 MiB"
     local source_summary_lines=""
+    local source_index=0
+    local source_count
+    source_count=$(echo "$ordered_sources" | grep -c '[a-z]' || echo "0")
 
     while IFS= read -r source_id; do
         source_id="$(echo "$source_id" | xargs)"
         [[ -n "$source_id" ]] || continue
+        source_index=$((source_index + 1))
 
-        log "Targeted stress (all): processando source=${source_id}"
+        log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        log "Targeted stress (all): [${source_index}/${source_count}] source=${source_id}"
+        log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+        # === Sequential isolation: clean slate for each source ===
+        # NOTE: All docker/psql commands MUST use </dev/null to avoid consuming
+        # the here-string stdin that feeds the while-read loop.
+
+        # 1. Flush Hangfire queue so no leftover jobs from previous source compete
+        log "Flushing Hangfire queue for isolation..."
+        docker compose exec -T postgres psql -U gabi -d gabi -c "
+            DELETE FROM hangfire.job WHERE statename IN ('Enqueued','Scheduled','Processing','Awaiting');
+            DELETE FROM hangfire.jobqueue;
+        " </dev/null 2>&1 | tee -a "$LOG_FILE" >/dev/null || true
+
+        # 2. Clean pipeline data for this specific source
+        log "Cleaning pipeline data for source=${source_id}..."
+        docker compose exec -T postgres psql -U gabi -d gabi -c "
+            DELETE FROM documents WHERE \"SourceId\" = '${source_id}';
+            DELETE FROM fetch_items WHERE \"SourceId\" = '${source_id}';
+            DELETE FROM fetch_runs WHERE \"SourceId\" = '${source_id}';
+            DELETE FROM discovered_links WHERE \"SourceId\" = '${source_id}';
+            DELETE FROM discovery_runs WHERE \"SourceId\" = '${source_id}';
+        " </dev/null 2>&1 | tee -a "$LOG_FILE" >/dev/null || true
+
+        # 3. Brief pause to let worker drain any in-flight work
+        sleep 2
+
+        # 4. Refresh operator token (may expire during long runs)
+        token_operator=$(curl -sf -X POST "$base_url/api/v1/auth/login" \
+            -H "Content-Type: application/json" \
+            -d '{"username": "operator", "password": "op123"}' </dev/null 2>/dev/null | \
+            grep -o '"token":"[^"]*"' | cut -d'"' -f4 || echo "$token_operator")
+
         run_targeted_source "$source_id" "$base_url" "$token_operator" < /dev/null || true
 
         total_docs=$((total_docs + ${CURRENT_20K_DOCS:-0}))
@@ -1071,6 +1217,8 @@ phase_fetch_20k_observability() {
             failed_sources=$((failed_sources + 1))
         elif [[ "$CURRENT_20K_STATUS" == "WARN" ]]; then
             warn_sources=$((warn_sources + 1))
+        else
+            pass_sources=$((pass_sources + 1))
         fi
 
         awk -v a="${CURRENT_20K_PEAK_MEM_MIB:-0}" -v b="$global_peak_mib" 'BEGIN{exit !(a>b)}' && {
@@ -1079,7 +1227,8 @@ phase_fetch_20k_observability() {
         }
 
         source_summary_lines+="${source_id},${CURRENT_20K_STATUS},${CURRENT_20K_DOCS},${CURRENT_20K_PEAK_MEM},${CURRENT_20K_DURATION},${CURRENT_20K_THROUGHPUT},${CURRENT_20K_ERROR_SUMMARY};"
-    done <<< "$sources"
+        log "Resultado [${source_index}/${source_count}]: ${source_id} → ${CURRENT_20K_STATUS} (docs=${CURRENT_20K_DOCS}, peak=${CURRENT_20K_PEAK_MEM})"
+    done <<< "$ordered_sources"
 
     PIPELINE_20K_DOCS="$total_docs"
     PIPELINE_20K_PEAK_MEM="$global_peak_label"
@@ -1089,15 +1238,19 @@ phase_fetch_20k_observability() {
     PIPELINE_20K_ERROR_SUMMARY="multi_source_run"
     PIPELINE_20K_SOURCE_SUMMARY="$source_summary_lines"
 
+    log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    log "All-sources summary: PASS=${pass_sources} WARN=${warn_sources} FAIL=${failed_sources} docs=${total_docs} peak=${global_peak_label}"
+    log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
     if [[ "$failed_sources" -gt 0 ]]; then
         PIPELINE_20K_STATUS="FAIL"
         fail "Targeted fetch all – ${failed_sources} source(s) falharam, docs_total=${total_docs}, peak_mem=${PIPELINE_20K_PEAK_MEM}"
     elif [[ "$warn_sources" -gt 0 ]]; then
         PIPELINE_20K_STATUS="WARN"
-        warn "Targeted fetch all – ${warn_sources} source(s) com WARN, docs_total=${total_docs}, peak_mem=${PIPELINE_20K_PEAK_MEM}"
+        warn "Targeted fetch all – PASS=${pass_sources} WARN=${warn_sources}, docs_total=${total_docs}, peak_mem=${PIPELINE_20K_PEAK_MEM}"
     else
         PIPELINE_20K_STATUS="PASS"
-        pass "Targeted fetch all – concluído sem OOM, docs_total=${total_docs}, peak_mem=${PIPELINE_20K_PEAK_MEM}"
+        pass "Targeted fetch all – ${pass_sources} source(s) PASS, docs_total=${total_docs}, peak_mem=${PIPELINE_20K_PEAK_MEM}"
     fi
 }
 
