@@ -36,19 +36,20 @@ public class DlqFilter : IElectStateFilter
         if (string.IsNullOrEmpty(jobId))
             return;
 
-        var retryCount = GetRetryCount(jobId);
+        var retryCount = GetRetryCount(context, jobId);
+        var observedAttempts = DlqRetryDecision.ToObservedAttempts(retryCount);
 
-        if (retryCount < _maxRetries)
+        if (!DlqRetryDecision.ShouldMoveToDlq(retryCount, _maxRetries))
         {
             _logger.LogDebug(
                 "Job {JobId} failed (attempt {RetryCount}/{MaxRetries}), will be retried by Hangfire",
-                jobId, retryCount + 1, _maxRetries);
+                jobId, observedAttempts, _maxRetries);
             return;
         }
 
         _logger.LogWarning(
-            "Job {JobId} failed after {RetryCount} attempts, moving to Dead Letter Queue",
-            jobId, retryCount);
+            "Job {JobId} failed after retryCount={RetryCount} (attempt {Attempt}), moving to Dead Letter Queue",
+            jobId, retryCount, observedAttempts);
 
         try
         {
@@ -60,13 +61,18 @@ public class DlqFilter : IElectStateFilter
         }
     }
 
-    private static int GetRetryCount(string jobId)
+    private static int GetRetryCount(ElectStateContext context, string jobId)
     {
         try
         {
+            var fromParameter = context.GetJobParameter<int>("RetryCount");
+            if (fromParameter >= 0)
+                return fromParameter;
+
             var monitoring = JobStorage.Current.GetMonitoringApi();
             var details = monitoring.JobDetails(jobId);
-            return details?.History?.Count(h => h.StateName == "Failed") ?? 0;
+            var failedHistoryCount = details?.History?.Count(h => h.StateName == "Failed") ?? 0;
+            return Math.Max(0, failedHistoryCount - 1);
         }
         catch
         {

@@ -550,6 +550,9 @@ public record LinkListRequest
 
     [JsonPropertyName("sort")]
     public string? Sort { get; init; } = "discoveredAt_desc";
+
+    [JsonPropertyName("query_intent")]
+    public string? QueryIntent { get; init; }
 }
 
 public record SyncStatusDto

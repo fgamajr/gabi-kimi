@@ -137,7 +137,7 @@ trigger_seed() {
 }
 
 trigger_discovery() {
-  api_post_soft "/api/v1/dashboard/sources/$SOURCE_ID/refresh" '{"force":true}'
+  api_post_soft "/api/v1/dashboard/sources/$SOURCE_ID/phases/discovery" '{}'
 }
 
 trigger_fetch() {
@@ -374,7 +374,7 @@ main() {
 
   R3_HTTP=$(curl -s -o /tmp/e2e-r3-body.txt -w "%{http_code}" \
     -X POST -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
-    -d '{"force":true}' "$API_URL/api/v1/dashboard/sources/$SOURCE_ID/refresh")
+    -d '{}' "$API_URL/api/v1/dashboard/sources/$SOURCE_ID/phases/discovery")
   if [ "$R3_HTTP" -ge 400 ]; then
     R3_DISCOVERY="{\"status\":\"api_error\",\"http\":$R3_HTTP,\"body\":$(jq -Rs . < /tmp/e2e-r3-body.txt)}"
   else

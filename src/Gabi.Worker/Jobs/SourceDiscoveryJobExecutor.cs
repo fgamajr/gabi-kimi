@@ -185,7 +185,9 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
             DiscoveryStatus = "completed",
             FetchStatus = "pending",
             IngestStatus = "pending",
-            Metadata = "{}"
+            Metadata = d.Metadata is { Count: > 0 }
+                ? System.Text.Json.JsonSerializer.Serialize(d.Metadata)
+                : "{}"
         }).ToList();
 
         await _linkRepository.BulkUpsertAsync(linksToUpsert, ct);

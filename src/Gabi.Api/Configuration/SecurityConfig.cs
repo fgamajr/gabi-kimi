@@ -144,9 +144,8 @@ public static class SecurityConfig
             {
                 if (environment.IsDevelopment() && allowedOrigins.Length == 0)
                 {
-                    // Em dev, permitir localhost se não configurado
+                    // Em dev, permitir localhost da API/UI local se não configurado
                     policy.WithOrigins(
-                        "http://localhost:3000",
                         "http://localhost:5173",
                         "http://localhost:4173"
                     );

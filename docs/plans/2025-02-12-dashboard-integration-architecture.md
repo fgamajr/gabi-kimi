@@ -1,3 +1,6 @@
+> Status: **histórico / deprecated (backend-only desde 2026-02-19)**  
+> Este documento é referência de arquitetura antiga de dashboard/frontend.
+
 # Dashboard Integration Architecture
 
 ## Executive Summary

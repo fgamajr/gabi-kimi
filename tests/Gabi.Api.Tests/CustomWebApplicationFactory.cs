@@ -32,7 +32,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 ["Users:2:Username"] = "viewer",
                 ["Users:2:Password"] = "viewer123",
                 ["Users:2:Role"] = "Viewer",
-                ["Cors:AllowedOrigins:0"] = "http://localhost:3000"
+                ["Cors:AllowedOrigins:0"] = "http://localhost:5173"
             };
             
             config.AddInMemoryCollection(testConfig);

@@ -1,5 +1,5 @@
 #!/bin/bash
-# GABI - Start applications (API + Web); blocks until Ctrl+C
+# GABI - Start backend application (API); blocks until Ctrl+C
 # Usage: ./scripts/app-up.sh
 
 set -e
@@ -17,17 +17,15 @@ fi
 
 cleanup() {
     echo ""
-    log_warn "Stopping applications..."
+    log_warn "Stopping API..."
     pkill -f "Gabi.Api" 2>/dev/null || true
-    pkill -f "vite" 2>/dev/null || true
-    log_ok "Applications stopped"
+    log_ok "API stopped"
     exit 0
 }
 trap cleanup INT TERM
 
 log_warn "Cleaning old processes..."
 pkill -f "Gabi.Api" 2>/dev/null || true
-pkill -f "vite" 2>/dev/null || true
 sleep 2
 
 log_info "Starting API (http://localhost:5100)..."
@@ -43,24 +41,9 @@ if ! curl -sf --max-time 2 http://localhost:5100/health >/dev/null 2>&1; then
     exit 1
 fi
 
-log_info "Starting Web (http://localhost:3000)..."
-[ ! -d "$GABI_WEB_DIR" ] && { log_error "Web dir missing: $GABI_WEB_DIR"; exit 1; }
-cd "$GABI_WEB_DIR"
-npm run dev > "$GABI_LOG_DIR/web.log" 2>&1 &
-cd "$GABI_ROOT"
-echo -n "   Waiting"
-for i in $(seq 1 45); do
-    if curl -sf --max-time 2 http://localhost:3000 >/dev/null 2>&1; then echo -e " ${GABI_GREEN}OK${GABI_NC}"; break; fi
-    echo -n "."; sleep 1
-done
-if ! curl -sf --max-time 2 http://localhost:3000 >/dev/null 2>&1; then
-    echo -e " ${GABI_YELLOW}...${GABI_NC}"
-    log_warn "Web still starting. tail -f $GABI_LOG_DIR/web.log"
-fi
-
 echo ""
-log_ok "Applications running!"
-echo "  Web: http://localhost:3000  API: http://localhost:5100"
+log_ok "API running!"
+echo "  API: http://localhost:5100"
 echo "  Logs: ./scripts/app-logs.sh   Stop: Ctrl+C or ./scripts/app-down.sh"
 echo ""
 wait

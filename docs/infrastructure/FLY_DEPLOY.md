@@ -2,13 +2,12 @@
 
 ## 1. Decisão: Apps separados (recomendado)
 
-Recomendamos **dois apps Fly.io** (ou três se o frontend for hospedado lá):
+Recomendamos **dois apps Fly.io**:
 
 | App           | Tipo        | Descrição                    | Dockerfile / contexto      |
 |---------------|-------------|------------------------------|-----------------------------|
 | `gabi-api`    | HTTP        | REST API (Minimal API)       | `src/Gabi.Api/Dockerfile`   |
 | `gabi-worker` | Process     | Background worker (sync)     | `Dockerfile` (raiz)         |
-| `gabi-web`    | HTTP (opcional) | SPA estático (Vite)       | Build Node → nginx/alpine  |
 
 ### Por que apps separados (e não um app com process groups)?
 

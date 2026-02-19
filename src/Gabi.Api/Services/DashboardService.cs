@@ -95,7 +95,7 @@ public class DashboardService : IDashboardService
             {
                 Success = true,
                 JobId = latest.Id,
-                Message = "Seed already in progress. Poll GET /api/v1/dashboard/jobs for status."
+                Message = "Seed already in progress. Poll GET /api/v1/dashboard/seed/last for status."
             };
         }
 
@@ -116,7 +116,7 @@ public class DashboardService : IDashboardService
         {
             Success = true,
             JobId = jobId,
-            Message = "Seed job enqueued. Worker will load sources from YAML, persist with retry, and register in seed_runs. Poll GET /api/v1/dashboard/jobs or GET /api/v1/dashboard/seed/last for result."
+            Message = "Seed job enqueued. Worker will load sources from YAML, persist with retry, and register in seed_runs. Poll GET /api/v1/dashboard/seed/last for result."
         };
     }
 
@@ -567,7 +567,7 @@ public class DashboardService : IDashboardService
         var phases = new List<PipelinePhaseDto>
         {
             new() { Id = "seed", Name = "Seed", Description = "Carregar fontes do YAML no banco", Availability = "available", TriggerEndpoint = "POST /api/v1/dashboard/seed" },
-            new() { Id = "discovery", Name = "Discovery", Description = "Descobrir URLs das fontes", Availability = "available", TriggerEndpoint = "POST /api/v1/dashboard/sources/{sourceId}/refresh" },
+            new() { Id = "discovery", Name = "Discovery", Description = "Descobrir URLs das fontes", Availability = "available", TriggerEndpoint = "POST /api/v1/dashboard/sources/{sourceId}/phases/discovery" },
             new() { Id = "fetch", Name = "Fetch", Description = "Baixar conteúdo dos links descobertos", Availability = "requires_previous", TriggerEndpoint = "POST /api/v1/dashboard/sources/{sourceId}/phases/fetch" },
             new() { Id = "ingest", Name = "Ingest", Description = "Processar e indexar documentos", Availability = "requires_previous", TriggerEndpoint = "POST /api/v1/dashboard/sources/{sourceId}/phases/ingest" }
         };
@@ -632,26 +632,62 @@ public class DashboardService : IDashboardService
         // Validar paginação
         var page = Math.Max(1, request.Page);
         var pageSize = Math.Clamp(request.PageSize, 1, 100);
+        var useIntentGuardrails = IntentGuardrails.IsKnownIntent(request.QueryIntent);
 
-        var paginated = await linkRepo.GetBySourcePaginatedAsync(
-            sourceId, page, pageSize, request.Status, request.Sort, ct);
+        if (!useIntentGuardrails)
+        {
+            var paginated = await linkRepo.GetBySourcePaginatedAsync(
+                sourceId, page, pageSize, request.Status, request.Sort, ct);
 
-        var linkDtos = new List<DiscoveredLinkDetailDto>();
-        foreach (var link in paginated.Items)
+            var linkDtos = new List<DiscoveredLinkDetailDto>();
+            foreach (var link in paginated.Items)
+            {
+                var docCount = await linkRepo.GetDocumentCountAsync(link.Id, ct);
+                linkDtos.Add(MapToLinkDetailDto(link, docCount));
+            }
+
+            return new LinkListResponse
+            {
+                Data = linkDtos,
+                Pagination = new PaginationInfo
+                {
+                    Page = paginated.Page,
+                    PageSize = paginated.PageSize,
+                    TotalItems = paginated.TotalItems,
+                    TotalPages = paginated.TotalPages
+                }
+            };
+        }
+
+        // Guardrail mode: apply intent filter before pagination to avoid mixing proposicao/norma.
+        var guardrailWindow = await linkRepo.GetBySourcePaginatedAsync(
+            sourceId, 1, 5000, request.Status, request.Sort, ct);
+
+        var filtered = new List<DiscoveredLinkDetailDto>();
+        foreach (var link in guardrailWindow.Items)
         {
             var docCount = await linkRepo.GetDocumentCountAsync(link.Id, ct);
-            linkDtos.Add(MapToLinkDetailDto(link, docCount));
+            var dto = MapToLinkDetailDto(link, docCount);
+            if (IntentGuardrails.Allows(request.QueryIntent, dto.Metadata))
+                filtered.Add(dto);
         }
+
+        var totalItems = filtered.Count;
+        var totalPages = totalItems == 0 ? 0 : (int)Math.Ceiling(totalItems / (double)pageSize);
+        var pageData = filtered
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToList();
 
         return new LinkListResponse
         {
-            Data = linkDtos,
+            Data = pageData,
             Pagination = new PaginationInfo
             {
-                Page = paginated.Page,
-                PageSize = paginated.PageSize,
-                TotalItems = paginated.TotalItems,
-                TotalPages = paginated.TotalPages
+                Page = page,
+                PageSize = pageSize,
+                TotalItems = totalItems,
+                TotalPages = totalPages
             }
         };
     }

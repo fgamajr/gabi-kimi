@@ -1,7 +1,7 @@
 #!/bin/bash
-# GABI - Start Applications in Background (detached mode)
+# GABI - Start API in Background (detached mode)
 # Usage: ./scripts/app-start-detached.sh
-# Non-blocking - apps run in background, use app-status.sh to check, app-stop.sh to stop
+# Non-blocking - API runs in background, use app-status.sh to check, app-stop.sh to stop
 
 set -e
 source "$(dirname "$0")/_lib.sh"
@@ -24,7 +24,6 @@ fi
 # Clean old processes
 log_warn "Cleaning old processes..."
 pkill -f "Gabi.Api" 2>/dev/null || true
-pkill -f "vite" 2>/dev/null || true
 sleep 2
 
 # Start API (stdbuf unbuffers stdout so logs flush in real-time)
@@ -55,37 +54,11 @@ if ! curl -sf --max-time 2 http://localhost:5100/health >/dev/null 2>&1; then
     exit 1
 fi
 
-# Start Web
-log_info "Starting Web (http://localhost:3000)..."
-cd "$GABI_WEB_DIR"
-nohup npm run dev > "$GABI_LOG_DIR/web.log" 2>&1 &
-WEB_PID=$!
-cd "$GABI_ROOT"
-echo "$WEB_PID" > "$GABI_LOG_DIR/web.pid"
-echo "  PID: $WEB_PID (saved to $GABI_LOG_DIR/web.pid)"
-
-# Wait for Web
-echo -n "  Waiting for Web"
-for i in $(seq 1 45); do
-    if curl -sf --max-time 2 http://localhost:3000 >/dev/null 2>&1; then
-        echo -e " ${GABI_GREEN}✅ Ready${GABI_NC}"
-        break
-    fi
-    echo -n "."
-    sleep 1
-done
-
-if ! curl -sf --max-time 2 http://localhost:3000 >/dev/null 2>&1; then
-    echo -e " ${GABI_YELLOW}...${GABI_NC}"
-    log_warn "Web still starting (may take longer on first run)"
-fi
-
 echo ""
-log_ok "✨ Applications started in background!"
+log_ok "✨ API started in background!"
 echo ""
 echo "┌──────────────────────────────────────────────┐"
 echo "│  🌐 URLs:                                    │"
-echo "│     • Web:     http://localhost:3000         │"
 echo "│     • API:     http://localhost:5100         │"
 echo "│     • Swagger: http://localhost:5100/swagger │"
 echo "│                                              │"

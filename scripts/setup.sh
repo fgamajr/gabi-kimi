@@ -40,23 +40,6 @@ else
 fi
 echo ""
 
-log_warn "Installing web dependencies..."
-if [ ! -d "$GABI_WEB_DIR" ]; then
-    log_error "Web directory not found: $GABI_WEB_DIR"
-    exit 1
-fi
-cd "$GABI_WEB_DIR"
-npm install --silent
-cd "$GABI_ROOT"
-log_ok "  Web dependencies installed"
-echo ""
-
-if [ ! -f "$GABI_WEB_DIR/.env" ]; then
-    log_warn "Creating .env for frontend..."
-    echo "VITE_API_URL=http://localhost:5100" > "$GABI_WEB_DIR/.env"
-    log_ok "  .env created"
-fi
-
 echo ""
 log_ok "✨ Setup complete!"
 echo ""

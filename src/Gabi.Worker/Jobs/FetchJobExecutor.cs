@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Text.Json;
 using Gabi.Contracts.Fetch;
 using Gabi.Contracts.Jobs;
@@ -32,6 +33,8 @@ public class FetchJobExecutor : IJobExecutor
     private readonly ILogger<FetchJobExecutor> _logger;
     private readonly HttpClient _httpClient;
     private const int BatchSize = 25;
+    private const int FetchCandidateSnapshotLimit = 5000;
+    private const int FetchCandidatePageSize = 100;
     public const int DefaultMaxFieldLength = 262_144;
     private const int DefaultTelemetryEveryRows = 1000;
 
@@ -83,13 +86,14 @@ public class FetchJobExecutor : IJobExecutor
             return new JobResult { Success = false, ErrorMessage = $"Source {sourceId} not found" };
         }
 
-        var candidates = await _fetchItemRepository.GetBySourceAndStatusesAsync(
+        var candidateStatuses = new[] { "pending", "failed" };
+        var candidateIds = await _fetchItemRepository.GetCandidateIdsBySourceAndStatusesAsync(
             sourceId,
-            limit: 5000,
-            statuses: ["pending", "failed"],
+            limit: FetchCandidateSnapshotLimit,
+            statuses: candidateStatuses,
             ct);
 
-        if (candidates.Count == 0)
+        if (candidateIds.Count == 0)
         {
             fetchRun.CompletedAt = DateTime.UtcNow;
             fetchRun.Status = "completed";
@@ -107,12 +111,15 @@ public class FetchJobExecutor : IJobExecutor
                 maxDocsPerSource.Value);
         }
 
-        var parseConfig = await LoadParseConfigAsync(sourceId, ct);
+        var sourceFetchConfig = await LoadSourceFetchConfigAsync(sourceId, ct);
+        var parseConfig = sourceFetchConfig.ParseConfig;
+        var fetchContentStrategy = sourceFetchConfig.ContentStrategy;
+        var jsonApiExtractConfig = sourceFetchConfig.JsonApiExtract;
         var maxFieldLength = ResolveMaxFieldLength(parseConfig, Environment.GetEnvironmentVariable("GABI_FETCH_MAX_FIELD_CHARS"));
         var telemetryEveryRows = ResolveTelemetryEveryRows(Environment.GetEnvironmentVariable("GABI_FETCH_TELEMETRY_EVERY_ROWS"));
         var csvConfig = GetCsvFormatConfig(source);
 
-        var total = candidates.Count;
+        var total = candidateIds.Count;
         var completed = 0;
         var failed = 0;
         var totalDocs = 0;
@@ -120,125 +127,236 @@ public class FetchJobExecutor : IJobExecutor
         var capped = false;
         var totalTruncatedFields = 0;
 
-        for (var i = 0; i < candidates.Count; i++)
+        if (string.Equals(fetchContentStrategy, "link_only", StringComparison.OrdinalIgnoreCase))
         {
-            if (IsCapReached(totalDocs, maxDocsPerSource))
+            var processed = 0;
+            foreach (var idPage in candidateIds.Chunk(FetchCandidatePageSize))
+            {
+                if (IsCapReached(processed, maxDocsPerSource))
+                {
+                    capped = true;
+                    break;
+                }
+
+                var pageItems = await _fetchItemRepository.GetByIdsAsync(sourceId, idPage, ct);
+                foreach (var item in pageItems)
+                {
+                    if (IsCapReached(processed, maxDocsPerSource))
+                    {
+                        capped = true;
+                        break;
+                    }
+
+                    item.Status = "skipped_format";
+                    item.LastError = "content_strategy=link_only";
+                    item.CompletedAt = DateTime.UtcNow;
+                    completed++;
+                    processed++;
+
+                    var percent = (int)Math.Round((processed * 100.0) / total);
+                    progress.Report(new JobProgress
+                    {
+                        PercentComplete = percent,
+                        Message = $"Fetch link_only {processed}/{total}",
+                        Metrics = new Dictionary<string, object>
+                        {
+                            ["items_total"] = total,
+                        ["items_completed"] = completed,
+                        ["items_failed"] = failed,
+                        ["documents_created"] = totalDocs,
+                        ["rows_processed"] = totalRows,
+                        ["fields_truncated"] = totalTruncatedFields,
+                        ["capped"] = capped
+                    }
+                });
+                }
+
+                await _context.SaveChangesAsync(ct);
+                _context.ChangeTracker.Clear();
+            }
+
+            var fetchRunLinkOnly = await _context.FetchRuns.FindAsync([fetchRun.Id], ct)
+                ?? throw new InvalidOperationException($"FetchRun {fetchRun.Id} not found for link_only finalization.");
+            fetchRunLinkOnly.CompletedAt = DateTime.UtcNow;
+            fetchRunLinkOnly.ItemsTotal = total;
+            fetchRunLinkOnly.ItemsCompleted = completed;
+            fetchRunLinkOnly.ItemsFailed = 0;
+            fetchRunLinkOnly.Status = "completed";
+            fetchRunLinkOnly.ErrorSummary = capped && maxDocsPerSource.HasValue
+                ? $"content_strategy=link_only; limited_to={maxDocsPerSource.Value}"
+                : "content_strategy=link_only";
+            await _context.SaveChangesAsync(ct);
+
+            _logger.LogInformation(
+                "Fetch finished in link_only mode for {SourceId}: items={Total}, skipped={Completed}",
+                sourceId,
+                total,
+                completed);
+
+            return new JobResult
+            {
+                Success = true,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["fetch_run_id"] = fetchRun.Id.ToString(),
+                    ["items_total"] = total,
+                    ["items_completed"] = completed,
+                    ["items_failed"] = 0,
+                    ["documents_created"] = 0,
+                    ["rows_processed"] = 0,
+                    ["fields_truncated"] = 0,
+                    ["capped"] = capped,
+                    ["content_strategy"] = "link_only"
+                }
+            };
+        }
+
+        var processedCount = 0;
+        foreach (var idPage in candidateIds.Chunk(FetchCandidatePageSize))
+        {
+            if (capped || IsCapReached(totalDocs, maxDocsPerSource))
             {
                 capped = true;
                 break;
             }
 
-            var item = candidates[i];
-            try
+            var pageItems = await _fetchItemRepository.GetByIdsAsync(sourceId, idPage, ct);
+            foreach (var item in pageItems)
             {
-                item.Status = "processing";
-                item.Attempts++;
-                item.StartedAt = DateTime.UtcNow;
-                item.FetchRunId = fetchRun.Id;
+                if (IsCapReached(totalDocs, maxDocsPerSource))
+                {
+                    capped = true;
+                    break;
+                }
+
+                try
+                {
+                    item.Status = "processing";
+                    item.Attempts++;
+                    item.StartedAt = DateTime.UtcNow;
+                    item.FetchRunId = fetchRun.Id;
+                    await _context.SaveChangesAsync(ct);
+
+                    var link = await _context.DiscoveredLinks.FindAsync([item.DiscoveredLinkId], ct);
+                    int? remainingCap = maxDocsPerSource.HasValue
+                        ? Math.Max(0, maxDocsPerSource.Value - totalDocs)
+                        : null;
+
+                    FetchResult result;
+                    if (string.Equals(fetchContentStrategy, "json_api", StringComparison.OrdinalIgnoreCase))
+                    {
+                        result = await FetchAndParseJsonApiAsync(
+                            item.Url,
+                            link?.Etag,
+                            link?.LastModified?.ToString("R"),
+                            link?.Metadata,
+                            jsonApiExtractConfig,
+                            sourceId,
+                            item,
+                            ct);
+                    }
+                    else
+                    {
+                        result = await FetchAndParseAsync(
+                            item.Url,
+                            link?.Etag,
+                            link?.LastModified?.ToString("R"),
+                            link?.Metadata,
+                            csvConfig,
+                            parseConfig,
+                            remainingCap,
+                            maxFieldLength,
+                            telemetryEveryRows,
+                            sourceId,
+                            item,
+                            ct);
+                    }
+
+                    if (result.SkippedUnchanged)
+                    {
+                        item.Status = "skipped_unchanged";
+                        item.CompletedAt = DateTime.UtcNow;
+                        _logger.LogInformation("Fetch skipped (unchanged): {Url}", item.Url);
+                    }
+                    else if (result.SkippedFormat)
+                    {
+                        item.Status = "skipped_format";
+                        item.CompletedAt = DateTime.UtcNow;
+                        item.LastError = "PDF format not yet supported";
+                        _logger.LogInformation("Fetch skipped (unsupported format): {Url}", item.Url);
+                    }
+                    else
+                    {
+                        item.Status = result.Capped ? "capped" : "completed";
+                        item.CompletedAt = DateTime.UtcNow;
+                        totalDocs += result.DocumentsCreated;
+                        totalRows += result.RowsProcessed;
+                        totalTruncatedFields += result.TruncatedFields;
+                        capped = capped || result.Capped;
+                    }
+
+                    if (!string.IsNullOrEmpty(result.NewEtag) && link != null)
+                    {
+                        link.Etag = result.NewEtag;
+                        if (!string.IsNullOrEmpty(result.NewLastModified) &&
+                            DateTimeOffset.TryParse(result.NewLastModified, out var lm))
+                        {
+                            link.LastModified = lm.UtcDateTime;
+                        }
+                        link.UpdatedAt = DateTime.UtcNow;
+                    }
+
+                    completed++;
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    item.Status = "failed";
+                    item.LastError = ex.Message.Length > 2000 ? ex.Message[..2000] : ex.Message;
+                    item.CompletedAt = DateTime.UtcNow;
+                    _logger.LogError(ex, "Fetch failed for {Url}", item.Url);
+                }
+
+                processedCount++;
                 await _context.SaveChangesAsync(ct);
 
-                var link = await _context.DiscoveredLinks.FindAsync([item.DiscoveredLinkId], ct);
-                int? remainingCap = maxDocsPerSource.HasValue
-                    ? Math.Max(0, maxDocsPerSource.Value - totalDocs)
-                    : null;
-
-                var result = await FetchAndParseAsync(
-                    item.Url,
-                    link?.Etag,
-                    link?.LastModified?.ToString("R"),
-                    csvConfig,
-                    parseConfig,
-                    remainingCap,
-                    maxFieldLength,
-                    telemetryEveryRows,
-                    sourceId,
-                    item,
-                    ct);
-
-                if (result.SkippedUnchanged)
+                var percent = (int)Math.Round((processedCount * 100.0) / total);
+                progress.Report(new JobProgress
                 {
-                    item.Status = "skipped_unchanged";
-                    item.CompletedAt = DateTime.UtcNow;
-                    _logger.LogInformation("Fetch skipped (unchanged): {Url}", item.Url);
-                }
-                else if (result.SkippedFormat)
-                {
-                    item.Status = "skipped_format";
-                    item.CompletedAt = DateTime.UtcNow;
-                    item.LastError = "PDF format not yet supported";
-                    _logger.LogInformation("Fetch skipped (unsupported format): {Url}", item.Url);
-                }
-                else
-                {
-                    item.Status = result.Capped ? "capped" : "completed";
-                    item.CompletedAt = DateTime.UtcNow;
-                    totalDocs += result.DocumentsCreated;
-                    totalRows += result.RowsProcessed;
-                    totalTruncatedFields += result.TruncatedFields;
-                    capped = capped || result.Capped;
-                }
-
-                if (!string.IsNullOrEmpty(result.NewEtag) && link != null)
-                {
-                    link.Etag = result.NewEtag;
-                    if (!string.IsNullOrEmpty(result.NewLastModified) &&
-                        DateTimeOffset.TryParse(result.NewLastModified, out var lm))
+                    PercentComplete = percent,
+                    Message = $"Fetch {processedCount}/{total}",
+                    Metrics = new Dictionary<string, object>
                     {
-                        link.LastModified = lm.UtcDateTime;
+                        ["items_total"] = total,
+                        ["items_completed"] = completed,
+                        ["items_failed"] = failed,
+                        ["documents_created"] = totalDocs,
+                        ["rows_processed"] = totalRows,
+                        ["fields_truncated"] = totalTruncatedFields,
+                        ["capped"] = capped
                     }
-                    link.UpdatedAt = DateTime.UtcNow;
-                }
-
-                completed++;
-            }
-            catch (Exception ex)
-            {
-                failed++;
-                item.Status = "failed";
-                item.LastError = ex.Message.Length > 2000 ? ex.Message[..2000] : ex.Message;
-                item.CompletedAt = DateTime.UtcNow;
-                _logger.LogError(ex, "Fetch failed for {Url}", item.Url);
+                });
             }
 
-            await _context.SaveChangesAsync(ct);
-
-            var percent = (int)Math.Round(((i + 1) * 100.0) / total);
-            progress.Report(new JobProgress
-            {
-                PercentComplete = percent,
-                Message = $"Fetch {i + 1}/{total}",
-                Metrics = new Dictionary<string, object>
-                {
-                    ["items_total"] = total,
-                    ["items_completed"] = completed,
-                    ["items_failed"] = failed,
-                    ["documents_created"] = totalDocs,
-                    ["rows_processed"] = totalRows,
-                    ["fields_truncated"] = totalTruncatedFields,
-                    ["capped"] = capped
-                }
-            });
-
-            if (capped)
-            {
-                break;
-            }
+            _context.ChangeTracker.Clear();
         }
 
-        fetchRun.CompletedAt = DateTime.UtcNow;
-        fetchRun.ItemsTotal = total;
-        fetchRun.ItemsCompleted = completed;
-        fetchRun.ItemsFailed = failed;
+        var fetchRunFinal = await _context.FetchRuns.FindAsync([fetchRun.Id], ct)
+            ?? throw new InvalidOperationException($"FetchRun {fetchRun.Id} not found for finalization.");
+        fetchRunFinal.CompletedAt = DateTime.UtcNow;
+        fetchRunFinal.ItemsTotal = total;
+        fetchRunFinal.ItemsCompleted = completed;
+        fetchRunFinal.ItemsFailed = failed;
 
         if (capped && maxDocsPerSource.HasValue)
         {
-            fetchRun.Status = "capped";
-            fetchRun.ErrorSummary = $"Fetch capped at {maxDocsPerSource.Value} documents";
+            fetchRunFinal.Status = "capped";
+            fetchRunFinal.ErrorSummary = $"Fetch capped at {maxDocsPerSource.Value} documents";
         }
         else
         {
-            fetchRun.Status = failed == 0 ? "completed" : (completed > 0 ? "partial" : "failed");
-            fetchRun.ErrorSummary = failed == 0 ? null : $"{failed} item(ns) falharam";
+            fetchRunFinal.Status = failed == 0 ? "completed" : (completed > 0 ? "partial" : "failed");
+            fetchRunFinal.ErrorSummary = failed == 0 ? null : $"{failed} item(ns) falharam";
         }
 
         await _context.SaveChangesAsync(ct);
@@ -268,6 +386,7 @@ public class FetchJobExecutor : IJobExecutor
         string url,
         string? etag,
         string? lastModified,
+        string? linkMetadataJson,
         CsvFormatConfig csvConfig,
         JsonElement? parseConfig,
         int? maxDocsForItem,
@@ -316,6 +435,7 @@ public class FetchJobExecutor : IJobExecutor
 
         return await ProcessCsvStreamAsync(
             stream,
+            linkMetadataJson,
             csvConfig,
             parseConfig,
             maxDocsForItem,
@@ -330,6 +450,7 @@ public class FetchJobExecutor : IJobExecutor
 
     private async Task<FetchResult> ProcessCsvStreamAsync(
         Stream stream,
+        string? linkMetadataJson,
         CsvFormatConfig csvConfig,
         JsonElement? parseConfig,
         int? maxDocsForItem,
@@ -376,7 +497,7 @@ public class FetchJobExecutor : IJobExecutor
                     ContentHash = ComputeHash(row.Fields),
                     Status = "pending",
                     ProcessingStage = "fetch_completed",
-                    Metadata = JsonSerializer.Serialize(row.Fields)
+                    Metadata = BuildDocumentMetadataJson(linkMetadataJson, row.Fields)
                 };
 
                 batch.Add(doc);
@@ -435,6 +556,93 @@ public class FetchJobExecutor : IJobExecutor
         };
     }
 
+    private async Task<FetchResult> FetchAndParseJsonApiAsync(
+        string url,
+        string? etag,
+        string? lastModified,
+        string? linkMetadataJson,
+        JsonApiExtractConfig? extractConfig,
+        string sourceId,
+        FetchItemEntity item,
+        CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        if (!string.IsNullOrEmpty(etag))
+            request.Headers.IfNoneMatch.Add(new EntityTagHeaderValue($"\"{etag}\""));
+        if (!string.IsNullOrEmpty(lastModified) && DateTimeOffset.TryParse(lastModified, out var lm))
+            request.Headers.IfModifiedSince = lm;
+
+        using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (response.StatusCode == HttpStatusCode.NotModified)
+            return new FetchResult { SkippedUnchanged = true };
+
+        response.EnsureSuccessStatusCode();
+
+        var newEtag = response.Headers.ETag?.Tag?.Trim('"');
+        var newLastModified = response.Content.Headers.LastModified?.ToString("R");
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+
+        var titlePath = extractConfig?.TitlePath ?? "DetalheDocumento.documentos.documento[0].normaNome";
+        var contentPath = extractConfig?.ContentPath ?? "DetalheDocumento.documentos.documento[0].ementa";
+        var idPath = extractConfig?.IdPath ?? "DetalheDocumento.documentos.documento[0].norma";
+        var videsPath = extractConfig?.VidesPath ?? "DetalheDocumento.documentos.documento[0].vides";
+
+        var extractedTitle = TryReadPathAsString(doc.RootElement, titlePath);
+        var extractedContent = TryReadPathAsString(doc.RootElement, contentPath);
+        var extractedId = TryReadPathAsString(doc.RootElement, idPath);
+        var videsElement = TryReadPath(doc.RootElement, videsPath);
+        var normativeForce = DeriveNormativeForce(CollectComentarios(videsElement));
+
+        var extractedMetadata = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["normative_force"] = normativeForce
+        };
+
+        if (!string.IsNullOrWhiteSpace(extractedId))
+            extractedMetadata["senado_norma"] = extractedId!;
+        if (!string.IsNullOrWhiteSpace(extractedTitle))
+            extractedMetadata["senado_norma_nome"] = extractedTitle!;
+        if (!string.IsNullOrWhiteSpace(extractedContent))
+            extractedMetadata["senado_ementa"] = extractedContent!;
+
+        var externalId = !string.IsNullOrWhiteSpace(extractedId)
+            ? extractedId!
+            : ComputeHash(new Dictionary<string, string> { ["url"] = url, ["title"] = extractedTitle ?? string.Empty });
+
+        var content = extractedContent ?? extractedTitle ?? string.Empty;
+        var docEntity = new DocumentEntity
+        {
+            LinkId = item.DiscoveredLinkId,
+            FetchItemId = item.Id,
+            SourceId = sourceId,
+            ExternalId = externalId,
+            DocumentId = extractedId,
+            Title = extractedTitle,
+            Content = content,
+            ContentHash = ComputeHash(new Dictionary<string, string>
+            {
+                ["external_id"] = externalId,
+                ["content"] = content
+            }),
+            Status = "pending",
+            ProcessingStage = "fetch_completed",
+            Metadata = BuildDocumentMetadataJson(linkMetadataJson, extractedMetadata)
+        };
+
+        await InsertBatchAsync([docEntity], ct);
+
+        return new FetchResult
+        {
+            DocumentsCreated = 1,
+            RowsProcessed = 1,
+            NewEtag = newEtag,
+            NewLastModified = newLastModified
+        };
+    }
+
     private async Task InsertBatchAsync(List<DocumentEntity> batch, CancellationToken ct)
     {
         foreach (var doc in batch)
@@ -474,7 +682,7 @@ public class FetchJobExecutor : IJobExecutor
         _logger.LogDebug("Batch of {Count} documents inserted via raw SQL", batch.Count);
     }
 
-    private async Task<JsonElement?> LoadParseConfigAsync(string sourceId, CancellationToken ct)
+    private async Task<SourceFetchConfig> LoadSourceFetchConfigAsync(string sourceId, CancellationToken ct)
     {
         var sourcesPath = Environment.GetEnvironmentVariable("GABI_SOURCES_PATH") ?? "sources_v2.yaml";
 
@@ -485,7 +693,7 @@ public class FetchJobExecutor : IJobExecutor
         }
 
         if (!File.Exists(sourcesPath))
-            return null;
+            return new SourceFetchConfig(null, null, null);
 
         try
         {
@@ -498,23 +706,47 @@ public class FetchJobExecutor : IJobExecutor
             var doc = deserializer.Deserialize<Dictionary<string, object>>(yaml);
 
             if (doc == null || !doc.TryGetValue("sources", out var sourcesObj))
-                return null;
+                return new SourceFetchConfig(null, null, null);
 
             var sources = sourcesObj as Dictionary<object, object>;
             if (sources == null || !sources.TryGetValue(sourceId, out var sourceObj))
-                return null;
+                return new SourceFetchConfig(null, null, null);
 
-            var source = sourceObj as Dictionary<object, object>;
-            if (source == null || !source.TryGetValue("parse", out var parseObj))
-                return null;
+            if (sourceObj is not Dictionary<object, object> source)
+                return new SourceFetchConfig(null, null, null);
 
-            var json = JsonSerializer.Serialize(parseObj);
-            return JsonDocument.Parse(json).RootElement;
+            JsonElement? parseConfig = null;
+            if (source.TryGetValue("parse", out var parseObj))
+            {
+                var json = JsonSerializer.Serialize(parseObj);
+                parseConfig = JsonDocument.Parse(json).RootElement;
+            }
+
+            string? contentStrategy = null;
+            JsonApiExtractConfig? jsonApiExtract = null;
+            if (source.TryGetValue("fetch", out var fetchObj) && fetchObj is Dictionary<object, object> fetch)
+            {
+                if (fetch.TryGetValue("content_strategy", out var strategyObj))
+                    contentStrategy = strategyObj?.ToString();
+
+                if (fetch.TryGetValue("extract", out var extractObj) && extractObj is Dictionary<object, object> extract)
+                {
+                    jsonApiExtract = new JsonApiExtractConfig
+                    {
+                        TitlePath = extract.TryGetValue("title_path", out var title) ? title?.ToString() : null,
+                        ContentPath = extract.TryGetValue("content_path", out var content) ? content?.ToString() : null,
+                        IdPath = extract.TryGetValue("id_path", out var id) ? id?.ToString() : null,
+                        VidesPath = extract.TryGetValue("vides_path", out var vides) ? vides?.ToString() : null
+                    };
+                }
+            }
+
+            return new SourceFetchConfig(parseConfig, contentStrategy, jsonApiExtract);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to load parse config for {SourceId}", sourceId);
-            return null;
+            _logger.LogWarning(ex, "Failed to load source fetch config for {SourceId}", sourceId);
+            return new SourceFetchConfig(null, null, null);
         }
     }
 
@@ -634,6 +866,156 @@ public class FetchJobExecutor : IJobExecutor
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
+    public static string BuildDocumentMetadataJson(string? linkMetadataJson, IReadOnlyDictionary<string, string> rowFields)
+    {
+        var rowAsObjects = rowFields.ToDictionary(kv => kv.Key, kv => (object)kv.Value, StringComparer.OrdinalIgnoreCase);
+        return BuildDocumentMetadataJson(linkMetadataJson, rowAsObjects);
+    }
+
+    public static string BuildDocumentMetadataJson(string? linkMetadataJson, IReadOnlyDictionary<string, object> extractedFields)
+    {
+        var merged = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+
+        if (!string.IsNullOrWhiteSpace(linkMetadataJson))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(linkMetadataJson);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var property in doc.RootElement.EnumerateObject())
+                    {
+                        merged[property.Name] = ConvertJsonElementToObject(property.Value);
+                    }
+                }
+            }
+            catch (JsonException)
+            {
+                // Ignore malformed link metadata and fallback to row fields only.
+            }
+        }
+
+        foreach (var (key, value) in extractedFields)
+        {
+            merged[key] = value;
+        }
+
+        return JsonSerializer.Serialize(merged);
+    }
+
+    public static string DeriveNormativeForce(IEnumerable<string> comentarios)
+    {
+        var joined = string.Join(" ", comentarios ?? []);
+        if (string.IsNullOrWhiteSpace(joined))
+            return "desconhecido";
+
+        if (Regex.IsMatch(joined, "revoga", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            return "revogada";
+        if (Regex.IsMatch(joined, "altera.{0,40}provis", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            return "modificada_provisoriamente";
+        if (Regex.IsMatch(joined, "altera", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            return "modificada";
+
+        return "desconhecido";
+    }
+
+    private static JsonElement? TryReadPath(JsonElement root, string path)
+    {
+        var current = root;
+        foreach (var segment in path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var match = Regex.Match(segment, @"^(?<name>[^\[]+)(\[(?<index>\d+)\])?$");
+            if (!match.Success)
+                return null;
+
+            var name = match.Groups["name"].Value;
+            if (!current.TryGetProperty(name, out current))
+                return null;
+
+            if (match.Groups["index"].Success)
+            {
+                if (current.ValueKind != JsonValueKind.Array || !int.TryParse(match.Groups["index"].Value, out var idx))
+                    return null;
+                if (idx < 0 || idx >= current.GetArrayLength())
+                    return null;
+                current = current[idx];
+            }
+        }
+
+        return current;
+    }
+
+    private static string? TryReadPathAsString(JsonElement root, string path)
+    {
+        var element = TryReadPath(root, path);
+        if (!element.HasValue)
+            return null;
+
+        return element.Value.ValueKind switch
+        {
+            JsonValueKind.String => element.Value.GetString(),
+            JsonValueKind.Number => element.Value.GetRawText(),
+            JsonValueKind.True => "true",
+            JsonValueKind.False => "false",
+            _ => null
+        };
+    }
+
+    private static IEnumerable<string> CollectComentarios(JsonElement? root)
+    {
+        if (!root.HasValue)
+            yield break;
+
+        foreach (var text in CollectComentariosRecursive(root.Value))
+            yield return text;
+    }
+
+    private static IEnumerable<string> CollectComentariosRecursive(JsonElement node)
+    {
+        if (node.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var prop in node.EnumerateObject())
+            {
+                if (prop.NameEquals("comentario") && prop.Value.ValueKind == JsonValueKind.String)
+                {
+                    var value = prop.Value.GetString();
+                    if (!string.IsNullOrWhiteSpace(value))
+                        yield return value!;
+                }
+
+                foreach (var nested in CollectComentariosRecursive(prop.Value))
+                    yield return nested;
+            }
+        }
+        else if (node.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in node.EnumerateArray())
+            {
+                foreach (var nested in CollectComentariosRecursive(item))
+                    yield return nested;
+            }
+        }
+    }
+
+    private static object? ConvertJsonElementToObject(JsonElement value)
+    {
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString(),
+            JsonValueKind.Number when value.TryGetInt64(out var i64) => i64,
+            JsonValueKind.Number when value.TryGetDouble(out var dbl) => dbl,
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.Null => null,
+            JsonValueKind.Object => value.EnumerateObject()
+                .ToDictionary(prop => prop.Name, prop => ConvertJsonElementToObject(prop.Value)),
+            JsonValueKind.Array => value.EnumerateArray()
+                .Select(ConvertJsonElementToObject)
+                .ToList(),
+            _ => value.GetRawText()
+        };
+    }
+
     public static int? ReadMaxDocsPerSource(Dictionary<string, object>? payload)
     {
         if (payload == null || !payload.TryGetValue("max_docs_per_source", out var raw) || raw == null)
@@ -743,4 +1125,17 @@ public class FetchJobExecutor : IJobExecutor
         public string? NewEtag { get; init; }
         public string? NewLastModified { get; init; }
     }
+
+    private sealed class JsonApiExtractConfig
+    {
+        public string? TitlePath { get; init; }
+        public string? ContentPath { get; init; }
+        public string? IdPath { get; init; }
+        public string? VidesPath { get; init; }
+    }
+
+    private sealed record SourceFetchConfig(
+        JsonElement? ParseConfig,
+        string? ContentStrategy,
+        JsonApiExtractConfig? JsonApiExtract);
 }

@@ -17,11 +17,10 @@ Este documento define o layout alvo de infraestrutura para cada ambiente e a dec
 | Redis          | Docker Compose         | `localhost:6379`          |
 | Gabi.Api       | Host (`dotnet run`)    | `localhost:5100`          |
 | Gabi.Worker    | Host (`dotnet run`)    | processo em background    |
-| Frontend (web) | Host (`npm run dev`)   | `localhost:3000`          |
 
 **Fluxo:**
 1. `./scripts/dev-up.sh` — sobe só infra (postgres, elasticsearch, redis).
-2. API, Worker e frontend rodam no host; conectam em `localhost` com portas do compose.
+2. API e Worker rodam no host; conectam em `localhost` com portas do compose.
 3. `./scripts/dev-down.sh` — derruba infra.
 
 **Config:** `appsettings.Development.json` / `GABI_SOURCES_PATH` (opcional). Nenhum container da aplicação em dev.
@@ -38,8 +37,7 @@ Este documento define o layout alvo de infraestrutura para cada ambiente e a dec
 | Elasticsearch  | Externo ou omitido           | Pode usar só PG inicialmente  |
 | Redis          | Upstash / Fly Redis ou omitido | Cache opcional             |
 | Gabi.Api       | Fly.io (app `gabi-api`)      | HTTP na porta 8080            |
-| Gabi.Worker    | Fly.io (app `gabi-worker`)    | Processo sem HTTP             |
-| Frontend       | Fly.io (app `gabi-web`) ou CDN | Build estático, proxy para API |
+| Gabi.Worker    | Fly.io (app `gabi-worker`)   | Processo sem HTTP             |
 
 **Fluxo:** Igual a prod, com apps Fly separados; secrets e env de staging.
 
@@ -54,9 +52,8 @@ Este documento define o layout alvo de infraestrutura para cada ambiente e a dec
 | PostgreSQL     | Fly Postgres / Neon / RDS    | Fonte de verdade              |
 | Elasticsearch  | Bonsai / Elastic Cloud / omitir | Só quando busca avançada for necessária |
 | Redis          | Upstash / Fly Redis / omitir | Cache/DLQ quando implementado |
-| Gabi.Api       | Fly.io (app `gabi-api`)      | Escala por instâncias          |
+| Gabi.Api       | Fly.io (app `gabi-api`)      | Escala por instâncias         |
 | Gabi.Worker    | Fly.io (app `gabi-worker`)   | 1 instância ou mais conforme carga |
-| Frontend       | Fly.io (app `gabi-web`) ou CDN | Build estático                |
 
 **Fluxo:** Cada app é deployado com `fly deploy` no seu próprio diretório/config; conectam via secrets (connection strings, URLs).
 
@@ -86,13 +83,12 @@ Este documento define o layout alvo de infraestrutura para cada ambiente e a dec
 
 ## 3. Referência rápida de comandos
 
-| Ação        | Dev (local)              | Staging/Prod (Fly)                    |
-|-------------|---------------------------|--------------------------------------|
-| Subir infra | `./scripts/dev-up.sh`     | N/A (serviços gerenciados)           |
+| Ação        | Dev (local)                 | Staging/Prod (Fly)                    |
+|-------------|-----------------------------|--------------------------------------|
+| Subir infra | `./scripts/dev infra up`    | N/A (serviços gerenciados)           |
 | Rodar API   | `dotnet run -p src/Gabi.Api` | `fly deploy` no app gabi-api      |
 | Rodar Worker| `dotnet run -p src/Gabi.Worker` | `fly deploy` no app gabi-worker |
-| Rodar Web   | `cd web && npm run dev`   | Build + deploy app gabi-web ou CDN   |
-| Parar infra | `./scripts/dev-down.sh`   | `fly apps stop` / scale 0            |
+| Parar infra | `./scripts/dev infra down`  | `fly apps stop` / scale 0            |
 
 ---
 

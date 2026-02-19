@@ -1,3 +1,0 @@
-﻿<Project>
-  <Import Project="../build/Gabi.Api.props" />
-</Project>

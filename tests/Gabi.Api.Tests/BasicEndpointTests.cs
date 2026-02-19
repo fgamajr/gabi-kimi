@@ -31,7 +31,7 @@ public class BasicEndpointTests : IClassFixture<CustomWebApplicationFactory>
     public async Task ApiExists_ReturnsSomeResponse()
     {
         // Act - tentar acessar qualquer endpoint da API
-        var response = await _client.GetAsync("/api/v1/dashboard/stats");
+        var response = await _client.GetAsync("/api/v1/dashboard/pipeline/phases");
 
         // Assert - deve retornar alguma resposta (401, 404, ou outro)
         // O importante é que a API está respondendo
@@ -39,9 +39,9 @@ public class BasicEndpointTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
-    public async Task DiscoveryLastEndpoint_Exists_ReturnsClientOrSuccessStatus()
+    public async Task PipelinePhasesEndpoint_Exists_ReturnsClientOrSuccessStatus()
     {
-        var response = await _client.GetAsync("/api/v1/dashboard/discovery/last");
+        var response = await _client.GetAsync("/api/v1/dashboard/pipeline/phases");
         Assert.True(
             response.StatusCode == HttpStatusCode.OK || response.StatusCode == HttpStatusCode.NotFound
                 || response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.BadRequest,
@@ -59,9 +59,9 @@ public class BasicEndpointTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
-    public async Task FetchLastEndpoint_Exists_ReturnsClientOrSuccessStatus()
+    public async Task JobsEndpoint_Exists_ReturnsClientOrSuccessStatus()
     {
-        var response = await _client.GetAsync("/api/v1/dashboard/fetch/last");
+        var response = await _client.GetAsync("/api/v1/jobs");
         Assert.True(
             response.StatusCode == HttpStatusCode.OK || response.StatusCode == HttpStatusCode.NotFound
                 || response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.BadRequest,

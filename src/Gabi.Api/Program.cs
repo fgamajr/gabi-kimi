@@ -232,49 +232,6 @@ app.MapGet(ApiRoutes.SourceById, [Authorize(Policy = "RequireViewer")] async (st
 })
 .RequireRateLimiting("read");
 
-// POST /api/v1/sources/{sourceId}/refresh - Refresh source discovery (enqueues job)
-app.MapPost(ApiRoutes.SourceRefresh, [Authorize(Policy = "RequireOperator")] async (string sourceId, ISourceCatalog catalog, CancellationToken ct) =>
-{
-    try
-    {
-        var result = await catalog.RefreshSourceAsync(sourceId, ct);
-        return Results.Ok(new ApiEnvelope<RefreshResult>(result));
-    }
-    catch (KeyNotFoundException)
-    {
-        return Results.NotFound(new ApiError("SOURCE_NOT_FOUND", $"Source '{sourceId}' not found"));
-    }
-})
-.RequireRateLimiting("write");
-
-// ═════════════════════════════════════════════════════════════════════════════
-// Jobs API (protegidos)
-// ═════════════════════════════════════════════════════════════════════════════
-
-// GET /api/v1/jobs - List sync jobs + elastic indexes (dashboard)
-app.MapGet(ApiRoutes.Jobs, [Authorize(Policy = "RequireViewer")] async (ISourceCatalog catalog, CancellationToken ct) =>
-{
-    var jobs = await catalog.ListSyncJobsAsync(ct);
-    return Results.Ok(new ApiEnvelope<JobsResponseDto>(jobs));
-})
-.RequireRateLimiting("read");
-
-// GET /api/v1/stats - Dashboard stats (sources, total docs, elasticsearch)
-app.MapGet(ApiRoutes.Stats, [Authorize(Policy = "RequireViewer")] async (ISourceCatalog catalog, CancellationToken ct) =>
-{
-    var stats = await catalog.GetSystemStatsAsync(ct);
-    return Results.Ok(new ApiEnvelope<SystemStatsDto>(stats));
-})
-.RequireRateLimiting("read");
-
-// GET /api/v1/pipeline - Pipeline stages (harvest, sync, ingest, index)
-app.MapGet(ApiRoutes.Pipeline, [Authorize(Policy = "RequireViewer")] async (ISourceCatalog catalog, CancellationToken ct) =>
-{
-    var stages = await catalog.GetPipelineStagesAsync(ct);
-    return Results.Ok(new ApiEnvelope<IReadOnlyList<PipelineStageDto>>(stages));
-})
-.RequireRateLimiting("read");
-
 // GET /api/v1/jobs/{sourceId}/status - Get job status for a source
 app.MapGet("/api/v1/jobs/{sourceId}/status", [Authorize(Policy = "RequireViewer")] async (string sourceId, IJobQueueRepository jobQueue, CancellationToken ct) =>
 {
@@ -293,57 +250,6 @@ app.MapGet("/api/v1/jobs/{sourceId}/status", [Authorize(Policy = "RequireViewer"
         )));
 })
 .RequireRateLimiting("read");
-
-// ═════════════════════════════════════════════════════════════════════════════
-// Dashboard API (Frontend-compatible endpoints) - Protegidos
-// ═════════════════════════════════════════════════════════════════════════════
-
-// GET /api/v1/dashboard/stats - Dashboard stats (matches React frontend contract)
-app.MapGet("/api/v1/dashboard/stats", [Authorize(Policy = "RequireViewer")] async (IDashboardService dashboard, CancellationToken ct) =>
-{
-    var stats = await dashboard.GetStatsAsync(ct);
-    return Results.Ok(stats);
-})
-.RequireRateLimiting("read");
-
-// GET /api/v1/dashboard/jobs - Jobs list (matches React frontend contract)
-app.MapGet("/api/v1/dashboard/jobs", [Authorize(Policy = "RequireViewer")] async (IDashboardService dashboard, CancellationToken ct) =>
-{
-    var jobs = await dashboard.GetJobsAsync(ct);
-    return Results.Ok(jobs);
-})
-.RequireRateLimiting("read");
-
-// GET /api/v1/dashboard/pipeline - Pipeline stages (matches React frontend contract)
-app.MapGet("/api/v1/dashboard/pipeline", [Authorize(Policy = "RequireViewer")] async (IDashboardService dashboard, CancellationToken ct) =>
-{
-    var pipeline = await dashboard.GetPipelineAsync(ct);
-    return Results.Ok(pipeline);
-})
-.RequireRateLimiting("read");
-
-// GET /api/v1/dashboard/health - System health status
-app.MapGet("/api/v1/dashboard/health", [Authorize(Policy = "RequireViewer")] async (IDashboardService dashboard, CancellationToken ct) =>
-{
-    var health = await dashboard.GetSystemHealthAsync(ct);
-    return Results.Ok(health);
-})
-.RequireRateLimiting("read");
-
-// POST /api/v1/dashboard/sources/{sourceId}/refresh - Refresh source (body optional; empty => Force = true)
-app.MapPost("/api/v1/dashboard/sources/{sourceId}/refresh", [Authorize(Policy = "RequireOperator")] async (
-    string sourceId,
-    RefreshSourceRequest? request,
-    IDashboardService dashboard,
-    CancellationToken ct) =>
-{
-    var req = request ?? new RefreshSourceRequest { Force = true };
-    var result = await dashboard.RefreshSourceAsync(sourceId, req, ct);
-    return result.Success 
-        ? Results.Ok(result)
-        : Results.NotFound(result);
-})
-.RequireRateLimiting("write");
 
 // POST /api/v1/dashboard/seed - Enfileira job de seed (Worker persiste YAML no banco com retry e registra em seed_runs)
 app.MapPost("/api/v1/dashboard/seed", [Authorize(Policy = "RequireOperator")] async (IDashboardService dashboard, CancellationToken ct) =>
@@ -415,14 +321,6 @@ app.MapPost("/api/v1/dashboard/sources/{sourceId}/phases/{phase}", [Authorize(Po
     return result.Success ? Results.Ok(result) : Results.NotFound(result);
 })
 .RequireRateLimiting("write");
-
-// GET /api/v1/dashboard/safra - Safra details (matches React frontend contract)
-app.MapGet("/api/v1/dashboard/safra", [Authorize(Policy = "RequireViewer")] async (string? sourceId, IDashboardService dashboard, CancellationToken ct) =>
-{
-    var safra = await dashboard.GetSafraAsync(sourceId, ct);
-    return Results.Ok(safra);
-})
-.RequireRateLimiting("read");
 
 // Novos endpoints de links (protegidos)
 app.MapGet("/api/v1/sources/{sourceId}/links", [Authorize(Policy = "RequireViewer")] async (

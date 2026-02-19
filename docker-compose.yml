@@ -5,14 +5,13 @@
 #
 # APPS (opcional - use --profile):
 #   - Gabi.Api:     docker compose --profile api up -d
-#   - Gabi.Web:     docker compose --profile web up -d
+#   - Gabi.Worker:  docker compose --profile worker up -d
 #
 # FLY.IO: deploy de API e Worker são apps separados (ver docs/infrastructure/FLY_DEPLOY.md).
 #
 # USO:
 #   ./scripts/dev-up.sh              # Inicia infra
 #   dotnet run --project src/Gabi.Api  # Roda API no host (:5100)
-#   cd web && npm run dev              # Roda frontend no host (:3000)
 
 services:
   # PostgreSQL - Banco de dados principal
@@ -140,6 +139,7 @@ services:
       - GABI_SOURCES_PATH=/app/sources_v2.yaml
       - Gabi__ElasticsearchUrl=http://elasticsearch:9200
       - Gabi__RedisUrl=redis://redis:6379/0
+      - WorkerPool__WorkerCount=1
     volumes:
       - ./sources_v2.yaml:/app/sources_v2.yaml:ro
     depends_on:
@@ -155,23 +155,6 @@ services:
           memory: 256M
     profiles:
       - worker
-
-  # Gabi.Web - Frontend SPA (optional)
-  # Usage: docker compose --profile web up -d
-  web:
-    image: node:20-alpine
-    working_dir: /app
-    command: sh -c "npm install && npm run dev -- --host"
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./src/Gabi.Web:/app
-    environment:
-      - NODE_ENV=development
-    depends_on:
-      - api
-    profiles:
-      - web
 
 # Volumes persistentes
 volumes:
