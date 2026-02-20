@@ -20,3 +20,12 @@ public record MediaRequeueResponse(
     Guid JobId,
     string Status,
     string Message);
+
+public record MediaLocalFileRequest(
+    string SourceId,
+    string ExternalId,
+    string FilePath,
+    string? Title = null,
+    string? SessionType = null,
+    string? Chamber = null,
+    string? Metadata = null);

@@ -106,4 +106,24 @@ public class BasicEndpointTests : IClassFixture<CustomWebApplicationFactory>
             || response.StatusCode == HttpStatusCode.BadRequest,
             $"Expected 202/404/401/400, got {response.StatusCode}");
     }
+
+    [Fact]
+    public async Task MediaLocalFileEndpoint_Exists_ReturnsClientOrSuccessStatus()
+    {
+        var payload = """
+            {
+              "sourceId": "tcu_media_upload",
+              "externalId": "local-file-test",
+              "filePath": "/workspace/sample.mp4"
+            }
+            """;
+        var response = await _client.PostAsync(
+            "/api/v1/media/local-file",
+            new StringContent(payload, System.Text.Encoding.UTF8, "application/json"));
+        Assert.True(
+            response.StatusCode == HttpStatusCode.Accepted
+            || response.StatusCode == HttpStatusCode.BadRequest
+            || response.StatusCode == HttpStatusCode.Unauthorized,
+            $"Expected 202/400/401, got {response.StatusCode}");
+    }
 }

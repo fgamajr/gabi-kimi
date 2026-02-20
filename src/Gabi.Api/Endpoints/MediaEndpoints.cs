@@ -14,11 +14,17 @@ namespace Gabi.Api.Endpoints;
 
 public static class MediaEndpoints
 {
-    private const long MaxUploadBytes = 512L * 1024L * 1024L; // 512MB hard-limit for stream copy
+    private const int MaxMetadataChars = 32_000;
+    private const int MaxSummaryChars = 262_144;
+    private const int MaxTranscriptChars = 1_048_576;
 
     public static IEndpointRouteBuilder MapMediaEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPost("/api/v1/media/upload", UploadAsync)
+            .RequireAuthorization("RequireOperator")
+            .RequireRateLimiting("write");
+
+        app.MapPost("/api/v1/media/local-file", LocalFileAsync)
             .RequireAuthorization("RequireOperator")
             .RequireRateLimiting("write");
 
@@ -55,11 +61,7 @@ public static class MediaEndpoints
         var durationSeconds = default(int?);
         var providedTranscript = default(string);
         var providedSummary = default(string);
-        string? tempFilePath = null;
-
-        var mediaRoot = Environment.GetEnvironmentVariable("GABI_MEDIA_TMP_DIR");
-        mediaRoot = string.IsNullOrWhiteSpace(mediaRoot) ? "/tmp/gabi-media" : mediaRoot;
-        Directory.CreateDirectory(mediaRoot);
+        var rejectedBinaryUpload = false;
 
         var boundary = HeaderUtilities.RemoveQuotes(mediaType.Boundary).Value;
         var reader = new MultipartReader(boundary!, httpContext.Request.Body);
@@ -71,12 +73,9 @@ public static class MediaEndpoints
 
             if (disposition.DispositionType.Equals("form-data") && !string.IsNullOrEmpty(disposition.FileName.Value))
             {
-                var originalFileName = disposition.FileName.Value ?? disposition.FileNameStar.Value ?? "media.bin";
-                var extension = Path.GetExtension(originalFileName);
-                var safeExtension = extension.Length > 10 ? ".bin" : extension;
-                tempFilePath = Path.Combine(mediaRoot, $"{Guid.NewGuid():N}{safeExtension}");
-                await using var fs = new FileStream(tempFilePath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, useAsync: true);
-                await CopyWithLimitAsync(section.Body, fs, MaxUploadBytes, ct);
+                // Always reject binary upload to keep behavior aligned with diskless production.
+                await section.Body.CopyToAsync(Stream.Null, ct);
+                rejectedBinaryUpload = true;
                 continue;
             }
 
@@ -122,14 +121,28 @@ public static class MediaEndpoints
             }
         }
 
+        if (rejectedBinaryUpload)
+        {
+            return Results.BadRequest(new
+            {
+                error = "Binary file upload is disabled in this environment. Use media_url, transcript_text or summary_text."
+            });
+        }
+
         if (string.IsNullOrWhiteSpace(sourceId))
             return Results.BadRequest(new { error = "source_id is required." });
         if (string.IsNullOrWhiteSpace(externalId))
             externalId = Guid.NewGuid().ToString("N");
-        if (string.IsNullOrWhiteSpace(mediaUrl) && string.IsNullOrWhiteSpace(tempFilePath))
-            return Results.BadRequest(new { error = "Provide media_url or file in multipart body." });
+        if (string.IsNullOrWhiteSpace(mediaUrl))
+            return Results.BadRequest(new { error = "media_url is required." });
         if (!IsValidJson(metadataJson))
             return Results.BadRequest(new { error = "metadata must be valid JSON." });
+        if (metadataJson.Length > MaxMetadataChars)
+            return Results.BadRequest(new { error = $"metadata exceeds max length ({MaxMetadataChars} chars)." });
+        if (!string.IsNullOrWhiteSpace(providedSummary) && providedSummary.Length > MaxSummaryChars)
+            return Results.BadRequest(new { error = $"summary_text exceeds max length ({MaxSummaryChars} chars)." });
+        if (!string.IsNullOrWhiteSpace(providedTranscript) && providedTranscript.Length > MaxTranscriptChars)
+            return Results.BadRequest(new { error = $"transcript_text exceeds max length ({MaxTranscriptChars} chars)." });
 
         var actor = httpContext.User.FindFirstValue(ClaimTypes.Name) ?? "operator";
 
@@ -148,7 +161,6 @@ public static class MediaEndpoints
                 SourceId = sourceId,
                 ExternalId = externalId,
                 MediaUrl = string.IsNullOrWhiteSpace(mediaUrl) ? null : mediaUrl,
-                TempFilePath = tempFilePath,
                 Title = string.IsNullOrWhiteSpace(title) ? null : title,
                 SessionType = string.IsNullOrWhiteSpace(sessionType) ? null : sessionType,
                 Chamber = string.IsNullOrWhiteSpace(chamber) ? null : chamber,
@@ -169,8 +181,6 @@ public static class MediaEndpoints
             entity = existing;
             if (!string.IsNullOrWhiteSpace(mediaUrl))
                 entity.MediaUrl = mediaUrl;
-            if (!string.IsNullOrWhiteSpace(tempFilePath))
-                entity.TempFilePath = tempFilePath;
             if (!string.IsNullOrWhiteSpace(title))
                 entity.Title = title;
             if (!string.IsNullOrWhiteSpace(sessionType))
@@ -217,6 +227,110 @@ public static class MediaEndpoints
             "Upload received and media_transcribe job enqueued.");
 
         return Results.Accepted($"/api/v1/media/{entity.Id}", response);
+    }
+
+    private static async Task<IResult> LocalFileAsync(
+        MediaLocalFileRequest request,
+        HttpContext httpContext,
+        GabiDbContext db,
+        IJobQueueRepository jobQueue,
+        CancellationToken ct)
+    {
+        var enabled = string.Equals(
+            Environment.GetEnvironmentVariable("GABI_MEDIA_ALLOW_LOCAL_FILE"),
+            "true",
+            StringComparison.OrdinalIgnoreCase);
+        if (!enabled)
+        {
+            return Results.BadRequest(new { error = "Local file transcribe is disabled. Enable GABI_MEDIA_ALLOW_LOCAL_FILE=true." });
+        }
+
+        if (string.IsNullOrWhiteSpace(request.SourceId) ||
+            string.IsNullOrWhiteSpace(request.ExternalId) ||
+            string.IsNullOrWhiteSpace(request.FilePath))
+        {
+            return Results.BadRequest(new { error = "sourceId, externalId and filePath are required." });
+        }
+
+        if (!request.FilePath.StartsWith("/workspace/", StringComparison.Ordinal))
+            return Results.BadRequest(new { error = "filePath must be under /workspace/." });
+
+        if (!File.Exists(request.FilePath))
+            return Results.BadRequest(new { error = $"filePath not found: {request.FilePath}" });
+
+        var sourceExists = await db.SourceRegistries.AnyAsync(s => s.Id == request.SourceId, ct);
+        if (!sourceExists)
+            return Results.NotFound(new { error = $"source_id '{request.SourceId}' not found in source_registry." });
+
+        var actor = httpContext.User.FindFirstValue(ClaimTypes.Name) ?? "operator";
+        var metadataJson = string.IsNullOrWhiteSpace(request.Metadata) ? "{}" : request.Metadata!;
+        if (!IsValidJson(metadataJson))
+            return Results.BadRequest(new { error = "metadata must be valid JSON." });
+
+        var existing = await db.MediaItems
+            .FirstOrDefaultAsync(x => x.SourceId == request.SourceId && x.ExternalId == request.ExternalId, ct);
+
+        MediaItemEntity entity;
+        if (existing == null)
+        {
+            entity = new MediaItemEntity
+            {
+                SourceId = request.SourceId,
+                ExternalId = request.ExternalId,
+                TempFilePath = request.FilePath,
+                MediaUrl = $"local://{request.FilePath}",
+                Title = request.Title,
+                SessionType = request.SessionType,
+                Chamber = request.Chamber,
+                TranscriptStatus = "pending",
+                Metadata = metadataJson,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+                CreatedBy = actor,
+                UpdatedBy = actor
+            };
+            db.MediaItems.Add(entity);
+        }
+        else
+        {
+            entity = existing;
+            entity.TempFilePath = request.FilePath;
+            entity.MediaUrl = $"local://{request.FilePath}";
+            if (!string.IsNullOrWhiteSpace(request.Title))
+                entity.Title = request.Title;
+            if (!string.IsNullOrWhiteSpace(request.SessionType))
+                entity.SessionType = request.SessionType;
+            if (!string.IsNullOrWhiteSpace(request.Chamber))
+                entity.Chamber = request.Chamber;
+            entity.Metadata = metadataJson;
+            entity.TranscriptStatus = "pending";
+            entity.LastError = null;
+            entity.UpdatedAt = DateTime.UtcNow;
+            entity.UpdatedBy = actor;
+        }
+
+        await db.SaveChangesAsync(ct);
+
+        var job = new IngestJob
+        {
+            Id = Guid.NewGuid(),
+            JobType = "media_transcribe",
+            SourceId = request.SourceId,
+            Payload = new Dictionary<string, object>
+            {
+                ["media_item_id"] = entity.Id
+            },
+            Status = JobStatus.Pending,
+            Priority = JobPriority.Normal,
+            ScheduledAt = DateTime.UtcNow,
+            MaxRetries = 2,
+            IdempotencyKey = Guid.NewGuid().ToString("N")
+        };
+
+        var jobId = await jobQueue.EnqueueAsync(job, ct);
+        return Results.Accepted(
+            $"/api/v1/media/{entity.Id}",
+            new MediaUploadResponse(entity.Id, jobId, "accepted", "Local file queued for transcribe."));
     }
 
     private static async Task<IResult> GetStatusAsync(long id, GabiDbContext db, CancellationToken ct)
@@ -278,20 +392,6 @@ public static class MediaEndpoints
                 jobId,
                 "accepted",
                 "Media item requeued for transcribe."));
-    }
-
-    private static async Task CopyWithLimitAsync(Stream source, Stream destination, long maxBytes, CancellationToken ct)
-    {
-        var buffer = new byte[81920];
-        long total = 0;
-        int read;
-        while ((read = await source.ReadAsync(buffer.AsMemory(0, buffer.Length), ct)) > 0)
-        {
-            total += read;
-            if (total > maxBytes)
-                throw new InvalidOperationException($"Uploaded file exceeds max size of {maxBytes} bytes.");
-            await destination.WriteAsync(buffer.AsMemory(0, read), ct);
-        }
     }
 
     private static bool IsValidJson(string raw)

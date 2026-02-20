@@ -111,12 +111,15 @@ services:
       - GABI_INLABS_COOKIE=${GABI_INLABS_COOKIE:-}
       - YOUTUBE_API_KEY=${YOUTUBE_API_KEY:-}
       - YOUTUBE_CHANNEL_ID=${YOUTUBE_CHANNEL_ID:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GABI_MEDIA_ALLOW_LOCAL_FILE=true
       - GABI_RUN_MIGRATIONS=true
       - ConnectionStrings__Default=Host=postgres;Port=5432;Database=gabi;Username=gabi;Password=gabi_dev_password;Maximum Pool Size=15
       - Gabi__ElasticsearchUrl=http://elasticsearch:9200
       - Gabi__RedisUrl=redis://redis:6379/0
     volumes:
       - ./sources_v2.yaml:/app/sources_v2.yaml:ro
+      - ./:/workspace:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -144,11 +147,13 @@ services:
       - GABI_INLABS_COOKIE=${GABI_INLABS_COOKIE:-}
       - YOUTUBE_API_KEY=${YOUTUBE_API_KEY:-}
       - YOUTUBE_CHANNEL_ID=${YOUTUBE_CHANNEL_ID:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - Gabi__ElasticsearchUrl=http://elasticsearch:9200
       - Gabi__RedisUrl=redis://redis:6379/0
       - WorkerPool__WorkerCount=1
     volumes:
       - ./sources_v2.yaml:/app/sources_v2.yaml:ro
+      - ./:/workspace:ro
     depends_on:
       postgres:
         condition: service_healthy
