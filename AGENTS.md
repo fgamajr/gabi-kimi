@@ -2,6 +2,13 @@
 
 > Este arquivo é destinado a agentes de IA. Contém informações essenciais sobre a arquitetura, convenções e processos de desenvolvimento do projeto.
 
+## Governança de Instruções para IA (canônica)
+
+1. `AGENTS.md` é a fonte canônica de instruções do repositório.
+2. `CLAUDE.md` e `GEMINI.md` devem permanecer wrappers mínimos apontando para este arquivo.
+3. Priorizar constraints e resultados mensuráveis (SLOs, testes, evidência), evitando workflows rígidos quando o padrão já estiver explícito no código.
+4. Regras inegociáveis: arquitetura em camadas, budget de memória, migrations aditivas, contracts em `Gabi.Contracts`.
+
 ## Visão Geral do Projeto
 
 **GABI** é um sistema de ingestão, processamento e busca de dados jurídicos do Tribunal de Contas da União (TCU). O sistema segue uma arquitetura em camadas estrita com separação clara de responsabilidades.
@@ -343,7 +350,9 @@ Falhas após retries são registradas na tabela `dlq_entries`:
 ## Arquivos Importantes
 
 - `sources_v2.yaml` - Definição completa das fontes de dados
-- `CLAUDE.md` - Instruções específicas para Claude Code
+- `CLAUDE.md` - Wrapper mínimo para agentes Claude (aponta para `AGENTS.md`)
+- `GEMINI.md` - Wrapper mínimo para agentes Gemini (aponta para `AGENTS.md`)
+- `docs/ai/SKILLS_POLICY.md` - Política de uso de skills (core/optional/deprecated)
 - `DOCKER.md` - Guia completo de Docker
 - `docs/architecture/LAYERED_ARCHITECTURE.md` - Detalhes da arquitetura
 - `docs/infrastructure/FLY_DEPLOY.md` - Deploy em Fly.io
