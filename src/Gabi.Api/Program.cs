@@ -142,11 +142,12 @@ app.UseRateLimiter();
 // 6. Request Size Limit
 app.Use(async (context, next) =>
 {
-    // Limitar tamanho do request body via config (padrão: 600MB para upload streaming de mídia)
+    // Limitar tamanho do request body via config.
+    // Como upload binário está desabilitado por padrão, manter limite conservador.
     var feature = context.Features.Get<IHttpMaxRequestBodySizeFeature>();
     if (feature != null)
     {
-        var configuredMb = builder.Configuration.GetValue<long?>("Gabi:Api:MaxRequestBodySizeMb") ?? 600;
+        var configuredMb = builder.Configuration.GetValue<long?>("Gabi:Api:MaxRequestBodySizeMb") ?? 4;
         feature.MaxRequestBodySize = configuredMb * 1024 * 1024;
     }
     await next();
