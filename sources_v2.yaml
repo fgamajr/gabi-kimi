@@ -1746,6 +1746,39 @@ sources:
       mode: incremental
 
   # ─────────────────────────────────────────────────────────────────────────────
+  # 14. TCU - Media Upload (CANARY, API INGEST)
+  # ─────────────────────────────────────────────────────────────────────────────
+  tcu_media_upload:
+    enabled: true
+
+    identity:
+      name: "TCU - Media Upload"
+      description: "Ingestão reversa via API para mídia de sessões e julgamentos"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: multimedia
+      canonical_type: session_media
+
+    discovery:
+      strategy: static_url
+      config:
+        url: "upload://tcu_media_upload"
+
+    fetch:
+      protocol: upload
+      method: POST
+      content_strategy: media_transcribe
+      content_profile: media
+      format:
+        type: media
+
+    pipeline:
+      enabled: false
+      schedule: "0 3 * * *"
+      mode: manual
+
+  # ─────────────────────────────────────────────────────────────────────────────
   # 14. STF - Decisões (INACTIVE)
   # ─────────────────────────────────────────────────────────────────────────────
   stf_decisoes:

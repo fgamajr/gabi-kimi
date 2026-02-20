@@ -43,6 +43,7 @@ try
 
     builder.Services.AddDbContext<GabiDbContext>(options =>
         options.UseNpgsql(connectionString));
+    builder.Services.AddHttpClient();
 
     builder.Services.Configure<HangfireRetryPolicyOptions>(
         builder.Configuration.GetSection(HangfireRetryPolicyOptions.SectionName));
@@ -95,6 +96,7 @@ try
     builder.Services.AddScoped<IJobExecutor, SourceDiscoveryJobExecutor>();
     builder.Services.AddScoped<IJobExecutor, FetchJobExecutor>();
     builder.Services.AddScoped<IJobExecutor, IngestJobExecutor>();
+    builder.Services.AddScoped<IJobExecutor, MediaTranscribeJobExecutor>();
 
     var host = builder.Build();
 
