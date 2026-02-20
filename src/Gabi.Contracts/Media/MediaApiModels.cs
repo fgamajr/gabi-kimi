@@ -14,3 +14,9 @@ public record MediaItemStatusResponse(
     string? LastError,
     DateTime CreatedAt,
     DateTime UpdatedAt);
+
+public record MediaRequeueResponse(
+    long MediaItemId,
+    Guid JobId,
+    string Status,
+    string Message);

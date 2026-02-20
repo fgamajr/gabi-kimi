@@ -26,6 +26,10 @@ public static class MediaEndpoints
             .RequireAuthorization("RequireViewer")
             .RequireRateLimiting("read");
 
+        app.MapPost("/api/v1/media/{id:long}/requeue", RequeueAsync)
+            .RequireAuthorization("RequireOperator")
+            .RequireRateLimiting("write");
+
         return app;
     }
 
@@ -229,6 +233,51 @@ public static class MediaEndpoints
             media.LastError,
             media.CreatedAt,
             media.UpdatedAt));
+    }
+
+    private static async Task<IResult> RequeueAsync(
+        long id,
+        HttpContext httpContext,
+        GabiDbContext db,
+        IJobQueueRepository jobQueue,
+        CancellationToken ct)
+    {
+        var media = await db.MediaItems.FirstOrDefaultAsync(m => m.Id == id, ct);
+        if (media == null)
+            return Results.NotFound();
+
+        var actor = httpContext.User.FindFirstValue(ClaimTypes.Name) ?? "operator";
+        media.TranscriptStatus = "pending";
+        media.LastError = null;
+        media.UpdatedAt = DateTime.UtcNow;
+        media.UpdatedBy = actor;
+        await db.SaveChangesAsync(ct);
+
+        var job = new IngestJob
+        {
+            Id = Guid.NewGuid(),
+            JobType = "media_transcribe",
+            SourceId = media.SourceId,
+            Payload = new Dictionary<string, object>
+            {
+                ["media_item_id"] = media.Id
+            },
+            Status = JobStatus.Pending,
+            Priority = JobPriority.Normal,
+            ScheduledAt = DateTime.UtcNow,
+            MaxRetries = 2,
+            IdempotencyKey = Guid.NewGuid().ToString("N")
+        };
+
+        var jobId = await jobQueue.EnqueueAsync(job, ct);
+
+        return Results.Accepted(
+            $"/api/v1/media/{media.Id}",
+            new MediaRequeueResponse(
+                media.Id,
+                jobId,
+                "accepted",
+                "Media item requeued for transcribe."));
     }
 
     private static async Task CopyWithLimitAsync(Stream source, Stream destination, long maxBytes, CancellationToken ct)
