@@ -501,6 +501,10 @@ public sealed class ApiPaginationDiscoveryAdapter : IDiscoveryAdapter
 
     private static string ResolveYouTubeChannelId(DiscoveryConfig config)
     {
+        var channelIdFromEnv = Environment.GetEnvironmentVariable("YOUTUBE_CHANNEL_ID");
+        if (!string.IsNullOrWhiteSpace(channelIdFromEnv))
+            return channelIdFromEnv!;
+
         if (config.Extra != null
             && config.Extra.TryGetValue("channel_id", out var channelIdEl)
             && channelIdEl.ValueKind == JsonValueKind.String
@@ -509,7 +513,7 @@ public sealed class ApiPaginationDiscoveryAdapter : IDiscoveryAdapter
             return channelIdEl.GetString()!;
         }
 
-        throw new ArgumentException("youtube_channel_v1 requires 'channel_id' in discovery config", nameof(config));
+        throw new ArgumentException("youtube_channel_v1 requires YOUTUBE_CHANNEL_ID env var or 'channel_id' in discovery config", nameof(config));
     }
 
     private static string ResolveSenadoEndpointTemplate(DiscoveryConfig config)
