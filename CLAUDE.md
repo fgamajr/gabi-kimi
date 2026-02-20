@@ -8,8 +8,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Build entire solution
 dotnet build GabiSync.sln
 
-# Run all tests
-dotnet test GabiSync.sln
+# Run all tests (excluding external endpoint contracts by default)
+dotnet test GabiSync.sln --filter "Category!=External"
+
+# Run only external integration contracts (opt-in)
+dotnet test GabiSync.sln --filter "Category=External"
 
 # Run a single test project
 dotnet test tests/Gabi.Api.Tests
@@ -102,3 +105,5 @@ Full E2E validation that rebuilds the system from scratch:
 ## Test Projects
 
 All use **xUnit** with `Microsoft.NET.Test.Sdk`. Key libraries: `FluentAssertions`, `Moq`, EF Core InMemory provider. Coverage via `coverlet.collector`.
+
+Convention: tests that hit real external HTTP endpoints must include `[Trait("Category", "External")]`.

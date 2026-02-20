@@ -997,10 +997,14 @@ public class FetchJobExecutor : IJobExecutor
     {
         try
         {
-            // Any leftover "processing" item from previous attempts blocks claiming.
-            // Reset aggressively at fetch start to guarantee forward progress.
+            var cutoffTime = DateTime.UtcNow.AddMinutes(-10);
+
+            // Reset only stale "processing" items from previous interrupted runs.
+            // Recent rows may belong to an active retry and must not be reclaimed.
             var stuckItems = await _context.FetchItems
-                .Where(i => i.SourceId == sourceId && i.Status == "processing")
+                .Where(i => i.SourceId == sourceId
+                    && i.Status == "processing"
+                    && (i.UpdatedAt == null || i.UpdatedAt < cutoffTime))
                 .ToListAsync(ct);
             
             if (stuckItems.Count == 0)
