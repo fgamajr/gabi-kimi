@@ -785,10 +785,15 @@ run_targeted_source() {
     if [[ "$TARGET_PHASE" == "discovery" || "$TARGET_PHASE" == "full" || "$TARGET_PHASE" == "fetch" ]]; then
         log "Discovery ${source_id}..."
         local disc_code="000"
+        local discovery_payload="{}"
+        if [[ "${TARGET_MAX_DOCS:-0}" -gt 0 ]]; then
+            discovery_payload="{\"max_docs_per_source\":${TARGET_MAX_DOCS}}"
+        fi
         for trigger_attempt in 1 2 3; do
             disc_code=$(curl -s -o "/tmp/gabi-disc-${source_id}.json" -w "%{http_code}" -X POST \
                 "$base_url/api/v1/dashboard/sources/${source_id}/phases/discovery" \
-                -H "Authorization: Bearer $token_operator" -H "Content-Type: application/json" 2>/dev/null || echo "000")
+                -H "Authorization: Bearer $token_operator" -H "Content-Type: application/json" \
+                -d "$discovery_payload" 2>/dev/null || echo "000")
             [[ "$disc_code" == "200" ]] && break
 
             # Retry path for transient API connectivity issues in long all-sources runs.
@@ -831,6 +836,7 @@ run_targeted_source() {
         local discovery_ok=false
         local discovery_no_links=false
         local discovery_materialized_running=false
+        local discovery_capped=false
         local max_discovery_attempts=120
         # In all-sources mode, use a shorter window per source to keep total time bounded
         if [[ "$TARGET_SOURCE" == "all" ]]; then
@@ -864,6 +870,22 @@ run_targeted_source() {
                 log "Discovery wait – source=${source_id} attempt=${attempt}/${max_discovery_attempts} links=${links_count:-0} fetch_items=${items_count:-0} status=${discovery_status:-n/a}"
             fi
             if [[ "${links_count:-0}" -gt 0 && "${items_count:-0}" -gt 0 ]]; then
+                # Respect targeted cap in discovery phase too: once enough materialization exists
+                # for the fetch cap, do not wait for full source completion.
+                if [[ "${TARGET_MAX_DOCS:-0}" -gt 0 && "${items_count:-0}" -ge "${TARGET_MAX_DOCS}" ]]; then
+                    if [[ "$TARGET_PHASE" == "fetch" || "$TARGET_PHASE" == "full" ]]; then
+                        if [[ "$discovery_status" == "completed" ]]; then
+                            discovery_ok=true
+                            discovery_capped=true
+                            break
+                        fi
+                    else
+                        discovery_ok=true
+                        discovery_capped=true
+                        break
+                    fi
+                fi
+
                 # Para phase=fetch/full, exigir discovery finalizada antes de seguir.
                 if [[ "$TARGET_PHASE" == "fetch" || "$TARGET_PHASE" == "full" ]]; then
                     if [[ "$discovery_status" == "completed" ]]; then
@@ -916,6 +938,10 @@ run_targeted_source() {
             CURRENT_20K_ERROR_SUMMARY="no_links_discovered"
             pass "Targeted stress – source sem links descobertos (${source_id}), fetch não aplicável"
             return 0
+        fi
+
+        if $discovery_capped; then
+            log "Discovery cap reached for ${source_id}: fetch_items=${TARGET_MAX_DOCS}; proceeding to fetch"
         fi
 
         if $discovery_materialized_running; then
