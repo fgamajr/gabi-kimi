@@ -27,6 +27,7 @@ public class GabiDbContext : DbContext
     public DbSet<PipelineActionEntity> PipelineActions => Set<PipelineActionEntity>();
     public DbSet<JobRegistryEntity> JobRegistry => Set<JobRegistryEntity>();
     public DbSet<DlqEntryEntity> DlqEntries => Set<DlqEntryEntity>();
+    public DbSet<MediaItemEntity> MediaItems => Set<MediaItemEntity>();
 
     // Documents (extracted from links for future ingest phase)
     public DbSet<DocumentEntity> Documents => Set<DocumentEntity>();
@@ -48,6 +49,32 @@ public class GabiDbContext : DbContext
         ConfigurePipelineAction(modelBuilder);
         ConfigureJobRegistry(modelBuilder);
         ConfigureDlqEntry(modelBuilder);
+        ConfigureMediaItem(modelBuilder);
+    }
+
+    private static void ConfigureMediaItem(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<MediaItemEntity>(entity =>
+        {
+            entity.ToTable("media_items");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.SourceId).HasMaxLength(100).IsRequired();
+            entity.Property(e => e.ExternalId).HasMaxLength(255).IsRequired();
+            entity.Property(e => e.MediaUrl).HasMaxLength(2048);
+            entity.Property(e => e.TempFilePath).HasMaxLength(2048);
+            entity.Property(e => e.Title).HasMaxLength(500);
+            entity.Property(e => e.SessionType).HasMaxLength(100);
+            entity.Property(e => e.Chamber).HasMaxLength(100);
+            entity.Property(e => e.TranscriptStatus).HasMaxLength(20).IsRequired();
+            entity.Property(e => e.TranscriptConfidence).HasMaxLength(20);
+            entity.Property(e => e.LastError).HasMaxLength(2000);
+            entity.Property(e => e.Metadata).HasColumnType("jsonb").IsRequired();
+
+            entity.HasIndex(e => new { e.SourceId, e.ExternalId }).IsUnique();
+            entity.HasIndex(e => e.TranscriptStatus);
+            entity.HasIndex(e => e.CreatedAt);
+        });
     }
 
     private static void ConfigureJobRegistry(ModelBuilder modelBuilder)

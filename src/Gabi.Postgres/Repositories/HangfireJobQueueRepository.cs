@@ -35,9 +35,13 @@ public class HangfireJobQueueRepository : IJobQueueRepository
             "source_discovery" => "discovery",
             "fetch" => "fetch",
             "ingest" => "ingest",
+            "media_transcribe" => "ingest",
             _ => "default"
         };
     }
+
+    private static bool EnforceSingleInFlightPerSource(string jobType)
+        => jobType is "source_discovery" or "fetch" or "ingest" or "sync";
 
     public async Task<Guid> EnqueueAsync(IngestJob job, CancellationToken ct = default)
     {
@@ -50,7 +54,7 @@ public class HangfireJobQueueRepository : IJobQueueRepository
                 return existing.Id;
             }
         }
-        else if (!string.IsNullOrEmpty(job.SourceId))
+        else if (!string.IsNullOrEmpty(job.SourceId) && EnforceSingleInFlightPerSource(job.JobType))
         {
             var existing = await GetLatestForSourceAsync(job.SourceId, ct);
             if (existing?.Status is JobStatus.Pending or JobStatus.Running)

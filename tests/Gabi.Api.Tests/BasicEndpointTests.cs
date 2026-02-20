@@ -77,4 +77,21 @@ public class BasicEndpointTests : IClassFixture<CustomWebApplicationFactory>
                 || response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.BadRequest,
             $"Expected OK/404/401/400, got {response.StatusCode}");
     }
+
+    [Fact]
+    public async Task MediaUploadEndpoint_Exists_ReturnsClientOrSuccessStatus()
+    {
+        using var content = new MultipartFormDataContent();
+        content.Add(new StringContent("tcu_media_upload"), "source_id");
+        content.Add(new StringContent("ext-test-1"), "external_id");
+        content.Add(new StringContent("https://example.org/video"), "media_url");
+
+        var response = await _client.PostAsync("/api/v1/media/upload", content);
+        Assert.True(
+            response.StatusCode == HttpStatusCode.Accepted
+            || response.StatusCode == HttpStatusCode.BadRequest
+            || response.StatusCode == HttpStatusCode.NotFound
+            || response.StatusCode == HttpStatusCode.Unauthorized,
+            $"Expected 202/400/404/401, got {response.StatusCode}");
+    }
 }

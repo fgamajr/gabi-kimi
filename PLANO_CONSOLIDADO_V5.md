@@ -1403,3 +1403,38 @@ Resultado:
 Evidências:
 1. log: `/tmp/gabi-zero-kelvin.log`
 2. relatório: `/tmp/zk-youtube-full-10k.json`
+
+### 20.15 Política de resiliência operacional (decisão vigente)
+
+Decisão explícita:
+1. manter recuperação **manual** para falhas em APIs externas (YouTube/OpenAI e similares) neste ciclo.
+2. não adotar requeue automático infinito por enquanto.
+
+Comportamento esperado:
+1. adapter aplica retries locais para falhas transitórias suportadas.
+2. Hangfire aplica retries globais configurados no Worker.
+3. ao esgotar retries, job finaliza em `failed` e segue para `DLQ` conforme política atual.
+4. retomada ocorre por `POST /api/v1/dlq/{id}/replay` ou novo trigger de fase.
+
+Racional:
+1. maior previsibilidade operacional durante estabilização do pipeline.
+2. evita loops de retry sem controle em cenários de quota/saldo esgotado.
+
+### 20.16 Fase 2 multimídia — validação E2E inicial (20/02/2026)
+
+Implementado:
+1. endpoint `POST /api/v1/media/upload` (multipart streaming, `202 Accepted`, enqueue `media_transcribe`).
+2. endpoint `GET /api/v1/media/{id}` para status operacional.
+3. tabela `media_items` + migration aditiva.
+4. executor `media_transcribe` no Worker com estados `pending|processing|completed|failed`.
+5. fallback operacional: quando houver `summary_text` sem arquivo/transcrição, concluir com `transcript_text = summary_text` e `transcript_confidence=low`.
+
+Evidência E2E local:
+1. upload aceito (`202`) para `source_id=tcu_media_upload`.
+2. job enfileirado no Hangfire (`job_registry`).
+3. status final observado para `external_id=media-e2e-003`: `completed`.
+4. persistência confirmada em `media_items`:
+   - `SummaryText`: preenchido,
+   - `TranscriptText`: preenchido com fallback,
+   - `TranscriptConfidence`: `low`,
+   - `LastError`: `null`.

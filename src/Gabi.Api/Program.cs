@@ -1,5 +1,6 @@
 using Gabi.Api;
 using Gabi.Api.Configuration;
+using Gabi.Api.Endpoints;
 using Gabi.Api.Middleware;
 using Gabi.Api.Services;
 using Gabi.Contracts.Api;
@@ -141,11 +142,12 @@ app.UseRateLimiter();
 // 6. Request Size Limit
 app.Use(async (context, next) =>
 {
-    // Limitar tamanho do request body (10MB)
+    // Limitar tamanho do request body via config (padrão: 600MB para upload streaming de mídia)
     var feature = context.Features.Get<IHttpMaxRequestBodySizeFeature>();
     if (feature != null)
     {
-        feature.MaxRequestBodySize = 10 * 1024 * 1024;
+        var configuredMb = builder.Configuration.GetValue<long?>("Gabi:Api:MaxRequestBodySizeMb") ?? 600;
+        feature.MaxRequestBodySize = configuredMb * 1024 * 1024;
     }
     await next();
 });
@@ -209,6 +211,8 @@ app.MapPost("/api/v1/auth/login", async (
     return Results.Ok(new LoginResponse(true, token, null, user.Role));
 })
 .RequireRateLimiting("auth");
+
+app.MapMediaEndpoints();
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Sources API (protegidos)

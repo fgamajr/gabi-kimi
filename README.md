@@ -247,6 +247,8 @@ Base URL: `http://localhost:5100`. Endpoints protegidos exigem **JWT**: `Authori
 | GET | `/api/v1/dashboard/sources/{sourceId}/fetch/last` | viewer | Último fetch da fonte |
 | GET | `/api/v1/sources/{sourceId}/links` | viewer | Links da fonte (paginado) |
 | GET | `/api/v1/sources/{sourceId}/links/{linkId}` | viewer | Detalhe de um link |
+| POST | `/api/v1/media/upload` | operator | Upload/ingest de mídia (assíncrono, retorna 202) |
+| GET | `/api/v1/media/{id}` | viewer | Status do item de mídia |
 | GET | `/api/v1/dlq` | viewer | Lista DLQ |
 | GET | `/api/v1/dlq/stats` | viewer | Estatísticas DLQ |
 | GET | `/api/v1/dlq/{id}` | viewer | Detalhe DLQ |
@@ -353,6 +355,13 @@ curl -s http://localhost:5100/api/v1/sources/tcu_sumulas/links/123 \
 curl -s http://localhost:5100/api/v1/dlq -H "Authorization: Bearer $TOKEN"
 curl -s http://localhost:5100/api/v1/dlq/stats -H "Authorization: Bearer $TOKEN"
 ```
+
+### Política de recuperação (atual)
+
+1. Falhas transitórias tentam retry local (quando aplicável) + retry global do Hangfire.
+2. Esgotando retries, o job vai para `failed`/`DLQ`.
+3. Recuperação é **manual** via replay (`POST /api/v1/dlq/{id}/replay`) ou novo trigger de fase.
+4. Não há requeue automático infinito por padrão.
 
 ---
 
