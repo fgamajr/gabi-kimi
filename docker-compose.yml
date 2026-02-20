@@ -18,6 +18,7 @@ services:
   postgres:
     image: postgres:15-alpine
     restart: unless-stopped
+    command: postgres -c max_connections=200
     environment:
       POSTGRES_USER: gabi
       POSTGRES_PASSWORD: gabi_dev_password
@@ -107,8 +108,9 @@ services:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:8080
       - GABI_SOURCES_PATH=/app/sources_v2.yaml
+      - GABI_INLABS_COOKIE=${GABI_INLABS_COOKIE:-}
       - GABI_RUN_MIGRATIONS=true
-      - ConnectionStrings__Default=Host=postgres;Port=5432;Database=gabi;Username=gabi;Password=gabi_dev_password
+      - ConnectionStrings__Default=Host=postgres;Port=5432;Database=gabi;Username=gabi;Password=gabi_dev_password;Maximum Pool Size=15
       - Gabi__ElasticsearchUrl=http://elasticsearch:9200
       - Gabi__RedisUrl=redis://redis:6379/0
     volumes:
@@ -135,8 +137,9 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
-      - ConnectionStrings__Default=Host=postgres;Port=5432;Database=gabi;Username=gabi;Password=gabi_dev_password
+      - ConnectionStrings__Default=Host=postgres;Port=5432;Database=gabi;Username=gabi;Password=gabi_dev_password;Maximum Pool Size=10
       - GABI_SOURCES_PATH=/app/sources_v2.yaml
+      - GABI_INLABS_COOKIE=${GABI_INLABS_COOKIE:-}
       - Gabi__ElasticsearchUrl=http://elasticsearch:9200
       - Gabi__RedisUrl=redis://redis:6379/0
       - WorkerPool__WorkerCount=1
