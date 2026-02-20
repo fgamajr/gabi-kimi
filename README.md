@@ -248,6 +248,7 @@ Base URL: `http://localhost:5100`. Endpoints protegidos exigem **JWT**: `Authori
 | GET | `/api/v1/sources/{sourceId}/links` | viewer | Links da fonte (paginado) |
 | GET | `/api/v1/sources/{sourceId}/links/{linkId}` | viewer | Detalhe de um link |
 | POST | `/api/v1/media/upload` | operator | Ingest de mídia assíncrono (padrão: sem binário; usar `media_url`/texto) |
+| GET | `/api/v1/media` | viewer | Lista últimos itens de mídia (filtros: `status`, `sourceId`, `limit`) |
 | GET | `/api/v1/media/{id}` | viewer | Status do item de mídia |
 | POST | `/api/v1/media/{id}/requeue` | operator | Reenfileira processamento de mídia |
 | GET | `/api/v1/dlq` | viewer | Lista DLQ |

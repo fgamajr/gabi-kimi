@@ -32,6 +32,10 @@ public static class MediaEndpoints
             .RequireAuthorization("RequireViewer")
             .RequireRateLimiting("read");
 
+        app.MapGet("/api/v1/media", ListAsync)
+            .RequireAuthorization("RequireViewer")
+            .RequireRateLimiting("read");
+
         app.MapPost("/api/v1/media/{id:long}/requeue", RequeueAsync)
             .RequireAuthorization("RequireOperator")
             .RequireRateLimiting("write");
@@ -392,6 +396,37 @@ public static class MediaEndpoints
                 jobId,
                 "accepted",
                 "Media item requeued for transcribe."));
+    }
+
+    private static async Task<IResult> ListAsync(
+        string? status,
+        string? sourceId,
+        int? limit,
+        GabiDbContext db,
+        CancellationToken ct)
+    {
+        var take = limit is > 0 and <= 200 ? limit.Value : 50;
+        var query = db.MediaItems.AsNoTracking().AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(status))
+            query = query.Where(m => m.TranscriptStatus == status);
+        if (!string.IsNullOrWhiteSpace(sourceId))
+            query = query.Where(m => m.SourceId == sourceId);
+
+        var items = await query
+            .OrderByDescending(m => m.UpdatedAt)
+            .Take(take)
+            .Select(m => new MediaListItemResponse(
+                m.Id,
+                m.SourceId,
+                m.ExternalId,
+                m.TranscriptStatus,
+                m.CreatedAt,
+                m.UpdatedAt,
+                m.LastError))
+            .ToListAsync(ct);
+
+        return Results.Ok(new MediaListResponse(items, items.Count));
     }
 
     private static bool IsValidJson(string raw)

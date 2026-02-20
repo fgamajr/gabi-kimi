@@ -91,7 +91,7 @@ public class MediaTranscribeJobExecutor : IJobExecutor
         {
             _logger.LogError(ex, "media_transcribe failed for media item {MediaItemId}", mediaItemId);
             media.TranscriptStatus = "failed";
-            media.LastError = ex.Message.Length > 1900 ? ex.Message[..1900] : ex.Message;
+            media.LastError = FormatError(ex);
             media.UpdatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync(ct);
             return new JobResult { Success = false, ErrorMessage = ex.Message };
@@ -155,5 +155,27 @@ public class MediaTranscribeJobExecutor : IJobExecutor
             throw new InvalidOperationException("Transcription API returned no text.");
 
         return textEl.GetString() ?? string.Empty;
+    }
+
+    private static string FormatError(Exception ex)
+    {
+        var message = ex.Message ?? "unknown error";
+        var classification = Classify(message);
+        var formatted = $"[{classification}] {message}";
+        return formatted.Length > 1900 ? formatted[..1900] : formatted;
+    }
+
+    private static string Classify(string message)
+    {
+        var m = message.ToLowerInvariant();
+        if (m.Contains("insufficient_quota") || m.Contains("quota"))
+            return "quota";
+        if (m.Contains("401") || m.Contains("unauthorized") || m.Contains("api key"))
+            return "auth";
+        if (m.Contains("429") || m.Contains("timeout") || m.Contains("temporarily") || m.Contains("service unavailable"))
+            return "transient";
+        if (m.Contains("not found"))
+            return "not_found";
+        return "unknown";
     }
 }

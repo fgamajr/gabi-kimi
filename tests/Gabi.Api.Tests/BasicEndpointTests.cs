@@ -108,6 +108,17 @@ public class BasicEndpointTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
+    public async Task MediaListEndpoint_Exists_ReturnsClientOrSuccessStatus()
+    {
+        var response = await _client.GetAsync("/api/v1/media?limit=10");
+        Assert.True(
+            response.StatusCode == HttpStatusCode.OK
+            || response.StatusCode == HttpStatusCode.Unauthorized
+            || response.StatusCode == HttpStatusCode.BadRequest,
+            $"Expected 200/401/400, got {response.StatusCode}");
+    }
+
+    [Fact]
     public async Task MediaLocalFileEndpoint_Exists_ReturnsClientOrSuccessStatus()
     {
         var payload = """
