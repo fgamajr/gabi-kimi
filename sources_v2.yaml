@@ -1676,7 +1676,7 @@ sources:
   # 12. TCU - YouTube Videos (CANARY, INACTIVE)
   # ─────────────────────────────────────────────────────────────────────────────
   tcu_youtube_videos:
-    enabled: false
+    enabled: true
 
     identity:
       name: "TCU - YouTube Videos"

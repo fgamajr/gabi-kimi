@@ -1383,3 +1383,23 @@ Pendente (não fazer agora, backlog planejado):
 3. Implementar executor de transcrição (`transcribe_media`) com persistência de texto/metadados e sem blob bruto no Postgres.
 4. Implementar driver real de `tcu_x_mentions` com API oficial e credenciais/tier válidos.
 5. Expandir para Instagram/Google mentions somente após validação de acesso, custo e rate-limit.
+
+### 20.14 Ativação de canário YouTube + validação full cap=10000 (20/02/2026)
+
+Mudança operacional aplicada:
+1. `sources_v2.yaml`: `tcu_youtube_videos.enabled=true` (mantendo `pipeline.enabled=false` para execução manual controlada).
+2. Driver usa `YOUTUBE_CHANNEL_ID` e `YOUTUBE_API_KEY` por ambiente (sem `channel_id` fixo no YAML).
+
+Execução de validação:
+1. `./tests/zero-kelvin-test.sh docker-20k --source tcu_youtube_videos --phase full --max-docs 10000 --monitor-memory --report-json /tmp/zk-youtube-full-10k.json`
+
+Resultado:
+1. **PASS** no zero-kelvin targeted.
+2. `discovery_runs`: `completed`, `LinksTotal=1316`.
+3. `fetch_runs`: `completed`, `ItemsTotal=1316`, `ItemsCompleted=1316`, `ItemsFailed=0`, `ErrorSummary=content_strategy=link_only`.
+4. `fetch_items`: `skipped_format=1316` (comportamento esperado em `link_only`).
+5. pico de memória observado no fetch targeted: `139.90 MiB`.
+
+Evidências:
+1. log: `/tmp/gabi-zero-kelvin.log`
+2. relatório: `/tmp/zk-youtube-full-10k.json`
