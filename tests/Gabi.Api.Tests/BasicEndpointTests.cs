@@ -94,4 +94,16 @@ public class BasicEndpointTests : IClassFixture<CustomWebApplicationFactory>
             || response.StatusCode == HttpStatusCode.Unauthorized,
             $"Expected 202/400/404/401, got {response.StatusCode}");
     }
+
+    [Fact]
+    public async Task MediaRequeueEndpoint_Exists_ReturnsClientOrSuccessStatus()
+    {
+        var response = await _client.PostAsync("/api/v1/media/1/requeue", content: null);
+        Assert.True(
+            response.StatusCode == HttpStatusCode.Accepted
+            || response.StatusCode == HttpStatusCode.NotFound
+            || response.StatusCode == HttpStatusCode.Unauthorized
+            || response.StatusCode == HttpStatusCode.BadRequest,
+            $"Expected 202/404/401/400, got {response.StatusCode}");
+    }
 }
