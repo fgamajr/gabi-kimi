@@ -904,6 +904,117 @@ Decisão operacional:
 1. promover este resultado como baseline de estabilização de pipeline para o V5.
 2. próximos passos focam em hardening/observabilidade e evolução funcional, não mais em desbloqueio estrutural do fetch.
 
+### 17.9 Ajuste de cap nativo em discovery + nota de concorrência (20/02/2026)
+
+Mudanças aplicadas:
+1. `StartPhase(discovery)` passou a aceitar e propagar `max_docs_per_source` no payload do job.
+2. `SourceDiscoveryJobExecutor` passou a ler `max_docs_per_source` e encerrar discovery no cap, com `discovery_runs.ErrorSummary` explícito de cap.
+3. `zero-kelvin-test.sh` passou a enviar payload de cap também no trigger de discovery.
+4. `zero-kelvin-test.sh` foi ajustado para não quebrar cedo em discovery `running` durante `phase=full/fetch` (evita falso estado antes de `completed`).
+
+Evidência validada (canário `senado_legislacao_decretos_lei`, `phase=full`, `cap=10000`):
+1. comando: `./tests/zero-kelvin-test.sh docker-20k --source senado_legislacao_decretos_lei --phase full --max-docs 10000 --monitor-memory --report-json /tmp/zk-senado-decretos-10000-capnative.json`
+2. resultado: `PASS` no targeted; `status_breakdown=skipped_format,10000`.
+3. SQL (`discovery_runs`): `Status=completed`, `LinksTotal=10000`, `ErrorSummary=capped at max_docs_per_source=10000`.
+4. SQL (`fetch_items`): `skipped_format=10000`.
+
+Nota de concorrência (decisão explícita):
+1. os canários citados acima foram executados em modo sequencial para diagnóstico determinístico.
+2. isso **não implica** desabilitação estrutural da concorrência do pipeline; é escolha operacional de teste.
+3. próximo gate de hardening deve incluir rodada concorrente para validar throughput sob carga, mantendo os mesmos SLOs de estabilidade/memória.
+
+### 17.10 Plano curto de hardening (execução imediata)
+
+Frente 1: SLOs + observabilidade
+1. definir SLO por fase/fonte: `latency`, `throughput`, `error_rate`, `queue_depth`, `mem_peak`.
+2. instrumentar métricas obrigatórias no caminho `seed/discovery/fetch/ingest`.
+3. consolidar dashboard único de decisão operacional (run status + gargalo por fase + memória).
+4. gate operacional: nenhuma rodada promoted sem evidência objetiva desses indicadores.
+
+Frente 2: contratos estáveis de orquestração
+1. padronizar contrato de `job payload` e `status/events` para todas as fases.
+2. reduzir lógica decisória em script; `zero-kelvin-test.sh` deve atuar como executor/observador, não controlador de estado.
+3. garantir que decisões de fluxo (cap, retry, transição de fase) residam primariamente em API/Worker.
+4. incluir validações de contrato (testes) para evitar regressão silenciosa entre componentes.
+
+Frente 3: resiliência de próxima geração
+1. classificar falhas automaticamente em `transiente` vs `permanente`.
+2. aplicar retry semântico por classe de falha (política diferenciada por tipo).
+3. priorizar filas dinamicamente por saúde da fonte e impacto operacional.
+4. adicionar mecanismos de auto-healing com trilha auditável (sem mascarar falha estrutural).
+
+Backlog de execução (curto prazo)
+1. P0: SLOs mínimos + métricas mandatórias + dashboard consolidado.
+2. P1: contrato único de payload/eventos + limpeza de decisões em script.
+3. P2: classificador de falha + retry semântico + priorização dinâmica.
+
+Critério de aceite desta etapa
+1. rodada concorrente controlada com SLOs publicados por fase/fonte.
+2. evidência de regressão reduzida em transições discovery->fetch e fetch->ingest.
+3. relatório final com matriz `PASS/WARN/FAIL` explicada por métricas, não por heurística manual.
+
+Checklist operacional (ordem + owner sugerido)
+1. `[P0-1]` definir SLOs-alvo por fase/fonte (`latency`, `throughput`, `error_rate`, `queue_depth`, `mem_peak`)  
+owner: `arquitetura/tech lead`  
+done when: tabela de SLO publicada no V5 + limiares de gate explícitos.
+2. `[P0-2]` instrumentar métricas no Worker/API para `seed/discovery/fetch/ingest`  
+owner: `backend worker/api`  
+done when: métricas visíveis por source e fase em endpoint/log estruturado.
+3. `[P0-3]` consolidar dashboard único de operação  
+owner: `plataforma/observabilidade`  
+done when: painel mostra SLO compliance + gargalo por fase + pico de memória por run.
+4. `[P1-1]` padronizar contrato `job payload` e `status/events` (schema versionado)  
+owner: `backend contracts`  
+done when: contrato documentado + validado em testes de contrato.
+5. `[P1-2]` reduzir controle de estado no `zero-kelvin-test.sh`  
+owner: `qa/devex`  
+done when: script apenas dispara/observa; decisões de estado ficam em API/Worker.
+6. `[P1-3]` adicionar testes de regressão para transições de fase (`discovery->fetch->ingest`)  
+owner: `qa/backend`  
+done when: suíte falha ao detectar regressão de handshake entre fases.
+7. `[P2-1]` classificador de falhas (`transiente` vs `permanente`)  
+owner: `backend worker`  
+done when: erros classificados automaticamente com código/categoria persistidos.
+8. `[P2-2]` retry semântico por classe de falha  
+owner: `backend worker`  
+done when: políticas distintas por classe + evidência de retry correto em logs/SQL.
+9. `[P2-3]` priorização dinâmica de filas por saúde de source  
+owner: `orquestração/jobs`  
+done when: fila responde a degradação sem bloquear fontes saudáveis.
+10. `[P2-4]` rodada concorrente de validação final  
+owner: `qa/performance`  
+done when: all-sources concorrente passa com SLOs dentro do envelope.
+
+### 17.11 Simplificação de governança de IA (sem regressão de pipeline)
+
+Objetivo:
+1. reduzir prescrição duplicada para agentes de IA.
+2. preservar apenas constraints realmente operacionais/arquiteturais.
+3. manter rastreabilidade técnica no repositório (evitar conhecimento crítico fora do git).
+
+Decisões:
+1. manter documentos de planejamento no repositório (`PLANO_CONSOLIDADO_V5`, matriz, TODO), porém com foco em estado atual verificável.
+2. consolidar instruções de agentes em um núcleo único e enxuto; arquivos por provedor passam a atuar como wrappers mínimos.
+3. remover artefatos de contexto obsoletos (`*.bak`) imediatamente.
+4. preservar guardrails críticos (`memory budget`, arquitetura em camadas, regras de migration e contratos de pipeline).
+
+Execução faseada:
+1. Fase A (agora): higiene de contexto  
+   - remover arquivos `*.bak`;  
+   - validar que suíte/compilação não regrediu.
+2. Fase B: consolidação de instruções  
+   - definir arquivo canônico de constraints;  
+   - reduzir redundância entre `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`.
+3. Fase C: racionalização de skills/workflows  
+   - manter apenas skills de valor durável;  
+   - transformar skills prescritivas em guias opcionais.
+
+Status de execução (20/02/2026):
+1. `[concluído]` inventário de simplificação levantado (`*.bak`, arquivos de instrução, riscos).
+2. `[concluído]` limpeza de `*.bak` (4 arquivos removidos: 3 em `tests/Gabi.Discover.Tests` e 1 em `old_python_implementation`).
+3. `[concluído]` consolidação de instruções de agentes (wrappers mínimos em `CLAUDE.md`/`GEMINI.md` apontando para `AGENTS.md` canônico + seção canônica em `AGENTS.md`).
+4. `[concluído]` racionalização de skills em modo governança (`docs/ai/SKILLS_POLICY.md`: core/optional/deprecated-by-default).
+
 ## 18. Infra e Armazenamento em Nuvem (novo)
 
 ### 18.1 Problema correto (separar domínios)
