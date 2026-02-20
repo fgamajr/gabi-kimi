@@ -1015,6 +1015,31 @@ Status de execução (20/02/2026):
 3. `[concluído]` consolidação de instruções de agentes (wrappers mínimos em `CLAUDE.md`/`GEMINI.md` apontando para `AGENTS.md` canônico + seção canônica em `AGENTS.md`).
 4. `[concluído]` racionalização de skills em modo governança (`docs/ai/SKILLS_POLICY.md`: core/optional/deprecated-by-default).
 
+### 17.12 Revalidação all-sources cap=10000 após B&C — FECHAMENTO (20/02/2026)
+
+Comando executado:
+1. `./tests/zero-kelvin-test.sh docker-20k --source all --phase full --max-docs 10000 --monitor-memory --report-json /tmp/zk-all-10000-post-bc.json`
+
+Resultado consolidado:
+1. **PASS=27, WARN=0, FAIL=0**
+2. `docs_total=51477`
+3. `peak_mem=299.40 MiB`
+4. suite zero-kelvin: `42/42` checks `PASS`
+5. `status_breakdown=failed_sources=0;warn_sources=0`
+
+Evidências:
+1. log: `/tmp/gabi-zero-kelvin.log`
+2. relatório JSON: `/tmp/zk-all-10000-post-bc.json`
+
+Leitura técnica:
+1. a estabilização do pipeline permaneceu íntegra após as mudanças de governança/simplificação (B&C).
+2. cap nativo em discovery/fetch manteve comportamento consistente no cenário completo all-sources.
+3. envelope de memória permaneceu dentro do budget operacional definido para o projeto (<= 300 MiB no run atual).
+
+Decisão operacional:
+1. manter este run como baseline vigente de estabilidade pós-B&C.
+2. avançar com commit do bloco de pipeline + V5 e seguir para backlog de hardening (17.10) sem bloqueio estrutural.
+
 ## 18. Infra e Armazenamento em Nuvem (novo)
 
 ### 18.1 Problema correto (separar domínios)

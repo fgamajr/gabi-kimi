@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text.Json;
 using Gabi.Contracts.Discovery;
 using Gabi.Contracts.Jobs;
 using Gabi.Discover;
@@ -48,6 +49,7 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
         var sourceId = job.SourceId;
         var discoveryConfig = job.DiscoveryConfig ?? new DiscoveryConfig();
         var startedAt = DateTime.UtcNow;
+        var maxDocsPerSource = FetchJobExecutor.ReadMaxDocsPerSource(job.Payload);
 
         _logger.LogInformation(
             "Starting discovery (source_discovery) for source {SourceId} with strategy {Strategy}, driver={Driver}, extraKeys=[{ExtraKeys}]",
@@ -55,6 +57,13 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
             discoveryConfig.Strategy ?? "unknown",
             discoveryConfig.Extra != null && discoveryConfig.Extra.TryGetValue("driver", out var d) ? d.GetString() : "(none)",
             discoveryConfig.Extra == null ? string.Empty : string.Join(",", discoveryConfig.Extra.Keys));
+        if (maxDocsPerSource.HasValue)
+        {
+            _logger.LogInformation(
+                "Discovery cap enabled for {SourceId}: max_docs_per_source={MaxDocs}",
+                sourceId,
+                maxDocsPerSource.Value);
+        }
 
         progress.Report(new JobProgress
         {
@@ -101,6 +110,16 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
                         Metrics = new Dictionary<string, object> { ["linksFound"] = linksTotal, ["batchesPersisted"] = batchesPersisted }
                     });
                 }
+
+                if (maxDocsPerSource.HasValue && linksTotal >= maxDocsPerSource.Value)
+                {
+                    _logger.LogInformation(
+                        "Discovery cap reached for {SourceId}: linksTotal={LinksTotal}, cap={MaxDocs}",
+                        sourceId,
+                        linksTotal,
+                        maxDocsPerSource.Value);
+                    break;
+                }
             }
 
             if (batch.Count > 0)
@@ -132,7 +151,11 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
             discoveryRunEntity.CompletedAt = DateTime.UtcNow;
             discoveryRunEntity.LinksTotal = linksTotal;
             discoveryRunEntity.Status = "completed";
-            discoveryRunEntity.ErrorSummary = linksTotal == 0 ? "0 links discovered (check strategy implementation)" : null;
+            discoveryRunEntity.ErrorSummary = linksTotal == 0
+                ? "0 links discovered (check strategy implementation)"
+                : maxDocsPerSource.HasValue && linksTotal >= maxDocsPerSource.Value
+                    ? $"capped at max_docs_per_source={maxDocsPerSource.Value}"
+                    : null;
             await _context.SaveChangesAsync(ct);
         }
         catch (Exception ex)

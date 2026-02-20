@@ -486,6 +486,8 @@ public class DashboardService : IDashboardService
             Priority = JobPriority.Normal,
             ScheduledAt = DateTime.UtcNow
         };
+        if (request.MaxDocsPerSource is int maxDocsPerSource && maxDocsPerSource > 0)
+            job.Payload["max_docs_per_source"] = maxDocsPerSource;
 
         var jobId = await jobQueue.EnqueueAsync(job, ct);
 
@@ -503,7 +505,16 @@ public class DashboardService : IDashboardService
     {
         var normalized = phase?.ToLowerInvariant().Trim() ?? "";
         if (normalized == "discovery")
-            return await RefreshSourceAsync(sourceId, new RefreshSourceRequest { Force = true }, ct);
+        {
+            return await RefreshSourceAsync(
+                sourceId,
+                new RefreshSourceRequest
+                {
+                    Force = true,
+                    MaxDocsPerSource = request?.MaxDocsPerSource
+                },
+                ct);
+        }
 
         using var scope = _serviceProvider.CreateScope();
         var sourceRepo = scope.ServiceProvider.GetRequiredService<ISourceRegistryRepository>();

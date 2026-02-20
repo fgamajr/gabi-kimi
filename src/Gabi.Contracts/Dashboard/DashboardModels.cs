@@ -215,6 +215,9 @@ public record RefreshSourceRequest
 
     [JsonPropertyName("year")]
     public int? Year { get; init; }
+
+    [JsonPropertyName("max_docs_per_source")]
+    public int? MaxDocsPerSource { get; init; }
 }
 
 /// <summary>
