@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Net.Http.Headers;
+using System.Xml.Linq;
 using Gabi.Contracts.Discovery;
 
 namespace Gabi.Discover;
@@ -43,6 +44,20 @@ public sealed class ApiPaginationDiscoveryAdapter : IDiscoveryAdapter
         if (driver.Equals("senado_legislacao_api_v1", StringComparison.OrdinalIgnoreCase))
         {
             await foreach (var d in DiscoverSenadoLegislacaoAsync(sourceId, config, httpPolicy, ct))
+                yield return d;
+            yield break;
+        }
+
+        if (driver.Equals("dou_inlabs_xml_v1", StringComparison.OrdinalIgnoreCase))
+        {
+            await foreach (var d in DiscoverDouInlabsXmlAsync(sourceId, config, httpPolicy, ct))
+                yield return d;
+            yield break;
+        }
+
+        if (driver.Equals("dou_monthly_pattern_v1", StringComparison.OrdinalIgnoreCase))
+        {
+            await foreach (var d in DiscoverDouMonthlyPatternAsync(sourceId, config, ct))
                 yield return d;
             yield break;
         }
@@ -253,6 +268,130 @@ public sealed class ApiPaginationDiscoveryAdapter : IDiscoveryAdapter
         }
     }
 
+    private async IAsyncEnumerable<DiscoveredSource> DiscoverDouInlabsXmlAsync(
+        string sourceId,
+        DiscoveryConfig config,
+        DiscoveryHttpRequestPolicy httpPolicy,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
+    {
+        var endpointTemplate = ResolveDouEndpointTemplate(config);
+        if (endpointTemplate.Contains("inlabs.in.gov.br", StringComparison.OrdinalIgnoreCase)
+            && (!httpPolicy.Headers.TryGetValue("Cookie", out var cookie) || string.IsNullOrWhiteSpace(cookie)))
+        {
+            throw new ArgumentException("dou_inlabs_xml_v1 requires http.headers.Cookie (e.g. ${GABI_INLABS_COOKIE}) for inlabs.in.gov.br", nameof(config));
+        }
+        var sections = ResolveDouSections(config);
+        var (startDate, endDate) = ResolveDouDateRange(config);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        for (var date = startDate.Date; date <= endDate.Date; date = date.AddDays(1))
+        {
+            foreach (var section in sections)
+            {
+                ct.ThrowIfCancellationRequested();
+                var dateText = date.ToString("yyyy-MM-dd");
+                var endpoint = endpointTemplate
+                    .Replace("{date}", dateText, StringComparison.OrdinalIgnoreCase)
+                    .Replace("{section}", section, StringComparison.OrdinalIgnoreCase);
+
+                using var resp = await SendWithRetryAsync(endpoint, httpPolicy, ct);
+                if (resp == null || !resp.IsSuccessStatusCode)
+                    continue;
+
+                await using var stream = await resp.Content.ReadAsStreamAsync(ct);
+                XDocument xml;
+                try
+                {
+                    xml = await XDocument.LoadAsync(stream, LoadOptions.None, ct);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                foreach (var article in xml.Descendants().Where(x => x.Name.LocalName.Equals("article", StringComparison.OrdinalIgnoreCase)))
+                {
+                    var link = ExtractDouArticleLink(article);
+                    if (string.IsNullOrWhiteSpace(link) || !seen.Add(link))
+                        continue;
+
+                    var metadata = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["strategy"] = StrategyKey,
+                        ["driver"] = "dou_inlabs_xml_v1",
+                        ["diario_tipo"] = "DOU",
+                        ["document_kind"] = "ato_administrativo",
+                        ["secao"] = section,
+                        ["data_publicacao"] = dateText,
+                        ["orgao"] = ReadDouArticleValue(article, "orgao"),
+                        ["edicao"] = ReadDouArticleValue(article, "edicao"),
+                        ["pagina"] = ReadDouArticleValue(article, "pagina"),
+                        ["ato_tipo"] = ReadDouArticleValue(article, "tipo"),
+                        ["titulo"] = ReadDouArticleValue(article, "titulo")
+                    };
+
+                    yield return new DiscoveredSource(link, sourceId, metadata, DateTime.UtcNow);
+                }
+
+                if (httpPolicy.RequestDelayMs > 0)
+                    await Task.Delay(httpPolicy.RequestDelayMs, ct);
+            }
+        }
+    }
+
+    private async IAsyncEnumerable<DiscoveredSource> DiscoverDouMonthlyPatternAsync(
+        string sourceId,
+        DiscoveryConfig config,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
+    {
+        var template = ResolveDouMonthlyTemplate(config);
+        var sections = ResolveDouSections(config);
+        var current = DateTime.UtcNow;
+        var startYear = ResolvePositiveInt(config, "start_year", current.Year);
+        var endYear = ResolvePositiveInt(config, "end_year", current.Year);
+        if (endYear < startYear)
+            (startYear, endYear) = (endYear, startYear);
+
+        var startMonthDefault = startYear == current.Year ? 1 : 1;
+        var endMonthDefault = endYear == current.Year ? current.Month : 12;
+        var startMonth = Math.Clamp(ResolvePositiveInt(config, "start_month", startMonthDefault), 1, 12);
+        var endMonth = Math.Clamp(ResolvePositiveInt(config, "end_month", endMonthDefault), 1, 12);
+
+        for (var year = startYear; year <= endYear; year++)
+        {
+            var monthFrom = year == startYear ? startMonth : 1;
+            var monthTo = year == endYear ? endMonth : 12;
+            if (monthTo < monthFrom)
+                (monthFrom, monthTo) = (monthTo, monthFrom);
+
+            for (var month = monthFrom; month <= monthTo; month++)
+            {
+                foreach (var section in sections)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var url = template
+                        .Replace("{year}", year.ToString(), StringComparison.OrdinalIgnoreCase)
+                        .Replace("{month}", month.ToString("00"), StringComparison.OrdinalIgnoreCase)
+                        .Replace("{section}", section, StringComparison.OrdinalIgnoreCase);
+
+                    var metadata = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["strategy"] = StrategyKey,
+                        ["driver"] = "dou_monthly_pattern_v1",
+                        ["diario_tipo"] = "DOU",
+                        ["document_kind"] = "ato_administrativo",
+                        ["year"] = year,
+                        ["month"] = month,
+                        ["secao"] = section
+                    };
+
+                    yield return new DiscoveredSource(url, sourceId, metadata, DateTime.UtcNow);
+                    await Task.Yield();
+                }
+            }
+        }
+    }
+
     private static string ResolveCamaraEndpointTemplate(DiscoveryConfig config)
     {
         const string defaultTemplate = "https://dadosabertos.camara.leg.br/api/v2/proposicoes?siglaTipo=PL&ano={year}&itens=100&ordem=ASC&ordenarPor=id";
@@ -302,6 +441,116 @@ public sealed class ApiPaginationDiscoveryAdapter : IDiscoveryAdapter
         }
 
         return "LEI";
+    }
+
+    private static string ResolveDouEndpointTemplate(DiscoveryConfig config)
+    {
+        if (config.Extra != null
+            && config.Extra.TryGetValue("endpoint_template", out var endpointEl)
+            && endpointEl.ValueKind == JsonValueKind.String
+            && !string.IsNullOrWhiteSpace(endpointEl.GetString()))
+        {
+            return endpointEl.GetString()!;
+        }
+
+        throw new ArgumentException("dou_inlabs_xml_v1 requires 'endpoint_template' in discovery config", nameof(config));
+    }
+
+    private static string ResolveDouMonthlyTemplate(DiscoveryConfig config)
+    {
+        if (config.Extra != null)
+        {
+            if (config.Extra.TryGetValue("url_template", out var urlTemplateEl)
+                && urlTemplateEl.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(urlTemplateEl.GetString()))
+            {
+                return urlTemplateEl.GetString()!;
+            }
+
+            if (config.Extra.TryGetValue("endpoint_template", out var endpointTemplateEl)
+                && endpointTemplateEl.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(endpointTemplateEl.GetString()))
+            {
+                return endpointTemplateEl.GetString()!;
+            }
+        }
+
+        throw new ArgumentException("dou_monthly_pattern_v1 requires 'url_template' (or 'endpoint_template') in discovery config", nameof(config));
+    }
+
+    private static string[] ResolveDouSections(DiscoveryConfig config)
+    {
+        if (config.Extra != null
+            && config.Extra.TryGetValue("sections", out var sectionsEl)
+            && sectionsEl.ValueKind == JsonValueKind.Array)
+        {
+            var values = sectionsEl
+                .EnumerateArray()
+                .Where(x => x.ValueKind == JsonValueKind.String)
+                .Select(x => x.GetString())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x!)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (values.Length > 0)
+                return values;
+        }
+
+        return ["do1"];
+    }
+
+    private static (DateTime Start, DateTime End) ResolveDouDateRange(DiscoveryConfig config)
+    {
+        var today = DateTime.UtcNow.Date;
+        if (config.Params == null || !config.Params.TryGetValue("date_range", out var dateRange))
+            return (today, today);
+
+        if (dateRange is JsonElement je && je.ValueKind == JsonValueKind.Object)
+        {
+            var start = ParseDateValue(je, "start", today);
+            var end = ParseDateValue(je, "end", today);
+            if (end < start)
+                (start, end) = (end, start);
+            return (start, end);
+        }
+
+        return (today, today);
+    }
+
+    private static int ResolvePositiveInt(DiscoveryConfig config, string key, int fallback)
+    {
+        if (config.Extra != null
+            && config.Extra.TryGetValue(key, out var value))
+        {
+            var parsed = value.ValueKind switch
+            {
+                JsonValueKind.Number when value.TryGetInt32(out var i) => i,
+                JsonValueKind.String when int.TryParse(value.GetString(), out var i) => i,
+                _ => fallback
+            };
+            if (parsed > 0)
+                return parsed;
+        }
+
+        return fallback;
+    }
+
+    private static DateTime ParseDateValue(JsonElement obj, string propertyName, DateTime fallback)
+    {
+        if (!obj.TryGetProperty(propertyName, out var value))
+            return fallback;
+
+        if (value.ValueKind != JsonValueKind.String)
+            return fallback;
+
+        var raw = value.GetString();
+        if (string.IsNullOrWhiteSpace(raw))
+            return fallback;
+
+        if (DateTime.TryParse(raw, out var parsed))
+            return parsed.Date;
+
+        return fallback;
     }
 
     private async IAsyncEnumerable<DiscoveredSource> DiscoverGenericPaginatedApiAsync(
@@ -584,6 +833,34 @@ public sealed class ApiPaginationDiscoveryAdapter : IDiscoveryAdapter
             return null;
 
         return $"https://legis.senado.leg.br/dadosabertos/legislacao/{id}";
+    }
+
+    private static string? ExtractDouArticleLink(XElement article)
+    {
+        var url = ReadDouArticleValue(article, "url");
+        if (string.IsNullOrWhiteSpace(url))
+            url = ReadDouArticleValue(article, "href");
+        if (string.IsNullOrWhiteSpace(url))
+            url = ReadDouArticleValue(article, "link");
+        if (string.IsNullOrWhiteSpace(url))
+            url = ReadDouArticleValue(article, "urlTitle");
+        if (string.IsNullOrWhiteSpace(url))
+            url = ReadDouArticleValue(article, "urlPdf");
+
+        return string.IsNullOrWhiteSpace(url) ? null : url;
+    }
+
+    private static string ReadDouArticleValue(XElement article, string key)
+    {
+        var attr = article.Attributes().FirstOrDefault(a => a.Name.LocalName.Equals(key, StringComparison.OrdinalIgnoreCase))?.Value;
+        if (!string.IsNullOrWhiteSpace(attr))
+            return attr!;
+
+        var element = article.Elements().FirstOrDefault(e => e.Name.LocalName.Equals(key, StringComparison.OrdinalIgnoreCase))?.Value;
+        if (!string.IsNullOrWhiteSpace(element))
+            return element.Trim();
+
+        return string.Empty;
     }
 
     private static string ResolveBtcuEndpointTemplate(DiscoveryConfig config)

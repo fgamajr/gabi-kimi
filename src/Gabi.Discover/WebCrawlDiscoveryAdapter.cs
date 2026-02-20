@@ -69,7 +69,11 @@ public sealed class WebCrawlDiscoveryAdapter : IDiscoveryAdapter
                     timeoutCts.CancelAfter(httpPolicy.RequestTimeout);
                     using var resp = await _httpClient.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token);
                     if (!resp.IsSuccessStatusCode)
+                    {
+                        if (depth == 0)
+                            throw new InvalidOperationException($"web_crawl root fetch failed with HTTP {(int)resp.StatusCode} for {pageUrl.AbsoluteUri}");
                         continue;
+                    }
 
                     var mediaType = resp.Content.Headers.ContentType?.MediaType?.ToLowerInvariant() ?? string.Empty;
                     if (!string.IsNullOrEmpty(mediaType) && !mediaType.Contains("html") && !mediaType.Contains("xml") && !mediaType.Contains("text"))
@@ -80,6 +84,8 @@ public sealed class WebCrawlDiscoveryAdapter : IDiscoveryAdapter
             }
             catch
             {
+                if (depth == 0)
+                    throw new InvalidOperationException($"web_crawl failed to fetch root URL: {pageUrl.AbsoluteUri}");
                 continue;
             }
 
@@ -279,6 +285,7 @@ public sealed class WebCrawlDiscoveryAdapter : IDiscoveryAdapter
         psi.ArgumentList.Add("--silent");
         psi.ArgumentList.Add("--show-error");
         psi.ArgumentList.Add("--location");
+        psi.ArgumentList.Add("--http1.1");
         psi.ArgumentList.Add("--max-time");
         psi.ArgumentList.Add(timeoutSeconds.ToString());
         psi.ArgumentList.Add(url.AbsoluteUri);

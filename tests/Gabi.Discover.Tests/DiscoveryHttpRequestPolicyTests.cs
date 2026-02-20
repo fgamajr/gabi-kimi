@@ -97,4 +97,73 @@ public class DiscoveryHttpRequestPolicyTests
         Assert.Equal(1500, policy.RequestDelayMs);
         Assert.Equal(TimeSpan.FromSeconds(180), policy.RequestTimeout);
     }
+
+    [Fact]
+    public void Apply_ShouldIncludeConfiguredHeaders()
+    {
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            http = new
+            {
+                headers = new Dictionary<string, string>
+                {
+                    ["X-Inlabs-Client"] = "gabi",
+                    ["Cookie"] = "inlabs-session=abc123"
+                }
+            }
+        }));
+
+        var config = new DiscoveryConfig
+        {
+            Strategy = "api_pagination",
+            Extra = doc.RootElement.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.Clone())
+        };
+
+        var policy = DiscoveryHttpRequestPolicy.FromConfig(config);
+        using var req = new HttpRequestMessage(HttpMethod.Get, "https://example.test/resource");
+        policy.Apply(req);
+
+        Assert.True(req.Headers.TryGetValues("X-Inlabs-Client", out var headerValues));
+        Assert.Contains("gabi", headerValues);
+        Assert.True(req.Headers.TryGetValues("Cookie", out var cookieValues));
+        Assert.Contains("inlabs-session=abc123", cookieValues);
+    }
+
+    [Fact]
+    public void FromConfig_ShouldResolveHeadersFromEnvironmentPlaceholder()
+    {
+        const string envVar = "GABI_INLABS_COOKIE";
+        var oldValue = Environment.GetEnvironmentVariable(envVar);
+        try
+        {
+            Environment.SetEnvironmentVariable(envVar, "inlabs-session=env-cookie");
+            using var doc = JsonDocument.Parse(JsonSerializer.Serialize(new
+            {
+                http = new
+                {
+                    headers = new Dictionary<string, string>
+                    {
+                        ["Cookie"] = "${GABI_INLABS_COOKIE}"
+                    }
+                }
+            }));
+
+            var config = new DiscoveryConfig
+            {
+                Strategy = "api_pagination",
+                Extra = doc.RootElement.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.Clone())
+            };
+
+            var policy = DiscoveryHttpRequestPolicy.FromConfig(config);
+            using var req = new HttpRequestMessage(HttpMethod.Get, "https://example.test/resource");
+            policy.Apply(req);
+
+            Assert.True(req.Headers.TryGetValues("Cookie", out var cookieValues));
+            Assert.Contains("inlabs-session=env-cookie", cookieValues);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(envVar, oldValue);
+        }
+    }
 }
