@@ -29,3 +29,16 @@ public record MediaLocalFileRequest(
     string? SessionType = null,
     string? Chamber = null,
     string? Metadata = null);
+
+public record MediaListItemResponse(
+    long Id,
+    string SourceId,
+    string ExternalId,
+    string TranscriptStatus,
+    DateTime CreatedAt,
+    DateTime UpdatedAt,
+    string? LastError);
+
+public record MediaListResponse(
+    IReadOnlyList<MediaListItemResponse> Items,
+    int Count);
