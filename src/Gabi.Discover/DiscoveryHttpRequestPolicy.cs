@@ -14,6 +14,7 @@ public sealed class DiscoveryHttpRequestPolicy
     public string UserAgentMode { get; init; } = "rotate";
     public TimeSpan RequestTimeout { get; init; } = TimeSpan.FromMinutes(2);
     public int RequestDelayMs { get; init; }
+    public IReadOnlyDictionary<string, string> Headers { get; init; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
     public static DiscoveryHttpRequestPolicy FromConfig(Contracts.Discovery.DiscoveryConfig config)
     {
@@ -41,13 +42,15 @@ public sealed class DiscoveryHttpRequestPolicy
             ?? ReadString(httpNode, "request_timeout")
             ?? ReadString(httpNode, "request_timeout_seconds"));
         var requestDelayMs = ParseInt(ReadString(httpNode, "request_delay_ms"), 0);
+        var headers = ReadHeaders(httpNode);
 
         return new DiscoveryHttpRequestPolicy
         {
             UserAgentMode = mode,
             UserAgents = configuredAgents.Count > 0 ? configuredAgents : UserAgentCatalog.Default,
             RequestTimeout = timeout,
-            RequestDelayMs = requestDelayMs
+            RequestDelayMs = requestDelayMs,
+            Headers = headers
         };
     }
 
@@ -61,6 +64,14 @@ public sealed class DiscoveryHttpRequestPolicy
         var ua = SelectUserAgent();
         if (!string.IsNullOrWhiteSpace(ua))
             request.Headers.TryAddWithoutValidation("User-Agent", ua);
+
+        foreach (var (key, value) in Headers)
+        {
+            if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(value))
+                continue;
+            request.Headers.Remove(key);
+            request.Headers.TryAddWithoutValidation(key, value);
+        }
     }
 
     private string SelectUserAgent()
@@ -118,6 +129,48 @@ public sealed class DiscoveryHttpRequestPolicy
         }
 
         return items;
+    }
+
+    private static IReadOnlyDictionary<string, string> ReadHeaders(Dictionary<string, JsonElement> node)
+    {
+        if (!node.TryGetValue("headers", out var headersEl) || headersEl.ValueKind != JsonValueKind.Object)
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var prop in headersEl.EnumerateObject())
+        {
+            var value = prop.Value.ValueKind switch
+            {
+                JsonValueKind.String => prop.Value.GetString() ?? string.Empty,
+                JsonValueKind.Number => prop.Value.GetRawText(),
+                JsonValueKind.True => "true",
+                JsonValueKind.False => "false",
+                _ => string.Empty
+            };
+
+            value = ResolveEnvPlaceholder(value);
+            if (string.IsNullOrWhiteSpace(prop.Name) || string.IsNullOrWhiteSpace(value))
+                continue;
+            headers[prop.Name] = value;
+        }
+
+        return headers;
+    }
+
+    private static string ResolveEnvPlaceholder(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return value;
+
+        if (value.Length > 3 && value.StartsWith("${", StringComparison.Ordinal) && value.EndsWith("}", StringComparison.Ordinal))
+        {
+            var envKey = value[2..^1].Trim();
+            if (string.IsNullOrWhiteSpace(envKey))
+                return string.Empty;
+            return Environment.GetEnvironmentVariable(envKey) ?? string.Empty;
+        }
+
+        return value;
     }
 
     private static IReadOnlyList<string> ReadUserAgentsFromFile(string? filePath)

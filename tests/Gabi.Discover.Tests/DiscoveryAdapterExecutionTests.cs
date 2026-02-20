@@ -11,6 +11,8 @@ public class DiscoveryAdapterExecutionTests
     private const string BtcuApiTemplate = "https://btcu.example.test/api/filtrarBtcuPublicados/page/{page}";
     private const string BtcuPdfTemplate = "https://btcu.example.test/api/obterDocumentoPdf/{id}";
     private const string SenadoApiTemplate = "https://legis.example.test/dadosabertos/legislacao/lista?tipo={tipo}&ano={year}";
+    private const string DouApiTemplate = "https://inlabs.example.test/dou/{date}/{section}.xml";
+    private const string DouMonthlyTemplate = "https://dados.example.test/dou/{year}/{month}/{section}.zip";
 
     [Fact]
     public async Task WebCrawlAdapter_ShouldDiscoverPdfAssetsAcrossDepth()
@@ -179,6 +181,48 @@ public class DiscoveryAdapterExecutionTests
 
         Assert.Single(urls);
         Assert.Equal("https://portal.example.org/files/one.pdf", urls[0]);
+    }
+
+    [Fact]
+    public async Task WebCrawlAdapter_ShouldFailExplicitly_WhenRootPageIsUnavailable()
+    {
+        var responses = new Dictionary<string, HttpResponseMessage>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["https://portal.example.org/publicacoes/todas"] = new HttpResponseMessage(HttpStatusCode.GatewayTimeout)
+        };
+
+        var client = new HttpClient(new StubHttpHandler(responses));
+        var adapter = new WebCrawlDiscoveryAdapter(client);
+        var registry = new DiscoveryAdapterRegistry(new IDiscoveryAdapter[]
+        {
+            new StaticUrlDiscoveryAdapter(),
+            new UrlPatternDiscoveryAdapter(),
+            adapter
+        });
+        var engine = new DiscoveryEngine(registry);
+
+        using var cfgDoc = JsonDocument.Parse("""
+            {
+              "root_url": "https://portal.example.org/publicacoes/todas",
+              "rules": {
+                "asset_selector": "a[href$='.pdf']",
+                "max_depth": 1
+              }
+            }
+            """);
+
+        var config = new DiscoveryConfig
+        {
+            Strategy = "web_crawl",
+            Extra = cfgDoc.RootElement.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.Clone())
+        };
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            await engine.DiscoverAsync("source_web", config).ToListAsync();
+        });
+
+        Assert.Contains("root", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -842,6 +886,177 @@ public class DiscoveryAdapterExecutionTests
         Assert.Equal("https://legis.senado.leg.br/dadosabertos/legislacao/2001", discovered[0].Url);
     }
 
+    [Fact]
+    public async Task ApiPaginationAdapter_DouDriver_ShouldDiscoverLinksAndEnrichMetadata()
+    {
+        var responses = new Dictionary<string, HttpResponseMessage>(StringComparer.OrdinalIgnoreCase)
+        {
+            [DouDateSectionUrl("2026-02-13", "do1")] = Xml("""
+                <articles>
+                  <article id="123" orgao="TCU" edicao="31" pagina="10" tipo="nomeacao">
+                    <titulo>Portaria de Nomeação</titulo>
+                    <url>https://www.in.gov.br/web/dou/-/portaria-123</url>
+                  </article>
+                  <article id="456" orgao="TCU" edicao="31" pagina="11" tipo="extrato_contrato">
+                    <titulo>Extrato de Contrato</titulo>
+                    <url>https://www.in.gov.br/web/dou/-/extrato-456</url>
+                  </article>
+                </articles>
+                """)
+        };
+
+        var client = new HttpClient(new StubHttpHandler(responses));
+        var adapter = new ApiPaginationDiscoveryAdapter(client);
+        var registry = new DiscoveryAdapterRegistry(new IDiscoveryAdapter[]
+        {
+            new StaticUrlDiscoveryAdapter(),
+            new UrlPatternDiscoveryAdapter(),
+            adapter
+        });
+        var engine = new DiscoveryEngine(registry);
+
+        var config = BuildDouConfig(
+            startDate: "2026-02-13",
+            endDate: "2026-02-13",
+            sections: ["do1"]);
+
+        var discovered = await engine.DiscoverAsync("dou_inlabs_secao1_atos", config).ToListAsync();
+
+        Assert.Equal(2, discovered.Count);
+        Assert.All(discovered, item =>
+        {
+            Assert.Equal("dou_inlabs_xml_v1", item.Metadata["driver"]);
+            Assert.Equal("DOU", item.Metadata["diario_tipo"]);
+            Assert.Equal("ato_administrativo", item.Metadata["document_kind"]);
+            Assert.Equal("do1", item.Metadata["secao"]);
+            Assert.Equal("2026-02-13", item.Metadata["data_publicacao"]);
+        });
+        Assert.Equal("nomeacao", discovered[0].Metadata["ato_tipo"]);
+        Assert.Equal("TCU", discovered[0].Metadata["orgao"]);
+    }
+
+    [Fact]
+    public async Task ApiPaginationAdapter_DouDriver_ShouldKeepPartialResultsWhenOneSectionFails()
+    {
+        var responses = new Dictionary<string, HttpResponseMessage>(StringComparer.OrdinalIgnoreCase)
+        {
+            [DouDateSectionUrl("2026-02-13", "do1")] = Xml("""
+                <articles>
+                  <article id="123">
+                    <url>https://www.in.gov.br/web/dou/-/portaria-123</url>
+                  </article>
+                </articles>
+                """),
+            [DouDateSectionUrl("2026-02-13", "do2")] = new HttpResponseMessage(HttpStatusCode.GatewayTimeout)
+        };
+
+        var client = new HttpClient(new StubHttpHandler(responses));
+        var adapter = new ApiPaginationDiscoveryAdapter(client);
+        var registry = new DiscoveryAdapterRegistry(new IDiscoveryAdapter[]
+        {
+            new StaticUrlDiscoveryAdapter(),
+            new UrlPatternDiscoveryAdapter(),
+            adapter
+        });
+        var engine = new DiscoveryEngine(registry);
+
+        var config = BuildDouConfig(
+            startDate: "2026-02-13",
+            endDate: "2026-02-13",
+            sections: ["do1", "do2"]);
+
+        var discovered = await engine.DiscoverAsync("dou_inlabs_secao1_atos", config).ToListAsync();
+
+        Assert.Single(discovered);
+        Assert.Equal("https://www.in.gov.br/web/dou/-/portaria-123", discovered[0].Url);
+    }
+
+    [Fact]
+    public async Task ApiPaginationAdapter_DouDriver_ShouldFailExplicitly_WhenInlabsCookieHeaderIsMissing()
+    {
+        var client = new HttpClient(new StubHttpHandler(new Dictionary<string, HttpResponseMessage>()));
+        var adapter = new ApiPaginationDiscoveryAdapter(client);
+        var registry = new DiscoveryAdapterRegistry(new IDiscoveryAdapter[]
+        {
+            new StaticUrlDiscoveryAdapter(),
+            new UrlPatternDiscoveryAdapter(),
+            adapter
+        });
+        var engine = new DiscoveryEngine(registry);
+
+        var payload = new Dictionary<string, object?>
+        {
+            ["driver"] = "dou_inlabs_xml_v1",
+            ["endpoint_template"] = "https://inlabs.in.gov.br/index.php?p={date}&dl={section}",
+            ["sections"] = new[] { "do1" }
+        };
+        using var cfgDoc = JsonDocument.Parse(JsonSerializer.Serialize(payload));
+        using var paramsDoc = JsonDocument.Parse("""
+            {
+              "date_range": { "start": "2026-02-13", "end": "2026-02-13" }
+            }
+            """);
+
+        var config = new DiscoveryConfig
+        {
+            Strategy = "api_pagination",
+            Extra = cfgDoc.RootElement.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.Clone()),
+            Params = paramsDoc.RootElement.EnumerateObject().ToDictionary(p => p.Name, p => (object)p.Value.Clone())
+        };
+
+        var ex = await Assert.ThrowsAsync<ArgumentException>(async () =>
+        {
+            await engine.DiscoverAsync("dou_inlabs_secao1_atos", config).ToListAsync();
+        });
+
+        Assert.Contains("GABI_INLABS_COOKIE", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ApiPaginationAdapter_DouMonthlyPatternDriver_ShouldGenerateMonthlyLinks()
+    {
+        var client = new HttpClient(new StubHttpHandler(new Dictionary<string, HttpResponseMessage>()));
+        var adapter = new ApiPaginationDiscoveryAdapter(client);
+        var registry = new DiscoveryAdapterRegistry(new IDiscoveryAdapter[]
+        {
+            new StaticUrlDiscoveryAdapter(),
+            new UrlPatternDiscoveryAdapter(),
+            adapter
+        });
+        var engine = new DiscoveryEngine(registry);
+
+        using var cfgDoc = JsonDocument.Parse("""
+            {
+              "driver": "dou_monthly_pattern_v1",
+              "url_template": "https://dados.example.test/dou/{year}/{month}/{section}.zip",
+              "start_year": 2025,
+              "end_year": 2025,
+              "start_month": 1,
+              "end_month": 3,
+              "sections": ["do1", "do3"]
+            }
+            """);
+
+        var config = new DiscoveryConfig
+        {
+            Strategy = "api_pagination",
+            Extra = cfgDoc.RootElement.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.Clone())
+        };
+
+        var discovered = await engine.DiscoverAsync("dou_dados_abertos_mensal", config).ToListAsync();
+        var urls = discovered.Select(x => x.Url).OrderBy(x => x).ToList();
+
+        Assert.Equal(6, discovered.Count);
+        Assert.Contains("https://dados.example.test/dou/2025/01/do1.zip", urls);
+        Assert.Contains("https://dados.example.test/dou/2025/03/do3.zip", urls);
+        Assert.All(discovered, d =>
+        {
+            Assert.Equal("dou_monthly_pattern_v1", d.Metadata["driver"]);
+            Assert.Equal("DOU", d.Metadata["diario_tipo"]);
+            Assert.Equal("ato_administrativo", d.Metadata["document_kind"]);
+        });
+    }
+
     private static string BtcuPageUrl(int page)
         => BtcuApiTemplate.Replace("{page}", page.ToString(), StringComparison.Ordinal);
 
@@ -852,6 +1067,11 @@ public class DiscoveryAdapterExecutionTests
         => SenadoApiTemplate
             .Replace("{tipo}", tipo, StringComparison.Ordinal)
             .Replace("{year}", year.ToString(), StringComparison.Ordinal);
+
+    private static string DouDateSectionUrl(string date, string section)
+        => DouApiTemplate
+            .Replace("{date}", date, StringComparison.Ordinal)
+            .Replace("{section}", section, StringComparison.Ordinal);
 
     private static DiscoveryConfig BuildBtcuConfig(string tipo, int pageStart = 0, int? maxPages = null)
     {
@@ -904,6 +1124,33 @@ public class DiscoveryAdapterExecutionTests
         };
     }
 
+    private static DiscoveryConfig BuildDouConfig(string startDate, string endDate, string[] sections)
+    {
+        var payload = new Dictionary<string, object?>
+        {
+            ["driver"] = "dou_inlabs_xml_v1",
+            ["endpoint_template"] = DouApiTemplate,
+            ["sections"] = sections
+        };
+
+        using var cfgDoc = JsonDocument.Parse(JsonSerializer.Serialize(payload));
+        using var paramsDoc = JsonDocument.Parse($$"""
+            {
+              "date_range": {
+                "start": "{{startDate}}",
+                "end": "{{endDate}}"
+              }
+            }
+            """);
+
+        return new DiscoveryConfig
+        {
+            Strategy = "api_pagination",
+            Extra = cfgDoc.RootElement.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.Clone()),
+            Params = paramsDoc.RootElement.EnumerateObject().ToDictionary(p => p.Name, p => (object)p.Value.Clone())
+        };
+    }
+
     private static HttpResponseMessage Html(string body)
         => new(HttpStatusCode.OK)
         {
@@ -914,6 +1161,12 @@ public class DiscoveryAdapterExecutionTests
         => new(HttpStatusCode.OK)
         {
             Content = new StringContent(body, Encoding.UTF8, "application/json")
+        };
+
+    private static HttpResponseMessage Xml(string body)
+        => new(HttpStatusCode.OK)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/xml")
         };
 
     private sealed class StubHttpHandler : HttpMessageHandler
