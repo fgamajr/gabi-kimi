@@ -1175,6 +1175,88 @@ public class DiscoveryAdapterExecutionTests
     }
 
     [Fact]
+    public async Task ApiPaginationAdapter_YouTubeDriver_ShouldUseChannelIdFromEnvironment()
+    {
+        const string apiKey = "yt-key-test";
+        const string channelId = "UC_ENV_CHANNEL";
+        const string uploadsPlaylistId = "UU_ENV_UPLOADS";
+
+        var responses = new Dictionary<string, HttpResponseMessage>(StringComparer.OrdinalIgnoreCase)
+        {
+            [YouTubeChannelsUrl(channelId, apiKey)] = Json($$"""
+                {
+                  "items": [
+                    {
+                      "contentDetails": {
+                        "relatedPlaylists": {
+                          "uploads": "{{uploadsPlaylistId}}"
+                        }
+                      }
+                    }
+                  ]
+                }
+                """),
+            [YouTubePlaylistUrl(uploadsPlaylistId, apiKey)] = Json("""
+                {
+                  "items": [
+                    {
+                      "contentDetails": { "videoId": "vid_env_1" },
+                      "snippet": {
+                        "title": "Video Env 1",
+                        "description": "Description Env 1",
+                        "publishedAt": "2026-02-20T10:00:00Z",
+                        "channelTitle": "TCU Oficial",
+                        "thumbnails": { "high": { "url": "https://img.example/vid_env_1.jpg" } }
+                      }
+                    }
+                  ]
+                }
+                """)
+        };
+
+        var oldApiKey = Environment.GetEnvironmentVariable("YOUTUBE_API_KEY");
+        var oldChannelId = Environment.GetEnvironmentVariable("YOUTUBE_CHANNEL_ID");
+        Environment.SetEnvironmentVariable("YOUTUBE_API_KEY", apiKey);
+        Environment.SetEnvironmentVariable("YOUTUBE_CHANNEL_ID", channelId);
+
+        try
+        {
+            var client = new HttpClient(new StubHttpHandler(responses));
+            var adapter = new ApiPaginationDiscoveryAdapter(client);
+            var registry = new DiscoveryAdapterRegistry(new IDiscoveryAdapter[]
+            {
+                new StaticUrlDiscoveryAdapter(),
+                new UrlPatternDiscoveryAdapter(),
+                adapter
+            });
+            var engine = new DiscoveryEngine(registry);
+
+            using var cfgDoc = JsonDocument.Parse("""
+                {
+                  "driver": "youtube_channel_v1"
+                }
+                """);
+
+            var config = new DiscoveryConfig
+            {
+                Strategy = "api_pagination",
+                Extra = cfgDoc.RootElement.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.Clone())
+            };
+
+            var discovered = await engine.DiscoverAsync("tcu_youtube_videos", config).ToListAsync();
+
+            Assert.Single(discovered);
+            Assert.Equal("https://www.youtube.com/watch?v=vid_env_1", discovered[0].Url);
+            Assert.Equal(channelId, discovered[0].Metadata["channel_id"]);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("YOUTUBE_API_KEY", oldApiKey);
+            Environment.SetEnvironmentVariable("YOUTUBE_CHANNEL_ID", oldChannelId);
+        }
+    }
+
+    [Fact]
     public async Task ApiPaginationAdapter_YouTubeDriver_ShouldFailExplicitly_WhenApiKeyMissing()
     {
         var oldApiKey = Environment.GetEnvironmentVariable("YOUTUBE_API_KEY");
