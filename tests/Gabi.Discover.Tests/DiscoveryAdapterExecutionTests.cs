@@ -13,6 +13,8 @@ public class DiscoveryAdapterExecutionTests
     private const string SenadoApiTemplate = "https://legis.example.test/dadosabertos/legislacao/lista?tipo={tipo}&ano={year}";
     private const string DouApiTemplate = "https://inlabs.example.test/dou/{date}/{section}.xml";
     private const string DouMonthlyTemplate = "https://dados.example.test/dou/{year}/{month}/{section}.zip";
+    private const string YouTubeChannelsApiTemplate = "https://www.googleapis.com/youtube/v3/channels?part=contentDetails&id={channelId}&key={apiKey}";
+    private const string YouTubePlaylistApiTemplate = "https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId={playlistId}&maxResults=50&key={apiKey}";
 
     [Fact]
     public async Task WebCrawlAdapter_ShouldDiscoverPdfAssetsAcrossDepth()
@@ -1057,6 +1059,164 @@ public class DiscoveryAdapterExecutionTests
         });
     }
 
+    [Fact]
+    public async Task ApiPaginationAdapter_YouTubeDriver_ShouldDiscoverVideosAcrossPages()
+    {
+        const string apiKey = "yt-key-test";
+        const string channelId = "UC_TEST_CHANNEL";
+        const string uploadsPlaylistId = "UU_TEST_UPLOADS";
+
+        var responses = new Dictionary<string, HttpResponseMessage>(StringComparer.OrdinalIgnoreCase)
+        {
+            [YouTubeChannelsUrl(channelId, apiKey)] = Json($$"""
+                {
+                  "items": [
+                    {
+                      "contentDetails": {
+                        "relatedPlaylists": {
+                          "uploads": "{{uploadsPlaylistId}}"
+                        }
+                      }
+                    }
+                  ]
+                }
+                """),
+            [YouTubePlaylistUrl(uploadsPlaylistId, apiKey)] = Json("""
+                {
+                  "items": [
+                    {
+                      "contentDetails": { "videoId": "vid1" },
+                      "snippet": {
+                        "title": "Video 1",
+                        "description": "Description 1",
+                        "publishedAt": "2026-02-20T10:00:00Z",
+                        "channelTitle": "TCU Oficial",
+                        "thumbnails": { "high": { "url": "https://img.example/vid1.jpg" } }
+                      }
+                    }
+                  ],
+                  "nextPageToken": "TOKEN_2"
+                }
+                """),
+            [YouTubePlaylistUrl(uploadsPlaylistId, apiKey, "TOKEN_2")] = Json("""
+                {
+                  "items": [
+                    {
+                      "contentDetails": { "videoId": "vid1" },
+                      "snippet": {
+                        "title": "Video 1 duplicated",
+                        "description": "Duplicate should be ignored",
+                        "publishedAt": "2026-02-20T10:00:00Z",
+                        "channelTitle": "TCU Oficial",
+                        "thumbnails": { "high": { "url": "https://img.example/vid1.jpg" } }
+                      }
+                    },
+                    {
+                      "contentDetails": { "videoId": "vid2" },
+                      "snippet": {
+                        "title": "Video 2",
+                        "description": "Description 2",
+                        "publishedAt": "2026-02-21T10:00:00Z",
+                        "channelTitle": "TCU Oficial",
+                        "thumbnails": { "maxres": { "url": "https://img.example/vid2.jpg" } }
+                      }
+                    }
+                  ]
+                }
+                """)
+        };
+
+        var oldApiKey = Environment.GetEnvironmentVariable("YOUTUBE_API_KEY");
+        Environment.SetEnvironmentVariable("YOUTUBE_API_KEY", apiKey);
+        try
+        {
+            var client = new HttpClient(new StubHttpHandler(responses));
+            var adapter = new ApiPaginationDiscoveryAdapter(client);
+            var registry = new DiscoveryAdapterRegistry(new IDiscoveryAdapter[]
+            {
+                new StaticUrlDiscoveryAdapter(),
+                new UrlPatternDiscoveryAdapter(),
+                adapter
+            });
+            var engine = new DiscoveryEngine(registry);
+
+            using var cfgDoc = JsonDocument.Parse($$"""
+                {
+                  "driver": "youtube_channel_v1",
+                  "channel_id": "{{channelId}}"
+                }
+                """);
+
+            var config = new DiscoveryConfig
+            {
+                Strategy = "api_pagination",
+                Extra = cfgDoc.RootElement.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.Clone())
+            };
+
+            var discovered = await engine.DiscoverAsync("tcu_youtube_videos", config).ToListAsync();
+            var urls = discovered.Select(x => x.Url).OrderBy(x => x).ToList();
+
+            Assert.Equal(2, discovered.Count);
+            Assert.Equal("https://www.youtube.com/watch?v=vid1", urls[0]);
+            Assert.Equal("https://www.youtube.com/watch?v=vid2", urls[1]);
+
+            Assert.All(discovered, d =>
+            {
+                Assert.Equal("youtube_channel_v1", d.Metadata["driver"]);
+                Assert.Equal("multimedia_record", d.Metadata["document_kind"]);
+                Assert.Equal("video", d.Metadata["media_kind"]);
+                Assert.Equal("UC_TEST_CHANNEL", d.Metadata["channel_id"]);
+            });
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("YOUTUBE_API_KEY", oldApiKey);
+        }
+    }
+
+    [Fact]
+    public async Task ApiPaginationAdapter_YouTubeDriver_ShouldFailExplicitly_WhenApiKeyMissing()
+    {
+        var oldApiKey = Environment.GetEnvironmentVariable("YOUTUBE_API_KEY");
+        Environment.SetEnvironmentVariable("YOUTUBE_API_KEY", null);
+        try
+        {
+            var client = new HttpClient(new StubHttpHandler(new Dictionary<string, HttpResponseMessage>()));
+            var adapter = new ApiPaginationDiscoveryAdapter(client);
+            var registry = new DiscoveryAdapterRegistry(new IDiscoveryAdapter[]
+            {
+                new StaticUrlDiscoveryAdapter(),
+                new UrlPatternDiscoveryAdapter(),
+                adapter
+            });
+            var engine = new DiscoveryEngine(registry);
+
+            using var cfgDoc = JsonDocument.Parse("""
+                {
+                  "driver": "youtube_channel_v1",
+                  "channel_id": "UC_TEST_CHANNEL"
+                }
+                """);
+
+            var config = new DiscoveryConfig
+            {
+                Strategy = "api_pagination",
+                Extra = cfgDoc.RootElement.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.Clone())
+            };
+
+            var ex = await Assert.ThrowsAsync<ArgumentException>(async () =>
+            {
+                await engine.DiscoverAsync("tcu_youtube_videos", config).ToListAsync();
+            });
+
+            Assert.Contains("YOUTUBE_API_KEY", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("YOUTUBE_API_KEY", oldApiKey);
+        }
+    }
+
     private static string BtcuPageUrl(int page)
         => BtcuApiTemplate.Replace("{page}", page.ToString(), StringComparison.Ordinal);
 
@@ -1072,6 +1232,21 @@ public class DiscoveryAdapterExecutionTests
         => DouApiTemplate
             .Replace("{date}", date, StringComparison.Ordinal)
             .Replace("{section}", section, StringComparison.Ordinal);
+
+    private static string YouTubeChannelsUrl(string channelId, string apiKey)
+        => YouTubeChannelsApiTemplate
+            .Replace("{channelId}", Uri.EscapeDataString(channelId), StringComparison.Ordinal)
+            .Replace("{apiKey}", Uri.EscapeDataString(apiKey), StringComparison.Ordinal);
+
+    private static string YouTubePlaylistUrl(string playlistId, string apiKey, string? pageToken = null)
+    {
+        var baseUrl = YouTubePlaylistApiTemplate
+            .Replace("{playlistId}", Uri.EscapeDataString(playlistId), StringComparison.Ordinal)
+            .Replace("{apiKey}", Uri.EscapeDataString(apiKey), StringComparison.Ordinal);
+        if (!string.IsNullOrWhiteSpace(pageToken))
+            baseUrl += "&pageToken=" + Uri.EscapeDataString(pageToken);
+        return baseUrl;
+    }
 
     private static DiscoveryConfig BuildBtcuConfig(string tipo, int pageStart = 0, int? maxPages = null)
     {

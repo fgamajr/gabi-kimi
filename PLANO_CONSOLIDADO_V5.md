@@ -1272,3 +1272,114 @@ Regras:
 3. Nenhum upload de vídeo/áudio bruto é aceito/persistido.
 4. Evidência SQL mostra idempotência por `external_id`.
 5. Testes de contrato da API e testes do driver passam sem regressão global.
+
+### 20.7 Revisão de escopo (20/02/2026) — separar fontes e modos
+
+Decisão de arquitetura (obrigatória):
+1. `tcu_youtube_videos` e `tcu_media_upload` são fontes diferentes, com fluxos diferentes.
+2. Menções em redes sociais (`X`, `Instagram`, `Google`) são outra família de fontes (`social_mentions`), separada de multimídia.
+3. Não misturar descoberta pública (YouTube/X/etc.) com ingestão interna por upload.
+
+Fontes alvo e função:
+1. `tcu_youtube_videos`: discovery de vídeos públicos + metadados.
+2. `tcu_media_upload`: entrada de mídia interna (upload) para transcrição assíncrona.
+3. `tcu_x_mentions`: posts do X citando TCU/Tribunal de Contas da União.
+4. `tcu_instagram_mentions` (futuro): menções no Instagram conforme limites da API oficial.
+5. `tcu_google_mentions` (futuro): menções em web/news via API de busca.
+
+### 20.8 Plano integrado por fase (com "não fazer agora")
+
+Fase 1 (fazer agora): YouTube discovery-only + social canário desabilitado
+1. Implementar `tcu_youtube_videos` em modo `link_only` com metadados.
+2. Adicionar `tcu_x_mentions` no catálogo como canário (`enabled=false`, `pipeline.enabled=false`) até credenciais/tier.
+3. Não transcrever YouTube nesta fase.
+4. Não ativar scheduler automático para fontes novas.
+
+Fase 2 (fazer depois, prioridade alta): upload de mídia assíncrono + fila
+1. Criar endpoint `POST /api/v1/media/upload` (multipart) com retorno `202 Accepted`.
+2. Streaming de upload para arquivo temporário/objeto, sem buffer em memória.
+3. Enfileirar job (`transcribe_media`) no Hangfire.
+4. Persistir status de processamento (`pending|processing|completed|failed`) com trilha de erro.
+
+Fase 3 (fazer depois, prioridade alta): transcrição assíncrona
+1. Worker lê mídia por stream e envia para provedor de transcrição.
+2. Persistir no Postgres apenas `transcript_text` + metadados.
+3. Excluir temporários após sucesso; retenção curta para falha/retry.
+4. Se arquivo exceder limite do provedor, aplicar segmentação/chunking por job.
+
+Fase 4 (não fazer agora): Instagram/Google mentions
+1. Implementar somente após validação de acesso oficial e custo/limite.
+2. Entram como canário desabilitado inicialmente.
+3. Não entram no gate de estabilização atual do pipeline.
+
+### 20.9 Restrições operacionais (300MB) para mídia
+
+Regras inegociáveis:
+1. Proibido transcrever dentro da requisição HTTP de upload.
+2. Proibido carregar vídeo/áudio inteiro em memória.
+3. Fluxo obrigatório: `upload rápido -> enqueue -> worker assíncrono`.
+4. Persistência em Postgres: transcript + metadados; sem blob bruto no banco.
+
+Opções de armazenamento:
+1. Sem object-store: usar temporário efêmero para processamento transitório.
+2. Com object-store (opcional): stream-through para S3/R2, sem buffer local.
+3. Escolha depende de volume, custo e retenção; não bloqueia Fase 1.
+
+### 20.10 Menções sociais (X/Instagram/Google) — diretriz de produto
+
+X (prioridade social inicial):
+1. Estratégia: query por `"Tribunal de Contas da União" OR "@TCUoficial" OR "TCU"`.
+2. Armazenar: `post_id`, `author_id`, `created_at`, `text`, `url`, métricas públicas.
+3. Dedupe por `post_id`.
+4. Gate: só ativar com credencial/tier válidos e rate-limit conhecido.
+
+Instagram (futuro):
+1. Dependente de permissões da Graph API e escopo business.
+2. Começar por conta oficial antes de menções amplas.
+3. Permanecer fora do escopo imediato.
+
+Google mentions (futuro):
+1. Tratar como fonte de descoberta web/news, não social nativo.
+2. Requer definição de provedor API e política de citação/armazenamento.
+3. Fora do escopo imediato.
+
+### 20.11 O que não faremos agora (explícito)
+1. Não implementar Instagram mentions neste ciclo.
+2. Não implementar Google mentions neste ciclo.
+3. Não ativar transcrição síncrona em upload.
+4. Não persistir binário bruto de mídia em Postgres.
+5. Não acoplar estabilização do pipeline atual à disponibilidade de APIs sociais externas.
+
+### 20.12 Critérios de aceite do ciclo atual (multimídia/social)
+1. `tcu_youtube_videos` funcional em discovery `link_only` (canário controlado).
+2. Contrato de `media upload` definido e pronto para implementação assíncrona.
+3. `tcu_x_mentions` mapeada no catálogo/roadmap com gate de credenciais.
+4. Sem regressão no zero-kelvin all-sources já estabilizado.
+5. Rastreabilidade no V5 para escopo atual vs. backlog futuro.
+
+### 20.13 Status de execução (20/02/2026) — feito agora vs. depois
+
+Feito neste ciclo (implementado em código):
+1. Driver `youtube_channel_v1` adicionado em `src/Gabi.Discover/ApiPaginationDiscoveryAdapter.cs`.
+2. Descoberta YouTube implementada com:
+   - leitura obrigatória de `YOUTUBE_API_KEY` via ambiente,
+   - resolução do playlist de uploads pelo endpoint `channels`,
+   - paginação por `nextPageToken` no endpoint `playlistItems`,
+   - dedupe por `video_id`,
+   - emissão de `DiscoveredSource` com metadados (`title`, `description`, `published_at`, `channel_title`, `thumbnail_url`, `video_id`, `channel_id`).
+3. Fonte `tcu_youtube_videos` adicionada em `sources_v2.yaml` como canário desabilitado (`enabled=false`, `pipeline.enabled=false`, `fetch.content_strategy=link_only`, `fetch.content_profile=media`).
+4. Fonte `tcu_x_mentions` adicionada em `sources_v2.yaml` como canário desabilitado (somente mapeamento de catálogo/roadmap; driver ainda não implementado).
+5. Testes do driver YouTube adicionados/atualizados em `tests/Gabi.Discover.Tests/DiscoveryAdapterExecutionTests.cs`:
+   - paginação + dedupe,
+   - falha explícita sem `YOUTUBE_API_KEY`.
+
+Validação executada:
+1. `dotnet test tests/Gabi.Discover.Tests --filter "FullyQualifiedName~ApiPaginationAdapter_YouTubeDriver" -v q` (PASS).
+2. `dotnet test tests/Gabi.Discover.Tests --filter "Category!=External" -v q` (PASS).
+
+Pendente (não fazer agora, backlog planejado):
+1. Ativar `tcu_youtube_videos` em produção (depende de `channel_id` definitivo e política operacional).
+2. Implementar `tcu_media_upload` com `POST /api/v1/media/upload` assíncrono (multipart streaming + fila Hangfire).
+3. Implementar executor de transcrição (`transcribe_media`) com persistência de texto/metadados e sem blob bruto no Postgres.
+4. Implementar driver real de `tcu_x_mentions` com API oficial e credenciais/tier válidos.
+5. Expandir para Instagram/Google mentions somente após validação de acesso, custo e rate-limit.
