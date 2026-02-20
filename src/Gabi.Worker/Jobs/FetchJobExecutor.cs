@@ -33,8 +33,8 @@ public class FetchJobExecutor : IJobExecutor
     private readonly ILogger<FetchJobExecutor> _logger;
     private readonly HttpClient _httpClient;
     private const int BatchSize = 25;
-    private const int FetchCandidateSnapshotLimit = 5000;
     private const int FetchCandidatePageSize = 100;
+    private const int ClaimBatchRetryAttempts = 5;
     public const int DefaultMaxFieldLength = 262_144;
     private const int DefaultTelemetryEveryRows = 1000;
 
@@ -86,14 +86,20 @@ public class FetchJobExecutor : IJobExecutor
             return new JobResult { Success = false, ErrorMessage = $"Source {sourceId} not found" };
         }
 
-        var candidateStatuses = new[] { "pending", "failed" };
-        var candidateIds = await _fetchItemRepository.GetCandidateIdsBySourceAndStatusesAsync(
-            sourceId,
-            limit: FetchCandidateSnapshotLimit,
-            statuses: candidateStatuses,
-            ct);
+        // Cleanup: reset items stuck in "processing" from previous interrupted runs
+        // This prevents stalls when jobs are cancelled mid-processing
+        var stuckItemsReset = await ResetStuckProcessingItemsAsync(sourceId, ct);
+        if (stuckItemsReset > 0)
+        {
+            _logger.LogWarning(
+                "Reset {Count} stuck processing items for source {SourceId}",
+                stuckItemsReset,
+                sourceId);
+        }
 
-        if (candidateIds.Count == 0)
+        var candidateStatuses = new[] { "pending", "failed" };
+        var total = await _fetchItemRepository.CountBySourceAndStatusesAsync(sourceId, candidateStatuses, ct);
+        if (total == 0)
         {
             fetchRun.CompletedAt = DateTime.UtcNow;
             fetchRun.Status = "completed";
@@ -119,7 +125,6 @@ public class FetchJobExecutor : IJobExecutor
         var telemetryEveryRows = ResolveTelemetryEveryRows(Environment.GetEnvironmentVariable("GABI_FETCH_TELEMETRY_EVERY_ROWS"));
         var csvConfig = GetCsvFormatConfig(source);
 
-        var total = candidateIds.Count;
         var completed = 0;
         var failed = 0;
         var totalDocs = 0;
@@ -130,7 +135,7 @@ public class FetchJobExecutor : IJobExecutor
         if (string.Equals(fetchContentStrategy, "link_only", StringComparison.OrdinalIgnoreCase))
         {
             var processed = 0;
-            foreach (var idPage in candidateIds.Chunk(FetchCandidatePageSize))
+            while (true)
             {
                 if (IsCapReached(processed, maxDocsPerSource))
                 {
@@ -138,7 +143,16 @@ public class FetchJobExecutor : IJobExecutor
                     break;
                 }
 
-                var pageItems = await _fetchItemRepository.GetByIdsAsync(sourceId, idPage, ct);
+                var pageItems = await ClaimNextBatchWithRetryAsync(
+                    sourceId,
+                    FetchCandidatePageSize,
+                    candidateStatuses,
+                    fetchRun.Id,
+                    "fetch_link_only",
+                    ct);
+                if (pageItems.Count == 0)
+                    break;
+
                 foreach (var item in pageItems)
                 {
                     if (IsCapReached(processed, maxDocsPerSource))
@@ -153,7 +167,7 @@ public class FetchJobExecutor : IJobExecutor
                     completed++;
                     processed++;
 
-                    var percent = (int)Math.Round((processed * 100.0) / total);
+                    var percent = (int)Math.Round((processed * 100.0) / Math.Max(total, processed));
                     progress.Report(new JobProgress
                     {
                         PercentComplete = percent,
@@ -171,7 +185,7 @@ public class FetchJobExecutor : IJobExecutor
                 });
                 }
 
-                await _context.SaveChangesAsync(ct);
+                await SaveChangesWithRetryAsync(ct);
                 _context.ChangeTracker.Clear();
             }
 
@@ -212,7 +226,7 @@ public class FetchJobExecutor : IJobExecutor
         }
 
         var processedCount = 0;
-        foreach (var idPage in candidateIds.Chunk(FetchCandidatePageSize))
+        while (true)
         {
             if (capped || IsCapReached(totalDocs, maxDocsPerSource))
             {
@@ -220,7 +234,16 @@ public class FetchJobExecutor : IJobExecutor
                 break;
             }
 
-            var pageItems = await _fetchItemRepository.GetByIdsAsync(sourceId, idPage, ct);
+            var pageItems = await ClaimNextBatchWithRetryAsync(
+                sourceId,
+                FetchCandidatePageSize,
+                candidateStatuses,
+                fetchRun.Id,
+                "fetch",
+                ct);
+            if (pageItems.Count == 0)
+                break;
+
             foreach (var item in pageItems)
             {
                 if (IsCapReached(totalDocs, maxDocsPerSource))
@@ -231,12 +254,6 @@ public class FetchJobExecutor : IJobExecutor
 
                 try
                 {
-                    item.Status = "processing";
-                    item.Attempts++;
-                    item.StartedAt = DateTime.UtcNow;
-                    item.FetchRunId = fetchRun.Id;
-                    await _context.SaveChangesAsync(ct);
-
                     var link = await _context.DiscoveredLinks.FindAsync([item.DiscoveredLinkId], ct);
                     int? remainingCap = maxDocsPerSource.HasValue
                         ? Math.Max(0, maxDocsPerSource.Value - totalDocs)
@@ -318,9 +335,9 @@ public class FetchJobExecutor : IJobExecutor
                 }
 
                 processedCount++;
-                await _context.SaveChangesAsync(ct);
+                await SaveChangesWithRetryAsync(ct);
 
-                var percent = (int)Math.Round((processedCount * 100.0) / total);
+                var percent = (int)Math.Round((processedCount * 100.0) / Math.Max(total, processedCount));
                 progress.Report(new JobProgress
                 {
                     PercentComplete = percent,
@@ -970,6 +987,43 @@ public class FetchJobExecutor : IJobExecutor
             yield return text;
     }
 
+    /// <summary>
+    /// Resets fetch items stuck in "processing" status from previous interrupted runs.
+    /// This prevents stalls when jobs are cancelled mid-processing.
+    /// Items are considered stuck if they've been in "processing" for more than 10 minutes
+    /// without recent updates.
+    /// </summary>
+    private async Task<int> ResetStuckProcessingItemsAsync(string sourceId, CancellationToken ct)
+    {
+        try
+        {
+            // Any leftover "processing" item from previous attempts blocks claiming.
+            // Reset aggressively at fetch start to guarantee forward progress.
+            var stuckItems = await _context.FetchItems
+                .Where(i => i.SourceId == sourceId && i.Status == "processing")
+                .ToListAsync(ct);
+            
+            if (stuckItems.Count == 0)
+                return 0;
+
+            foreach (var item in stuckItems)
+            {
+                item.Status = "pending";
+                item.FetchRunId = null;
+                item.LastError = "Reset processing item at fetch start";
+                item.UpdatedAt = DateTime.UtcNow;
+            }
+
+            await _context.SaveChangesAsync(ct);
+            return stuckItems.Count;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to reset stuck processing items for source {SourceId}", sourceId);
+            return 0;
+        }
+    }
+
     private static IEnumerable<string> CollectComentariosRecursive(JsonElement node)
     {
         if (node.ValueKind == JsonValueKind.Object)
@@ -1112,6 +1166,83 @@ public class FetchJobExecutor : IJobExecutor
         }
 
         return null;
+    }
+
+    private async Task<IReadOnlyList<FetchItemEntity>> ClaimNextBatchWithRetryAsync(
+        string sourceId,
+        int limit,
+        string[] statuses,
+        Guid fetchRunId,
+        string updatedBy,
+        CancellationToken ct)
+    {
+        for (var attempt = 1; attempt <= ClaimBatchRetryAttempts; attempt++)
+        {
+            try
+            {
+                return await _fetchItemRepository.ClaimNextBatchAsync(
+                    sourceId,
+                    limit,
+                    statuses,
+                    fetchRunId,
+                    updatedBy,
+                    ct);
+            }
+            catch (Exception ex) when (IsTransientConnectionCapacity(ex) && attempt < ClaimBatchRetryAttempts)
+            {
+                var backoffMs = 250 * attempt;
+                _logger.LogWarning(
+                    ex,
+                    "Transient DB capacity while claiming fetch batch for {SourceId} (attempt {Attempt}/{MaxAttempts}). Retrying in {BackoffMs}ms.",
+                    sourceId,
+                    attempt,
+                    ClaimBatchRetryAttempts,
+                    backoffMs);
+                await Task.Delay(backoffMs, ct);
+            }
+        }
+
+        return await _fetchItemRepository.ClaimNextBatchAsync(
+            sourceId,
+            limit,
+            statuses,
+            fetchRunId,
+            updatedBy,
+            ct);
+    }
+
+    private async Task SaveChangesWithRetryAsync(CancellationToken ct)
+    {
+        const int maxAttempts = 3;
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
+            {
+                await _context.SaveChangesAsync(ct);
+                return;
+            }
+            catch (Exception ex) when (IsTransientConnectionCapacity(ex) && attempt < maxAttempts)
+            {
+                var backoffMs = 200 * attempt;
+                _logger.LogWarning(
+                    ex,
+                    "Transient DB capacity while saving fetch progress (attempt {Attempt}/{MaxAttempts}). Retrying in {BackoffMs}ms.",
+                    attempt,
+                    maxAttempts,
+                    backoffMs);
+                await Task.Delay(backoffMs, ct);
+            }
+        }
+
+        await _context.SaveChangesAsync(ct);
+    }
+
+    private static bool IsTransientConnectionCapacity(Exception ex)
+    {
+        if (ex is NpgsqlException npgsql && npgsql.SqlState == "53300")
+            return true;
+
+        return ex.InnerException != null && IsTransientConnectionCapacity(ex.InnerException);
     }
 
     private record FetchResult

@@ -1,7 +1,7 @@
 # Plano Consolidado v5 (Stabilization + Normative Intelligence Program)
 
 Data base: 15 de fevereiro de 2026  
-Atualizado em: 19 de fevereiro de 2026
+Atualizado em: 20 de fevereiro de 2026
 
 ## 1. Objetivo Executivo
 
@@ -396,12 +396,10 @@ Ajuste crítico aplicado por Codex (v5):
 ### 13.1 Objetivo
 Adicionar fontes de diário oficial para casos administrativos (nomeações, extratos de contrato, extratos de licitação, portarias), sem perder o foco discovery-first.
 
-### 13.2 Escopo Federal (DOU) - prioridade alta
-1. Fonte primária de máquina: INLABS (`inlabs.in.gov.br`) com XML diário + PDF diário.
-2. Fonte pública de navegação: portal DOU (`portal.in.gov.br`) para validação e enriquecimento.
-3. Estratégia de implementação:
-- `dou_inlabs_daily_xml` (discovery por data/edição/seção; fetch inicialmente `link_only`/metadata-only).
-- `dou_portal_item_backfill` (crawler de item para detalhes quando necessário).
+### 13.2 Escopo Federal (DOU) - abordagem faseada
+1. **Fase A (baseline oficial agora)**: fonte pública mensal sem autenticação.
+2. **Fase B (quando necessário)**: INLABS diário com autenticação estável.
+3. **Fase C**: união de histórico (A) + delta diário (B), com deduplicação e reconciliação.
 4. Campos semânticos mínimos:
 - `diario_tipo=DOU`
 - `secao=1|2|3`
@@ -437,12 +435,52 @@ Adicionar fontes de diário oficial para casos administrativos (nomeações, ext
 - intenção `ato_administrativo` => `DOU/diário oficial`.
 
 ### 13.5 Riscos e mitigação
-1. Dependência de autenticação no INLABS:
-- credencial técnica + monitor de disponibilidade.
-2. Volatilidade de HTML no portal:
-- parser tolerante + smoke tests.
-3. Heterogeneidade estadual:
+1. Delay natural da base pública mensal:
+- tratar como fonte de histórico (`freshness=monthly_delayed`), não near-real-time.
+2. Volatilidade de HTML no portal público:
+- parser tolerante + smoke tests de selector.
+3. Dependência de autenticação no INLABS (futuro):
+- manter INLABS fora do baseline e ativar apenas em Fase B com credencial institucional.
+4. Heterogeneidade estadual:
 - capability matrix + rollout em ondas.
+
+### 13.6 Execução imediata (Fase A) - baseline oficial sem autenticação
+1. Fonte ativa no YAML:
+- `dou_dados_abertos_mensal` (discovery público, sem cookie/login).
+2. Fontes INLABS:
+- `dou_inlabs_secao1_atos_administrativos`
+- `dou_inlabs_secao3_licitacoes_contratos`
+- status: `enabled=false` e `pipeline.enabled=false` (somente Fase B/C).
+3. Regras operacionais da Fase A:
+- `content_strategy=link_only` (discovery/catalog primeiro).
+- ingestão textual completa dos atos fica para evolução posterior.
+
+### 13.7 Testes e verificação (DoD DOU fase A)
+1. Critérios de aceite:
+- seed registra a source `dou_dados_abertos_mensal`.
+- discovery da source mensal retorna links públicos (`zip/xml`) com estabilidade.
+- sem dependência de cookie/sessão no baseline.
+2. Evidência mínima:
+- `GET /api/v1/sources` contém `dou_dados_abertos_mensal`.
+- targeted discovery da source mensal materializa `discovered_links > 0`.
+3. Evidência runtime (19/02/2026):
+- Comando:
+  `./tests/zero-kelvin-test.sh docker-20k --source dou_dados_abertos_mensal --phase discovery --report-json /tmp/zk-dou-mensal-discovery-latest.json`
+- Resultado:
+  `PASS`, `links=252`, `fetch_items=252`, `error_summary=discovery_only`.
+- Interpretação:
+  baseline DOU fase A está estável para catalogação de links (discovery), sem dependência de INLABS/cookie.
+
+### 13.8 Fases B/C (deferidas)
+1. **Fase B (INLABS diário)**:
+- autenticação programática robusta (não manual) com credencial institucional.
+- delta diário por seção/edição.
+2. **Fase C (consolidação)**:
+- merge histórico (Fase A) + delta diário (Fase B).
+- dedupe por chave canônica do ato + data/seção + URL.
+3. Guardrail jurídico/LLM:
+- consultas que exigem “últimas semanas” não devem usar apenas Fase A.
+- para histórico/auditoria retrospectiva, Fase A é fonte principal.
 
 ---
 
@@ -787,6 +825,85 @@ Modo de execução: **sequencial por fonte** (Hangfire queue flush + data cleanu
 3. **WARNs a investigar**: fetch_stalled em senado_decretos_lei e tcu_btcu_controle_externo (provável config issue, não memória).
 4. **Discovery lenta da Câmara**: aumentar janela de materialização ou aceitar como WARN known.
 
+### 17.6 Rodada all-sources cap=200 — BASELINE ATUAL (fix3, 19/02/2026)
+
+Comando:
+```
+./tests/zero-kelvin-test.sh docker-20k --source all --phase full --max-docs 200 --monitor-memory --report-json /tmp/zk-all-200-fix3.json
+```
+
+Resultado consolidado:
+1. **PASS=26, WARN=0, FAIL=0**
+2. **peak_mem global = 246.7 MiB** (gate 380 MiB: aprovado)
+3. `docs_total=1600` (run conservador, com múltiplas fontes em `link_only`, `no_links_discovered` ou `discovery_materialized_running`)
+
+Diferença chave vs seção 17.4:
+1. os 5 WARN anteriores foram eliminados nesta configuração operacional.
+2. fontes de discovery longa da Câmara passam como `discovery_materialized_running` no all-sources (sem bloquear suíte).
+3. fontes `link_only` respeitam cap operacional sem cair em `fetch_stalled`.
+
+Evidência (trecho agregado do relatório):
+1. `Targeted: PASS – source=all, phase=full, docs=1600, peak_mem=246.70 MiB (246.7MiB)`
+2. `status_breakdown=failed_sources=0;warn_sources=0`
+3. JSON: `/tmp/zk-all-200-fix3.json`
+
+Decisão de baseline:
+1. considerar `fix3` como baseline oficial para evolução.
+2. manter seção 17.4 como histórico de diagnóstico pré-fix.
+3. próximo gate: `all-sources cap=1000` com o mesmo modo sequencial+isolamento.
+
+### 17.7 Rodada all-sources cap=200 e cap=1000 — FECHAMENTO (19/02/2026)
+
+Comandos executados:
+1. `./tests/zero-kelvin-test.sh docker-20k --source all --phase full --max-docs 200 --monitor-memory --report-json /tmp/zk-all-200-current.json`
+2. `./tests/zero-kelvin-test.sh docker-20k --source all --phase full --max-docs 1000 --monitor-memory --report-json /tmp/zk-all-1000-current.json`
+
+Resultado cap=200 (run atual):
+1. **PASS=27, WARN=0, FAIL=0**
+2. `docs_total=1800`
+3. `peak_mem=275.00 MiB`
+4. evidência: `/tmp/zk-all-200-current.json`
+
+Resultado cap=1000 (run atual):
+1. **PASS=27, WARN=0, FAIL=0**
+2. `docs_total=6800`
+3. `peak_mem=252.30 MiB`
+4. evidência: `/tmp/zk-all-1000-current.json`
+
+Leitura técnica consolidada:
+1. os **5 WARN históricos foram efetivamente eliminados** no fluxo operacional atual.
+2. não houve regressão após inclusão da fonte DOU mensal no catálogo.
+3. envelope de memória permaneceu confortável em ambos os gates (`<< 380 MiB`).
+
+Decisão operacional:
+1. considerar o objetivo "1 e 2" concluído: (**resolver WARNs** + **validar cap=1000 all-sources**).
+2. próximo salto de risco controlado: canário `cap=20000` apenas nas fontes já estáveis (ex.: `tcu_acordaos`, `senado_legislacao_leis_ordinarias`).
+
+### 17.8 Rodada overnight all-sources cap=10000 — FECHAMENTO FINAL (20/02/2026)
+
+Comando executado:
+1. `./tests/zero-kelvin-test.sh docker-20k --source all --phase full --max-docs 10000 --monitor-memory --report-json /tmp/zk-all-10000-overnight-20260220-013952.json`
+
+Resultado consolidado:
+1. **PASS=27, WARN=0, FAIL=0**
+2. `docs_total=51477`
+3. `peak_mem=758.10 MiB`
+4. suite zero-kelvin: `42/42` checks `PASS`
+5. ocorrência de `53300`/`too many clients`: **não observada** nesta rodada
+
+Evidências:
+1. log: `/tmp/gabi-zero-kelvin-overnight-20260220-013952.log`
+2. relatório JSON: `/tmp/zk-all-10000-overnight-20260220-013952.json`
+
+Leitura técnica:
+1. correções de claim atômico + retry transitório + reset de `processing` sustentaram estabilidade no cap alto.
+2. fontes críticas BTCU/Senado não degradaram para stall/DLQ na rodada overnight.
+3. throughput e conclusão all-sources confirmam que o pipeline está operacionalmente estável no gate de 10k.
+
+Decisão operacional:
+1. promover este resultado como baseline de estabilização de pipeline para o V5.
+2. próximos passos focam em hardening/observabilidade e evolução funcional, não mais em desbloqueio estrutural do fetch.
+
 ## 18. Infra e Armazenamento em Nuvem (novo)
 
 ### 18.1 Problema correto (separar domínios)
@@ -938,3 +1055,84 @@ Campos mínimos em `documents.Metadata`:
 2. Nenhum blob bruto é salvo em Postgres.
 3. `documents` produz registros válidos para mídia (mesmo com `transcript_status=none`).
 4. Zero-kelvin targeted da fonte multimídia finaliza sem travas.
+
+## 20. Plano Executável: YouTube + Inbound Media API (sem bruto)
+
+### 20.1 Objetivo
+1. Adicionar fonte `tcu_youtube_videos` para catalogar links de vídeos (discovery primeiro).
+2. Permitir ingestão de mídia por **upload de conteúdo textual + metadados** via API (sem upload de vídeo/áudio bruto).
+
+### 20.2 Fase A — Discovery YouTube (catálogo de links)
+Arquivos:
+1. `sources_v2.yaml`
+2. `src/Gabi.Discover/ApiPaginationDiscoveryAdapter.cs`
+3. `tests/Gabi.Discover.Tests/DiscoveryAdapterExecutionTests.cs`
+
+Implementação:
+1. Nova fonte `tcu_youtube_videos`:
+   - `strategy: api_pagination`
+   - `driver: youtube_channel_v1`
+   - `content_profile: media`
+   - `fetch.content_strategy: link_only`
+   - `pipeline.enabled: false` (canário manual)
+2. Driver `youtube_channel_v1` no adapter:
+   - paginação por `nextPageToken`
+   - extração de `videoId` + metadados do snippet
+   - link final: `https://www.youtube.com/watch?v={videoId}`
+3. Guardrails obrigatórios:
+   - sem `YOUTUBE_API_KEY` => erro explícito de capability/config (não silêncio)
+   - tratar `403 quotaExceeded` e `429` com retry/backoff
+   - dedupe por `videoId`
+
+Aceite Fase A:
+1. discovery gera links > 0 com metadata consistente.
+2. source desabilitada por padrão no scheduler.
+3. zero regressão nos drivers existentes.
+
+### 20.3 Fase B — API de ingestão de mídia (texto+metadata)
+Arquivos (alvo):
+1. `src/Gabi.Api/Program.cs` (mapeamento endpoint)
+2. `src/Gabi.Api/Controllers` ou handlers equivalentes
+3. `src/Gabi.Contracts/*` (DTOs)
+4. `src/Gabi.Worker/Jobs/*` (job tipo `media_ingest`, se assíncrono)
+5. `tests/Gabi.Api.Tests/*`
+
+Endpoint proposto:
+1. `POST /api/v1/media/ingest`
+
+Contrato (payload):
+1. `source_id` (ex.: `tcu_youtube_videos` ou `tcu_sessoes_midia`)
+2. `external_id` (id estável do item: videoId/sessionId)
+3. `media_url`
+4. `title`
+5. `published_at`
+6. `transcript_text` (opcional)
+7. `summary_text` (opcional, fallback quando não houver transcript)
+8. `metadata` (objeto livre validado)
+
+Regras:
+1. Rejeitar binário/base64 de mídia no payload (413/400 conforme caso).
+2. Exigir ao menos `transcript_text` ou `summary_text`.
+3. Persistir em `documents`:
+   - `Content = transcript_text || summary_text`
+   - `Metadata` com `media_kind`, `transcript_status`, `transcript_confidence`, `media_url`.
+4. Idempotência por (`source_id`, `external_id`) com upsert.
+
+### 20.4 Fase C — Guardrails de qualidade semântica
+1. Se `transcript_status=none`, marcar confiança baixa e bloquear respostas assertivas.
+2. Em busca por conteúdo normativo, mídia só entra quando houver transcript válido.
+3. Resposta sempre com origem e confiança da transcrição.
+
+### 20.5 Ordem de execução recomendada
+1. Fechar baseline de estabilidade (já concluído em 17.6).
+2. Implementar Fase A (YouTube discovery link-only).
+3. Implementar Fase B (API media ingest sem bruto).
+4. Testes + zero-kelvin targeted para fonte multimídia.
+5. Só depois avaliar expansão para outras plataformas/fontes de sessão.
+
+### 20.6 Critérios de aceite finais (YouTube + API)
+1. `tcu_youtube_videos` descobre links e metadados de forma reprodutível.
+2. API `POST /api/v1/media/ingest` ingere texto+metadata e cria/atualiza documento.
+3. Nenhum upload de vídeo/áudio bruto é aceito/persistido.
+4. Evidência SQL mostra idempotência por `external_id`.
+5. Testes de contrato da API e testes do driver passam sem regressão global.

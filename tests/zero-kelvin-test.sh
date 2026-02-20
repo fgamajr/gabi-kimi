@@ -777,6 +777,10 @@ run_targeted_source() {
     CURRENT_20K_STATUS_BREAKDOWN=""
     CURRENT_20K_ERROR_SUMMARY=""
     CURRENT_20K_PEAK_MEM_MIB="0"
+    local strict_all_e2e=false
+    if [[ "$TARGET_SOURCE" == "all" && "$TARGET_PHASE" == "full" && "${TARGET_MAX_DOCS:-0}" -ge 10000 ]]; then
+        strict_all_e2e=true
+    fi
 
     if [[ "$TARGET_PHASE" == "discovery" || "$TARGET_PHASE" == "full" || "$TARGET_PHASE" == "fetch" ]]; then
         log "Discovery ${source_id}..."
@@ -837,6 +841,17 @@ run_targeted_source() {
                     max_discovery_attempts=240
                     ;;
             esac
+            if $strict_all_e2e; then
+                # Strict E2E evidence mode: enlarge windows only for high-cardinality sources.
+                case "$source_id" in
+                    camara_*)
+                        max_discovery_attempts=2400
+                        ;;
+                    tcu_btcu_*)
+                        max_discovery_attempts=1200
+                        ;;
+                esac
+            fi
         fi
         for attempt in $(seq 1 "$max_discovery_attempts"); do
             local links_count
@@ -855,7 +870,7 @@ run_targeted_source() {
                         discovery_ok=true
                         break
                     fi
-                    if [[ "$TARGET_SOURCE" == "all" && "$source_id" == camara_* && "$discovery_status" == "running" ]]; then
+                    if [[ "$TARGET_SOURCE" == "all" && "$source_id" == camara_* && "$discovery_status" == "running" && "$strict_all_e2e" != "true" ]]; then
                         # Camara discoveries are high-cardinality and can stay running for long windows.
                         # If links/fetch_items are already materialized, don't block the all-sources suite.
                         discovery_ok=true
@@ -972,6 +987,17 @@ run_targeted_source() {
                 stall_threshold="36"
                 ;;
         esac
+        if $strict_all_e2e; then
+            case "$source_id" in
+                camara_*|tcu_btcu_*)
+                    stall_threshold="180"
+                    ;;
+                *)
+                    # Keep non-high-cardinality sources bounded even in strict mode.
+                    stall_threshold="36"
+                    ;;
+            esac
+        fi
     fi
 
     for _ in $(seq 1 1440); do
