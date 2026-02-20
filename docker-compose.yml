@@ -109,6 +109,8 @@ services:
       - ASPNETCORE_URLS=http://+:8080
       - GABI_SOURCES_PATH=/app/sources_v2.yaml
       - GABI_INLABS_COOKIE=${GABI_INLABS_COOKIE:-}
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY:-}
+      - YOUTUBE_CHANNEL_ID=${YOUTUBE_CHANNEL_ID:-}
       - GABI_RUN_MIGRATIONS=true
       - ConnectionStrings__Default=Host=postgres;Port=5432;Database=gabi;Username=gabi;Password=gabi_dev_password;Maximum Pool Size=15
       - Gabi__ElasticsearchUrl=http://elasticsearch:9200
@@ -140,6 +142,8 @@ services:
       - ConnectionStrings__Default=Host=postgres;Port=5432;Database=gabi;Username=gabi;Password=gabi_dev_password;Maximum Pool Size=10
       - GABI_SOURCES_PATH=/app/sources_v2.yaml
       - GABI_INLABS_COOKIE=${GABI_INLABS_COOKIE:-}
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY:-}
+      - YOUTUBE_CHANNEL_ID=${YOUTUBE_CHANNEL_ID:-}
       - Gabi__ElasticsearchUrl=http://elasticsearch:9200
       - Gabi__RedisUrl=redis://redis:6379/0
       - WorkerPool__WorkerCount=1
