@@ -1084,7 +1084,130 @@ sources:
       mode: incremental
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # 12. Câmara dos Deputados - Leis Ordinárias (API Query)
+  # 12. Diário Oficial da União (DOU) - Baseline público mensal (Fase A)
+  # ─────────────────────────────────────────────────────────────────────────────
+  dou_dados_abertos_mensal:
+    identity:
+      name: "DOU - Base pública mensal (dados abertos)"
+      description: "Catálogo público mensal de publicações do DOU para baseline histórico (sem autenticação)"
+      provider: IMPRENSA_NACIONAL
+      domain: legal
+      jurisdiction: BR
+      category: publication
+      canonical_type: official_gazette
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: dou_monthly_pattern_v1
+        url_template: "https://www.in.gov.br/acesso-a-informacao/dados-abertos/base-de-dados/{year}/{month}/{section}.zip"
+        start_year: 2020
+        end_year: current
+        start_month: 1
+        end_month: 12
+        sections: ["do1", "do2", "do3"]
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      format:
+        type: archive
+
+    pipeline:
+      enabled: true
+      schedule: "0 3 2 * *"  # mensal, após fechamento do mês anterior
+      mode: incremental
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 13. Diário Oficial da União (DOU) - INLABS XML (Fases B/C)
+  # ─────────────────────────────────────────────────────────────────────────────
+  dou_inlabs_secao1_atos_administrativos:
+    enabled: false
+    identity:
+      name: "DOU - Seção 1 - Atos Administrativos"
+      description: "Diário Oficial da União (INLABS XML), foco em atos administrativos da Seção 1"
+      provider: IMPRENSA_NACIONAL
+      domain: legal
+      jurisdiction: BR
+      category: publication
+      canonical_type: official_gazette
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: dou_inlabs_xml_v1
+        endpoint_template: "https://inlabs.in.gov.br/index.php?p={date}&dl={section}"
+        sections: ["do1"]
+        parameters:
+          date_range:
+            type: range
+            start: "2026-01-01"
+            end: current
+        http:
+          user_agent_mode: fixed
+          user_agent: "GabiBot/1.0 (+https://example.org/bot)"
+          headers:
+            Cookie: "${GABI_INLABS_COOKIE}"
+          timeout: "120s"
+          request_delay_ms: 600
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      format:
+        type: html
+
+    pipeline:
+      enabled: false
+      schedule: "0 6 * * *"
+      mode: incremental
+
+  dou_inlabs_secao3_licitacoes_contratos:
+    enabled: false
+    identity:
+      name: "DOU - Seção 3 - Licitações e Contratos"
+      description: "Diário Oficial da União (INLABS XML), foco em extratos de licitação/contrato na Seção 3"
+      provider: IMPRENSA_NACIONAL
+      domain: legal
+      jurisdiction: BR
+      category: publication
+      canonical_type: official_gazette
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: dou_inlabs_xml_v1
+        endpoint_template: "https://inlabs.in.gov.br/index.php?p={date}&dl={section}"
+        sections: ["do3"]
+        parameters:
+          date_range:
+            type: range
+            start: "2026-01-01"
+            end: current
+        http:
+          user_agent_mode: fixed
+          user_agent: "GabiBot/1.0 (+https://example.org/bot)"
+          headers:
+            Cookie: "${GABI_INLABS_COOKIE}"
+          timeout: "120s"
+          request_delay_ms: 600
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      format:
+        type: html
+
+    pipeline:
+      enabled: false
+      schedule: "0 6 * * *"
+      mode: incremental
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 14. Câmara dos Deputados - Leis Ordinárias (API Query)
   # ─────────────────────────────────────────────────────────────────────────────
   camara_leis_ordinarias:
     identity:

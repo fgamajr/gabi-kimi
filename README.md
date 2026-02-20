@@ -77,7 +77,7 @@ O pipeline é **Seed → Discovery → Fetch → Ingest**. A API expõe:
 - **`POST /api/v1/dashboard/seed`** — Executa o seed (carrega fontes do YAML para o banco).
 - **`POST /api/v1/dashboard/sources/{sourceId}/phases/{phase}`** — Dispara uma fase para uma fonte (`phase`: `discovery`, `fetch` ou `ingest`). Retorna `job_id`; o **Worker** processa em background e atualiza progresso (consultável via jobs/status).
 
-O Worker (Docker profile `worker`) executa os jobs (catalog_seed, discovery, fetch, ingest); fetch e ingest estão em modo stub até implementação futura.
+O Worker (Docker profile `worker`) executa os jobs (`catalog_seed`, `discovery`, `fetch`, `ingest`) com execução assíncrona em background.
 
 ---
 
@@ -130,6 +130,9 @@ Resumo do que foi endurecido no pipeline durante o programa de estabilização:
 - Execução completa `docker-20k` em `tcu_acordaos`:  
   `docs=20000` (exato), `fetch_runs.status='capped'`, sem OOM.
 - Pico de memória observado no worker: **253 MiB**.
+- Baseline operacional atual (`all-sources`, cap=200, modo sequencial+isolamento):  
+  **PASS=26, WARN=0, FAIL=0**, `peak_mem=246.7 MiB`  
+  (evidência: `/tmp/zk-all-200-fix3.json`).
 
 ### Zero-Kelvin targeted (novo)
 
@@ -159,6 +162,34 @@ Flags suportadas:
 - `--report-json <path>`
 
 Saída estruturada (JSON): inclui testes, métricas de pipeline, docs processados, pico de memória, breakdown de status e resumo de erro.
+
+### Modelo de armazenamento (decisão atual)
+
+Regra principal:
+1. **Fonte da verdade = conteúdo textual extraído + metadados no Postgres**.
+2. **Não persistir bruto** (`pdf/html/video/audio`) no Postgres por padrão.
+
+Implicações:
+1. `documents.Content` guarda texto normalizado.
+2. metadados semânticos e operacionais ficam em `documents.Metadata`.
+3. S3/object storage é **opcional** (auditoria/replay), não obrigatório.
+
+Observação importante:
+1. S3 **não** hospeda containers; para compute seguimos com Docker/Fly.io.
+
+### Fontes multimídia (direção)
+
+O pipeline continua em 4 fases (`discovery -> fetch -> ingest -> index`) também para vídeo/áudio.  
+Para isso, a direção é introduzir `content_profile` no YAML:
+1. `text` (fontes textuais tradicionais)
+2. `document` (documentos estruturados)
+3. `media` (vídeo/áudio)
+
+Para `content_profile=media`:
+1. discovery coleta links e metadados da sessão;
+2. fetch pode operar em `metadata_only` no início (sem baixar mídia bruta);
+3. ingest produz conteúdo textual (transcrição quando existir) + metadados;
+4. index segue o mesmo fluxo semântico das demais fontes.
 
 ### Como disparar fetch com cap nativo
 
@@ -359,6 +390,13 @@ Não usa `dotnet`/`npm` no host. O script:
 | Seed | `POST /api/v1/dashboard/seed` → 200; depois `GET /api/v1/sources` com fontes |
 | Discovery | Job de discovery criado e processado pelo Worker |
 
+Para rodadas `--source all --phase full` (cap curto), o modo operacional atual usa isolamento sequencial por fonte:
+1. flush de fila entre fontes;
+2. limpeza de dados por fonte;
+3. tolerância a discovery longa em fontes de alta cardinalidade (ex.: Câmara) sem travar a suíte.
+
+Isso torna o resultado comparável e reprodutível para gate de estabilidade.
+
 **Portas usadas no teste:** 6380 (Redis no host), 5433 (Postgres), 9200 (Elasticsearch), 5100 (API). O Redis do projeto está em **6380** no host para não conflitar com Redis do sistema (6379).
 
 **EF e migrations (Zero Kelvin):** Com `GABI_RUN_MIGRATIONS=true` (já definido no `docker-compose` para a API), na subida do container a API executa `DbContext.Database.Migrate()` e aplica **todas** as migrations do projeto `Gabi.Postgres` em ordem, incluindo a que cria a tabela `seed_runs`. Não é necessário rodar `dotnet ef` nem criar tabelas manualmente; o teste Zero Kelvin sobe do zero e o banco fica pronto para o seed e o pipeline.
@@ -429,7 +467,7 @@ docker compose exec redis redis-cli ping
 - [Layout de Deploy](docs/infrastructure/DEPLOY_LAYOUT.md) - Dev / staging / prod
 - [Deploy Fly.io](docs/infrastructure/FLY_DEPLOY.md) - Apps separados (API + Worker) e checklist
 - [Avaliação de Infraestrutura](docs/infrastructure/INFRA_EVALUATION.md) - Veredito, health checks, logging, recomendações
-- [Roadmap](roadmap.md) - Progresso do projeto
+- [Plano Consolidado v5](PLANO_CONSOLIDADO_V5.md) - Roadmap técnico e evidências de estabilização
 - [Checklist Zero Kelvin](docs/zero-kelvin-checklist.md) - Passos manuais e debugging
 
 **Referências antigas (deprecado/removido):** uso de `dev-start.sh` / `dev-up.sh` / `dev-down.sh` foi substituído por `./scripts/dev` (infra | app | db). Redis no host passou de 6379 para **6380** para evitar conflito com Redis do sistema.
