@@ -14,7 +14,7 @@ public static class DependencyInjection
     public static IServiceCollection AddPhase0Pipeline(this IServiceCollection services)
     {
         services.AddSingleton<IPhase0Orchestrator, Phase0Orchestrator>();
-        services.AddSingleton<ILinkComparator, LinkComparator>();
+        services.AddSingleton<IPhase0LinkComparator, LinkComparator>();
         
         // Register HttpMetadataFetcher with HttpClient
         services.AddHttpClient<IMetadataFetcher, HttpMetadataFetcher>();

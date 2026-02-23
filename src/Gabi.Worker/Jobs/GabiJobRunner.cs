@@ -1,6 +1,8 @@
 using Gabi.Contracts.Jobs;
+using Gabi.Contracts.Observability;
 using Gabi.Postgres;
 using Microsoft.EntityFrameworkCore;
+using System.Diagnostics;
 
 namespace Gabi.Worker.Jobs;
 
@@ -23,6 +25,16 @@ public class GabiJobRunner : IGabiJobRunner
         using var scope = _serviceProvider.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<GabiDbContext>();
         var executors = scope.ServiceProvider.GetRequiredService<IEnumerable<IJobExecutor>>();
+        var payload = JobPayloadParser.ParsePayload(payloadJson);
+
+        var requestId = payload.TryGetValue("request_id", out var requestIdValue)
+            ? Convert.ToString(requestIdValue)
+            : null;
+        var traceParent = payload.TryGetValue("traceparent", out var traceParentValue)
+            ? Convert.ToString(traceParentValue)
+            : null;
+
+        using var activity = StartActivity(jobType, sourceId, jobId, requestId, traceParent);
 
         var reg = await context.JobRegistry.FirstOrDefaultAsync(r => r.JobId == jobId, ct);
         if (reg != null)
@@ -34,7 +46,6 @@ public class GabiJobRunner : IGabiJobRunner
             await context.SaveChangesAsync(ct);
         }
 
-        var payload = JobPayloadParser.ParsePayload(payloadJson);
         var discoveryConfig = JobPayloadParser.ParseDiscoveryConfigFromPayload(payloadJson) ?? new Gabi.Contracts.Discovery.DiscoveryConfig();
 
         var job = new IngestJob
@@ -67,10 +78,34 @@ public class GabiJobRunner : IGabiJobRunner
         }
         catch (Exception ex)
         {
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            activity?.AddException(ex);
+            activity?.SetTag("error.type", ex.GetType().Name);
             _logger.LogError(ex, "Job {JobId} failed", jobId);
             await UpdateRegistryAsync(context, jobId, "failed", ex.Message);
             throw;
         }
+    }
+
+    private static Activity? StartActivity(string jobType, string sourceId, Guid jobId, string? requestId, string? traceParent)
+    {
+        if (!string.IsNullOrWhiteSpace(traceParent) &&
+            ActivityContext.TryParse(traceParent, null, out var parentContext))
+        {
+            var child = PipelineTelemetry.ActivitySource.StartActivity("pipeline.job", ActivityKind.Consumer, parentContext);
+            child?.SetTag("job.type", jobType);
+            child?.SetTag("job.id", jobId.ToString());
+            child?.SetTag("source.id", sourceId);
+            child?.SetTag("request.id", requestId);
+            return child;
+        }
+
+        var activity = PipelineTelemetry.ActivitySource.StartActivity("pipeline.job", ActivityKind.Consumer);
+        activity?.SetTag("job.type", jobType);
+        activity?.SetTag("job.id", jobId.ToString());
+        activity?.SetTag("source.id", sourceId);
+        activity?.SetTag("request.id", requestId);
+        return activity;
     }
 
     private static async Task UpdateRegistryAsync(GabiDbContext context, Guid jobId, string status, string? errorMessage)

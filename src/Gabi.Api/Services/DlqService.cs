@@ -1,4 +1,5 @@
 using Gabi.Contracts.Jobs;
+using Gabi.Contracts.Common;
 using Gabi.Postgres;
 using Gabi.Postgres.Entities;
 using Hangfire;
@@ -16,6 +17,7 @@ public interface IDlqService
 
 public class DlqService : IDlqService
 {
+    private const int ReplayThrottlePerMinute = 1;
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<DlqService> _logger;
 
@@ -100,6 +102,20 @@ public class DlqService : IDlqService
         if (entry.Status == "replayed")
             return new DlqReplayResponse(false, null, "Entry already replayed");
 
+        if (entry.ReplayedAt.HasValue && entry.ReplayedAt.Value >= DateTime.UtcNow.AddMinutes(-1))
+            return new DlqReplayResponse(false, null, $"Replay throttled: max {ReplayThrottlePerMinute} replay/min per entry");
+
+        var classification = ErrorClassifier.Classify(entry.ErrorType, entry.ErrorMessage);
+        if (classification.Category == ErrorCategory.Permanent)
+        {
+            _logger.LogWarning(
+                "DLQ replay rejected for {DlqId}: Category={Category}, Code={Code}",
+                id,
+                classification.Category,
+                classification.Code);
+            return new DlqReplayResponse(false, null, $"Replay denied for permanent error ({classification.Code})");
+        }
+
         var newJobId = Guid.NewGuid();
 
         var job = new IngestJob
@@ -146,8 +162,20 @@ public class DlqService : IDlqService
             .GroupBy(e => e.JobType)
             .Select(g => new { JobType = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.JobType, x => x.Count, ct);
+        var byCategory = await dbContext.DlqEntries
+            .AsNoTracking()
+            .Select(e => new { e.ErrorType, e.ErrorMessage })
+            .ToListAsync(ct);
 
-        return new DlqStatsResponse(total, pending, replayed, byJobType);
+        var categoryBreakdown = byCategory
+            .Select(e => ErrorClassifier.Classify(e.ErrorType, e.ErrorMessage))
+            .GroupBy(c => c.Category.ToString())
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+
+        return new DlqStatsResponse(total, pending, replayed, byJobType)
+        {
+            ByCategory = categoryBreakdown
+        };
     }
 }
 
@@ -171,4 +199,8 @@ public record DlqReplayResponse(bool Success, Guid? NewJobId, string Message)
 {
     public string? HangfireJobId { get; init; }
 }
-public record DlqStatsResponse(int Total, int Pending, int Replayed, Dictionary<string, int> ByJobType);
+public partial record DlqStatsResponse(int Total, int Pending, int Replayed, Dictionary<string, int> ByJobType);
+public partial record DlqStatsResponse
+{
+    public Dictionary<string, int> ByCategory { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+}

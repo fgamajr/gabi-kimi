@@ -1,4 +1,5 @@
 using Gabi.Contracts.Jobs;
+using Gabi.Contracts.Observability;
 using Gabi.Discover;
 using Gabi.Postgres;
 using Gabi.Postgres.Repositories;
@@ -7,6 +8,11 @@ using Hangfire;
 using Hangfire.PostgreSql;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using OpenTelemetry.Instrumentation.EntityFrameworkCore;
+using OpenTelemetry.Instrumentation.Runtime;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using Serilog;
 using Serilog.Formatting.Compact;
 
@@ -45,10 +51,36 @@ try
         options.UseNpgsql(connectionString));
     builder.Services.AddHttpClient();
 
+    var otlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"] ?? "http://localhost:4317";
+    var otlpHeaders = builder.Configuration["OTEL_EXPORTER_OTLP_HEADERS"];
+    builder.Services.AddOpenTelemetry()
+        .ConfigureResource(resource => resource.AddService(
+            serviceName: "gabi-worker",
+            serviceVersion: typeof(Program).Assembly.GetName().Version?.ToString() ?? "unknown"))
+        .WithTracing(tracing => tracing
+            .AddEntityFrameworkCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddSource(PipelineTelemetry.ActivitySourceName)
+            .AddOtlpExporter(options =>
+            {
+                options.Endpoint = new Uri(otlpEndpoint);
+                if (!string.IsNullOrWhiteSpace(otlpHeaders))
+                    options.Headers = otlpHeaders;
+            }))
+        .WithMetrics(metrics => metrics
+            .AddRuntimeInstrumentation()
+            .AddMeter(PipelineTelemetry.MeterName)
+            .AddOtlpExporter(options =>
+            {
+                options.Endpoint = new Uri(otlpEndpoint);
+                if (!string.IsNullOrWhiteSpace(otlpHeaders))
+                    options.Headers = otlpHeaders;
+            }));
+
     builder.Services.Configure<HangfireRetryPolicyOptions>(
         builder.Configuration.GetSection(HangfireRetryPolicyOptions.SectionName));
 
-    builder.Services.AddScoped<DlqFilter>();
+    builder.Services.AddSingleton<DlqFilter>();
 
     builder.Services.AddHangfire(config =>
     {
@@ -102,13 +134,6 @@ try
 
     var retryPolicy = host.Services.GetRequiredService<IOptions<HangfireRetryPolicyOptions>>().Value.Normalize();
     GlobalJobFilters.Filters.Remove<AutomaticRetryAttribute>();
-    GlobalJobFilters.Filters.Add(new AutomaticRetryAttribute
-    {
-        Attempts = retryPolicy.Attempts,
-        DelaysInSeconds = retryPolicy.DelaysInSeconds,
-        LogEvents = true,
-        OnAttemptsExceeded = AttemptsExceededAction.Fail
-    });
 
     // Register DlqFilter as global Hangfire filter with DI
     var dlqFilter = host.Services.GetRequiredService<DlqFilter>();

@@ -4,8 +4,9 @@ namespace Gabi.Contracts.Pipeline;
 
 /// <summary>
 /// Representa um link descoberto durante o Phase 0 com metadados completos.
+/// Renomeado para evitar colisão nominal com Gabi.Contracts.Comparison.DiscoveredLink.
 /// </summary>
-public record DiscoveredLink
+public record DiscoveredLinkPhase0
 {
     /// <summary>ID único do link (0 se novo).</summary>
     public long Id { get; init; }
@@ -110,7 +111,7 @@ public record Phase0Result
     public TimeSpan Duration => CompletedAt - StartedAt;
     
     /// <summary>Links prontos para o Phase 1 (Fetch).</summary>
-    public IReadOnlyList<DiscoveredLink> LinksToProcess { get; init; } = Array.Empty<DiscoveredLink>();
+    public IReadOnlyList<DiscoveredLinkPhase0> LinksToProcess { get; init; } = Array.Empty<DiscoveredLinkPhase0>();
 }
 
 /// <summary>
@@ -197,7 +198,7 @@ public record MetadataFetchResult
 /// <summary>
 /// Interface para comparação de links (change detection).
 /// </summary>
-public interface ILinkComparator
+public interface IPhase0LinkComparator
 {
     /// <summary>
     /// Compara um link descoberto com a versão existente no banco.
@@ -206,16 +207,16 @@ public interface ILinkComparator
     /// <param name="existing">Link existente no banco (null se novo).</param>
     /// <param name="fetchedMetadata">Metadados obtidos via HEAD.</param>
     /// <returns>Veredito da comparação.</returns>
-    LinkComparisonResult Compare(
+    Phase0LinkComparisonResult Compare(
         DiscoveredSource discovered, 
-        DiscoveredLink? existing, 
+        DiscoveredLinkPhase0? existing, 
         MetadataFetchResult? fetchedMetadata);
 }
 
 /// <summary>
 /// Resultado da comparação de um link.
 /// </summary>
-public record LinkComparisonResult
+public record Phase0LinkComparisonResult
 {
     /// <summary>Status após comparação.</summary>
     public LinkDiscoveryStatus Status { get; init; }
@@ -224,5 +225,5 @@ public record LinkComparisonResult
     public string Reason { get; init; } = string.Empty;
     
     /// <summary>Metadados atualizados do link.</summary>
-    public DiscoveredLink UpdatedLink { get; init; } = null!;
+    public DiscoveredLinkPhase0 UpdatedLink { get; init; } = null!;
 }
