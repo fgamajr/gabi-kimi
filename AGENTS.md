@@ -1,6 +1,6 @@
 # AGENTS.md - GABI (Sistema de Ingestão e Busca Jurídica TCU)
 
-> Este arquivo é destinado a agentes de IA. Contém informações essenciais sobre a arquitetura, convenções e processos de desenvolvimento do projeto.
+> Este arquivo é destinado a agentes de IA. Contém informações essenciais sobre a arquitetura, convenções e processos de desenvolvimento do projeto GABI.
 
 ## Governança de Instruções para IA (canônica)
 
@@ -9,7 +9,9 @@
 3. Priorizar constraints e resultados mensuráveis (SLOs, testes, evidência), evitando workflows rígidos quando o padrão já estiver explícito no código.
 4. Regras inegociáveis: arquitetura em camadas, budget de memória, migrations aditivas, contracts em `Gabi.Contracts`.
 
-## Visão Geral do Projeto
+---
+
+## 1. Visão Geral do Projeto
 
 **GABI** é um sistema de ingestão, processamento e busca de dados jurídicos do Tribunal de Contas da União (TCU). O sistema segue uma arquitetura em camadas estrita com separação clara de responsabilidades.
 
@@ -24,7 +26,7 @@ Seed → Discovery → Fetch → Ingest → Index
 3. **Fetch**: Recupera conteúdo bruto das URLs descobertas
 4. **Ingest**: Processa, normaliza e indexa os documentos
 
-## Stack Tecnológico
+### Stack Tecnológico
 
 | Componente | Tecnologia | Versão |
 |------------|------------|--------|
@@ -37,8 +39,11 @@ Seed → Discovery → Fetch → Ingest → Index
 | ORM | EF Core | 8.0.2 |
 | Container | Docker | - |
 | Deploy | Fly.io | - |
+| Testes | xUnit | 2.6.2 |
 
-## Estrutura do Projeto
+---
+
+## 2. Estrutura do Projeto
 
 ```
 .
@@ -53,23 +58,23 @@ Seed → Discovery → Fetch → Ingest → Index
 │   ├── Gabi.Sync/             # Sync engine - Layer 4
 │   └── Gabi.Jobs/             # Job state machine - Layer 4
 ├── tests/
-│   ├── Gabi.Api.Tests/
-│   ├── Gabi.Discover.Tests/
-│   ├── Gabi.Fetch.Tests/
-│   ├── Gabi.Jobs.Tests/
-│   ├── Gabi.Postgres.Tests/
-│   ├── Gabi.Sync.Tests/
-│   └── zero-kelvin-test.sh    # Teste E2E completo
-├── scripts/
-│   └── dev                    # CLI de desenvolvimento
-├── sources_v2.yaml            # Definição das fontes
+│   ├── Gabi.Api.Tests/        # Testes de integração da API
+│   ├── Gabi.Discover.Tests/   # Testes de discovery
+│   ├── Gabi.Fetch.Tests/      # Testes de fetch
+│   ├── Gabi.Jobs.Tests/       # Testes de jobs
+│   ├── Gabi.Postgres.Tests/   # Testes de repositórios
+│   └── Gabi.Sync.Tests/       # Testes de sync
+├── scripts/                   # CLI de desenvolvimento
+├── sources_v2.yaml            # Definição completa das fontes
 ├── docker-compose.yml         # Infraestrutura (Postgres, ES, Redis)
 ├── Dockerfile                 # Worker para Fly.io
 ├── fly.toml                   # Config Fly.io (Worker)
 └── fly.api.toml               # Config Fly.io (API)
 ```
 
-## Arquitetura em Camadas (Strict)
+---
+
+## 3. Arquitetura em Camadas (Strict)
 
 A arquitetura segue regras estritas de dependência: camadas superiores NÃO referenciam camadas inferiores.
 
@@ -87,7 +92,43 @@ Layer 0-1: Contracts    → Gabi.Contracts (ZERO referências a outros projetos)
 3. Comunicação apenas via interfaces definidas em Gabi.Contracts
 4. DI registration acontece em Layer 5 (Worker/Api `Program.cs`)
 
-## Build e Execução
+### Grafo de Dependências
+
+```
+                    ┌─────────────┐
+                    │ Gabi.Worker │
+                    └──────┬──────┘
+                           │
+              ┌────────────┼────────────┐
+              ▼            ▼            ▼
+        ┌──────────┐ ┌──────────┐ ┌──────────┐
+        │Gabi.Sync │ │Gabi.Api  │ │Gabi.Jobs │
+        └────┬─────┘ └────┬─────┘ └────┬─────┘
+             │            │            │
+        ┌────┴────────────┴────────────┘
+        │
+        ▼
+┌─────────────────┬─────────────────┐
+│  Gabi.Discover  │   Gabi.Ingest   │
+│  Gabi.Fetch     │                 │
+└────────┬────────┴────────┬────────┘
+         │                 │
+         └────────┬────────┘
+                  │
+                  ▼
+           ┌─────────────┐
+           │Gabi.Postgres│
+           └──────┬──────┘
+                  │
+                  ▼
+           ┌─────────────┐
+           │Gabi.Contracts│  ← Layer 0-1 (Zero deps)
+           └─────────────┘
+```
+
+---
+
+## 4. Build e Execução
 
 ### Pré-requisitos
 
@@ -143,7 +184,9 @@ dotnet run --project src/Gabi.Api --urls "http://localhost:5100"
 ./scripts/dev db reset           # Drop DB e reaplica (destructivo)
 ```
 
-## Testes
+---
+
+## 5. Testes
 
 ### Testes Unitários/Integração
 
@@ -182,7 +225,9 @@ Valida reconstrução do zero - destroi tudo e recria:
   --report-json /tmp/report.json
 ```
 
-## Configuração
+---
+
+## 6. Configuração
 
 ### Variáveis de Ambiente Principais
 
@@ -194,6 +239,9 @@ Valida reconstrução do zero - destroi tudo e recria:
 | `Gabi__RedisUrl` | Redis | redis://localhost:6380/0 |
 | `GABI_RUN_MIGRATIONS` | Executar migrations | false |
 | `GABI_INLABS_COOKIE` | Cookie para INLABS | - |
+| `GABI_USERS` | JSON de usuários com hash bcrypt (`[{\"username\":\"...\",\"password_hash\":\"...\",\"role\":\"...\"}]`) | - |
+| `Gabi:Media:BasePath` | Diretório base permitido para `/api/v1/media/local-file` | `/workspace/` |
+| `Gabi:Media:AllowedUrlPatterns` | Allowlist de URLs para `media_url` (proteção SSRF) | `https://*.youtube.com/*`, `https://*.gov.br/*`, `https://*.leg.br/*` |
 
 ### Portas de Serviço
 
@@ -212,7 +260,9 @@ Valida reconstrução do zero - destroi tudo e recria:
 | viewer | view123 | Viewer | Leitura apenas |
 | admin | admin123 | Admin | Acesso total |
 
-## Convenções de Código
+---
+
+## 7. Convenções de Código
 
 ### Estilo
 
@@ -259,7 +309,9 @@ public async Task DoWorkAsync(CancellationToken ct = default)
 }
 ```
 
-## Estratégias de Discovery
+---
+
+## 8. Estratégias de Discovery
 
 O sistema suporta múltiplas estratégias de discovery definidas em `sources_v2.yaml`:
 
@@ -270,7 +322,9 @@ O sistema suporta múltiplas estratégias de discovery definidas em `sources_v2.
 | `api_pagination` | APIs paginadas com drivers específicos |
 | `web_crawl` | Crawling de páginas web |
 
-## Migrations de Banco
+---
+
+## 9. Migrations de Banco
 
 ### Criar Nova Migration
 
@@ -292,7 +346,9 @@ dotnet ef migrations add NomeDaMigration --project src/Gabi.Postgres
 - Índices criados com `CONCURRENTLY` para evitar locks
 - Migrations aplicam automaticamente no startup da API quando `GABI_RUN_MIGRATIONS=true`
 
-## Deploy (Fly.io)
+---
+
+## 10. Deploy (Fly.io)
 
 ### Apps Separados
 
@@ -318,13 +374,16 @@ fly secrets set ConnectionStrings__Default="..." -a gabi-api
 fly secrets set GABI_ELASTICSEARCH_URL="..." -a gabi-worker
 ```
 
-## Health Checks e Observabilidade
+---
+
+## 11. Health Checks e Observabilidade
 
 ### Endpoints
 
 - `GET /health` - Live check (sempre retorna 200 se processo rodando)
 - `GET /health/ready` - Readiness check (inclui PostgreSQL)
 - `GET /swagger` - Documentação da API
+- `GET /hangfire` - Dashboard do Hangfire (requer auth)
 
 ### Logs
 
@@ -337,7 +396,9 @@ Falhas após retries são registradas na tabela `dlq_entries`:
 - `GET /api/v1/dlq` - Listar entradas
 - `POST /api/v1/dlq/{id}/replay` - Reprocessar entrada (operator)
 
-## Endpoints Essenciais da API
+---
+
+## 12. Endpoints Essenciais da API
 
 | Método | Endpoint | Auth | Descrição |
 |--------|----------|------|-----------|
@@ -346,18 +407,51 @@ Falhas após retries são registradas na tabela `dlq_entries`:
 | GET | `/api/v1/sources` | viewer | Listar fontes |
 | POST | `/api/v1/dashboard/seed` | operator | Executar seed |
 | POST | `/api/v1/dashboard/sources/{id}/phases/{phase}` | operator | Disparar fase |
+| GET | `/api/v1/dlq` | viewer | Listar DLQ |
+| POST | `/api/v1/dlq/{id}/replay` | operator | Reprocessar DLQ |
 
-## Arquivos Importantes
+---
+
+## 13. Segurança
+
+### Autenticação
+
+- JWT Bearer tokens com validação de issuer, audience, lifetime e signing key
+- Clock skew de 5 minutos tolerado
+- Tokens expiram em 24 horas (configurável)
+
+### Autorização
+
+- Policies baseadas em roles: `Admin`, `Operator`, `Viewer`
+- Hierarquia: Admin > Operator > Viewer
+
+### Rate Limiting
+
+| Endpoint | Política | Limite |
+|----------|----------|--------|
+| Leitura | Fixed Window | 100 req/min |
+| Escrita | Fixed Window | 10 req/min |
+| Auth | Sliding Window | 5 req/5min |
+
+### CORS
+
+- Desenvolvimento: localhost:5173, localhost:4173
+- Produção: origins configurados via `Cors:AllowedOrigins`
+
+---
+
+## 14. Arquivos Importantes
 
 - `sources_v2.yaml` - Definição completa das fontes de dados
 - `CLAUDE.md` - Wrapper mínimo para agentes Claude (aponta para `AGENTS.md`)
 - `GEMINI.md` - Wrapper mínimo para agentes Gemini (aponta para `AGENTS.md`)
-- `docs/ai/SKILLS_POLICY.md` - Política de uso de skills (core/optional/deprecated)
-- `DOCKER.md` - Guia completo de Docker
 - `docs/architecture/LAYERED_ARCHITECTURE.md` - Detalhes da arquitetura
 - `docs/infrastructure/FLY_DEPLOY.md` - Deploy em Fly.io
+- `DOCKER.md` - Guia completo de Docker
 
-## Dicas para Agentes
+---
+
+## 15. Dicas para Agentes
 
 1. **Sempre verifique a arquitetura em camadas** - não quebre as regras de dependência
 2. **Use streaming** - nunca carregue coleções inteiras em memória
@@ -366,3 +460,34 @@ Falhas após retries são registradas na tabela `dlq_entries`:
 5. **Migrations são aditivas** - nunca modifique migrations existentes
 6. **Use o CLI `./scripts/dev`** - para operações de desenvolvimento
 7. **Consulte `sources_v2.yaml`** - para entender configurações de fontes
+8. **Respeite o budget de memória** - 300MB efetivo para o Worker
+
+---
+
+## 16. Troubleshooting Comum
+
+### "Project file does not exist"
+Execute comandos a partir da **raiz do repositório**, não de dentro de `src/Gabi.Api`.
+
+### Porta 5100 em uso
+```bash
+pkill -f "dotnet.*Gabi.Api"
+# ou use --urls "http://localhost:5101"
+```
+
+### Porta 6380 em uso
+Redis do projeto usa **6380** no host (evitar conflito com Redis do sistema em 6379).
+```bash
+fuser -k 6380/tcp
+```
+
+### Migrations pendentes
+```bash
+./scripts/dev db apply
+```
+
+### Reset completo (destructivo)
+```bash
+./scripts/dev infra destroy
+./scripts/dev setup
+```

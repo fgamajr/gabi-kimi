@@ -13,6 +13,8 @@ public class LexmlContractTests
     private readonly ITestOutputHelper _output;
     private readonly HttpClient _client;
     private const string BaseUrl = "https://www.lexml.gov.br/busca/SRU";
+    private static bool ExternalTestsEnabled =>
+        string.Equals(Environment.GetEnvironmentVariable("GABI_RUN_EXTERNAL_TESTS"), "true", StringComparison.OrdinalIgnoreCase);
 
     public LexmlContractTests(ITestOutputHelper output)
     {
@@ -27,6 +29,9 @@ public class LexmlContractTests
     [Trait("Category", "External")]
     public async Task Operation_Explain_ReturnsUsingValidXml()
     {
+        if (!await CanRunExternalDependencyAsync())
+            return;
+
         // Act
         var response = await _client.GetAsync($"{BaseUrl}?operation=explain");
         var content = await response.Content.ReadAsStringAsync();
@@ -50,6 +55,9 @@ public class LexmlContractTests
     [Trait("Category", "External")]
     public async Task Operation_SearchRetrieve_ReturnsResults()
     {
+        if (!await CanRunExternalDependencyAsync())
+            return;
+
         // Query for a robust URN (Constitution 1988)
         var query = "urn:lex:br:federal:constituicao:1988";
         var url = $"{BaseUrl}?operation=searchRetrieve&query={query}&maximumRecords=1&recordSchema=lexml";
@@ -85,6 +93,9 @@ public class LexmlContractTests
     [Trait("Category", "External")]
     public async Task Pagination_StartRecord_ChangesResultSet()
     {
+        if (!await CanRunExternalDependencyAsync())
+            return;
+
         // Query generic "lei" to get many results
         var query = "lei";
         
@@ -113,6 +124,9 @@ public class LexmlContractTests
     [Trait("Category", "External")]
     public async Task Schema_ValidateEssentialFields()
     {
+        if (!await CanRunExternalDependencyAsync())
+            return;
+
         var query = "urn:lex:br:federal:lei:2023";
         var url = $"{BaseUrl}?operation=searchRetrieve&query={query}&maximumRecords=1&recordSchema=lexml";
         
@@ -143,5 +157,31 @@ public class LexmlContractTests
         XNamespace srw = "http://www.loc.gov/zing/srw/";
         var record = doc.Descendants(srw + "record").FirstOrDefault();
         return record?.ToString();
+    }
+
+    private async Task<bool> CanRunExternalDependencyAsync()
+    {
+        if (!ExternalTestsEnabled)
+        {
+            _output.WriteLine("Skipping LexML external test: set GABI_RUN_EXTERNAL_TESTS=true to enable.");
+            return false;
+        }
+
+        try
+        {
+            var probe = await _client.GetAsync($"{BaseUrl}?operation=explain");
+            if (!probe.IsSuccessStatusCode)
+            {
+                _output.WriteLine($"Skipping LexML external test: SRU unavailable (HTTP {(int)probe.StatusCode}).");
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            _output.WriteLine($"Skipping LexML external test: SRU unavailable ({ex.GetType().Name}).");
+            return false;
+        }
+
+        return true;
     }
 }

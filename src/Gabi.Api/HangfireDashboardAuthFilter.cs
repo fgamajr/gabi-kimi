@@ -1,4 +1,5 @@
 using Hangfire.Dashboard;
+using Microsoft.AspNetCore.Http;
 
 namespace Gabi.Api;
 
@@ -10,6 +11,12 @@ public class HangfireDashboardAuthFilter : IDashboardAuthorizationFilter
     public bool Authorize(DashboardContext context)
     {
         var httpContext = context.GetHttpContext();
-        return httpContext.User.Identity?.IsAuthenticated == true;
+        return IsAuthorized(httpContext);
+    }
+
+    public static bool IsAuthorized(HttpContext httpContext)
+    {
+        return httpContext.User.Identity?.IsAuthenticated == true &&
+               httpContext.User.IsInRole("Admin");
     }
 }
