@@ -8,9 +8,6 @@ using Gabi.Sync.Phase0;
 using Microsoft.Extensions.Logging;
 using Moq;
 
-// Use Pipeline DiscoveredLink alias
-using DiscoveredLink = Gabi.Contracts.Pipeline.DiscoveredLink;
-
 namespace Gabi.Sync.Tests;
 
 /// <summary>
@@ -35,7 +32,7 @@ public class Phase0OrchestratorTests
     private readonly Mock<IMetadataFetcher> _metadataFetcherMock;
     private readonly Mock<IDiscoveredLinkRepository> _linkRepositoryMock;
     private readonly Mock<ILogger<Phase0Orchestrator>> _loggerMock;
-    private readonly ILinkComparator _linkComparator;
+    private readonly IPhase0LinkComparator _linkComparator;
     private readonly Phase0Orchestrator _orchestrator;
 
     public Phase0OrchestratorTests()
@@ -407,13 +404,13 @@ public class Phase0OrchestratorTests
             });
     }
 
-    private static Gabi.Contracts.Pipeline.DiscoveredLink CreateDiscoveredLink(
+    private static Gabi.Contracts.Pipeline.DiscoveredLinkPhase0 CreateDiscoveredLink(
         string sourceId, 
         string url, 
         LinkDiscoveryStatus status,
         MetadataFetchResult? metadata = null)
     {
-        return new DiscoveredLink
+        return new DiscoveredLinkPhase0
         {
             Id = status == LinkDiscoveryStatus.New ? 0 : 1,
             SourceId = sourceId,

@@ -1,7 +1,9 @@
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Text.Json;
 using Gabi.Contracts.Discovery;
 using Gabi.Contracts.Jobs;
+using Gabi.Contracts.Observability;
 using Gabi.Discover;
 using Gabi.Postgres;
 using Gabi.Postgres.Entities;
@@ -47,6 +49,9 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
         CancellationToken ct)
     {
         var sourceId = job.SourceId;
+        var stageStopwatch = Stopwatch.StartNew();
+        using var activity = PipelineTelemetry.ActivitySource.StartActivity("pipeline.discovery", ActivityKind.Internal);
+        activity?.SetTag("source.id", sourceId);
         var discoveryConfig = job.DiscoveryConfig ?? new DiscoveryConfig();
         var startedAt = DateTime.UtcNow;
         var maxDocsPerSource = FetchJobExecutor.ReadMaxDocsPerSource(job.Payload);
@@ -160,6 +165,9 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
         }
         catch (Exception ex)
         {
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            activity?.AddException(ex);
+            activity?.SetTag("error.type", ex.GetType().Name);
             _logger.LogError(ex, "Discovery job failed for source {SourceId} after {LinksTotal} links", sourceId, linksTotal);
             discoveryRunEntity.CompletedAt = DateTime.UtcNow;
             discoveryRunEntity.LinksTotal = linksTotal;
@@ -179,6 +187,10 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
         _logger.LogInformation(
             "Discovery completed for source {SourceId}: {LinksTotal} links, status={Status}",
             sourceId, linksTotal, "completed");
+
+        activity?.SetTag("docs.count", linksTotal);
+        PipelineTelemetry.RecordDocsProcessed(linksTotal, sourceId, "discovery");
+        PipelineTelemetry.RecordStageLatency(stageStopwatch.Elapsed.TotalMilliseconds, sourceId, "discovery");
 
         return new JobResult
         {

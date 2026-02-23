@@ -8,6 +8,7 @@ using System.Text.RegularExpressions;
 using System.Text.Json;
 using Gabi.Contracts.Fetch;
 using Gabi.Contracts.Jobs;
+using Gabi.Contracts.Observability;
 using Gabi.Fetch;
 using Gabi.Postgres;
 using Gabi.Postgres.Entities;
@@ -63,6 +64,9 @@ public class FetchJobExecutor : IJobExecutor
     public async Task<JobResult> ExecuteAsync(IngestJob job, IProgress<JobProgress> progress, CancellationToken ct)
     {
         var sourceId = job.SourceId;
+        var stageStopwatch = Stopwatch.StartNew();
+        using var activity = PipelineTelemetry.ActivitySource.StartActivity("pipeline.fetch", ActivityKind.Internal);
+        activity?.SetTag("source.id", sourceId);
         var startedAt = DateTime.UtcNow;
         var maxDocsPerSource = ReadMaxDocsPerSource(job.Payload);
 
@@ -83,6 +87,9 @@ public class FetchJobExecutor : IJobExecutor
             fetchRun.ErrorSummary = $"Source {sourceId} not found";
             fetchRun.CompletedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync(ct);
+            activity?.SetStatus(ActivityStatusCode.Error, $"Source {sourceId} not found");
+            activity?.SetTag("error.type", "source_not_found");
+            PipelineTelemetry.RecordStageLatency(stageStopwatch.Elapsed.TotalMilliseconds, sourceId, "fetch");
             return new JobResult { Success = false, ErrorMessage = $"Source {sourceId} not found" };
         }
 
@@ -106,6 +113,8 @@ public class FetchJobExecutor : IJobExecutor
             fetchRun.ItemsTotal = 0;
             await _context.SaveChangesAsync(ct);
             progress.Report(new JobProgress { PercentComplete = 100, Message = "Nenhum fetch_item pendente" });
+            activity?.SetTag("docs.count", 0);
+            PipelineTelemetry.RecordStageLatency(stageStopwatch.Elapsed.TotalMilliseconds, sourceId, "fetch");
             return new JobResult { Success = true };
         }
 
@@ -206,6 +215,10 @@ public class FetchJobExecutor : IJobExecutor
                 sourceId,
                 total,
                 completed);
+            activity?.SetTag("docs.count", completed);
+            activity?.SetTag("fetch.items.count", completed);
+            PipelineTelemetry.RecordDocsProcessed(completed, sourceId, "fetch");
+            PipelineTelemetry.RecordStageLatency(stageStopwatch.Elapsed.TotalMilliseconds, sourceId, "fetch");
 
             return new JobResult
             {
@@ -331,6 +344,7 @@ public class FetchJobExecutor : IJobExecutor
                     item.Status = "failed";
                     item.LastError = ex.Message.Length > 2000 ? ex.Message[..2000] : ex.Message;
                     item.CompletedAt = DateTime.UtcNow;
+                    activity?.SetTag("error.type", ex.GetType().Name);
                     _logger.LogError(ex, "Fetch failed for {Url}", item.Url);
                 }
 
@@ -381,6 +395,10 @@ public class FetchJobExecutor : IJobExecutor
         _logger.LogInformation(
             "Fetch finished for {SourceId}: items={Total}, completed={Completed}, failed={Failed}, docs={Docs}, truncated={Truncated}, capped={Capped}",
             sourceId, total, completed, failed, totalDocs, totalTruncatedFields, capped);
+        activity?.SetTag("docs.count", totalDocs);
+        activity?.SetTag("fetch.items.count", completed);
+        PipelineTelemetry.RecordDocsProcessed(totalDocs, sourceId, "fetch");
+        PipelineTelemetry.RecordStageLatency(stageStopwatch.Elapsed.TotalMilliseconds, sourceId, "fetch");
 
         return new JobResult
         {

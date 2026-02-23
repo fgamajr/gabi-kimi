@@ -1,5 +1,6 @@
 using Gabi.Postgres;
 using Gabi.Postgres.Entities;
+using Gabi.Contracts.Common;
 using Hangfire;
 using Hangfire.Common;
 using Hangfire.States;
@@ -11,7 +12,7 @@ namespace Gabi.Worker.Jobs;
 /// Hangfire filter that moves failed jobs to Dead Letter Queue after max retries.
 /// Jobs that exhaust their retry attempts are captured here for inspection and replay.
 /// </summary>
-public class DlqFilter : IElectStateFilter
+public class DlqFilter : JobFilterAttribute, IElectStateFilter
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<DlqFilter> _logger;
@@ -38,22 +39,44 @@ public class DlqFilter : IElectStateFilter
 
         var retryCount = GetRetryCount(context, jobId);
         var observedAttempts = DlqRetryDecision.ToObservedAttempts(retryCount);
+        var classification = ErrorClassifier.Classify(failedState.Exception);
+        var plan = IntelligentRetryPlanner.Plan(classification, retryCount, _maxRetries);
 
-        if (!DlqRetryDecision.ShouldMoveToDlq(retryCount, _maxRetries))
+        _logger.LogWarning(
+            "Retry classification for job {JobId}: Category={Category}, Code={Code}, RetryCount={RetryCount}, MaxRetries={MaxRetries}",
+            jobId,
+            classification.Category,
+            classification.Code,
+            retryCount,
+            _maxRetries);
+
+        if (plan.Decision == RetryDecision.ScheduleRetry)
         {
             _logger.LogDebug(
-                "Job {JobId} failed (attempt {RetryCount}/{MaxRetries}), will be retried by Hangfire",
-                jobId, observedAttempts, _maxRetries);
+                "Job {JobId} failed (attempt {RetryCount}/{MaxRetries}), scheduling retry in {Delay}",
+                jobId, observedAttempts, _maxRetries, plan.Delay);
+
+            context.SetJobParameter("RetryCount", retryCount + 1);
+            context.CandidateState = new ScheduledState(plan.Delay)
+            {
+                Reason = $"Retry ({classification.Category}/{classification.Code}) in {plan.Delay}"
+            };
             return;
         }
 
         _logger.LogWarning(
-            "Job {JobId} failed after retryCount={RetryCount} (attempt {Attempt}), moving to Dead Letter Queue",
-            jobId, retryCount, observedAttempts);
+            "Job {JobId} failed after retryCount={RetryCount} (attempt {Attempt}), moving to Dead Letter Queue. Category={Category}, Code={Code}",
+            jobId, retryCount, observedAttempts, classification.Category, classification.Code);
+
+        context.SetJobParameter("RetryCount", Math.Max(retryCount, _maxRetries));
+        context.CandidateState = new FailedState(failedState.Exception)
+        {
+            Reason = $"{classification.Category} ({classification.Code})"
+        };
 
         try
         {
-            MoveToDlqAsync(context, failedState, retryCount).GetAwaiter().GetResult();
+            MoveToDlqAsync(context, failedState, retryCount, classification).GetAwaiter().GetResult();
         }
         catch (Exception ex)
         {
@@ -80,7 +103,11 @@ public class DlqFilter : IElectStateFilter
         }
     }
 
-    private async Task MoveToDlqAsync(ElectStateContext context, FailedState failedState, int retryCount)
+    private async Task MoveToDlqAsync(
+        ElectStateContext context,
+        FailedState failedState,
+        int retryCount,
+        ErrorClassification classification)
     {
         using var scope = _serviceProvider.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<GabiDbContext>();
@@ -103,7 +130,8 @@ public class DlqFilter : IElectStateFilter
             StackTrace = DlqJsonSerializer.SerializeStackTrace(failedState.Exception?.StackTrace),
             RetryCount = retryCount,
             FailedAt = DateTime.UtcNow,
-            Status = "pending"
+            Status = "pending",
+            Notes = $"Category={classification.Category}; Code={classification.Code}"
         };
 
         dbContext.DlqEntries.Add(dlqEntry);

@@ -2,6 +2,7 @@
 // Licensed under the MIT License. See LICENSE file for details.
 
 using System.Text.Json;
+using System.Diagnostics;
 using Gabi.Contracts.Api;
 using Gabi.Contracts.Dashboard;
 using Gabi.Contracts.Jobs;
@@ -104,7 +105,10 @@ public class DashboardService : IDashboardService
             Id = Guid.NewGuid(),
             JobType = "catalog_seed",
             SourceId = string.Empty,
-            Payload = new Dictionary<string, object> { ["run_id"] = Guid.NewGuid().ToString() },
+            Payload = BuildTraceContextPayload(new Dictionary<string, object>
+            {
+                ["run_id"] = Guid.NewGuid().ToString()
+            }),
             Status = JobStatus.Pending,
             Priority = JobPriority.Normal,
             ScheduledAt = DateTime.UtcNow,
@@ -476,12 +480,12 @@ public class DashboardService : IDashboardService
             Id = Guid.NewGuid(),
             JobType = "source_discovery",
             SourceId = sourceId,
-            Payload = new Dictionary<string, object>
+            Payload = BuildTraceContextPayload(new Dictionary<string, object>
             {
                 ["force"] = request.Force,
                 ["year"] = request.Year,
                 ["discoveryConfig"] = source.DiscoveryConfig
-            },
+            }),
             Status = JobStatus.Pending,
             Priority = JobPriority.Normal,
             ScheduledAt = DateTime.UtcNow
@@ -544,7 +548,7 @@ public class DashboardService : IDashboardService
             _ => throw new ArgumentException($"Unknown phase: {phase}. Use discovery, fetch, or ingest.", nameof(phase))
         };
 
-        var payload = new Dictionary<string, object> { ["phase"] = normalized };
+        var payload = BuildTraceContextPayload(new Dictionary<string, object> { ["phase"] = normalized });
         if (normalized == "fetch" && request?.MaxDocsPerSource is int maxDocsPerSource && maxDocsPerSource > 0)
         {
             payload["max_docs_per_source"] = maxDocsPerSource;
@@ -583,6 +587,23 @@ public class DashboardService : IDashboardService
             new() { Id = "ingest", Name = "Ingest", Description = "Processar e indexar documentos", Availability = "requires_previous", TriggerEndpoint = "POST /api/v1/dashboard/sources/{sourceId}/phases/ingest" }
         };
         return Task.FromResult<IReadOnlyList<PipelinePhaseDto>>(phases);
+    }
+
+    private static Dictionary<string, object> BuildTraceContextPayload(Dictionary<string, object> payload)
+    {
+        var traceParent = Activity.Current?.Id;
+        var traceId = Activity.Current?.TraceId.ToString();
+
+        if (!string.IsNullOrWhiteSpace(traceParent))
+            payload["traceparent"] = traceParent;
+
+        if (!string.IsNullOrWhiteSpace(traceId))
+            payload["trace_id"] = traceId!;
+
+        if (!payload.ContainsKey("request_id"))
+            payload["request_id"] = traceId ?? Guid.NewGuid().ToString("N");
+
+        return payload;
     }
 
     /// <summary>

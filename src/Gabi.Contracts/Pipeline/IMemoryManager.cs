@@ -217,7 +217,7 @@ public record Document
     /// <summary>
     /// Chunks do documento.
     /// </summary>
-    public IReadOnlyList<Chunk> Chunks { get; init; } = new List<Chunk>();
+    public IReadOnlyList<PipelineChunk> Chunks { get; init; } = new List<PipelineChunk>();
     
     /// <summary>
     /// Metadados do documento.
@@ -238,7 +238,7 @@ public record Document
 /// <summary>
 /// Chunk de documento para embedding.
 /// </summary>
-public record Chunk
+public record PipelineChunk
 {
     public int Index { get; init; }
     public string Text { get; init; } = string.Empty;

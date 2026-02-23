@@ -18,7 +18,7 @@ public class Phase0Orchestrator : IPhase0Orchestrator
 {
     private readonly ISourceCatalog _sourceCatalog;
     private readonly IDiscoveryEngine _discoveryEngine;
-    private readonly ILinkComparator _linkComparator;
+    private readonly IPhase0LinkComparator _linkComparator;
     private readonly IMetadataFetcher _metadataFetcher;
     private readonly IDiscoveredLinkRepository _linkRepository;
     private readonly ILogger<Phase0Orchestrator> _logger;
@@ -26,7 +26,7 @@ public class Phase0Orchestrator : IPhase0Orchestrator
     public Phase0Orchestrator(
         ISourceCatalog sourceCatalog,
         IDiscoveryEngine discoveryEngine,
-        ILinkComparator linkComparator,
+        IPhase0LinkComparator linkComparator,
         IMetadataFetcher metadataFetcher,
         IDiscoveredLinkRepository linkRepository,
         ILogger<Phase0Orchestrator> logger)
@@ -128,13 +128,13 @@ public class Phase0Orchestrator : IPhase0Orchestrator
         return results;
     }
 
-    private async Task<IReadOnlyList<LinkComparisonResult>> RunComparisonAsync(
+    private async Task<IReadOnlyList<Phase0LinkComparisonResult>> RunComparisonAsync(
         string sourceId,
         IReadOnlyList<DiscoveredSource> discoveredSources,
         Phase0Options options,
         CancellationToken ct)
     {
-        var results = new List<LinkComparisonResult>();
+        var results = new List<Phase0LinkComparisonResult>();
 
         foreach (var discovered in discoveredSources)
         {
@@ -147,11 +147,11 @@ public class Phase0Orchestrator : IPhase0Orchestrator
             // If not exists, mark as new
             if (existingLink == null)
             {
-                results.Add(new LinkComparisonResult
+                results.Add(new Phase0LinkComparisonResult
                 {
                     Status = LinkDiscoveryStatus.New,
                     Reason = "new_link",
-                    UpdatedLink = new Contracts.Pipeline.DiscoveredLink
+                    UpdatedLink = new Contracts.Pipeline.DiscoveredLinkPhase0
                     {
                         SourceId = sourceId,
                         Url = discovered.Url,
@@ -164,7 +164,7 @@ public class Phase0Orchestrator : IPhase0Orchestrator
 
             // Existing link - always check for changes by fetching metadata
             // (LinkComparator will decide if it's changed or unchanged)
-            results.Add(new LinkComparisonResult
+            results.Add(new Phase0LinkComparisonResult
             {
                 Status = LinkDiscoveryStatus.Changed, // Tentative, will be refined after metadata fetch
                 Reason = "existing_check",
@@ -175,9 +175,9 @@ public class Phase0Orchestrator : IPhase0Orchestrator
         return results;
     }
 
-    private async Task<IReadOnlyList<Contracts.Pipeline.DiscoveredLink>> FetchMetadataAsync(
+    private async Task<IReadOnlyList<Contracts.Pipeline.DiscoveredLinkPhase0>> FetchMetadataAsync(
         IReadOnlyList<DiscoveredSource> discoveredSources,
-        IReadOnlyList<LinkComparisonResult> comparisonResults,
+        IReadOnlyList<Phase0LinkComparisonResult> comparisonResults,
         Phase0Options options,
         CancellationToken ct)
     {
@@ -195,7 +195,7 @@ public class Phase0Orchestrator : IPhase0Orchestrator
             return comparisonResults.Select(r => r.UpdatedLink).ToList();
         }
 
-        var fetchedResults = new ConcurrentBag<(Contracts.Pipeline.DiscoveredLink Link, DiscoveredSource Source, MetadataFetchResult Metadata)>();
+        var fetchedResults = new ConcurrentBag<(Contracts.Pipeline.DiscoveredLinkPhase0 Link, DiscoveredSource Source, MetadataFetchResult Metadata)>();
 
         if (options.ParallelMetadataFetch)
         {
@@ -229,7 +229,7 @@ public class Phase0Orchestrator : IPhase0Orchestrator
         }
 
         // Use LinkComparator to determine final status
-        var finalLinks = new List<Contracts.Pipeline.DiscoveredLink>();
+        var finalLinks = new List<Contracts.Pipeline.DiscoveredLinkPhase0>();
         
         foreach (var (existingLink, source, metadata) in fetchedResults)
         {
@@ -278,7 +278,7 @@ public class Phase0Orchestrator : IPhase0Orchestrator
     }
 
     private async Task PersistLinksAsync(
-        IReadOnlyList<Contracts.Pipeline.DiscoveredLink> links,
+        IReadOnlyList<Contracts.Pipeline.DiscoveredLinkPhase0> links,
         CancellationToken ct)
     {
         // Only persist new or changed links
@@ -300,7 +300,7 @@ public class Phase0Orchestrator : IPhase0Orchestrator
         string sourceId,
         DateTime startedAt,
         IReadOnlyList<DiscoveredSource> discoveredSources,
-        IReadOnlyList<Contracts.Pipeline.DiscoveredLink> links)
+        IReadOnlyList<Contracts.Pipeline.DiscoveredLinkPhase0> links)
     {
         var newLinks = links.Where(l => l.Status == LinkDiscoveryStatus.New).ToList();
         var changedLinks = links.Where(l => l.Status == LinkDiscoveryStatus.Changed).ToList();
@@ -337,9 +337,9 @@ public class Phase0Orchestrator : IPhase0Orchestrator
         };
     }
 
-    private static Contracts.Pipeline.DiscoveredLink MapToPipelineLink(DiscoveredLinkEntity entity)
+    private static Contracts.Pipeline.DiscoveredLinkPhase0 MapToPipelineLink(DiscoveredLinkEntity entity)
     {
-        return new Contracts.Pipeline.DiscoveredLink
+        return new Contracts.Pipeline.DiscoveredLinkPhase0
         {
             Id = entity.Id,
             SourceId = entity.SourceId,
@@ -356,7 +356,7 @@ public class Phase0Orchestrator : IPhase0Orchestrator
         };
     }
 
-    private static DiscoveredLinkEntity MapToEntity(Contracts.Pipeline.DiscoveredLink link)
+    private static DiscoveredLinkEntity MapToEntity(Contracts.Pipeline.DiscoveredLinkPhase0 link)
     {
         return new DiscoveredLinkEntity
         {
@@ -412,23 +412,23 @@ public class Phase0Orchestrator : IPhase0Orchestrator
 }
 
 /// <summary>
-/// Default implementation of ILinkComparator.
+/// Default implementation of IPhase0LinkComparator.
 /// </summary>
-public class LinkComparator : ILinkComparator
+public class LinkComparator : IPhase0LinkComparator
 {
-    public LinkComparisonResult Compare(
+    public Phase0LinkComparisonResult Compare(
         DiscoveredSource discovered,
-        Contracts.Pipeline.DiscoveredLink? existing,
+        Contracts.Pipeline.DiscoveredLinkPhase0? existing,
         MetadataFetchResult? fetchedMetadata)
     {
         // New link (null or Id = 0 indicates not yet persisted)
         if (existing == null || existing.Id == 0)
         {
-            return new LinkComparisonResult
+            return new Phase0LinkComparisonResult
             {
                 Status = LinkDiscoveryStatus.New,
                 Reason = "new_link",
-                UpdatedLink = new Contracts.Pipeline.DiscoveredLink
+                UpdatedLink = new Contracts.Pipeline.DiscoveredLinkPhase0
                 {
                     SourceId = discovered.SourceId,
                     Url = discovered.Url,
@@ -451,7 +451,7 @@ public class LinkComparator : ILinkComparator
 
         if (etagChanged || lastModifiedChanged || contentLengthChanged)
         {
-            return new LinkComparisonResult
+            return new Phase0LinkComparisonResult
             {
                 Status = LinkDiscoveryStatus.Changed,
                 Reason = etagChanged ? "etag_changed" : lastModifiedChanged ? "last_modified_changed" : "content_length_changed",
@@ -466,7 +466,7 @@ public class LinkComparator : ILinkComparator
         }
 
         // No changes
-        return new LinkComparisonResult
+        return new Phase0LinkComparisonResult
         {
             Status = LinkDiscoveryStatus.Unchanged,
             Reason = "no_changes",
