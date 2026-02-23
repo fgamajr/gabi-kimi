@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Gabi.Contracts.Jobs;
 using Gabi.Contracts.Media;
+using Gabi.Api.Security;
 using Gabi.Postgres;
 using Gabi.Postgres.Entities;
 using Microsoft.AspNetCore.Http.Features;
@@ -47,6 +48,7 @@ public static class MediaEndpoints
         HttpContext httpContext,
         GabiDbContext db,
         IJobQueueRepository jobQueue,
+        UrlAllowlistValidator urlAllowlistValidator,
         CancellationToken ct)
     {
         if (!MediaTypeHeaderValue.TryParse(httpContext.Request.ContentType, out var mediaType) ||
@@ -139,6 +141,8 @@ public static class MediaEndpoints
             externalId = Guid.NewGuid().ToString("N");
         if (string.IsNullOrWhiteSpace(mediaUrl))
             return Results.BadRequest(new { error = "media_url is required." });
+        if (!await urlAllowlistValidator.IsAllowedAsync(mediaUrl, ct))
+            return Results.BadRequest(new { error = "Invalid media_url." });
         if (!IsValidJson(metadataJson))
             return Results.BadRequest(new { error = "metadata must be valid JSON." });
         if (metadataJson.Length > MaxMetadataChars)
@@ -238,12 +242,15 @@ public static class MediaEndpoints
         HttpContext httpContext,
         GabiDbContext db,
         IJobQueueRepository jobQueue,
+        IConfiguration configuration,
+        LocalMediaPathValidator localMediaPathValidator,
         CancellationToken ct)
     {
         var enabled = string.Equals(
             Environment.GetEnvironmentVariable("GABI_MEDIA_ALLOW_LOCAL_FILE"),
             "true",
-            StringComparison.OrdinalIgnoreCase);
+            StringComparison.OrdinalIgnoreCase) ||
+            configuration.GetValue<bool>("Gabi:Media:AllowLocalFile");
         if (!enabled)
         {
             return Results.BadRequest(new { error = "Local file transcribe is disabled. Enable GABI_MEDIA_ALLOW_LOCAL_FILE=true." });
@@ -256,11 +263,8 @@ public static class MediaEndpoints
             return Results.BadRequest(new { error = "sourceId, externalId and filePath are required." });
         }
 
-        if (!request.FilePath.StartsWith("/workspace/", StringComparison.Ordinal))
-            return Results.BadRequest(new { error = "filePath must be under /workspace/." });
-
-        if (!File.Exists(request.FilePath))
-            return Results.BadRequest(new { error = $"filePath not found: {request.FilePath}" });
+        if (!localMediaPathValidator.TryValidate(request.FilePath, out var safeFilePath))
+            return Results.BadRequest(new { error = "Invalid filePath." });
 
         var sourceExists = await db.SourceRegistries.AnyAsync(s => s.Id == request.SourceId, ct);
         if (!sourceExists)
@@ -281,8 +285,8 @@ public static class MediaEndpoints
             {
                 SourceId = request.SourceId,
                 ExternalId = request.ExternalId,
-                TempFilePath = request.FilePath,
-                MediaUrl = $"local://{request.FilePath}",
+                TempFilePath = safeFilePath,
+                MediaUrl = $"local://{safeFilePath}",
                 Title = request.Title,
                 SessionType = request.SessionType,
                 Chamber = request.Chamber,
@@ -298,8 +302,8 @@ public static class MediaEndpoints
         else
         {
             entity = existing;
-            entity.TempFilePath = request.FilePath;
-            entity.MediaUrl = $"local://{request.FilePath}";
+            entity.TempFilePath = safeFilePath;
+            entity.MediaUrl = $"local://{safeFilePath}";
             if (!string.IsNullOrWhiteSpace(request.Title))
                 entity.Title = request.Title;
             if (!string.IsNullOrWhiteSpace(request.SessionType))

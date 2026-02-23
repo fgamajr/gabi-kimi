@@ -2,10 +2,12 @@ using Gabi.Api;
 using Gabi.Api.Configuration;
 using Gabi.Api.Endpoints;
 using Gabi.Api.Middleware;
+using Gabi.Api.Security;
 using Gabi.Api.Services;
 using Gabi.Contracts.Api;
 using Gabi.Contracts.Dashboard;
 using Gabi.Contracts.Jobs;
+using Gabi.Contracts.Observability;
 using Gabi.Postgres;
 using Gabi.Postgres.Repositories;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -20,6 +22,11 @@ using Microsoft.EntityFrameworkCore;
 using Hangfire;
 using Hangfire.Dashboard;
 using Hangfire.PostgreSql;
+using OpenTelemetry.Instrumentation.EntityFrameworkCore;
+using OpenTelemetry.Instrumentation.Runtime;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -47,6 +54,9 @@ builder.Services.AddCorsConfig(builder.Configuration, builder.Environment);
 
 // Services
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
+builder.Services.AddSingleton<IUserCredentialStore, UserCredentialStore>();
+builder.Services.AddSingleton<UrlAllowlistValidator>();
+builder.Services.AddSingleton<LocalMediaPathValidator>();
 
 // Hangfire (enqueue + dashboard; Worker processa com Hangfire Server)
 if (!string.IsNullOrWhiteSpace(connectionString))
@@ -96,6 +106,35 @@ var healthBuilder = builder.Services.AddHealthChecks()
 
 if (!string.IsNullOrWhiteSpace(connectionString))
     healthBuilder.AddNpgSql(connectionString, name: "postgres", tags: new[] { "ready" });
+
+var otlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"] ?? "http://localhost:4317";
+var otlpHeaders = builder.Configuration["OTEL_EXPORTER_OTLP_HEADERS"];
+
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(resource => resource.AddService(
+        serviceName: "gabi-api",
+        serviceVersion: typeof(Program).Assembly.GetName().Version?.ToString() ?? "unknown"))
+    .WithTracing(tracing => tracing
+        .AddAspNetCoreInstrumentation()
+        .AddEntityFrameworkCoreInstrumentation()
+        .AddHttpClientInstrumentation()
+        .AddSource(PipelineTelemetry.ActivitySourceName)
+        .AddOtlpExporter(options =>
+        {
+            options.Endpoint = new Uri(otlpEndpoint);
+            if (!string.IsNullOrWhiteSpace(otlpHeaders))
+                options.Headers = otlpHeaders;
+        }))
+    .WithMetrics(metrics => metrics
+        .AddAspNetCoreInstrumentation()
+        .AddRuntimeInstrumentation()
+        .AddMeter(PipelineTelemetry.MeterName)
+        .AddOtlpExporter(options =>
+        {
+            options.Endpoint = new Uri(otlpEndpoint);
+            if (!string.IsNullOrWhiteSpace(otlpHeaders))
+                options.Headers = otlpHeaders;
+        }));
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
@@ -195,21 +234,16 @@ app.MapHealthChecks(ApiRoutes.HealthReady, new HealthCheckOptions
 app.MapPost("/api/v1/auth/login", async (
     LoginRequest request,
     IJwtTokenService tokenService,
-    IConfiguration config,
+    IUserCredentialStore userCredentialStore,
     CancellationToken ct) =>
 {
-    // Validar credenciais contra appsettings
-    var users = config.GetSection("Users").Get<List<AppUser>>();
-    var user = users?.FirstOrDefault(u => 
-        u.Username == request.Username && u.Password == request.Password);
-    
-    if (user == null)
+    if (!userCredentialStore.TryValidate(request.Username, request.Password, out var role))
     {
         return Results.Unauthorized();
     }
-    
-    var token = tokenService.GenerateToken(user.Username, user.Role);
-    return Results.Ok(new LoginResponse(true, token, null, user.Role));
+
+    var token = tokenService.GenerateToken(request.Username, role);
+    return Results.Ok(new LoginResponse(true, token, null, role));
 })
 .RequireRateLimiting("auth");
 
@@ -415,6 +449,12 @@ app.MapPost("/api/v1/dlq/{id:guid}/replay", [Authorize(Policy = "RequireOperator
 
 try
 {
+    // Resolve at startup to fail fast when users are not configured in non-development environments.
+    using (var scope = app.Services.CreateScope())
+    {
+        _ = scope.ServiceProvider.GetRequiredService<IUserCredentialStore>();
+    }
+
     await app.RunAsync();
 }
 finally
@@ -425,9 +465,6 @@ finally
 // ═════════════════════════════════════════════════════════════════════════════
 // Type Declarations (must be at the end for top-level statements)
 // ═════════════════════════════════════════════════════════════════════════════
-
-// Modelo para usuário em appsettings
-public record AppUser(string Username, string Password, string Role);
 
 // Tornar o Program acessível para testes de integração
 public partial class Program { }
