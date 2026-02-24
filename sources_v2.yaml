@@ -32,6 +32,11 @@ defaults:
       timeout: 5m
       memory_threshold: 300MB
 
+    # Ingest gate defaults (override per source when needed)
+    ingest:
+      readiness: text_ready
+      empty_content_action: fail
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # SOURCES
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -195,6 +200,9 @@ sources:
       enabled: true
       schedule: "0 2 * * *"  # Daily at 2 AM
       mode: incremental
+      ingest:
+        readiness: text_ready
+        empty_content_action: fail
       
       # Phase enablement (all true by default)
       phases:
@@ -308,6 +316,9 @@ sources:
       enabled: true
       schedule: "0 3 * * *"
       mode: full_reload  # Single file, always full reload
+      ingest:
+        readiness: text_ready
+        empty_content_action: fail
       
       optional:
         embed:
@@ -385,6 +396,9 @@ sources:
       enabled: true
       schedule: "0 4 * * *"
       mode: full_reload
+      ingest:
+        readiness: text_ready
+        empty_content_action: fail
 
       optional:
         embed:
@@ -463,6 +477,9 @@ sources:
       enabled: true
       schedule: "0 4 * * *"
       mode: full_reload
+      ingest:
+        readiness: text_ready
+        empty_content_action: fail
 
       optional:
         embed:
@@ -536,6 +553,9 @@ sources:
       enabled: true
       schedule: "0 4 * * *"
       mode: full_reload
+      ingest:
+        readiness: text_ready
+        empty_content_action: fail
 
       optional:
         embed:
@@ -614,6 +634,9 @@ sources:
       enabled: true
       schedule: "0 5 * * *"
       mode: full_reload
+      ingest:
+        readiness: text_ready
+        empty_content_action: fail
 
       optional:
         embed:
@@ -686,6 +709,9 @@ sources:
       enabled: true
       schedule: "0 5 * * *"
       mode: full_reload
+      ingest:
+        readiness: text_ready
+        empty_content_action: fail
 
       optional:
         embed:
@@ -762,6 +788,9 @@ sources:
       enabled: true
       schedule: "0 5 * * *"
       mode: full_reload
+      ingest:
+        readiness: text_ready
+        empty_content_action: fail
 
       optional:
         embed:
@@ -802,6 +831,7 @@ sources:
       protocol: https
       method: GET
       content_strategy: link_only
+      converter: pdf_to_text_heuristic
       format:
         type: pdf
 
@@ -831,6 +861,9 @@ sources:
       enabled: true
       schedule: "0 6 * * 0"  # Weekly on Sunday
       mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
 
       optional:
         embed:
@@ -862,6 +895,7 @@ sources:
       protocol: https
       method: GET
       content_strategy: link_only
+      converter: pdf_to_text_heuristic
       format:
         type: pdf
 
@@ -885,6 +919,9 @@ sources:
       enabled: true
       schedule: "0 6 * * 0"  # Weekly on Sunday
       mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
 
       optional:
         embed:
@@ -923,6 +960,7 @@ sources:
       protocol: https
       method: GET
       content_strategy: link_only
+      converter: pdf_to_text_heuristic
       format:
         type: pdf
 
@@ -930,6 +968,9 @@ sources:
       enabled: true
       schedule: "0 6 * * 1"
       mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
 
   tcu_btcu_especial:
     identity:
@@ -961,6 +1002,7 @@ sources:
       protocol: https
       method: GET
       content_strategy: link_only
+      converter: pdf_to_text_heuristic
       format:
         type: pdf
 
@@ -968,6 +1010,9 @@ sources:
       enabled: true
       schedule: "0 6 * * 1"
       mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
 
   tcu_btcu_controle_externo:
     identity:
@@ -999,6 +1044,7 @@ sources:
       protocol: https
       method: GET
       content_strategy: link_only
+      converter: pdf_to_text_heuristic
       format:
         type: pdf
 
@@ -1006,6 +1052,9 @@ sources:
       enabled: true
       schedule: "0 6 * * 1"
       mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
 
   tcu_btcu_deliberacoes:
     identity:
@@ -1037,6 +1086,7 @@ sources:
       protocol: https
       method: GET
       content_strategy: link_only
+      converter: pdf_to_text_heuristic
       format:
         type: pdf
 
@@ -1044,6 +1094,9 @@ sources:
       enabled: true
       schedule: "0 6 * * 1"
       mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
 
   tcu_btcu_deliberacoes_extra:
     identity:
@@ -1075,6 +1128,7 @@ sources:
       protocol: https
       method: GET
       content_strategy: link_only
+      converter: pdf_to_text_heuristic
       format:
         type: pdf
 
@@ -1082,6 +1136,9 @@ sources:
       enabled: true
       schedule: "0 6 * * 1"
       mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
 
   # ─────────────────────────────────────────────────────────────────────────────
   # 12. Diário Oficial da União (DOU) - Baseline público mensal (Fase A)
@@ -1111,6 +1168,7 @@ sources:
       protocol: https
       method: GET
       content_strategy: link_only
+      converter: unsupported
       format:
         type: archive
 
@@ -1118,6 +1176,9 @@ sources:
       enabled: true
       schedule: "0 3 2 * *"  # mensal, após fechamento do mês anterior
       mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
 
   # ─────────────────────────────────────────────────────────────────────────────
   # 13. Diário Oficial da União (DOU) - INLABS XML (Fases B/C)
@@ -1156,6 +1217,7 @@ sources:
       protocol: https
       method: GET
       content_strategy: link_only
+      converter: html_to_text
       format:
         type: html
 
@@ -1198,6 +1260,7 @@ sources:
       protocol: https
       method: GET
       content_strategy: link_only
+      converter: html_to_text
       format:
         type: html
 
@@ -1241,6 +1304,7 @@ sources:
       protocol: https
       method: GET
       content_strategy: link_only
+      converter: html_to_text
       format:
         type: html
 
@@ -1273,6 +1337,9 @@ sources:
       enabled: true
       schedule: "0 7 * * 0"  # Weekly on Sunday
       mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
 
       optional:
         embed:
@@ -1313,6 +1380,7 @@ sources:
       protocol: https
       method: GET
       content_strategy: link_only
+      converter: json_to_text
       format:
         type: json
 
@@ -1320,6 +1388,9 @@ sources:
       enabled: true
       schedule: "0 7 * * 0"
       mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
 
   camara_propostas_emenda_constitucional:
     identity:
@@ -1351,10 +1422,10 @@ sources:
       method: GET
       content_strategy: json_api
       extract:
-        title_path: "DetalheDocumento.documentos.documento[0].normaNome"
-        content_path: "DetalheDocumento.documentos.documento[0].ementa"
-        id_path: "DetalheDocumento.documentos.documento[0].norma"
-        vides_path: "DetalheDocumento.documentos.documento[0].vides"
+        title_path: "dados.ementa"
+        content_path: "dados.ementaDetalhada"
+        id_path: "dados.id"
+        vides_path: "dados.vides"
       format:
         type: json
 
@@ -1362,6 +1433,9 @@ sources:
       enabled: true
       schedule: "0 7 * * 0"
       mode: incremental
+      ingest:
+        readiness: text_ready
+        empty_content_action: metadata_only
 
   camara_medidas_provisorias:
     identity:
@@ -1392,6 +1466,7 @@ sources:
       protocol: https
       method: GET
       content_strategy: link_only
+      converter: json_to_text
       format:
         type: json
 
@@ -1399,6 +1474,9 @@ sources:
       enabled: true
       schedule: "0 7 * * 0"
       mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
 
   camara_projetos_decreto_legislativo:
     identity:
@@ -1429,6 +1507,7 @@ sources:
       protocol: https
       method: GET
       content_strategy: link_only
+      converter: json_to_text
       format:
         type: json
 
@@ -1436,6 +1515,9 @@ sources:
       enabled: true
       schedule: "0 7 * * 0"
       mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
 
   camara_projetos_resolucao:
     identity:
@@ -1466,6 +1548,7 @@ sources:
       protocol: https
       method: GET
       content_strategy: link_only
+      converter: json_to_text
       format:
         type: json
 
@@ -1473,6 +1556,9 @@ sources:
       enabled: true
       schedule: "0 7 * * 0"
       mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
 
   camara_projetos_lei_conversao:
     identity:
@@ -1503,6 +1589,7 @@ sources:
       protocol: https
       method: GET
       content_strategy: link_only
+      converter: json_to_text
       format:
         type: json
 
@@ -1510,6 +1597,9 @@ sources:
       enabled: true
       schedule: "0 7 * * 0"
       mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
 
   # ─────────────────────────────────────────────────────────────────────────────
   # 12c. Senado Federal - Legislação (Normas aprovadas)
@@ -1557,6 +1647,9 @@ sources:
       enabled: true
       schedule: "0 6 * * 1"
       mode: incremental
+      ingest:
+        readiness: text_ready
+        empty_content_action: fail
 
   senado_legislacao_leis_complementares:
     identity:
@@ -1588,6 +1681,7 @@ sources:
       protocol: https
       method: GET
       content_strategy: link_only
+      converter: json_to_text
       format:
         type: json
 
@@ -1595,6 +1689,9 @@ sources:
       enabled: true
       schedule: "15 6 * * 1"
       mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
 
   senado_legislacao_decretos_lei:
     identity:
@@ -1626,6 +1723,7 @@ sources:
       protocol: https
       method: GET
       content_strategy: link_only
+      converter: json_to_text
       format:
         type: json
 
@@ -1633,6 +1731,9 @@ sources:
       enabled: true
       schedule: "30 6 * * 1"
       mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
 
   senado_legislacao_leis_delegadas:
     identity:
@@ -1664,6 +1765,7 @@ sources:
       protocol: https
       method: GET
       content_strategy: link_only
+      converter: json_to_text
       format:
         type: json
 
@@ -1671,6 +1773,9 @@ sources:
       enabled: true
       schedule: "45 6 * * 1"
       mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
 
   # ─────────────────────────────────────────────────────────────────────────────
   # 12. TCU - YouTube Videos (CANARY, INACTIVE)

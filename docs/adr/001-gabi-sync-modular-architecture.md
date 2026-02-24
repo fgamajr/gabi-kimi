@@ -120,7 +120,7 @@ src/gabi/
 
 ### Phase 1: Foundation (Week 1)
 - Create `contracts/`, `types.py`, `exceptions.py`
-- Port from `old_python_implementation/src/gabi/pipeline/contracts.py`
+- Port from `grounding_docs/archive/legacy-python/src/gabi/pipeline/` references
 - **Deliverable**: Contracts module with 100% test coverage
 
 ### Phase 2: Infrastructure (Week 1)
@@ -261,8 +261,8 @@ After implementation:
 
 ## References
 
-- Original codebase: `old_python_implementation/`
-- Migration plan: `claude_plan.md`
+- Original codebase references: `grounding_docs/archive/legacy-python/`
+- Migration plan: `grounding_docs/archive/claude_plan.md`
 - New source definitions: `sources_v2.yaml`
 - Clean Architecture (Uncle Bob): https://blog.cleancoder.com/uncle-bob/2012/08/13/the-clean-architecture.html
 - Modular Monoliths (Simon Brown): https://simonbrown.je/2021/05/30/modular-monoliths.html

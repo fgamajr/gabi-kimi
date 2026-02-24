@@ -1,0 +1,39 @@
+{
+  "timestamp_utc": "2026-02-24T02:38:40Z",
+  "mode": "docker-only",
+  "tests": {
+    "total": 53,
+    "passed": 53,
+    "failed": 0
+  },
+  "pipeline": {
+    "seed": {
+      "status": "PASS",
+      "sources_registered": 34,
+      "source_ids": "camara_medidas_provisorias,camara_propostas_emenda_constitucional,camara_projetos_decreto_legislativo,camara_projetos_lei_complementar,camara_projetos_lei_conversao,camara_projetos_resolucao,camara_leis_ordinarias,dou_dados_abertos_mensal,dou_inlabs_secao1_atos_administrativos,dou_inlabs_secao3_licitacoes_contratos"
+    },
+    "discovery": {
+      "status": "N/A",
+      "links_total": 0,
+      "source": "SKIPPED_TARGETED"
+    },
+    "fetch": {
+      "status": "N/A"
+    }
+  },
+  "targeted_stress": {
+    "enabled": true,
+    "source": "all",
+    "phase": "ingest",
+    "max_docs": 200,
+    "monitor_memory": true,
+    "status": "WARN",
+    "docs_processed": 2000,
+    "peak_memory": "228.00 MiB (228MiB)",
+    "duration": "aggregate",
+    "throughput_docs_per_min": "aggregate",
+    "status_breakdown": "failed_sources=0;warn_sources=18",
+    "error_summary": "multi_source_run",
+    "source_summary": "dou_dados_abertos_mensal,WARN,0,165.80 MiB (165.8MiB),7s,0.00,ingest_skipped_no_documents;senado_legislacao_decretos_lei,WARN,0,118.20 MiB (118.2MiB),7s,0.00,ingest_skipped_no_documents;senado_legislacao_leis_complementares,WARN,0,142.10 MiB (142.1MiB),7s,0.00,ingest_skipped_no_documents;senado_legislacao_leis_delegadas,WARN,0,134.30 MiB (134.3MiB),7s,0.00,ingest_skipped_no_documents;senado_legislacao_leis_ordinarias,PASS,200,162.10 MiB (162.1MiB),5s,600.00,ingest_completed;tcu_acordaos,PASS,200,174.30 MiB (174.3MiB),5s,1714.29,ingest_completed;tcu_boletim_jurisprudencia,PASS,200,194.40 MiB (194.4MiB),5s,1714.29,ingest_completed;tcu_boletim_pessoal,PASS,200,196.00 MiB (196MiB),5s,1714.29,ingest_completed;tcu_btcu_administrativo,WARN,0,206.70 MiB (206.7MiB),7s,0.00,ingest_skipped_no_documents;tcu_btcu_controle_externo,WARN,0,204.20 MiB (204.2MiB),7s,0.00,ingest_skipped_no_documents;tcu_btcu_deliberacoes,WARN,0,211.90 MiB (211.9MiB),8s,0.00,ingest_skipped_no_documents;tcu_btcu_deliberacoes_extra,WARN,0,183.20 MiB (183.2MiB),8s,0.00,ingest_skipped_no_documents;tcu_btcu_especial,WARN,0,192.70 MiB (192.7MiB),8s,0.00,ingest_skipped_no_documents;tcu_informativo_lc,PASS,200,188.40 MiB (188.4MiB),5s,1714.29,ingest_completed;tcu_jurisprudencia_selecionada,PASS,200,186.40 MiB (186.4MiB),5s,1500.00,ingest_completed;tcu_media_upload,WARN,0,192.40 MiB (192.4MiB),8s,0.00,ingest_skipped_no_documents;tcu_normas,PASS,200,180.20 MiB (180.2MiB),6s,1714.29,ingest_completed;tcu_notas_tecnicas_ti,WARN,0,228.00 MiB (228MiB),7s,0.00,ingest_skipped_no_documents;tcu_publicacoes,WARN,0,210.00 MiB (210MiB),8s,0.00,ingest_skipped_no_documents;tcu_resposta_consulta,PASS,200,211.80 MiB (211.8MiB),5s,1500.00,ingest_completed;tcu_sumulas,PASS,200,211.90 MiB (211.9MiB),5s,1500.00,ingest_completed;tcu_youtube_videos,WARN,0,218.40 MiB (218.4MiB),8s,0.00,ingest_skipped_no_documents;camara_leis_ordinarias,WARN,0,221.10 MiB (221.1MiB),8s,0.00,ingest_skipped_no_documents;camara_medidas_provisorias,WARN,0,215.10 MiB (215.1MiB),8s,0.00,ingest_skipped_no_documents;camara_projetos_decreto_legislativo,PASS,0,0 MiB (n/a),0s,0,no_links_discovered;camara_projetos_lei_complementar,WARN,0,211.10 MiB (211.1MiB),7s,0.00,ingest_skipped_no_documents;camara_projetos_lei_conversao,WARN,0,201.20 MiB (201.2MiB),7s,0.00,ingest_skipped_no_documents;camara_projetos_resolucao,WARN,0,172.80 MiB (172.8MiB),7s,0.00,ingest_skipped_no_documents;camara_propostas_emenda_constitucional,PASS,200,182.40 MiB (182.4MiB),10s,315.79,ingest_completed;"
+  }
+}

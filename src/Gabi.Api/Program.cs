@@ -40,6 +40,11 @@ builder.Host.UseSerilog((context, _, configuration) =>
 
 // Database
 var connectionString = builder.Configuration.GetConnectionString("Default");
+if (string.IsNullOrWhiteSpace(connectionString) && !builder.Environment.IsEnvironment("Testing"))
+{
+    throw new InvalidOperationException(
+        "ConnectionStrings:Default is required. Configure via environment variable ConnectionStrings__Default.");
+}
 if (!string.IsNullOrWhiteSpace(connectionString))
 {
     builder.Services.AddDbContext<GabiDbContext>(options =>
@@ -47,7 +52,7 @@ if (!string.IsNullOrWhiteSpace(connectionString))
 }
 
 // Security Configuration
-builder.Services.AddJwtAuthentication(builder.Configuration);
+builder.Services.AddJwtAuthentication(builder.Configuration, builder.Environment);
 builder.Services.AddAuthorizationPolicies();
 builder.Services.AddRateLimitingConfig();
 builder.Services.AddCorsConfig(builder.Configuration, builder.Environment);
@@ -287,6 +292,86 @@ app.MapGet("/api/v1/jobs/{sourceId}/status", [Authorize(Policy = "RequireViewer"
             status.CompletedAt,
             status.ErrorMessage
         )));
+})
+.RequireRateLimiting("read");
+
+// GET /api/v1/search - Busca textual básica em documentos ingeridos.
+app.MapGet("/api/v1/search", [Authorize(Policy = "RequireViewer")] async (
+    string q,
+    string? sourceId,
+    int page,
+    int pageSize,
+    GabiDbContext db,
+    CancellationToken ct) =>
+{
+    var queryText = (q ?? string.Empty).Trim();
+    if (string.IsNullOrWhiteSpace(queryText))
+        return Results.BadRequest(new { error = "q is required" });
+
+    var safePage = page > 0 ? page : 1;
+    var safePageSize = Math.Clamp(pageSize > 0 ? pageSize : 20, 1, 100);
+
+    var query = db.Documents
+        .AsNoTracking()
+        .Where(d => d.Status == "completed" && d.RemovedFromSourceAt == null);
+
+    if (!string.IsNullOrWhiteSpace(sourceId))
+        query = query.Where(d => d.SourceId == sourceId);
+
+    var tokens = queryText
+        .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Select(t => t.Trim().ToLowerInvariant())
+        .Where(t => t.Length >= 2)
+        .Distinct()
+        .ToArray();
+    if (tokens.Length == 0)
+        tokens = new[] { queryText.ToLowerInvariant() };
+
+    foreach (var token in tokens)
+    {
+        var capturedToken = token;
+        query = query.Where(d =>
+            (d.Title ?? string.Empty).ToLower().Contains(capturedToken) ||
+            (d.Content ?? string.Empty).ToLower().Contains(capturedToken));
+    }
+
+    var total = await query.CountAsync(ct);
+    var rows = await query
+        .OrderByDescending(d => d.UpdatedAt)
+        .ThenByDescending(d => d.CreatedAt)
+        .Skip((safePage - 1) * safePageSize)
+        .Take(safePageSize)
+        .Select(d => new
+        {
+            d.Id,
+            d.SourceId,
+            d.ExternalId,
+            d.Title,
+            d.Content,
+            d.UpdatedAt
+        })
+        .ToListAsync(ct);
+
+    var hits = rows.Select(d => new
+    {
+        id = d.Id,
+        sourceId = d.SourceId,
+        externalId = d.ExternalId,
+        title = d.Title,
+        updatedAt = d.UpdatedAt,
+        snippet = string.IsNullOrWhiteSpace(d.Content)
+            ? string.Empty
+            : (d.Content!.Length <= 240 ? d.Content : d.Content[..240])
+    });
+
+    return Results.Ok(new
+    {
+        query = queryText,
+        total,
+        page = safePage,
+        pageSize = safePageSize,
+        hits
+    });
 })
 .RequireRateLimiting("read");
 
