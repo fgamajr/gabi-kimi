@@ -117,6 +117,7 @@ services:
       - ConnectionStrings__Default=Host=postgres;Port=5432;Database=gabi;Username=gabi;Password=gabi_dev_password;Maximum Pool Size=15
       - Gabi__ElasticsearchUrl=http://elasticsearch:9200
       - Gabi__RedisUrl=redis://redis:6379/0
+      - GABI_USERS=[{"username":"viewer","password_hash":"$$2b$$11$$Iln21JBYHB9gZjM5S6gG0.GKK1Lbm6bY6WxT5mj1rP53BS964PN8i","role":"Viewer"},{"username":"operator","password_hash":"$$2b$$11$$Qs/385eCFkSCZzXzrDwlNOWdfFbMChc3U/cJOpgJQYnihedI/cpjq","role":"Operator"},{"username":"admin","password_hash":"$$2b$$11$$yJVmTkx.Xu/P7ox3Atfl0u.4UD.D4r72CrlYCRVBKPtlCrZNPwdzS","role":"Admin"}]
     volumes:
       - ./sources_v2.yaml:/app/sources_v2.yaml:ro
       - ./:/workspace:ro
@@ -151,6 +152,7 @@ services:
       - Gabi__ElasticsearchUrl=http://elasticsearch:9200
       - Gabi__RedisUrl=redis://redis:6379/0
       - WorkerPool__WorkerCount=1
+      - GABI_USERS=[{"username":"viewer","password_hash":"$$2b$$11$$Iln21JBYHB9gZjM5S6gG0.GKK1Lbm6bY6WxT5mj1rP53BS964PN8i","role":"Viewer"},{"username":"operator","password_hash":"$$2b$$11$$Qs/385eCFkSCZzXzrDwlNOWdfFbMChc3U/cJOpgJQYnihedI/cpjq","role":"Operator"},{"username":"admin","password_hash":"$$2b$$11$$yJVmTkx.Xu/P7ox3Atfl0u.4UD.D4r72CrlYCRVBKPtlCrZNPwdzS","role":"Admin"}]
     volumes:
       - ./sources_v2.yaml:/app/sources_v2.yaml:ro
       - ./:/workspace:ro

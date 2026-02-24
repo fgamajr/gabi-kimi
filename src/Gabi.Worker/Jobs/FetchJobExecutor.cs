@@ -162,12 +162,15 @@ public class FetchJobExecutor : IJobExecutor
                 if (pageItems.Count == 0)
                     break;
 
+                var stopAfterCurrentBatch = false;
                 foreach (var item in pageItems)
                 {
                     if (IsCapReached(processed, maxDocsPerSource))
                     {
                         capped = true;
-                        break;
+                        stopAfterCurrentBatch = true;
+                        MarkDeferredByCap(item);
+                        continue;
                     }
 
                     item.Status = "skipped_format";
@@ -196,6 +199,20 @@ public class FetchJobExecutor : IJobExecutor
 
                 await SaveChangesWithRetryAsync(ct);
                 _context.ChangeTracker.Clear();
+                if (stopAfterCurrentBatch)
+                    break;
+            }
+
+            if (maxDocsPerSource.HasValue && (capped || processed >= maxDocsPerSource.Value))
+            {
+                var released = await ReleaseCappedProcessingItemsAsync(sourceId, fetchRun.Id, ct);
+                if (released > 0)
+                {
+                    _logger.LogInformation(
+                        "Released {Count} fetch_items from processing to pending after cap for {SourceId} (link_only mode)",
+                        released,
+                        sourceId);
+                }
             }
 
             var fetchRunLinkOnly = await _context.FetchRuns.FindAsync([fetchRun.Id], ct)
@@ -257,86 +274,104 @@ public class FetchJobExecutor : IJobExecutor
             if (pageItems.Count == 0)
                 break;
 
+            var stopAfterCurrentBatch = false;
             foreach (var item in pageItems)
             {
                 if (IsCapReached(totalDocs, maxDocsPerSource))
                 {
                     capped = true;
-                    break;
+                    stopAfterCurrentBatch = true;
+                    MarkDeferredByCap(item);
+                    await SaveChangesWithRetryAsync(ct);
+                    continue;
                 }
 
                 try
                 {
-                    var link = await _context.DiscoveredLinks.FindAsync([item.DiscoveredLinkId], ct);
-                    int? remainingCap = maxDocsPerSource.HasValue
-                        ? Math.Max(0, maxDocsPerSource.Value - totalDocs)
-                        : null;
-
-                    FetchResult result;
-                    if (string.Equals(fetchContentStrategy, "json_api", StringComparison.OrdinalIgnoreCase))
-                    {
-                        result = await FetchAndParseJsonApiAsync(
-                            item.Url,
-                            link?.Etag,
-                            link?.LastModified?.ToString("R"),
-                            link?.Metadata,
-                            jsonApiExtractConfig,
-                            sourceId,
-                            item,
-                            ct);
-                    }
-                    else
-                    {
-                        result = await FetchAndParseAsync(
-                            item.Url,
-                            link?.Etag,
-                            link?.LastModified?.ToString("R"),
-                            link?.Metadata,
-                            csvConfig,
-                            parseConfig,
-                            remainingCap,
-                            maxFieldLength,
-                            telemetryEveryRows,
-                            sourceId,
-                            item,
-                            ct);
-                    }
-
-                    if (result.SkippedUnchanged)
-                    {
-                        item.Status = "skipped_unchanged";
-                        item.CompletedAt = DateTime.UtcNow;
-                        _logger.LogInformation("Fetch skipped (unchanged): {Url}", item.Url);
-                    }
-                    else if (result.SkippedFormat)
+                    if (TryGetUnsupportedUrlScheme(item.Url, out var unsupportedScheme))
                     {
                         item.Status = "skipped_format";
+                        item.LastError = $"unsupported_url_scheme={unsupportedScheme}";
                         item.CompletedAt = DateTime.UtcNow;
-                        item.LastError = "PDF format not yet supported";
-                        _logger.LogInformation("Fetch skipped (unsupported format): {Url}", item.Url);
+                        _logger.LogInformation(
+                            "Fetch skipped (unsupported URL scheme: {Scheme}) for {Url}",
+                            unsupportedScheme,
+                            item.Url);
+                        completed++;
                     }
                     else
                     {
-                        item.Status = result.Capped ? "capped" : "completed";
-                        item.CompletedAt = DateTime.UtcNow;
-                        totalDocs += result.DocumentsCreated;
-                        totalRows += result.RowsProcessed;
-                        totalTruncatedFields += result.TruncatedFields;
-                        capped = capped || result.Capped;
-                    }
+                        var link = await _context.DiscoveredLinks.FindAsync([item.DiscoveredLinkId], ct);
+                        int? remainingCap = maxDocsPerSource.HasValue
+                            ? Math.Max(0, maxDocsPerSource.Value - totalDocs)
+                            : null;
 
-                    if (!string.IsNullOrEmpty(result.NewEtag) && link != null)
-                    {
-                        link.Etag = result.NewEtag;
-                        if (!string.IsNullOrEmpty(result.NewLastModified) &&
-                            DateTimeOffset.TryParse(result.NewLastModified, out var lm))
+                        FetchResult result;
+                        if (string.Equals(fetchContentStrategy, "json_api", StringComparison.OrdinalIgnoreCase))
                         {
-                            link.LastModified = lm.UtcDateTime;
+                            result = await FetchAndParseJsonApiAsync(
+                                item.Url,
+                                link?.Etag,
+                                link?.LastModified?.ToString("R"),
+                                link?.Metadata,
+                                jsonApiExtractConfig,
+                                sourceId,
+                                item,
+                                ct);
                         }
-                        link.UpdatedAt = DateTime.UtcNow;
-                    }
+                        else
+                        {
+                            result = await FetchAndParseAsync(
+                                item.Url,
+                                link?.Etag,
+                                link?.LastModified?.ToString("R"),
+                                link?.Metadata,
+                                csvConfig,
+                                parseConfig,
+                                remainingCap,
+                                maxFieldLength,
+                                telemetryEveryRows,
+                                sourceId,
+                                item,
+                                ct);
+                        }
 
-                    completed++;
+                        if (result.SkippedUnchanged)
+                        {
+                            item.Status = "skipped_unchanged";
+                            item.CompletedAt = DateTime.UtcNow;
+                            _logger.LogInformation("Fetch skipped (unchanged): {Url}", item.Url);
+                        }
+                        else if (result.SkippedFormat)
+                        {
+                            item.Status = "skipped_format";
+                            item.CompletedAt = DateTime.UtcNow;
+                            item.LastError = "PDF format not yet supported";
+                            _logger.LogInformation("Fetch skipped (unsupported format): {Url}", item.Url);
+                        }
+                        else
+                        {
+                            item.Status = result.Capped ? "capped" : "completed";
+                            item.CompletedAt = DateTime.UtcNow;
+                            totalDocs += result.DocumentsCreated;
+                            totalRows += result.RowsProcessed;
+                            totalTruncatedFields += result.TruncatedFields;
+                            capped = capped || result.Capped;
+                        }
+
+                        if (!string.IsNullOrEmpty(result.NewEtag) && link != null)
+                        {
+                            link.Etag = result.NewEtag;
+                            if (!string.IsNullOrEmpty(result.NewLastModified) &&
+                                DateTimeOffset.TryParse(result.NewLastModified, out var lm))
+                            {
+                                link.LastModified = lm.UtcDateTime;
+                            }
+                            link.UpdatedAt = DateTime.UtcNow;
+                        }
+
+                        completed++;
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -370,6 +405,20 @@ public class FetchJobExecutor : IJobExecutor
             }
 
             _context.ChangeTracker.Clear();
+            if (stopAfterCurrentBatch)
+                break;
+        }
+
+        if (maxDocsPerSource.HasValue && (capped || totalDocs >= maxDocsPerSource.Value))
+        {
+            var released = await ReleaseCappedProcessingItemsAsync(sourceId, fetchRun.Id, ct);
+            if (released > 0)
+            {
+                _logger.LogInformation(
+                    "Released {Count} fetch_items from processing to pending after cap for {SourceId}",
+                    released,
+                    sourceId);
+            }
         }
 
         var fetchRunFinal = await _context.FetchRuns.FindAsync([fetchRun.Id], ct)
@@ -1265,6 +1314,56 @@ public class FetchJobExecutor : IJobExecutor
             return true;
 
         return ex.InnerException != null && IsTransientConnectionCapacity(ex.InnerException);
+    }
+
+    private static bool TryGetUnsupportedUrlScheme(string? url, out string scheme)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            scheme = "empty";
+            return true;
+        }
+
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            scheme = "invalid";
+            return true;
+        }
+
+        if (uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+            || uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            scheme = string.Empty;
+            return false;
+        }
+
+        scheme = uri.Scheme.ToLowerInvariant();
+        return true;
+    }
+
+    private async Task<int> ReleaseCappedProcessingItemsAsync(string sourceId, Guid fetchRunId, CancellationToken ct)
+    {
+        var updatedAt = DateTime.UtcNow;
+        return await _context.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE fetch_items
+            SET "Status" = 'pending',
+                "FetchRunId" = NULL,
+                "LastError" = 'deferred_due_to_max_docs_cap',
+                "CompletedAt" = NULL,
+                "UpdatedAt" = {updatedAt}
+            WHERE "SourceId" = {sourceId}
+              AND "Status" = 'processing'
+              AND "FetchRunId" = {fetchRunId}
+            """, ct);
+    }
+
+    private static void MarkDeferredByCap(FetchItemEntity item)
+    {
+        item.Status = "pending";
+        item.FetchRunId = null;
+        item.LastError = "deferred_due_to_max_docs_cap";
+        item.CompletedAt = null;
+        item.UpdatedAt = DateTime.UtcNow;
     }
 
     private record FetchResult

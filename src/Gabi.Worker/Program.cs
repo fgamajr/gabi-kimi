@@ -1,6 +1,8 @@
 using Gabi.Contracts.Jobs;
+using Gabi.Contracts.Ingest;
 using Gabi.Contracts.Observability;
 using Gabi.Discover;
+using Gabi.Ingest;
 using Gabi.Postgres;
 using Gabi.Postgres.Repositories;
 using Gabi.Worker.Jobs;
@@ -121,10 +123,11 @@ try
     builder.Services.AddSingleton<SourceCatalogStrategyValidator>();
     builder.Services.AddSingleton<DiscoveryEngine>();
     builder.Services.AddHostedService<SourceCatalogStartupValidationService>();
+    builder.Services.AddSingleton<ICanonicalDocumentNormalizer, CanonicalDocumentNormalizer>();
+    builder.Services.AddSingleton<IMediaTextProjector, MediaTextProjector>();
 
     builder.Services.AddScoped<IGabiJobRunner, GabiJobRunner>();
     builder.Services.AddScoped<IJobExecutor, CatalogSeedJobExecutor>();
-    builder.Services.AddScoped<IJobExecutor, SourceSyncJobExecutor>();
     builder.Services.AddScoped<IJobExecutor, SourceDiscoveryJobExecutor>();
     builder.Services.AddScoped<IJobExecutor, FetchJobExecutor>();
     builder.Services.AddScoped<IJobExecutor, IngestJobExecutor>();

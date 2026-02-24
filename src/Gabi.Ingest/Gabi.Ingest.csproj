@@ -2,7 +2,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Gabi.Contracts\Gabi.Contracts.csproj" />
-    <ProjectReference Include="..\Gabi.Postgres\Gabi.Postgres.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
