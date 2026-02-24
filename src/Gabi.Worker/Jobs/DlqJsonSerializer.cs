@@ -37,7 +37,7 @@ public static class DlqJsonSerializer
         }
 
         var lines = stackTrace
-            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
         return JsonSerializer.Serialize(new
         {

@@ -70,11 +70,14 @@ public sealed class UrlAllowlistValidator
                     return false;
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // DNS failures are treated as non-authoritative when the URL already matched
-            // a strict allowlist pattern and passed scheme/host checks.
-            return true;
+            _logger.LogWarning(
+                ex,
+                "DNS resolution failed for allowlisted host {Host}; blocking URL {Url}",
+                uri.Host,
+                url);
+            return false;
         }
 
         return true;

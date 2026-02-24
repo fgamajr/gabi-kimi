@@ -442,4 +442,4 @@ public interface IDocumentRepository
 - `docs/adr/001-gabi-sync-modular-architecture.md`
 - `docs/adr/002-sources-yaml-v2.md`
 - `docs/adr/003-gabi-apps-definition.md`
-- `old_python_implementation/` (código legado para referência)
+- `grounding_docs/archive/legacy-python/` (codigo legado curado para referencia)

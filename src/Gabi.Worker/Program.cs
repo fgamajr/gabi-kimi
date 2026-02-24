@@ -1,5 +1,8 @@
 using Gabi.Contracts.Jobs;
 using Gabi.Contracts.Ingest;
+using Gabi.Contracts.Chunk;
+using Gabi.Contracts.Embed;
+using Gabi.Contracts.Index;
 using Gabi.Contracts.Observability;
 using Gabi.Discover;
 using Gabi.Ingest;
@@ -124,6 +127,9 @@ try
     builder.Services.AddSingleton<DiscoveryEngine>();
     builder.Services.AddHostedService<SourceCatalogStartupValidationService>();
     builder.Services.AddSingleton<ICanonicalDocumentNormalizer, CanonicalDocumentNormalizer>();
+    builder.Services.AddSingleton<IChunker, FixedSizeChunker>();
+    builder.Services.AddSingleton<IEmbedder, HashEmbedder>();
+    builder.Services.AddSingleton<IDocumentIndexer, LocalDocumentIndexer>();
     builder.Services.AddSingleton<IMediaTextProjector, MediaTextProjector>();
 
     builder.Services.AddScoped<IGabiJobRunner, GabiJobRunner>();

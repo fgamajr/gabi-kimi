@@ -21,7 +21,7 @@ Cada camada só pode importar de camadas inferiores. Zero acoplamento circular.
 
 ## Problemas da Arquitetura Atual
 
-### Código Legado (old_python_implementation/)
+### Codigo Legado (arquivo curado)
 
 | Arquivo | Linhas | Problema |
 |---------|--------|----------|
@@ -308,7 +308,7 @@ optional: index/  → Elasticsearch
 Antes de começar:
 
 - [ ] Criar branch git: `git checkout -b refactor/gabi-sync-modular`
-- [ ] Confirmar backup: `old_python_implementation/` está completo
+- [x] Confirmar backup: referencias legadas curadas em `grounding_docs/archive/legacy-python/`
 - [ ] Setup ambiente: Docker, Python 3.11+, VSCode/PyCharm
 - [ ] Review deste documento
 - [ ] Definir prioridade: Fase 1 (Foundation) pronta para iniciar?
@@ -320,7 +320,7 @@ Antes de começar:
 Para dúvidas sobre arquitetura, consulte:
 1. Este documento
 2. ADRs em `docs/adr/`
-3. Código legado em `old_python_implementation/` (referência)
+3. Codigo legado em `grounding_docs/archive/legacy-python/` (referencia)
 
 ---
 

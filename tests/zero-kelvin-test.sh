@@ -19,7 +19,7 @@
 #
 # Flags targeted stress:
 #   --source <id|all>             Source alvo (default: tcu_acordaos)
-#   --phase <discovery|fetch|full|media-projection> Fase targeted (default: full)
+#   --phase <discovery|fetch|ingest|full|media-projection> Fase targeted (default: full)
 #   --max-docs <n>                Cap nativo do fetch (default: 20000)
 #   --monitor-memory              Habilita amostragem contínua de memória no stress run
 #   --report-json <path>          Saída JSON estruturada (default: /tmp/gabi-zero-kelvin-report.json)
@@ -45,7 +45,7 @@ GABI_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG_FILE="/tmp/gabi-zero-kelvin.log"
 TEST_MODE="docker-only"  # docker-only (default) | docker-20k | full | idempotency
 TARGET_SOURCE="tcu_acordaos"
-TARGET_PHASE=""          # discovery|fetch|full|media-projection (default resolved later)
+TARGET_PHASE=""          # discovery|fetch|ingest|full|media-projection (default resolved later)
 TARGET_MAX_DOCS=20000
 MONITOR_MEMORY=false
 REPORT_JSON_FILE="/tmp/gabi-zero-kelvin-report.json"
@@ -104,7 +104,7 @@ Modes:
 
 Flags:
   --source <id|all>
-  --phase <discovery|fetch|full|media-projection>
+  --phase <discovery|fetch|ingest|full|media-projection>
   --max-docs <n>
   --monitor-memory
   --report-json <path>
@@ -135,7 +135,7 @@ parse_args() {
             --phase)
                 TARGET_PHASE="${2:-}"
                 TARGETED_STRESS=true
-                [[ "$TARGET_PHASE" =~ ^(discovery|fetch|full|media-projection)$ ]] || { echo "Erro: --phase inválido ($TARGET_PHASE)" >&2; exit 2; }
+                [[ "$TARGET_PHASE" =~ ^(discovery|fetch|ingest|full|media-projection)$ ]] || { echo "Erro: --phase inválido ($TARGET_PHASE)" >&2; exit 2; }
                 shift 2
                 ;;
             --max-docs)
@@ -206,12 +206,48 @@ psql_csv_compact() {
     printf '%s' "$out" | tr '\n' ';'
 }
 
+get_source_ingest_readiness() {
+    local source_id="$1"
+    local sources_path="${GABI_SOURCES_PATH:-$GABI_ROOT/sources_v2.yaml}"
+
+    python3 - "$sources_path" "$source_id" <<'PY' 2>/dev/null || echo "text_ready"
+import sys
+try:
+    import yaml
+except Exception:
+    print("text_ready")
+    raise SystemExit(0)
+
+path = sys.argv[1]
+source_id = sys.argv[2]
+try:
+    with open(path, "r", encoding="utf-8") as fh:
+        doc = yaml.safe_load(fh) or {}
+except Exception:
+    print("text_ready")
+    raise SystemExit(0)
+
+defaults = (((doc.get("defaults") or {}).get("pipeline") or {}).get("ingest") or {})
+source = (((doc.get("sources") or {}).get(source_id) or {}).get("pipeline") or {}).get("ingest") or {}
+readiness = source.get("readiness") or defaults.get("readiness") or "text_ready"
+print(str(readiness).strip() or "text_ready")
+PY
+}
+
 # In all-sources mode, known external/config-dependent failures should not break
 # the whole suite. They are surfaced as WARN with explicit error summary.
 is_known_non_blocking_source_failure() {
     local source_id="$1"
     local phase="$2"
     local error_detail="$3"
+
+    if [[ "$phase" == "ingest" ]] && [[ "$error_detail" == "ingest_skipped_no_documents" ]]; then
+        case "$source_id" in
+            dou_dados_abertos_mensal|senado_legislacao_decretos_lei|senado_legislacao_leis_complementares|senado_legislacao_leis_delegadas|tcu_btcu_administrativo|tcu_btcu_controle_externo|tcu_btcu_deliberacoes|tcu_btcu_deliberacoes_extra|tcu_btcu_especial|tcu_media_upload|tcu_notas_tecnicas_ti|tcu_publicacoes|tcu_youtube_videos|camara_leis_ordinarias|camara_medidas_provisorias|camara_projetos_decreto_legislativo|camara_projetos_lei_complementar|camara_projetos_lei_conversao|camara_projetos_resolucao)
+                return 0
+                ;;
+        esac
+    fi
 
     case "$source_id" in
         tcu_youtube_videos)
@@ -805,7 +841,7 @@ run_targeted_source() {
         strict_all_e2e=true
     fi
 
-    if [[ "$TARGET_PHASE" == "discovery" || "$TARGET_PHASE" == "full" || "$TARGET_PHASE" == "fetch" ]]; then
+    if [[ "$TARGET_PHASE" == "discovery" || "$TARGET_PHASE" == "full" || "$TARGET_PHASE" == "fetch" || "$TARGET_PHASE" == "ingest" ]]; then
         log "Discovery ${source_id}..."
         local disc_code="000"
         local discovery_payload="{}"
@@ -886,9 +922,9 @@ run_targeted_source() {
             local links_count
             local items_count
             local discovery_status
+            discovery_status=$(psql_scalar "SELECT COALESCE((SELECT \"Status\" FROM discovery_runs WHERE \"SourceId\"='${source_id}' ORDER BY \"StartedAt\" DESC LIMIT 1),'');" "")
             links_count=$(psql_scalar "SELECT COUNT(*) FROM discovered_links WHERE \"SourceId\"='${source_id}';" "0")
             items_count=$(psql_scalar "SELECT COUNT(*) FROM fetch_items WHERE \"SourceId\"='${source_id}';" "0")
-            discovery_status=$(psql_scalar "SELECT COALESCE((SELECT \"Status\" FROM discovery_runs WHERE \"SourceId\"='${source_id}' ORDER BY \"StartedAt\" DESC LIMIT 1),'');" "")
             if (( attempt % 10 == 0 )); then
                 log "Discovery wait – source=${source_id} attempt=${attempt}/${max_discovery_attempts} links=${links_count:-0} fetch_items=${items_count:-0} status=${discovery_status:-n/a}"
             fi
@@ -896,7 +932,7 @@ run_targeted_source() {
                 # Respect targeted cap in discovery phase too: once enough materialization exists
                 # for the fetch cap, do not wait for full source completion.
                 if [[ "${TARGET_MAX_DOCS:-0}" -gt 0 && "${items_count:-0}" -ge "${TARGET_MAX_DOCS}" ]]; then
-                    if [[ "$TARGET_PHASE" == "fetch" || "$TARGET_PHASE" == "full" ]]; then
+                    if [[ "$TARGET_PHASE" == "fetch" || "$TARGET_PHASE" == "full" || "$TARGET_PHASE" == "ingest" ]]; then
                         if [[ "$discovery_status" == "completed" ]]; then
                             discovery_ok=true
                             discovery_capped=true
@@ -909,8 +945,8 @@ run_targeted_source() {
                     fi
                 fi
 
-                # Para phase=fetch/full, exigir discovery finalizada antes de seguir.
-                if [[ "$TARGET_PHASE" == "fetch" || "$TARGET_PHASE" == "full" ]]; then
+                # Para phase=fetch/full/ingest, exigir discovery finalizada antes de seguir.
+                if [[ "$TARGET_PHASE" == "fetch" || "$TARGET_PHASE" == "full" || "$TARGET_PHASE" == "ingest" ]]; then
                     if [[ "$discovery_status" == "completed" ]]; then
                         discovery_ok=true
                         break
@@ -1193,6 +1229,120 @@ run_targeted_source() {
     else
         warn "Targeted fetch – encerrado por ${stop_reason} (source=${source_id}, docs=${final_docs}, peak_mem=${CURRENT_20K_PEAK_MEM})"
         CURRENT_20K_STATUS="WARN"
+    fi
+
+    if [[ "$TARGET_PHASE" == "ingest" || "$TARGET_PHASE" == "full" ]]; then
+        if [[ "$CURRENT_20K_STATUS" == "FAIL" ]]; then
+            CURRENT_20K_ERROR_SUMMARY="${CURRENT_20K_ERROR_SUMMARY:-fetch_failed_before_ingest}"
+            return 1
+        fi
+
+        local ingest_readiness
+        ingest_readiness="$(get_source_ingest_readiness "$source_id")"
+        if [[ "$ingest_readiness" != "text_ready" ]]; then
+            CURRENT_20K_STATUS="PASS"
+            CURRENT_20K_STATUS_BREAKDOWN="ingest_not_required=${ingest_readiness}"
+            CURRENT_20K_ERROR_SUMMARY="ingest_skipped_by_readiness_${ingest_readiness}"
+            pass "Targeted ingest – não obrigatório para ${source_id} (readiness=${ingest_readiness})"
+            return 0
+        fi
+
+        if [[ "${final_docs:-0}" -le 0 ]]; then
+            if [[ "$TARGET_SOURCE" == "all" ]] && is_known_non_blocking_source_failure "$source_id" "ingest" "ingest_skipped_no_documents"; then
+                CURRENT_20K_STATUS="PASS"
+                CURRENT_20K_STATUS_BREAKDOWN="no_documents_to_ingest=1"
+                CURRENT_20K_ERROR_SUMMARY="ingest_skipped_no_documents_expected"
+                pass "Targeted ingest – sem documentos para ingerir (${source_id}) (esperado)"
+                return 0
+            fi
+            CURRENT_20K_STATUS="WARN"
+            CURRENT_20K_STATUS_BREAKDOWN="no_documents_to_ingest=1"
+            CURRENT_20K_ERROR_SUMMARY="ingest_skipped_no_documents"
+            warn "Targeted ingest – sem documentos para ingerir (${source_id})"
+            return 0
+        fi
+
+        log "Trigger ingest ${source_id}..."
+        local ingest_code
+        ingest_code=$(curl -s -o "/tmp/gabi-ingest-${source_id}.json" -w "%{http_code}" -X POST \
+            "$base_url/api/v1/dashboard/sources/${source_id}/phases/ingest" \
+            -H "Authorization: Bearer $token_operator" -H "Content-Type: application/json" \
+            -d "{}" 2>/dev/null || echo "000")
+        if [[ "$ingest_code" != "200" ]]; then
+            CURRENT_20K_STATUS="FAIL"
+            CURRENT_20K_ERROR_SUMMARY="ingest_http_${ingest_code}"
+            fail "Targeted ingest – trigger falhou (${source_id}, HTTP $ingest_code)"
+            return 1
+        fi
+
+        local ingest_start_ts
+        ingest_start_ts=$(date +%s)
+        local ingest_stop_reason="timeout"
+        local ingest_timeout_seconds=900
+        local ingest_last_status=""
+
+        for _ in $(seq 1 180); do
+            local ingest_job_status
+            local ingest_completed
+            local ingest_failed
+            local ingest_pending
+            local ingest_processing
+            ingest_job_status=$(psql_scalar "SELECT COALESCE((SELECT \"Status\" FROM job_registry WHERE \"SourceId\"='${source_id}' AND \"JobType\"='ingest' ORDER BY \"CreatedAt\" DESC LIMIT 1),'');" "")
+            ingest_completed=$(psql_scalar "SELECT COUNT(*) FROM documents WHERE \"SourceId\"='${source_id}' AND \"Status\"='completed';" "0")
+            ingest_failed=$(psql_scalar "SELECT COUNT(*) FROM documents WHERE \"SourceId\"='${source_id}' AND \"Status\"='failed';" "0")
+            ingest_pending=$(psql_scalar "SELECT COUNT(*) FROM documents WHERE \"SourceId\"='${source_id}' AND \"Status\"='pending';" "0")
+            ingest_processing=$(psql_scalar "SELECT COUNT(*) FROM documents WHERE \"SourceId\"='${source_id}' AND \"Status\"='processing';" "0")
+
+            ingest_last_status="${ingest_job_status:-unknown}"
+            log "Ingest wait – source=${source_id} job_status=${ingest_job_status:-n/a} completed=${ingest_completed} failed=${ingest_failed} pending=${ingest_pending} processing=${ingest_processing}"
+
+            if [[ "$ingest_job_status" == "failed" ]]; then
+                ingest_stop_reason="failed"
+                break
+            fi
+
+            if [[ "$ingest_job_status" == "completed" ]] || { [[ "${ingest_pending:-0}" -eq 0 ]] && [[ "${ingest_processing:-0}" -eq 0 ]] && [[ $((ingest_completed + ingest_failed)) -gt 0 ]]; }; then
+                ingest_stop_reason="completed"
+                break
+            fi
+
+            local ingest_now
+            ingest_now=$(date +%s)
+            if [[ $((ingest_now - ingest_start_ts)) -ge "$ingest_timeout_seconds" ]]; then
+                ingest_stop_reason="timeout"
+                break
+            fi
+
+            sleep 5
+        done
+
+        local ingest_end_ts
+        ingest_end_ts=$(date +%s)
+        local ingest_duration_s=$((ingest_end_ts - ingest_start_ts))
+        local ingest_completed_final
+        local ingest_failed_final
+        local ingest_pending_final
+        local ingest_processing_final
+        ingest_completed_final=$(psql_scalar "SELECT COUNT(*) FROM documents WHERE \"SourceId\"='${source_id}' AND \"Status\"='completed';" "0")
+        ingest_failed_final=$(psql_scalar "SELECT COUNT(*) FROM documents WHERE \"SourceId\"='${source_id}' AND \"Status\"='failed';" "0")
+        ingest_pending_final=$(psql_scalar "SELECT COUNT(*) FROM documents WHERE \"SourceId\"='${source_id}' AND \"Status\"='pending';" "0")
+        ingest_processing_final=$(psql_scalar "SELECT COUNT(*) FROM documents WHERE \"SourceId\"='${source_id}' AND \"Status\"='processing';" "0")
+
+        CURRENT_20K_DOCS="$((ingest_completed_final + ingest_failed_final))"
+        CURRENT_20K_DURATION="${ingest_duration_s}s"
+        CURRENT_20K_STATUS_BREAKDOWN=$(psql_csv_compact "SELECT \"Status\", COUNT(*) FROM documents WHERE \"SourceId\"='${source_id}' GROUP BY \"Status\" ORDER BY \"Status\";")
+
+        if [[ "$ingest_stop_reason" == "completed" ]]; then
+            CURRENT_20K_STATUS="PASS"
+            CURRENT_20K_ERROR_SUMMARY="ingest_completed"
+            pass "Targeted ingest – concluído (${source_id}): completed=${ingest_completed_final}, failed=${ingest_failed_final}, pending=${ingest_pending_final}, processing=${ingest_processing_final}"
+            return 0
+        fi
+
+        CURRENT_20K_STATUS="FAIL"
+        CURRENT_20K_ERROR_SUMMARY="ingest_${ingest_stop_reason}_job_${ingest_last_status:-unknown}"
+        fail "Targeted ingest – ${ingest_stop_reason} (${source_id}): completed=${ingest_completed_final}, failed=${ingest_failed_final}, pending=${ingest_pending_final}, processing=${ingest_processing_final}"
+        return 1
     fi
 }
 

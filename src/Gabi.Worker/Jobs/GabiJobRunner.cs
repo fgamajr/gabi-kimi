@@ -63,7 +63,7 @@ public class GabiJobRunner : IGabiJobRunner
         if (executor == null)
         {
             _logger.LogError("No executor for job type {JobType}", jobType);
-            await UpdateRegistryAsync(context, jobId, "failed", "No executor for type: " + jobType);
+            await UpdateRegistryAsync(context, jobId, "failed", "No executor for type: " + jobType, ct);
             return;
         }
 
@@ -73,7 +73,7 @@ public class GabiJobRunner : IGabiJobRunner
             SingleWriter = false,
             AllowSynchronousContinuations = false
         });
-        var progressPumpTask = Task.Run(() => PumpProgressUpdatesAsync(jobId, progressChannel.Reader));
+        var progressPumpTask = Task.Run(() => PumpProgressUpdatesAsync(jobId, progressChannel.Reader, CancellationToken.None));
 
         var progress = new Progress<JobProgress>(p =>
         {
@@ -88,7 +88,7 @@ public class GabiJobRunner : IGabiJobRunner
             var result = await executor.ExecuteAsync(job, progress, ct);
             progressChannel.Writer.TryComplete();
             await AwaitProgressPumpSafelyAsync(jobId, progressPumpTask);
-            await UpdateRegistryAsync(context, jobId, result.Success ? "completed" : "failed", result.ErrorMessage);
+            await UpdateRegistryAsync(context, jobId, result.Success ? "completed" : "failed", result.ErrorMessage, ct);
         }
         catch (Exception ex)
         {
@@ -98,7 +98,7 @@ public class GabiJobRunner : IGabiJobRunner
             activity?.AddException(ex);
             activity?.SetTag("error.type", ex.GetType().Name);
             _logger.LogError(ex, "Job {JobId} failed", jobId);
-            await UpdateRegistryAsync(context, jobId, "failed", ex.Message);
+            await UpdateRegistryAsync(context, jobId, "failed", ex.Message, ct);
             throw;
         }
     }
@@ -124,21 +124,19 @@ public class GabiJobRunner : IGabiJobRunner
         return activity;
     }
 
-    private static async Task UpdateRegistryAsync(GabiDbContext context, Guid jobId, string status, string? errorMessage)
+    private static async Task UpdateRegistryAsync(GabiDbContext context, Guid jobId, string status, string? errorMessage, CancellationToken ct)
     {
-        var reg = await context.JobRegistry.FirstOrDefaultAsync(r => r.JobId == jobId);
+        var reg = await context.JobRegistry.FirstOrDefaultAsync(r => r.JobId == jobId, ct);
         if (reg == null) return;
         reg.Status = status;
         reg.CompletedAt = DateTime.UtcNow;
         reg.ErrorMessage = errorMessage?.Length > 2000 ? errorMessage[..2000] : errorMessage;
         if (status == "completed") reg.ProgressPercent = 100;
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(ct);
     }
 
-    private async Task UpdateProgressAsync(Guid jobId, int percent, string? message, CancellationToken ct)
+    private static async Task UpdateProgressAsync(GabiDbContext context, Guid jobId, int percent, string? message, CancellationToken ct)
     {
-        using var scope = _serviceProvider.CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<GabiDbContext>();
         var normalizedMessage = message?.Length > 500 ? message[..500] : message;
 
         await context.JobRegistry
@@ -148,13 +146,16 @@ public class GabiJobRunner : IGabiJobRunner
                 .SetProperty(r => r.ProgressMessage, normalizedMessage), ct);
     }
 
-    private async Task PumpProgressUpdatesAsync(Guid jobId, ChannelReader<JobProgress> reader)
+    private async Task PumpProgressUpdatesAsync(Guid jobId, ChannelReader<JobProgress> reader, CancellationToken ct)
     {
-        await foreach (var update in reader.ReadAllAsync(CancellationToken.None))
+        using var scope = _serviceProvider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<GabiDbContext>();
+
+        await foreach (var update in reader.ReadAllAsync(ct))
         {
             try
             {
-                await UpdateProgressAsync(jobId, update.PercentComplete, update.Message, CancellationToken.None);
+                await UpdateProgressAsync(context, jobId, update.PercentComplete, update.Message, ct);
             }
             catch (Exception ex)
             {

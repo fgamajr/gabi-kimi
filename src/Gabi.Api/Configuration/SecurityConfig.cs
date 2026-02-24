@@ -8,15 +8,34 @@ namespace Gabi.Api.Configuration;
 
 public static class SecurityConfig
 {
+    private const int MinJwtKeyLength = 32;
+    private static readonly string[] DisallowedJwtKeyMarkers =
+    [
+        "sua-chave-super-secreta-com-minimo-32-caracteres!",
+        "change-me",
+        "dev-only"
+    ];
+
     /// <summary>
     /// Configura autenticação JWT
     /// </summary>
     public static IServiceCollection AddJwtAuthentication(
         this IServiceCollection services, 
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IHostEnvironment environment)
     {
-        var jwtKey = configuration["Jwt:Key"] 
-            ?? throw new InvalidOperationException("JWT Key not configured");
+        var jwtKey = configuration["Jwt:Key"];
+        if (string.IsNullOrWhiteSpace(jwtKey))
+        {
+            if (environment.IsEnvironment("Testing"))
+                jwtKey = "testing-only-jwt-key-32-characters-minimum!";
+            else
+                throw new InvalidOperationException(
+                    "Jwt:Key is required. Configure via environment variable Jwt__Key.");
+        }
+
+        ValidateJwtKey(jwtKey, environment);
+
         var jwtIssuer = configuration["Jwt:Issuer"] ?? "GabiApi";
         var jwtAudience = configuration["Jwt:Audience"] ?? "GabiDashboard";
 
@@ -47,6 +66,28 @@ public static class SecurityConfig
             });
 
         return services;
+    }
+
+    private static void ValidateJwtKey(string jwtKey, IHostEnvironment environment)
+    {
+        if (string.IsNullOrWhiteSpace(jwtKey))
+            throw new InvalidOperationException("Jwt:Key is required. Configure via environment variable Jwt__Key.");
+
+        if (jwtKey.Length < MinJwtKeyLength)
+            throw new InvalidOperationException($"Jwt:Key must contain at least {MinJwtKeyLength} characters.");
+
+        if (environment.IsDevelopment() || environment.IsEnvironment("Testing"))
+            return;
+
+        var normalized = jwtKey.Trim();
+        foreach (var marker in DisallowedJwtKeyMarkers)
+        {
+            if (normalized.Contains(marker, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    "Jwt:Key contains an insecure placeholder marker and is not allowed outside Development/Testing.");
+            }
+        }
     }
 
     /// <summary>
