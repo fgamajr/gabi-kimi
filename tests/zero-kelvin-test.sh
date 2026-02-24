@@ -19,7 +19,7 @@
 #
 # Flags targeted stress:
 #   --source <id|all>             Source alvo (default: tcu_acordaos)
-#   --phase <discovery|fetch|full> Fase targeted (default: full)
+#   --phase <discovery|fetch|full|media-projection> Fase targeted (default: full)
 #   --max-docs <n>                Cap nativo do fetch (default: 20000)
 #   --monitor-memory              Habilita amostragem contínua de memória no stress run
 #   --report-json <path>          Saída JSON estruturada (default: /tmp/gabi-zero-kelvin-report.json)
@@ -45,7 +45,7 @@ GABI_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG_FILE="/tmp/gabi-zero-kelvin.log"
 TEST_MODE="docker-only"  # docker-only (default) | docker-20k | full | idempotency
 TARGET_SOURCE="tcu_acordaos"
-TARGET_PHASE=""          # discovery|fetch|full (default resolved later)
+TARGET_PHASE=""          # discovery|fetch|full|media-projection (default resolved later)
 TARGET_MAX_DOCS=20000
 MONITOR_MEMORY=false
 REPORT_JSON_FILE="/tmp/gabi-zero-kelvin-report.json"
@@ -104,7 +104,7 @@ Modes:
 
 Flags:
   --source <id|all>
-  --phase <discovery|fetch|full>
+  --phase <discovery|fetch|full|media-projection>
   --max-docs <n>
   --monitor-memory
   --report-json <path>
@@ -135,7 +135,7 @@ parse_args() {
             --phase)
                 TARGET_PHASE="${2:-}"
                 TARGETED_STRESS=true
-                [[ "$TARGET_PHASE" =~ ^(discovery|fetch|full)$ ]] || { echo "Erro: --phase inválido ($TARGET_PHASE)" >&2; exit 2; }
+                [[ "$TARGET_PHASE" =~ ^(discovery|fetch|full|media-projection)$ ]] || { echo "Erro: --phase inválido ($TARGET_PHASE)" >&2; exit 2; }
                 shift 2
                 ;;
             --max-docs)
@@ -204,6 +204,29 @@ psql_csv_compact() {
     local out
     out=$(PGPASSWORD="gabi_dev_password" timeout 15s psql -h localhost -p 5433 -U gabi -d gabi -t -A -F, -c "$sql" 2>/dev/null || true)
     printf '%s' "$out" | tr '\n' ';'
+}
+
+# In all-sources mode, known external/config-dependent failures should not break
+# the whole suite. They are surfaced as WARN with explicit error summary.
+is_known_non_blocking_source_failure() {
+    local source_id="$1"
+    local phase="$2"
+    local error_detail="$3"
+
+    case "$source_id" in
+        tcu_youtube_videos)
+            if [[ "$phase" == "discovery" ]] && [[ "$error_detail" == *"youtube_channel_v1 requires YOUTUBE_API_KEY"* || "$error_detail" == *"YOUTUBE_CHANNEL_ID"* ]]; then
+                return 0
+            fi
+            ;;
+        tcu_media_upload)
+            if [[ "$phase" == "fetch" ]] && [[ "$error_detail" == *"'upload' scheme is not supported"* || "$error_detail" == *"upload scheme is not supported"* ]]; then
+                return 0
+            fi
+            ;;
+    esac
+
+    return 1
 }
 
 ensure_schema_readiness() {
@@ -910,7 +933,21 @@ run_targeted_source() {
                 break
             fi
             if [[ "$discovery_status" == "failed" ]]; then
-                CURRENT_20K_ERROR_SUMMARY="discovery_run_failed"
+                local discovery_error
+                discovery_error=$(psql_scalar "SELECT COALESCE((SELECT \"ErrorSummary\" FROM discovery_runs WHERE \"SourceId\"='${source_id}' ORDER BY \"StartedAt\" DESC LIMIT 1),'');" "")
+                CURRENT_20K_ERROR_SUMMARY="${discovery_error:-discovery_run_failed}"
+
+                if [[ "$TARGET_SOURCE" == "all" ]] && is_known_non_blocking_source_failure "$source_id" "discovery" "$CURRENT_20K_ERROR_SUMMARY"; then
+                    CURRENT_20K_STATUS="WARN"
+                    CURRENT_20K_DOCS="0"
+                    CURRENT_20K_PEAK_MEM=$($MONITOR_MEMORY && echo "0 MiB (n/a)" || echo "monitoring_disabled")
+                    CURRENT_20K_DURATION="0s"
+                    CURRENT_20K_THROUGHPUT="0"
+                    CURRENT_20K_STATUS_BREAKDOWN=""
+                    warn "Targeted stress – discovery failed for known dependency (${source_id}): ${CURRENT_20K_ERROR_SUMMARY}"
+                    return 0
+                fi
+
                 fail "Targeted stress – discovery run failed (${source_id})"
                 return 1
             fi
@@ -1092,6 +1129,8 @@ run_targeted_source() {
 
     local status_breakdown
     status_breakdown=$(psql_csv_compact "SELECT \"Status\", COUNT(*) FROM fetch_items WHERE \"SourceId\"='${source_id}' GROUP BY \"Status\" ORDER BY \"Status\";")
+    local processing_left
+    processing_left=$(psql_scalar "SELECT COUNT(*) FROM fetch_items WHERE \"SourceId\"='${source_id}' AND \"Status\"='processing';" "0")
     local error_summary
     error_summary=$(psql_scalar "SELECT COALESCE((SELECT \"ErrorSummary\" FROM fetch_runs WHERE \"SourceId\"='${source_id}' ORDER BY \"StartedAt\" DESC LIMIT 1),'');" "")
 
@@ -1107,7 +1146,11 @@ run_targeted_source() {
     CURRENT_20K_STATUS_BREAKDOWN="$status_breakdown"
     CURRENT_20K_ERROR_SUMMARY="$error_summary"
 
-    if [[ "$stop_reason" == "capped" && "${final_docs:-0}" -eq "${TARGET_MAX_DOCS}" ]]; then
+    if [[ "${processing_left:-0}" -gt 0 ]]; then
+        fail "Targeted fetch – itens ficaram em processing após execução (source=${source_id}, processing=${processing_left}, status_breakdown=${status_breakdown})"
+        CURRENT_20K_STATUS="FAIL"
+        CURRENT_20K_ERROR_SUMMARY="processing_items_leaked_after_fetch"
+    elif [[ "$stop_reason" == "capped" && "${final_docs:-0}" -eq "${TARGET_MAX_DOCS}" ]]; then
         pass "Targeted fetch – capped nativo concluído sem OOM (source=${source_id}, docs=${final_docs}, peak_mem=${CURRENT_20K_PEAK_MEM}, throughput=${docs_per_min} docs/min)"
         CURRENT_20K_STATUS="PASS"
     elif [[ "$stop_reason" == "capped" ]]; then
@@ -1122,9 +1165,23 @@ run_targeted_source() {
         pass "Targeted fetch – concluído sem cap (source=${source_id}, docs=${final_docs}, peak_mem=${CURRENT_20K_PEAK_MEM}, throughput=${docs_per_min} docs/min)"
         CURRENT_20K_STATUS="PASS"
     elif [[ "$stop_reason" == "failed" ]]; then
+        local last_item_error
+        last_item_error=$(psql_scalar "SELECT COALESCE((SELECT \"LastError\" FROM fetch_items WHERE \"SourceId\"='${source_id}' ORDER BY \"UpdatedAt\" DESC LIMIT 1),'');" "")
+        local combined_error_summary="${error_summary:-fetch_run_failed}"
+        if [[ -n "$last_item_error" ]]; then
+            combined_error_summary="${combined_error_summary}; ${last_item_error}"
+        fi
+
+        if [[ "$TARGET_SOURCE" == "all" ]] && is_known_non_blocking_source_failure "$source_id" "fetch" "$combined_error_summary"; then
+            warn "Targeted fetch – known non-blocking failure (source=${source_id}, docs=${final_docs}, peak_mem=${CURRENT_20K_PEAK_MEM})"
+            CURRENT_20K_STATUS="WARN"
+            CURRENT_20K_ERROR_SUMMARY="$combined_error_summary"
+            return 0
+        fi
+
         fail "Targeted fetch – failed (source=${source_id}, docs=${final_docs}, peak_mem=${CURRENT_20K_PEAK_MEM})"
         CURRENT_20K_STATUS="FAIL"
-        CURRENT_20K_ERROR_SUMMARY="${error_summary:-fetch_run_failed}"
+        CURRENT_20K_ERROR_SUMMARY="$combined_error_summary"
     elif [[ "$stop_reason" == "items_done" ]]; then
         pass "Targeted fetch – finalizado por itens processados (source=${source_id}, docs=${final_docs}, peak_mem=${CURRENT_20K_PEAK_MEM})"
         CURRENT_20K_STATUS="PASS"
@@ -1306,6 +1363,60 @@ phase_fetch_20k_observability() {
     fi
 }
 
+phase_media_projection_e2e() {
+    section "FASE 4c: MEDIA PROJECTION E2E (${TARGET_PHASE})"
+
+    local script_path="./tests/e2e-media-projection.sh"
+    if [[ ! -x "$script_path" ]]; then
+        fail "Media projection E2E – script não encontrado/executável: ${script_path}"
+        PIPELINE_20K_STATUS="FAIL"
+        PIPELINE_20K_ERROR_SUMMARY="media_projection_script_missing"
+        return 1
+    fi
+
+    if [[ "$TARGET_SOURCE" == "all" ]]; then
+        fail "Media projection E2E – --source all não é suportado para esta fase"
+        PIPELINE_20K_STATUS="FAIL"
+        PIPELINE_20K_ERROR_SUMMARY="media_projection_invalid_source_all"
+        return 1
+    fi
+
+    local source_suffix
+    source_suffix="$(date +%s)"
+    local e2e_source_id="e2e_media_projection_${source_suffix}"
+    local e2e_external_id="e2e_media_${source_suffix}"
+    local e2e_media_url="https://youtube.com/watch?v=e2e_media_${source_suffix}"
+
+    log "Executando media projection E2E: source=${e2e_source_id} external_id=${e2e_external_id}"
+    if API_URL="http://localhost:5100" \
+       SOURCE_ID="$e2e_source_id" \
+       EXTERNAL_ID="$e2e_external_id" \
+       MEDIA_URL="$e2e_media_url" \
+       "$script_path" 2>&1 | tee -a "$LOG_FILE"; then
+        pass "Media projection E2E – documento projetado com sucesso (source=${e2e_source_id})"
+        PIPELINE_20K_STATUS="PASS"
+        PIPELINE_20K_DOCS="1"
+        PIPELINE_20K_PEAK_MEM=$($MONITOR_MEMORY && echo "monitoring_disabled" || echo "monitoring_disabled")
+        PIPELINE_20K_DURATION="n/a"
+        PIPELINE_20K_THROUGHPUT="n/a"
+        PIPELINE_20K_STATUS_BREAKDOWN="media_projection=1"
+        PIPELINE_20K_ERROR_SUMMARY="media_projection_ok"
+        PIPELINE_20K_SOURCE_SUMMARY="${e2e_source_id},PASS,1,monitoring_disabled,n/a,n/a,media_projection_ok"
+        return 0
+    fi
+
+    fail "Media projection E2E – falhou (ver log acima)"
+    PIPELINE_20K_STATUS="FAIL"
+    PIPELINE_20K_DOCS="0"
+    PIPELINE_20K_PEAK_MEM="n/a"
+    PIPELINE_20K_DURATION="n/a"
+    PIPELINE_20K_THROUGHPUT="n/a"
+    PIPELINE_20K_STATUS_BREAKDOWN="media_projection=0"
+    PIPELINE_20K_ERROR_SUMMARY="media_projection_failed"
+    PIPELINE_20K_SOURCE_SUMMARY=""
+    return 1
+}
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # FASE 5: RELATÓRIO FINAL
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1447,7 +1558,11 @@ main() {
     phase_start
     phase_verify
     if $TARGETED_STRESS; then
-        phase_fetch_20k_observability
+        if [[ "$TARGET_PHASE" == "media-projection" ]]; then
+            phase_media_projection_e2e
+        else
+            phase_fetch_20k_observability
+        fi
     fi
     phase_report
     

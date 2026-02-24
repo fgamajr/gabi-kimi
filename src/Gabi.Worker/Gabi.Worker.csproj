@@ -29,6 +29,5 @@
     <ProjectReference Include="..\Gabi.Discover\Gabi.Discover.csproj" />
     <ProjectReference Include="..\Gabi.Fetch\Gabi.Fetch.csproj" />
     <ProjectReference Include="..\Gabi.Ingest\Gabi.Ingest.csproj" />
-    <ProjectReference Include="..\Gabi.Sync\Gabi.Sync.csproj" />
   </ItemGroup>
 </Project>

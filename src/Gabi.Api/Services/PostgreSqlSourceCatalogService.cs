@@ -3,7 +3,6 @@ using Gabi.Contracts.Api;
 using Gabi.Contracts.Dashboard;
 using Gabi.Contracts.Discovery;
 using Gabi.Contracts.Jobs;
-using Gabi.Discover;
 using Gabi.Postgres.Entities;
 using Gabi.Postgres.Repositories;
 using YamlDotNet.Serialization;
@@ -19,7 +18,6 @@ public class PostgreSqlSourceCatalogService : ISourceCatalog
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<PostgreSqlSourceCatalogService> _logger;
-    private readonly DiscoveryEngine _discoveryEngine;
     private readonly string _sourcesPath;
 
     public PostgreSqlSourceCatalogService(
@@ -30,7 +28,6 @@ public class PostgreSqlSourceCatalogService : ISourceCatalog
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
-        _discoveryEngine = new DiscoveryEngine();
         _sourcesPath = ResolveSourcesPath(configuration, env);
 
         // Initialize sources from YAML on startup (fire and forget)
@@ -142,7 +139,7 @@ public class PostgreSqlSourceCatalogService : ISourceCatalog
     {
         using var scope = _serviceProvider.CreateScope();
         var sourceRepo = scope.ServiceProvider.GetRequiredService<ISourceRegistryRepository>();
-        var jobQueue = scope.ServiceProvider.GetRequiredService<JobQueueRepository>();
+        var jobQueue = scope.ServiceProvider.GetRequiredService<IJobQueueRepository>();
 
         // Verify source exists
         var source = await sourceRepo.GetByIdAsync(sourceId, ct);
@@ -161,7 +158,7 @@ public class PostgreSqlSourceCatalogService : ISourceCatalog
         var job = new IngestJob
         {
             SourceId = sourceId,
-            JobType = "sync",
+            JobType = "source_discovery",
             DiscoveryConfig = ParseDiscoveryConfig(source.DiscoveryConfig),
             Status = JobStatus.Pending,
             Priority = JobPriority.Normal,
@@ -178,7 +175,7 @@ public class PostgreSqlSourceCatalogService : ISourceCatalog
     public async Task<JobsResponseDto> ListSyncJobsAsync(CancellationToken ct = default)
     {
         using var scope = _serviceProvider.CreateScope();
-        var jobQueue = scope.ServiceProvider.GetRequiredService<JobQueueRepository>();
+        var jobQueue = scope.ServiceProvider.GetRequiredService<IJobQueueRepository>();
 
         // Get recent jobs from the queue and map to SyncJobDto
         var stats = await jobQueue.GetStatisticsAsync(ct);
@@ -227,7 +224,7 @@ public class PostgreSqlSourceCatalogService : ISourceCatalog
     public async Task<IReadOnlyList<PipelineStageDto>> GetPipelineStagesAsync(CancellationToken ct = default)
     {
         using var scope = _serviceProvider.CreateScope();
-        var jobQueue = scope.ServiceProvider.GetRequiredService<JobQueueRepository>();
+        var jobQueue = scope.ServiceProvider.GetRequiredService<IJobQueueRepository>();
         var linkRepo = scope.ServiceProvider.GetRequiredService<IDiscoveredLinkRepository>();
 
         var stats = await jobQueue.GetStatisticsAsync(ct);
@@ -251,7 +248,7 @@ public class PostgreSqlSourceCatalogService : ISourceCatalog
     public async Task<Gabi.Contracts.Api.JobStatusDto?> GetJobStatusForSourceAsync(string sourceId, CancellationToken ct = default)
     {
         using var scope = _serviceProvider.CreateScope();
-        var jobQueue = scope.ServiceProvider.GetRequiredService<JobQueueRepository>();
+        var jobQueue = scope.ServiceProvider.GetRequiredService<IJobQueueRepository>();
         
         var dto = await jobQueue.GetJobStatusDtoAsync(sourceId, ct);
         if (dto == null) return null;

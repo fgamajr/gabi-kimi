@@ -6,8 +6,10 @@ using Microsoft.Extensions.Logging;
 namespace Gabi.Postgres.Repositories;
 
 /// <summary>
-/// PostgreSQL implementation of the job queue repository using EF Core.
+/// Legacy polling queue implementation kept only for backward-compatibility tests.
+/// Runtime hosts use <see cref="HangfireJobQueueRepository" />.
 /// </summary>
+[Obsolete("Legacy queue path. Runtime uses HangfireJobQueueRepository.")]
 public class JobQueueRepository : IJobQueueRepository
 {
     private readonly GabiDbContext _context;

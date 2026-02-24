@@ -3,6 +3,7 @@ using Gabi.Contracts.Observability;
 using Gabi.Postgres;
 using Microsoft.EntityFrameworkCore;
 using System.Diagnostics;
+using System.Threading.Channels;
 
 namespace Gabi.Worker.Jobs;
 
@@ -66,18 +67,33 @@ public class GabiJobRunner : IGabiJobRunner
             return;
         }
 
+        var progressChannel = Channel.CreateUnbounded<JobProgress>(new UnboundedChannelOptions
+        {
+            SingleReader = true,
+            SingleWriter = false,
+            AllowSynchronousContinuations = false
+        });
+        var progressPumpTask = Task.Run(() => PumpProgressUpdatesAsync(jobId, progressChannel.Reader));
+
         var progress = new Progress<JobProgress>(p =>
         {
-            _ = UpdateProgressAsync(jobId, p.PercentComplete, p.Message);
+            if (!progressChannel.Writer.TryWrite(p))
+            {
+                _logger.LogWarning("Dropped progress update for job {JobId} because channel is closed", jobId);
+            }
         });
 
         try
         {
             var result = await executor.ExecuteAsync(job, progress, ct);
+            progressChannel.Writer.TryComplete();
+            await AwaitProgressPumpSafelyAsync(jobId, progressPumpTask);
             await UpdateRegistryAsync(context, jobId, result.Success ? "completed" : "failed", result.ErrorMessage);
         }
         catch (Exception ex)
         {
+            progressChannel.Writer.TryComplete();
+            await AwaitProgressPumpSafelyAsync(jobId, progressPumpTask);
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
             activity?.AddException(ex);
             activity?.SetTag("error.type", ex.GetType().Name);
@@ -119,22 +135,43 @@ public class GabiJobRunner : IGabiJobRunner
         await context.SaveChangesAsync();
     }
 
-    private async Task UpdateProgressAsync(Guid jobId, int percent, string? message)
+    private async Task UpdateProgressAsync(Guid jobId, int percent, string? message, CancellationToken ct)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<GabiDbContext>();
+        var normalizedMessage = message?.Length > 500 ? message[..500] : message;
+
+        await context.JobRegistry
+            .Where(r => r.JobId == jobId)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(r => r.ProgressPercent, percent)
+                .SetProperty(r => r.ProgressMessage, normalizedMessage), ct);
+    }
+
+    private async Task PumpProgressUpdatesAsync(Guid jobId, ChannelReader<JobProgress> reader)
+    {
+        await foreach (var update in reader.ReadAllAsync(CancellationToken.None))
+        {
+            try
+            {
+                await UpdateProgressAsync(jobId, update.PercentComplete, update.Message, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Progress update failed for job {JobId}", jobId);
+            }
+        }
+    }
+
+    private async Task AwaitProgressPumpSafelyAsync(Guid jobId, Task progressPumpTask)
     {
         try
         {
-            using var scope = _serviceProvider.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<GabiDbContext>();
-
-            var reg = await context.JobRegistry.FirstOrDefaultAsync(r => r.JobId == jobId);
-            if (reg == null) return;
-            reg.ProgressPercent = percent;
-            reg.ProgressMessage = message?.Length > 500 ? message[..500] : message;
-            await context.SaveChangesAsync();
+            await progressPumpTask;
         }
-        catch
+        catch (Exception ex)
         {
-            // best effort
+            _logger.LogWarning(ex, "Progress pump task failed for job {JobId}", jobId);
         }
     }
 }

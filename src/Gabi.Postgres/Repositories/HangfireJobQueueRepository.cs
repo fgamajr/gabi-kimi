@@ -4,6 +4,9 @@ using Hangfire;
 using Hangfire.States;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using System.Buffers.Binary;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace Gabi.Postgres.Repositories;
 
@@ -41,25 +44,35 @@ public class HangfireJobQueueRepository : IJobQueueRepository
     }
 
     private static bool EnforceSingleInFlightPerSource(string jobType)
-        => jobType is "source_discovery" or "fetch" or "ingest" or "sync";
+        => jobType is "source_discovery" or "fetch" or "ingest" or "media_transcribe";
 
     public async Task<Guid> EnqueueAsync(IngestJob job, CancellationToken ct = default)
     {
+        await using var tx = await _context.Database.BeginTransactionAsync(ct);
+
         if (job.JobType == "catalog_seed")
         {
+            await AcquireEnqueueLockAsync($"jobtype:{job.JobType}", ct);
             var existing = await GetLatestByJobTypeAsync("catalog_seed", ct);
             if (existing?.Status is JobStatus.Pending or JobStatus.Running)
             {
                 _logger.LogInformation("Seed already in progress, returning existing job {JobId}", existing.Id);
+                await tx.CommitAsync(ct);
                 return existing.Id;
             }
         }
         else if (!string.IsNullOrEmpty(job.SourceId) && EnforceSingleInFlightPerSource(job.JobType))
         {
-            var existing = await GetLatestForSourceAsync(job.SourceId, ct);
-            if (existing?.Status is JobStatus.Pending or JobStatus.Running)
+            await AcquireEnqueueLockAsync($"source:{job.JobType}:{job.SourceId}", ct);
+            var existing = await GetLatestActiveForSourceAndJobTypeAsync(job.SourceId, job.JobType, ct);
+            if (existing is not null)
             {
-                _logger.LogInformation("Job already in progress for source {SourceId}, returning {JobId}", job.SourceId, existing.Id);
+                _logger.LogInformation(
+                    "Job already in progress for source {SourceId} and job type {JobType}, returning {JobId}",
+                    job.SourceId,
+                    job.JobType,
+                    existing.Id);
+                await tx.CommitAsync(ct);
                 return existing.Id;
             }
         }
@@ -94,10 +107,12 @@ public class HangfireJobQueueRepository : IJobQueueRepository
             reg.ErrorMessage = "Falha ao enfileirar no Hangfire: " + (ex.Message.Length > 1900 ? ex.Message[..1900] : ex.Message);
             reg.CompletedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
             _logger.LogError(ex, "Failed to enqueue Hangfire job {JobId} of type {JobType}. Exception: {ExceptionType}", jobId, job.JobType, ex.GetType().Name);
             throw;
         }
 
+        await tx.CommitAsync(ct);
         _logger.LogInformation("Enqueued job {JobId} ({JobType}) for source {SourceId} in queue '{Queue}'", jobId, job.JobType, job.SourceId, queue);
         return jobId;
     }
@@ -270,4 +285,30 @@ public class HangfireJobQueueRepository : IJobQueueRepository
         "cancelled" => JobStatus.Cancelled,
         _ => JobStatus.Pending
     };
+
+    private async Task AcquireEnqueueLockAsync(string lockScope, CancellationToken ct)
+    {
+        var lockKey = ComputeAdvisoryLockKey(lockScope);
+        await _context.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock({lockKey})",
+            ct);
+    }
+
+    private static long ComputeAdvisoryLockKey(string lockScope)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(lockScope));
+        return BinaryPrimitives.ReadInt64LittleEndian(hash.AsSpan(0, sizeof(long)));
+    }
+
+    private async Task<IngestJob?> GetLatestActiveForSourceAndJobTypeAsync(string sourceId, string jobType, CancellationToken ct)
+    {
+        var reg = await _context.JobRegistry
+            .AsNoTracking()
+            .Where(r => r.SourceId == sourceId && r.JobType == jobType)
+            .Where(r => r.Status == "pending" || r.Status == "queued" || r.Status == "processing" || r.Status == "running")
+            .OrderByDescending(r => r.CreatedAt)
+            .FirstOrDefaultAsync(ct);
+
+        return reg == null ? null : MapToIngestJob(reg);
+    }
 }
