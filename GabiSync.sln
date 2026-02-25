@@ -1,4 +1,4 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
@@ -36,6 +36,8 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Gabi.Fetch.Tests", "tests\Gabi.Fetch.Tests\Gabi.Fetch.Tests.csproj", "{E4F5G5G6-C7D8-6E9F-0A1B-2C3D4E5F6G7H}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Gabi.Architecture.Tests", "tests\Gabi.Architecture.Tests\Gabi.Architecture.Tests.csproj", "{7653E7EB-77F7-4E2E-990E-139F07CF5325}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Gabi.Ingest.Tests", "tests\Gabi.Ingest.Tests\Gabi.Ingest.Tests.csproj", "{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -106,6 +108,10 @@ Global
 		{7653E7EB-77F7-4E2E-990E-139F07CF5325}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{7653E7EB-77F7-4E2E-990E-139F07CF5325}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{7653E7EB-77F7-4E2E-990E-139F07CF5325}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{1DAFF018-6961-4E86-A1DD-3F37304A1CE3} = {3C177E6B-B9B4-4478-AC5B-DC13C1798664}
@@ -123,5 +129,6 @@ Global
 		{D3E4F4F5-B6C7-5D8E-9F0A-1B2C3D4E5F6G} = {3C177E6B-B9B4-4478-AC5B-DC13C1798664}
 		{E4F5G5G6-C7D8-6E9F-0A1B-2C3D4E5F6G7H} = {1261BB6C-BBA5-401E-9643-A29A021AA58C}
 		{7653E7EB-77F7-4E2E-990E-139F07CF5325} = {1261BB6C-BBA5-401E-9643-A29A021AA58C}
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890} = {1261BB6C-BBA5-401E-9643-A29A021AA58C}
 	EndGlobalSection
 EndGlobal

@@ -28,13 +28,13 @@ public class MediaTranscribeJobExecutor : IJobExecutor
     {
         if (!TryReadMediaItemId(job, out var mediaItemId))
         {
-            return new JobResult { Success = false, ErrorMessage = "payload.media_item_id is required" };
+            return new JobResult { Status = JobTerminalStatus.Failed, ErrorMessage = "payload.media_item_id is required" };
         }
 
         var media = await _context.MediaItems.FirstOrDefaultAsync(m => m.Id == mediaItemId, ct);
         if (media == null)
         {
-            return new JobResult { Success = false, ErrorMessage = $"media item {mediaItemId} not found" };
+            return new JobResult { Status = JobTerminalStatus.Failed, ErrorMessage = $"media item {mediaItemId} not found" };
         }
 
         media.TranscriptStatus = "processing";
@@ -83,7 +83,7 @@ public class MediaTranscribeJobExecutor : IJobExecutor
 
             return new JobResult
             {
-                Success = true,
+                Status = JobTerminalStatus.Success,
                 Metadata = new Dictionary<string, object> { ["media_item_id"] = mediaItemId }
             };
         }
@@ -94,7 +94,7 @@ public class MediaTranscribeJobExecutor : IJobExecutor
             media.LastError = FormatError(ex);
             media.UpdatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync(ct);
-            return new JobResult { Success = false, ErrorMessage = ex.Message };
+            return new JobResult { Status = JobTerminalStatus.Failed, ErrorMessage = ex.Message };
         }
     }
 

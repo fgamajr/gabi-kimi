@@ -29,7 +29,16 @@ public interface IJobQueueRepository
     /// <param name="jobId">The job ID.</param>
     /// <param name="ct">Cancellation token.</param>
     Task CompleteAsync(Guid jobId, CancellationToken ct = default);
-    
+
+    /// <summary>
+    /// Marks a job as completed with an explicit terminal status (e.g. partial, capped, inconclusive).
+    /// Use when the run finished but is not full success; does not call FailAsync.
+    /// </summary>
+    /// <param name="jobId">The job ID.</param>
+    /// <param name="terminalStatus">Canonical status string: completed, partial, capped, inconclusive.</param>
+    /// <param name="ct">Cancellation token.</param>
+    Task CompleteAsync(Guid jobId, string terminalStatus, CancellationToken ct = default);
+
     /// <summary>
     /// Marks a job as failed. Handles retry logic or moves to DLQ if max retries exceeded.
     /// </summary>

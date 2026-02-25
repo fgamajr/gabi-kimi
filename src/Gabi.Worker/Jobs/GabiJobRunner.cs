@@ -1,3 +1,4 @@
+using Gabi.Contracts.Common;
 using Gabi.Contracts.Jobs;
 using Gabi.Contracts.Observability;
 using Gabi.Postgres;
@@ -88,7 +89,8 @@ public class GabiJobRunner : IGabiJobRunner
             var result = await executor.ExecuteAsync(job, progress, ct);
             progressChannel.Writer.TryComplete();
             await AwaitProgressPumpSafelyAsync(jobId, progressPumpTask);
-            await UpdateRegistryAsync(context, jobId, result.Success ? "completed" : "failed", result.ErrorMessage, ct);
+            var statusString = StatusVocabulary.ToCanonical(result.Status);
+            await UpdateRegistryAsync(context, jobId, statusString, result.ErrorMessage, ct);
         }
         catch (Exception ex)
         {
@@ -131,7 +133,7 @@ public class GabiJobRunner : IGabiJobRunner
         reg.Status = status;
         reg.CompletedAt = DateTime.UtcNow;
         reg.ErrorMessage = errorMessage?.Length > 2000 ? errorMessage[..2000] : errorMessage;
-        if (status == "completed") reg.ProgressPercent = 100;
+        reg.ProgressPercent = 100;
         await context.SaveChangesAsync(ct);
     }
 

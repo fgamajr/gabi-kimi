@@ -195,15 +195,45 @@ public class IngestJobExecutor : IJobExecutor
         PipelineTelemetry.RecordDocsProcessed(totalIngested, sourceId, "index");
         PipelineTelemetry.RecordStageLatency(stageStopwatch.Elapsed.TotalMilliseconds, sourceId, "index");
 
+        const double maxDrift = 0.1;
+        var pgActiveCount = await _context.Documents
+            .CountAsync(d => d.SourceId == sourceId
+                && d.RemovedFromSourceAt == null
+                && (d.Status == "completed" || d.Status == "completed_metadata_only"), ct);
+        var indexActiveCount = await _indexer.GetActiveDocumentCountAsync(sourceId, ct) ?? pgActiveCount;
+        var driftRatio = pgActiveCount == 0 ? 0.0 : Math.Abs(pgActiveCount - indexActiveCount) / (double)pgActiveCount;
+        var reconciliationStatus = driftRatio <= maxDrift ? "ok" : "drifted";
+
+        _context.ReconciliationRecords.Add(new ReconciliationRecordEntity
+        {
+            RunId = job.Id,
+            SourceId = sourceId,
+            PgActiveCount = pgActiveCount,
+            IndexActiveCount = indexActiveCount,
+            DriftRatio = driftRatio,
+            Status = reconciliationStatus,
+            ReconciledAt = DateTime.UtcNow
+        });
+        await _context.SaveChangesAsync(ct);
+
+        if (reconciliationStatus == "drifted")
+        {
+            _logger.LogWarning(
+                "CODEX-D reconciliation drift for {SourceId}: ratio={DriftRatio:F2}, pg={PgCount}, index={IndexCount}, maxDrift={MaxDrift}",
+                sourceId, driftRatio, pgActiveCount, indexActiveCount, maxDrift);
+        }
+
         return new JobResult
         {
-            Success = true,
+            Status = JobTerminalStatus.Success,
             Metadata = new Dictionary<string, object>
             {
                 ["documents_completed"] = docsCompleted,
                 ["documents_failed"] = docsFailed,
                 ["documents_metadata_only"] = docsMetadataOnly,
-                ["media_projected"] = mediaProjected
+                ["media_projected"] = mediaProjected,
+                ["reconciliation_status"] = reconciliationStatus,
+                ["reconciliation_drift_ratio"] = driftRatio
             }
         };
     }

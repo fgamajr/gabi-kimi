@@ -24,6 +24,11 @@ public interface IDocumentIndexer
     /// Verifica saúde do serviço de indexação.
     /// </summary>
     Task<bool> HealthCheckAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns active document count for the source in the index (for reconciliation). When not supported, returns null.
+    /// </summary>
+    Task<int?> GetActiveDocumentCountAsync(string sourceId, CancellationToken ct = default) => Task.FromResult<int?>(null);
 }
 
 /// <summary>

@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Gabi.Contracts.Discovery;
 using Gabi.Contracts.Jobs;
@@ -15,7 +17,8 @@ namespace Gabi.Worker.Jobs;
 /// <summary>
 /// Job executor for source_discovery jobs (enqueued by dashboard refresh).
 /// Retry handled by Hangfire global policy (configured in Worker Hangfire:RetryPolicy).
-/// Failsafe: 0 links from engine is success (LinksTotal=0) but logs warning.
+/// Failsafe by default: 0 links from engine is success (LinksTotal=0) but logs warning.
+/// In strict coverage mode (payload strict_coverage=true), 0 links or cap reach becomes inconclusive and job returns failure.
 /// Persists links with DiscoveryStatus=completed, FetchStatus=IngestStatus=pending; records run in discovery_runs.
 /// </summary>
 public class SourceDiscoveryJobExecutor : IJobExecutor
@@ -52,9 +55,13 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
         var stageStopwatch = Stopwatch.StartNew();
         using var activity = PipelineTelemetry.ActivitySource.StartActivity("pipeline.discovery", ActivityKind.Internal);
         activity?.SetTag("source.id", sourceId);
-        var discoveryConfig = job.DiscoveryConfig ?? new DiscoveryConfig();
-        var startedAt = DateTime.UtcNow;
+        var discoveryConfig = (job.DiscoveryConfig ?? new DiscoveryConfig()) with { SnapshotAt = DateTime.UtcNow };
+        var startedAt = discoveryConfig.SnapshotAt!.Value;
         var maxDocsPerSource = FetchJobExecutor.ReadMaxDocsPerSource(job.Payload);
+        var strictCoverage = FetchJobExecutor.ReadStrictCoverage(job.Payload);
+        var zeroOk = FetchJobExecutor.ReadZeroOk(job.Payload);
+        activity?.SetTag("coverage.strict", strictCoverage);
+        activity?.SetTag("coverage.zero_ok", zeroOk);
 
         _logger.LogInformation(
             "Starting discovery (source_discovery) for source {SourceId} with strategy {Strategy}, driver={Driver}, extraKeys=[{ExtraKeys}]",
@@ -81,6 +88,7 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
         var fetchItemsCreatedTotal = 0;
         var batchesPersisted = 0;
         var batch = new List<DiscoveredSource>(DiscoveryBatchSize);
+        var discoveredUrlsForHash = new List<string>();
         var discoveryRunEntity = new DiscoveryRunEntity
         {
             Id = Guid.NewGuid(),
@@ -98,6 +106,7 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
             await foreach (var discovered in _discoveryEngine.DiscoverAsync(sourceId, discoveryConfig, ct))
             {
                 batch.Add(discovered);
+                discoveredUrlsForHash.Add(discovered.Url);
                 linksTotal++;
 
                 if (batch.Count >= DiscoveryBatchSize)
@@ -153,14 +162,60 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
                 }
             }
 
+            var capReached = maxDocsPerSource.HasValue && linksTotal >= maxDocsPerSource.Value;
+            var capValue = maxDocsPerSource.GetValueOrDefault();
+            var zeroLinksInconclusive = linksTotal == 0 && !zeroOk;
+            var cappedInconclusive = strictCoverage && capReached;
+
+            var lastManifest = await _context.ExecutionManifests
+                .Where(m => m.SourceId == sourceId && m.Status == "completed")
+                .OrderByDescending(m => m.SnapshotAt)
+                .FirstOrDefaultAsync(ct);
+            int? expectedLinkCount = lastManifest?.ActualLinkCount;
+            double? coverageRatio = expectedLinkCount.HasValue && expectedLinkCount.Value > 0
+                ? (double)linksTotal / expectedLinkCount.Value
+                : null;
+            var minRatio = FetchJobExecutor.ReadMinCoverageRatio(job.Payload);
+            var lowCoverageInconclusive = strictCoverage && coverageRatio.HasValue && coverageRatio.Value < minRatio && !zeroOk;
+
+            var strictCoverageViolation = zeroLinksInconclusive || cappedInconclusive || lowCoverageInconclusive;
+            var discoveryStatus = strictCoverageViolation ? "inconclusive" : "completed";
+            var errorSummary = linksTotal == 0
+                ? (zeroLinksInconclusive
+                    ? "0 links discovered (strict_coverage=true)"
+                    : "0 links discovered (check strategy implementation)")
+                : capReached
+                    ? (strictCoverage
+                        ? $"capped at max_docs_per_source={capValue} (strict_coverage=true)"
+                        : $"capped at max_docs_per_source={capValue}")
+                    : lowCoverageInconclusive
+                        ? $"coverage ratio {coverageRatio:F2} below min_coverage_ratio {minRatio:F2}"
+                        : null;
+
             discoveryRunEntity.CompletedAt = DateTime.UtcNow;
             discoveryRunEntity.LinksTotal = linksTotal;
-            discoveryRunEntity.Status = "completed";
-            discoveryRunEntity.ErrorSummary = linksTotal == 0
-                ? "0 links discovered (check strategy implementation)"
-                : maxDocsPerSource.HasValue && linksTotal >= maxDocsPerSource.Value
-                    ? $"capped at max_docs_per_source={maxDocsPerSource.Value}"
-                    : null;
+            discoveryRunEntity.Status = discoveryStatus;
+            discoveryRunEntity.ErrorSummary = errorSummary;
+
+            var externalIdSetHash = ComputeExternalIdSetHash(discoveredUrlsForHash);
+            var manifest = new ExecutionManifestEntity
+            {
+                DiscoveryRunId = discoveryRunEntity.Id,
+                SourceId = sourceId,
+                SnapshotAt = startedAt,
+                ResolvedParameters = JsonSerializer.Serialize(new
+                {
+                    snapshot_year = startedAt.Year,
+                    source_id = sourceId,
+                    strategy = discoveryConfig.Strategy ?? "unknown"
+                }),
+                ExpectedLinkCount = expectedLinkCount,
+                ActualLinkCount = linksTotal,
+                ExternalIdSetHash = externalIdSetHash,
+                Status = discoveryStatus,
+                CoverageRatio = coverageRatio.HasValue ? (decimal)coverageRatio.Value : null
+            };
+            _context.ExecutionManifests.Add(manifest);
             await _context.SaveChangesAsync(ct);
         }
         catch (Exception ex)
@@ -184,9 +239,21 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
             Metrics = new Dictionary<string, object> { ["linksFound"] = linksTotal, ["discoveryRunId"] = discoveryRunEntity.Id.ToString() }
         });
 
+        var inconclusive = discoveryRunEntity.Status == "inconclusive";
+        var status = inconclusive ? JobTerminalStatus.Inconclusive : JobTerminalStatus.Success;
         _logger.LogInformation(
-            "Discovery completed for source {SourceId}: {LinksTotal} links, status={Status}",
-            sourceId, linksTotal, "completed");
+            "Discovery finished for source {SourceId}: links={LinksTotal}, strict_coverage={StrictCoverage}, zero_ok={ZeroOk}, status={Status}",
+            sourceId, linksTotal, strictCoverage, zeroOk, status);
+        if (inconclusive)
+        {
+            var strictErrorType = linksTotal == 0
+                ? "strict_coverage_zero_links"
+                : (discoveryRunEntity.ErrorSummary?.Contains("coverage ratio", StringComparison.OrdinalIgnoreCase) == true
+                    ? "strict_coverage_low_ratio"
+                    : "strict_coverage_capped");
+            activity?.SetStatus(ActivityStatusCode.Error, strictErrorType);
+            activity?.SetTag("error.type", strictErrorType);
+        }
 
         activity?.SetTag("docs.count", linksTotal);
         PipelineTelemetry.RecordDocsProcessed(linksTotal, sourceId, "discovery");
@@ -194,12 +261,14 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
 
         return new JobResult
         {
-            Success = true,
+            Status = status,
             Metadata = new Dictionary<string, object>
             {
                 ["urls_discovered"] = linksTotal,
                 ["source_id"] = sourceId,
-                ["discovery_run_id"] = discoveryRunEntity.Id.ToString()
+                ["discovery_run_id"] = discoveryRunEntity.Id.ToString(),
+                ["strict_coverage"] = strictCoverage,
+                ["zero_ok"] = zeroOk
             }
         };
     }
@@ -239,5 +308,16 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
             sourceId, linksToUpsert.Count, persistedLinks.Count, createdFetchItems);
 
         return createdFetchItems;
+    }
+
+    private static string ComputeExternalIdSetHash(List<string> urls)
+    {
+        if (urls.Count == 0)
+            return Convert.ToHexString(SHA256.HashData(Array.Empty<byte>())).ToLowerInvariant();
+        var sorted = urls.Distinct(StringComparer.Ordinal).OrderBy(u => u, StringComparer.Ordinal).ToList();
+        var payload = string.Join("\n", sorted);
+        var bytes = Encoding.UTF8.GetBytes(payload);
+        var hash = SHA256.HashData(bytes);
+        return Convert.ToHexString(hash).ToLowerInvariant();
     }
 }

@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -97,30 +95,25 @@ public sealed class UserCredentialStore : IUserCredentialStore
 
     private static List<UserRecord> CreateDevelopmentFallbackUsers(ILogger logger)
     {
-        var users = new List<(string Username, string Role)>
+        var users = new List<(string Username, string Password, string Role)>
         {
-            ("admin", "Admin"),
-            ("operator", "Operator"),
-            ("viewer", "Viewer")
+            ("admin", "admin123", "Admin"),
+            ("operator", "op123", "Operator"),
+            ("viewer", "view123", "Viewer")
         };
 
+        logger.LogWarning(
+            "Development fallback users enabled. Configure GABI_USERS to override defaults in shared environments.");
+
         var result = new List<UserRecord>(users.Count);
-        foreach (var (username, role) in users)
+        foreach (var (username, password, role) in users)
         {
-            var randomPassword = GenerateStrongPassword();
-            var hash = BCrypt.Net.BCrypt.HashPassword(randomPassword);
-            logger.LogWarning("Development fallback user created: {Username} role={Role} password={Password}", username, role, randomPassword);
+            var hash = BCrypt.Net.BCrypt.HashPassword(password);
+            logger.LogInformation("Development fallback user created: {Username} role={Role}", username, role);
             result.Add(new UserRecord(username, hash, role));
         }
 
         return result;
-    }
-
-    private static string GenerateStrongPassword()
-    {
-        Span<byte> bytes = stackalloc byte[24];
-        RandomNumberGenerator.Fill(bytes);
-        return Convert.ToBase64String(bytes).TrimEnd('=');
     }
 
     public sealed record UserRecord(

@@ -1,5 +1,6 @@
 using System.Text;
 using System.Threading.RateLimiting;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
@@ -115,37 +116,60 @@ public static class SecurityConfig
     /// Configura Rate Limiting
     /// </summary>
     public static IServiceCollection AddRateLimitingConfig(
-        this IServiceCollection services)
+        this IServiceCollection services,
+        IConfiguration configuration)
     {
+        var readPermitLimit = GetPositiveInt(configuration, "Gabi:RateLimiting:Read:PermitLimit", 100);
+        var readWindowSeconds = GetPositiveInt(configuration, "Gabi:RateLimiting:Read:WindowSeconds", 60);
+        var readQueueLimit = GetNonNegativeInt(configuration, "Gabi:RateLimiting:Read:QueueLimit", 10);
+
+        var writePermitLimit = GetPositiveInt(configuration, "Gabi:RateLimiting:Write:PermitLimit", 10);
+        var writeWindowSeconds = GetPositiveInt(configuration, "Gabi:RateLimiting:Write:WindowSeconds", 60);
+        var writeQueueLimit = GetNonNegativeInt(configuration, "Gabi:RateLimiting:Write:QueueLimit", 2);
+
+        var authPermitLimit = GetPositiveInt(configuration, "Gabi:RateLimiting:Auth:PermitLimit", 5);
+        var authWindowSeconds = GetPositiveInt(configuration, "Gabi:RateLimiting:Auth:WindowSeconds", 300);
+        var authSegments = GetPositiveInt(configuration, "Gabi:RateLimiting:Auth:SegmentsPerWindow", 5);
+        var authQueueLimit = GetNonNegativeInt(configuration, "Gabi:RateLimiting:Auth:QueueLimit", 0);
+
         services.AddRateLimiter(options =>
         {
-            // Fixed Window para endpoints de leitura
-            options.AddFixedWindowLimiter("read", opt =>
-            {
-                opt.PermitLimit = 100;
-                opt.Window = TimeSpan.FromMinutes(1);
-                opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
-                opt.QueueLimit = 10;
-            });
+            // Fixed Window para endpoints de leitura, particionado por usuário autenticado (fallback IP)
+            options.AddPolicy("read", httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: BuildRateLimitPartitionKey(httpContext, "read", preferUserIdentity: true),
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = readPermitLimit,
+                        Window = TimeSpan.FromSeconds(readWindowSeconds),
+                        QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                        QueueLimit = readQueueLimit
+                    }));
 
-            // Fixed Window mais restritivo para escrita
-            options.AddFixedWindowLimiter("write", opt =>
-            {
-                opt.PermitLimit = 10;
-                opt.Window = TimeSpan.FromMinutes(1);
-                opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
-                opt.QueueLimit = 2;
-            });
+            // Fixed Window mais restritivo para escrita, particionado por usuário autenticado (fallback IP)
+            options.AddPolicy("write", httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: BuildRateLimitPartitionKey(httpContext, "write", preferUserIdentity: true),
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = writePermitLimit,
+                        Window = TimeSpan.FromSeconds(writeWindowSeconds),
+                        QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                        QueueLimit = writeQueueLimit
+                    }));
 
-            // Sliding Window para autenticação (login)
-            options.AddSlidingWindowLimiter("auth", opt =>
-            {
-                opt.PermitLimit = 5;
-                opt.Window = TimeSpan.FromMinutes(5);
-                opt.SegmentsPerWindow = 5;
-                opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
-                opt.QueueLimit = 0;
-            });
+            // Sliding Window para autenticação (login), particionado por IP de origem
+            options.AddPolicy("auth", httpContext =>
+                RateLimitPartition.GetSlidingWindowLimiter(
+                    partitionKey: BuildRateLimitPartitionKey(httpContext, "auth", preferUserIdentity: false),
+                    factory: _ => new SlidingWindowRateLimiterOptions
+                    {
+                        PermitLimit = authPermitLimit,
+                        Window = TimeSpan.FromSeconds(authWindowSeconds),
+                        SegmentsPerWindow = authSegments,
+                        QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                        QueueLimit = authQueueLimit
+                    }));
 
             // Handler para rejeição
             options.OnRejected = async (context, token) =>
@@ -166,6 +190,38 @@ public static class SecurityConfig
         });
 
         return services;
+    }
+
+    private static string BuildRateLimitPartitionKey(
+        HttpContext context,
+        string policyName,
+        bool preferUserIdentity)
+    {
+        if (preferUserIdentity)
+        {
+            var userId =
+                context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value ??
+                context.User.FindFirst(ClaimTypes.Name)?.Value ??
+                context.User.FindFirst("sub")?.Value;
+
+            if (!string.IsNullOrWhiteSpace(userId))
+                return $"{policyName}:user:{userId.Trim().ToLowerInvariant()}";
+        }
+
+        var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        return $"{policyName}:ip:{remoteIp}";
+    }
+
+    private static int GetPositiveInt(IConfiguration configuration, string key, int fallback)
+    {
+        var value = configuration.GetValue<int?>(key);
+        return value.HasValue && value.Value > 0 ? value.Value : fallback;
+    }
+
+    private static int GetNonNegativeInt(IConfiguration configuration, string key, int fallback)
+    {
+        var value = configuration.GetValue<int?>(key);
+        return value.HasValue && value.Value >= 0 ? value.Value : fallback;
     }
 
     /// <summary>

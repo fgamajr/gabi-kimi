@@ -1,7 +1,9 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\Gabi.Contracts\Gabi.Contracts.csproj" />
+    <PackageReference Include="Elastic.Clients.Elasticsearch" Version="8.11.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
   </ItemGroup>
 
   <PropertyGroup>

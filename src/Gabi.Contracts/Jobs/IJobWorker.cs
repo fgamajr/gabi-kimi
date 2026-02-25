@@ -89,15 +89,18 @@ public interface IJobExecutor
 /// </summary>
 public record JobResult
 {
-    /// <summary>Whether the job was successful.</summary>
-    public bool Success { get; init; }
-    
+    /// <summary>Terminal status of the job (semantic closure: no collapse to boolean).</summary>
+    public JobTerminalStatus Status { get; init; } = JobTerminalStatus.Success;
+
+    /// <summary>Whether the job was fully successful (Status == Success).</summary>
+    public bool Success => Status == JobTerminalStatus.Success;
+
     /// <summary>Error message if the job failed.</summary>
     public string? ErrorMessage { get; init; }
-    
+
     /// <summary>Type of error if the job failed.</summary>
     public string? ErrorType { get; init; }
-    
+
     /// <summary>Additional metadata about the job execution.</summary>
     public Dictionary<string, object> Metadata { get; init; } = new();
 }

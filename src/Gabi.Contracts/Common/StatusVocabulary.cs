@@ -20,6 +20,9 @@ public static class Status
     public const string Skipped = "skipped";
     public const string Success = "success";
     public const string Partial = "partial";
+    public const string Capped = "capped";
+    public const string Inconclusive = "inconclusive";
+    public const string CompletedMetadataOnly = "completed_metadata_only";
     public const string Active = "active";
     public const string InProgress = "in_progress";
     public const string Idle = "idle";
@@ -50,10 +53,24 @@ public static class StatusVocabulary
         JobStatus.Pending => Status.Pending,
         JobStatus.Running => Status.Running,
         JobStatus.Completed => Status.Completed,
+        JobStatus.Partial => Status.Partial,
+        JobStatus.Capped => Status.Capped,
+        JobStatus.Inconclusive => Status.Inconclusive,
         JobStatus.Failed => Status.Failed,
         JobStatus.Cancelled => Status.Cancelled,
         JobStatus.Skipped => Status.Skipped,
         JobStatus.Retrying => Status.Retrying,
+        _ => Status.Error
+    };
+
+    /// <summary>Maps job terminal status to canonical string for persistence (job_registry, fetch_runs, etc.).</summary>
+    public static string ToCanonical(JobTerminalStatus status) => status switch
+    {
+        JobTerminalStatus.Success => Status.Completed,
+        JobTerminalStatus.Partial => Status.Partial,
+        JobTerminalStatus.Capped => Status.Capped,
+        JobTerminalStatus.Failed => Status.Failed,
+        JobTerminalStatus.Inconclusive => Status.Inconclusive,
         _ => Status.Error
     };
 
@@ -74,6 +91,7 @@ public static class StatusVocabulary
         DocumentStatus.PendingReprocess => Status.PendingReprocess,
         DocumentStatus.Processing => Status.Processing,
         DocumentStatus.Error => Status.Error,
+        DocumentStatus.CompletedMetadataOnly => Status.CompletedMetadataOnly,
         DocumentStatus.Deleted => Status.Deleted,
         _ => Status.Error
     };
@@ -147,6 +165,9 @@ public static class StatusVocabulary
         JobStatus.Pending => ExecutionStatus.Pending,
         JobStatus.Running => ExecutionStatus.Running,
         JobStatus.Completed => ExecutionStatus.Success,
+        JobStatus.Partial => ExecutionStatus.PartialSuccess,
+        JobStatus.Capped => ExecutionStatus.PartialSuccess,
+        JobStatus.Inconclusive => ExecutionStatus.Failed,
         JobStatus.Failed => ExecutionStatus.Failed,
         JobStatus.Cancelled => ExecutionStatus.Cancelled,
         JobStatus.Skipped => ExecutionStatus.Success,

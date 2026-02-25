@@ -127,6 +127,50 @@ public class SourceDiscoveryJobExecutorMetadataTests : IDisposable
         Assert.Equal("capped at max_docs_per_source=10", discoveryRun.ErrorSummary);
     }
 
+    [Fact]
+    public async Task ExecuteAsync_WithStrictCoverageAndCapReached_ShouldBeInconclusive()
+    {
+        var sourceId = $"source_{Guid.NewGuid():N}";
+        _context.SourceRegistries.Add(new SourceRegistryEntity
+        {
+            Id = sourceId,
+            Name = "Source Strict Cap",
+            Provider = "TEST",
+            DiscoveryStrategy = "test_many",
+            DiscoveryConfig = "{}"
+        });
+        await _context.SaveChangesAsync();
+
+        var job = new IngestJob
+        {
+            Id = Guid.NewGuid(),
+            SourceId = sourceId,
+            JobType = "source_discovery",
+            DiscoveryConfig = new DiscoveryConfig
+            {
+                Strategy = "test_many"
+            },
+            Payload = new Dictionary<string, object>
+            {
+                ["max_docs_per_source"] = 10,
+                ["strict_coverage"] = true
+            }
+        };
+
+        var result = await _executor.ExecuteAsync(job, new Progress<JobProgress>(_ => { }), CancellationToken.None);
+
+        var linkCount = await _context.DiscoveredLinks.CountAsync(l => l.SourceId == sourceId);
+        var discoveryRun = await _context.DiscoveryRuns
+            .Where(r => r.SourceId == sourceId)
+            .OrderByDescending(r => r.StartedAt)
+            .FirstAsync();
+
+        Assert.False(result.Success);
+        Assert.Equal(10, linkCount);
+        Assert.Equal("inconclusive", discoveryRun.Status);
+        Assert.Equal("capped at max_docs_per_source=10 (strict_coverage=true)", discoveryRun.ErrorSummary);
+    }
+
     public void Dispose() => _context.Dispose();
 
     private sealed class TestSemanticDiscoveryAdapter : IDiscoveryAdapter

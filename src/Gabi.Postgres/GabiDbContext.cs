@@ -22,6 +22,7 @@ public class GabiDbContext : DbContext
     public DbSet<AuditLogEntity> AuditLogs => Set<AuditLogEntity>();
     public DbSet<SeedRunEntity> SeedRuns => Set<SeedRunEntity>();
     public DbSet<DiscoveryRunEntity> DiscoveryRuns => Set<DiscoveryRunEntity>();
+    public DbSet<ExecutionManifestEntity> ExecutionManifests => Set<ExecutionManifestEntity>();
     public DbSet<FetchRunEntity> FetchRuns => Set<FetchRunEntity>();
     public DbSet<FetchItemEntity> FetchItems => Set<FetchItemEntity>();
     public DbSet<PipelineActionEntity> PipelineActions => Set<PipelineActionEntity>();
@@ -31,6 +32,7 @@ public class GabiDbContext : DbContext
 
     // Documents (extracted from links for future ingest phase)
     public DbSet<DocumentEntity> Documents => Set<DocumentEntity>();
+    public DbSet<ReconciliationRecordEntity> ReconciliationRecords => Set<ReconciliationRecordEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -44,6 +46,8 @@ public class GabiDbContext : DbContext
         ConfigureDocumentEntity(modelBuilder);
         ConfigureSeedRun(modelBuilder);
         ConfigureDiscoveryRun(modelBuilder);
+        ConfigureExecutionManifest(modelBuilder);
+        ConfigureReconciliationRecord(modelBuilder);
         ConfigureFetchRun(modelBuilder);
         ConfigureFetchItem(modelBuilder);
         ConfigurePipelineAction(modelBuilder);
@@ -176,6 +180,35 @@ public class GabiDbContext : DbContext
             entity.HasIndex(e => e.SourceId);
             entity.HasIndex(e => e.CompletedAt);
             entity.HasIndex(e => e.JobId);
+        });
+    }
+
+    private static void ConfigureExecutionManifest(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ExecutionManifestEntity>(entity =>
+        {
+            entity.ToTable("execution_manifest");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.SourceId).HasMaxLength(100).IsRequired();
+            entity.Property(e => e.ExternalIdSetHash).HasMaxLength(64).IsRequired();
+            entity.Property(e => e.Status).HasMaxLength(20).IsRequired();
+            entity.HasIndex(e => e.DiscoveryRunId).IsUnique();
+            entity.HasIndex(e => e.SourceId);
+            entity.HasIndex(e => e.SnapshotAt);
+        });
+    }
+
+    private static void ConfigureReconciliationRecord(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ReconciliationRecordEntity>(entity =>
+        {
+            entity.ToTable("reconciliation_records");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.SourceId).HasMaxLength(100).IsRequired();
+            entity.Property(e => e.Status).HasMaxLength(20).IsRequired();
+            entity.HasIndex(e => e.RunId);
+            entity.HasIndex(e => e.SourceId);
+            entity.HasIndex(e => e.ReconciledAt);
         });
     }
 

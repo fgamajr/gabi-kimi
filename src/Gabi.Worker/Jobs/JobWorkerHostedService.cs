@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using Gabi.Contracts.Common;
 using Gabi.Contracts.Jobs;
 using Gabi.Postgres;
 using Gabi.Postgres.Repositories;
@@ -114,19 +115,20 @@ public class JobWorkerHostedService : IHostedService
         try
         {
             var result = await executor.ExecuteAsync(job, progress, ct);
-            
-            if (result.Success)
+
+            if (result.Status == JobTerminalStatus.Failed)
             {
-                await jobQueue.CompleteAsync(job.Id, ct);
+                await jobQueue.FailAsync(job.Id, result.ErrorMessage ?? "Unknown error", true, ct);
             }
             else
             {
-                await jobQueue.FailAsync(job.Id, result.ErrorMessage ?? "Unknown error", true, ct);
+                var statusString = StatusVocabulary.ToCanonical(result.Status);
+                await jobQueue.CompleteAsync(job.Id, statusString, ct);
             }
 
             _logger.LogInformation(
                 "Job {JobId} completed with status {Status}",
-                job.Id, result.Success ? "success" : "failed");
+                job.Id, result.Status.ToString().ToLowerInvariant());
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {

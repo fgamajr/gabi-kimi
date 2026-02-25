@@ -82,8 +82,8 @@ public class DocumentEntity : AuditableEntity
     [MaxLength(64)]
     public string? ContentHash { get; set; }
 
-    [MaxLength(20)]
-    public string Status { get; set; } = "pending"; // pending, processing, completed, failed
+    [MaxLength(32)]
+    public string Status { get; set; } = "pending"; // pending, processing, completed, completed_metadata_only, failed
 
     /// <summary>
     /// Processing stage (chunking, embedding, indexing).

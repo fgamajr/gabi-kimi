@@ -98,6 +98,34 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
         await db.SaveChangesAsync();
     }
 
+    /// <summary>Ensures a source exists with PipelineConfig containing coverage.strict = true (for strict-coverage fallback tests).</summary>
+    public async Task EnsureSourceWithStrictPipelineConfigAsync(string sourceId, CancellationToken ct = default)
+    {
+        using var scope = Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<GabiDbContext>();
+        var existing = await db.SourceRegistries.FindAsync(new object[] { sourceId }, ct);
+        var pipelineConfig = """{"coverage":{"strict":true},"ingest":{"readiness":"text_ready"}}""";
+        if (existing != null)
+        {
+            existing.PipelineConfig = pipelineConfig;
+            db.SourceRegistries.Update(existing);
+        }
+        else
+        {
+            db.SourceRegistries.Add(new SourceRegistryEntity
+            {
+                Id = sourceId,
+                Name = "Strict Source",
+                Provider = "test",
+                DiscoveryStrategy = "static_url",
+                DiscoveryConfig = "{}",
+                PipelineConfig = pipelineConfig,
+                Enabled = true
+            });
+        }
+        await db.SaveChangesAsync(ct);
+    }
+
     public Task<HttpClient> CreateAuthenticatedClientAsync(string username, string password)
     {
         var client = CreateClient(new WebApplicationFactoryClientOptions

@@ -5,11 +5,23 @@ namespace Gabi.Api.Tests.Security;
 
 internal sealed class FakeJobQueueRepository : IJobQueueRepository
 {
-    public Task<Guid> EnqueueAsync(IngestJob job, CancellationToken ct = default) => Task.FromResult(Guid.NewGuid());
+    /// <summary>When non-null, last job passed to EnqueueAsync is stored here (for tests that verify payload, e.g. strict_coverage fallback).</summary>
+    public static IngestJob? LastEnqueuedJob { get; set; }
+
+    /// <summary>Clears the captured job so tests can assert only the job they triggered.</summary>
+    public static void ClearLastEnqueuedJob() => LastEnqueuedJob = null;
+
+    public Task<Guid> EnqueueAsync(IngestJob job, CancellationToken ct = default)
+    {
+        LastEnqueuedJob = job;
+        return Task.FromResult(Guid.NewGuid());
+    }
 
     public Task<IngestJob?> DequeueAsync(string workerId, TimeSpan leaseDuration, CancellationToken ct = default) => Task.FromResult<IngestJob?>(null);
 
     public Task CompleteAsync(Guid jobId, CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task CompleteAsync(Guid jobId, string terminalStatus, CancellationToken ct = default) => Task.CompletedTask;
 
     public Task FailAsync(Guid jobId, string error, bool shouldRetry, CancellationToken ct = default) => Task.CompletedTask;
 

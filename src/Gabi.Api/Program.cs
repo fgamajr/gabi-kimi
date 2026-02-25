@@ -54,7 +54,7 @@ if (!string.IsNullOrWhiteSpace(connectionString))
 // Security Configuration
 builder.Services.AddJwtAuthentication(builder.Configuration, builder.Environment);
 builder.Services.AddAuthorizationPolicies();
-builder.Services.AddRateLimitingConfig();
+builder.Services.AddRateLimitingConfig(builder.Configuration);
 builder.Services.AddCorsConfig(builder.Configuration, builder.Environment);
 
 // Services
@@ -180,10 +180,7 @@ app.UseSecurityHeaders();
 // 4. CORS (antes de auth para permitir preflight)
 app.UseCors("GabiCorsPolicy");
 
-// 5. Rate Limiting (antes de auth para proteger contra brute force)
-app.UseRateLimiter();
-
-// 6. Request Size Limit
+// 5. Request Size Limit
 app.Use(async (context, next) =>
 {
     // Limitar tamanho do request body via config.
@@ -197,8 +194,11 @@ app.Use(async (context, next) =>
     await next();
 });
 
-// 7. Authentication
+// 6. Authentication
 app.UseAuthentication();
+
+// 7. Rate Limiting (após auth para permitir partição por usuário; login continua particionado por IP)
+app.UseRateLimiter();
 
 // 8. Authorization
 app.UseAuthorization();
