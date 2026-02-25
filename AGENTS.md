@@ -18,7 +18,7 @@
 ### Pipeline de Dados
 
 ```
-Seed → Discovery → Fetch → Ingest → Index
+Seed → Discovery → Fetch → Ingest
 ```
 
 1. **Seed**: Carrega definições de fontes do `sources_v2.yaml` para o PostgreSQL
@@ -50,7 +50,7 @@ Seed → Discovery → Fetch → Ingest → Index
 ├── src/
 │   ├── Gabi.Api/              # REST API (Minimal API) - Layer 5
 │   ├── Gabi.Worker/           # Background worker (Hangfire) - Layer 5
-│   ├── Gabi.Contracts/        # Interfaces e DTOs - Layer 0-1
+│   ├── Gabi.Contracts/        # Interfaces e DTOs - Layer 0-1 (ZERO dependências)
 │   ├── Gabi.Postgres/         # EF Core + PostgreSQL - Layer 2-3
 │   ├── Gabi.Discover/         # Motor de discovery - Layer 4
 │   ├── Gabi.Fetch/            # Fetch de conteúdo - Layer 4
@@ -59,6 +59,7 @@ Seed → Discovery → Fetch → Ingest → Index
 │   └── Gabi.Jobs/             # Job state machine - Layer 4
 ├── tests/
 │   ├── Gabi.Api.Tests/        # Testes de integração da API
+│   ├── Gabi.Architecture.Tests/ # Testes de arquitetura (NetArchTest)
 │   ├── Gabi.Discover.Tests/   # Testes de discovery
 │   ├── Gabi.Fetch.Tests/      # Testes de fetch
 │   ├── Gabi.Jobs.Tests/       # Testes de jobs
@@ -125,6 +126,19 @@ Layer 0-1: Contracts    → Gabi.Contracts (ZERO referências a outros projetos)
            │Gabi.Contracts│  ← Layer 0-1 (Zero deps)
            └─────────────┘
 ```
+
+### Verificação de Arquitetura
+
+O projeto inclui testes de arquitetura automatizados em `tests/Gabi.Architecture.Tests/` usando NetArchTest:
+
+```bash
+dotnet test tests/Gabi.Architecture.Tests
+```
+
+Testes incluídos:
+- `ContractsLayer_ShouldNotReference_AnyOtherGabiProject`
+- `DomainLayer_ShouldNotReference_Infrastructure`
+- `NoDuplicatedTypeNames_InDifferentNamespaces`
 
 ---
 
@@ -239,7 +253,7 @@ Valida reconstrução do zero - destroi tudo e recria:
 | `Gabi__RedisUrl` | Redis | redis://localhost:6380/0 |
 | `GABI_RUN_MIGRATIONS` | Executar migrations | false |
 | `GABI_INLABS_COOKIE` | Cookie para INLABS | - |
-| `GABI_USERS` | JSON de usuários com hash bcrypt (`[{\"username\":\"...\",\"password_hash\":\"...\",\"role\":\"...\"}]`) | - |
+| `GABI_USERS` | JSON de usuários com hash bcrypt (`[{"username":"...","password_hash":"...","role":"..."}]`) | - |
 | `Gabi:Media:BasePath` | Diretório base permitido para `/api/v1/media/local-file` | `/workspace/` |
 | `Gabi:Media:AllowedUrlPatterns` | Allowlist de URLs para `media_url` (proteção SSRF) | `https://*.youtube.com/*`, `https://*.gov.br/*`, `https://*.leg.br/*` |
 
@@ -389,6 +403,12 @@ fly secrets set GABI_ELASTICSEARCH_URL="..." -a gabi-worker
 
 - Desenvolvimento: formato legível via console
 - Produção: JSON formatado via Serilog (`CompactJsonFormatter`)
+
+### OpenTelemetry
+
+Ambos API e Worker exportam traces e métricas via OTLP:
+- Traces: AspNetCore, EF Core, HttpClient
+- Métricas: Runtime, AspNetCore
 
 ### DLQ (Dead Letter Queue)
 

@@ -124,28 +124,34 @@ public class JobQueueRepository : IJobQueueRepository
     /// <inheritdoc />
     public async Task CompleteAsync(Guid jobId, CancellationToken ct = default)
     {
+        await CompleteAsync(jobId, "completed", ct);
+    }
+
+    /// <inheritdoc />
+    public async Task CompleteAsync(Guid jobId, string terminalStatus, CancellationToken ct = default)
+    {
         var id = GuidToId(jobId);
-        
+
         const string sql = @"
             UPDATE ingest_jobs 
-            SET status = 'completed',
+            SET status = @Status,
                 completed_at = NOW(),
                 updated_at = NOW(),
                 progress_percent = 100,
-                progress_message = 'Completed successfully',
+                progress_message = 'Completed',
                 worker_id = NULL,
                 lock_expires_at = NULL
             WHERE id = @JobId
             RETURNING source_id";
 
         var sourceId = await _connection.ExecuteScalarAsync<string>(
-            new CommandDefinition(sql, new { JobId = id }, cancellationToken: ct));
+            new CommandDefinition(sql, new { JobId = id, Status = terminalStatus }, cancellationToken: ct));
 
         if (sourceId != null)
         {
             _logger.LogInformation(
-                "Job {JobId} for source {SourceId} completed successfully",
-                jobId, sourceId);
+                "Job {JobId} for source {SourceId} completed with status {Status}",
+                jobId, sourceId, terminalStatus);
         }
     }
 

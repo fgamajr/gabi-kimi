@@ -195,12 +195,18 @@ public record DiscoveryConfig
     public IReadOnlyDictionary<string, object>? Params { get; set; }
 
     /// <summary>
+    /// Snapshot time frozen at run start for deterministic expansion (e.g. "current" year).
+    /// When set, all "current" parameter resolution uses this; never re-evaluated mid-run.
+    /// </summary>
+    public DateTime? SnapshotAt { get; init; }
+
+    /// <summary>
     /// Additional strategy-specific properties preserved from JSON payload
     /// (e.g. root_url, rules, driver, endpoint).
     /// </summary>
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? Extra { get; init; }
-    
+
     /// <summary>Configuração de detecção de mudanças.</summary>
     public ChangeDetectionConfig ChangeDetection { get; init; } = new();
 }

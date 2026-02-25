@@ -13,10 +13,19 @@ public enum JobStatus
     
     /// <summary>Job completed successfully.</summary>
     Completed,
-    
+
+    /// <summary>Job completed with partial success (some items failed).</summary>
+    Partial,
+
+    /// <summary>Job completed but was capped (e.g. max_docs_per_source).</summary>
+    Capped,
+
+    /// <summary>Job run inconclusive (e.g. discovery 0 links without zero_ok).</summary>
+    Inconclusive,
+
     /// <summary>Job failed and will be retried or moved to DLQ.</summary>
     Failed,
-    
+
     /// <summary>Job was cancelled manually or by timeout.</summary>
     Cancelled,
     

@@ -16,7 +16,10 @@ public enum DocumentStatus
     
     /// <summary>Documento com erro.</summary>
     Error,
-    
+
+    /// <summary>Documento concluído apenas com metadados (sem texto completo indexável). Terminal state; não conta no acervo text-complete.</summary>
+    CompletedMetadataOnly,
+
     /// <summary>Documento removido (soft delete).</summary>
     Deleted
 }

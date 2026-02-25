@@ -353,7 +353,7 @@ public sealed class ApiPaginationDiscoveryAdapter : IDiscoveryAdapter
     {
         var template = ResolveDouMonthlyTemplate(config);
         var sections = ResolveDouSections(config);
-        var current = DateTime.UtcNow;
+        var current = config.SnapshotAt ?? DateTime.UtcNow;
         var startYear = ResolvePositiveInt(config, "start_year", current.Year);
         var endYear = ResolvePositiveInt(config, "end_year", current.Year);
         if (endYear < startYear)
@@ -649,7 +649,7 @@ public sealed class ApiPaginationDiscoveryAdapter : IDiscoveryAdapter
 
     private static (DateTime Start, DateTime End) ResolveDouDateRange(DiscoveryConfig config)
     {
-        var today = DateTime.UtcNow.Date;
+        var today = (config.SnapshotAt ?? DateTime.UtcNow).Date;
         if (config.Params == null || !config.Params.TryGetValue("date_range", out var dateRange))
             return (today, today);
 
@@ -840,7 +840,7 @@ public sealed class ApiPaginationDiscoveryAdapter : IDiscoveryAdapter
 
     private static (int StartYear, int EndYear) ResolveYearRange(DiscoveryConfig config, string parameterKey)
     {
-        var currentYear = DateTime.UtcNow.Year;
+        var currentYear = config.SnapshotAt?.Year ?? DateTime.UtcNow.Year;
         if (config.Params == null || !config.Params.TryGetValue(parameterKey, out var param))
             return (currentYear, currentYear);
 

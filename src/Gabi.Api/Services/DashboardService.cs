@@ -475,6 +475,7 @@ public class DashboardService : IDashboardService
         }
 
         // Create and enqueue the job
+        var strictCoverage = ResolveStrictCoverage(request.StrictCoverage, source.PipelineConfig);
         var job = new IngestJob
         {
             Id = Guid.NewGuid(),
@@ -492,6 +493,11 @@ public class DashboardService : IDashboardService
         };
         if (request.MaxDocsPerSource is int maxDocsPerSource && maxDocsPerSource > 0)
             job.Payload["max_docs_per_source"] = maxDocsPerSource;
+        if (strictCoverage)
+            job.Payload["strict_coverage"] = true;
+        var zeroOk = ReadZeroOkFromPipelineConfig(source.PipelineConfig);
+        if (zeroOk)
+            job.Payload["zero_ok"] = true;
 
         var jobId = await jobQueue.EnqueueAsync(job, ct);
 
@@ -515,7 +521,8 @@ public class DashboardService : IDashboardService
                 new RefreshSourceRequest
                 {
                     Force = true,
-                    MaxDocsPerSource = request?.MaxDocsPerSource
+                    MaxDocsPerSource = request?.MaxDocsPerSource,
+                    StrictCoverage = request?.StrictCoverage
                 },
                 ct);
         }
@@ -549,10 +556,13 @@ public class DashboardService : IDashboardService
         };
 
         var payload = BuildTraceContextPayload(new Dictionary<string, object> { ["phase"] = normalized });
+        var strictCoverage = ResolveStrictCoverage(request?.StrictCoverage, source.PipelineConfig);
         if (normalized == "fetch" && request?.MaxDocsPerSource is int maxDocsPerSource && maxDocsPerSource > 0)
         {
             payload["max_docs_per_source"] = maxDocsPerSource;
         }
+        if (strictCoverage)
+            payload["strict_coverage"] = true;
 
         var job = new IngestJob
         {
@@ -604,6 +614,119 @@ public class DashboardService : IDashboardService
             payload["request_id"] = traceId ?? Guid.NewGuid().ToString("N");
 
         return payload;
+    }
+
+    private static bool ResolveStrictCoverage(bool? requestedStrictCoverage, string? pipelineConfigJson)
+    {
+        if (requestedStrictCoverage.HasValue)
+            return requestedStrictCoverage.Value;
+
+        return ReadStrictCoverageFromPipelineConfig(pipelineConfigJson);
+    }
+
+    private static bool ReadStrictCoverageFromPipelineConfig(string? pipelineConfigJson)
+    {
+        if (string.IsNullOrWhiteSpace(pipelineConfigJson))
+            return false;
+
+        try
+        {
+            using var json = JsonDocument.Parse(pipelineConfigJson);
+            var root = json.RootElement;
+
+            if (TryGetPropertyIgnoreCase(root, "strict_coverage", out var strictCoverageElement) &&
+                TryReadBoolean(strictCoverageElement, out var strictCoverage))
+                return strictCoverage;
+
+            if (TryGetPropertyIgnoreCase(root, "coverage", out var coverageElement) &&
+                TryGetPropertyIgnoreCase(coverageElement, "strict", out var strictElement) &&
+                TryReadBoolean(strictElement, out var strictFromCoverage))
+                return strictFromCoverage;
+        }
+        catch (JsonException)
+        {
+            // Keep fail-open behavior for dashboard triggering when pipeline config JSON is malformed.
+            return false;
+        }
+
+        return false;
+    }
+
+    private static bool ReadZeroOkFromPipelineConfig(string? pipelineConfigJson)
+    {
+        if (string.IsNullOrWhiteSpace(pipelineConfigJson))
+            return false;
+
+        try
+        {
+            using var json = JsonDocument.Parse(pipelineConfigJson);
+            var root = json.RootElement;
+
+            if (TryGetPropertyIgnoreCase(root, "coverage", out var coverageElement) &&
+                TryGetPropertyIgnoreCase(coverageElement, "zero_ok", out var zeroOkElement) &&
+                TryReadBoolean(zeroOkElement, out var zeroOk))
+                return zeroOk;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+
+        return false;
+    }
+
+    private static bool TryGetPropertyIgnoreCase(JsonElement element, string propertyName, out JsonElement value)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = property.Value;
+                    return true;
+                }
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
+    private static bool TryReadBoolean(JsonElement element, out bool value)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.True:
+                value = true;
+                return true;
+            case JsonValueKind.False:
+                value = false;
+                return true;
+            case JsonValueKind.Number when element.TryGetInt32(out var numeric):
+                value = numeric != 0;
+                return true;
+            case JsonValueKind.String:
+            {
+                var raw = element.GetString();
+                if (bool.TryParse(raw, out var boolValue))
+                {
+                    value = boolValue;
+                    return true;
+                }
+
+                if (int.TryParse(raw, out var numericValue))
+                {
+                    value = numericValue != 0;
+                    return true;
+                }
+
+                break;
+            }
+        }
+
+        value = false;
+        return false;
     }
 
     /// <summary>

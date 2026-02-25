@@ -96,9 +96,15 @@ public class HangfireJobQueueRepository : IJobQueueRepository
         _logger.LogInformation("Enqueuing job {JobId} ({JobType}) to queue '{Queue}' for source {SourceId}", jobId, job.JobType, queue, job.SourceId);
         try
         {
-            _client.Create(
+            var hangfireJobId = _client.Create(
                 (IGabiJobRunner r) => r.RunAsync(jobId, job.JobType, job.SourceId ?? string.Empty, payloadJson, CancellationToken.None),
                 new EnqueuedState(queue));
+
+            if (string.IsNullOrWhiteSpace(hangfireJobId))
+                throw new InvalidOperationException("Hangfire returned an empty job id for enqueue request.");
+
+            reg.HangfireJobId = hangfireJobId;
+            await _context.SaveChangesAsync(ct);
             _logger.LogInformation("Hangfire job created successfully for {JobId}", jobId);
         }
         catch (Exception ex)
@@ -122,9 +128,14 @@ public class HangfireJobQueueRepository : IJobQueueRepository
 
     public async Task CompleteAsync(Guid jobId, CancellationToken ct = default)
     {
+        await CompleteAsync(jobId, "completed", ct);
+    }
+
+    public async Task CompleteAsync(Guid jobId, string terminalStatus, CancellationToken ct = default)
+    {
         var reg = await _context.JobRegistry.FirstOrDefaultAsync(r => r.JobId == jobId, ct);
         if (reg == null) return;
-        reg.Status = "completed";
+        reg.Status = terminalStatus;
         reg.CompletedAt = DateTime.UtcNow;
         reg.ErrorMessage = null;
         reg.ProgressPercent = 100;
@@ -281,6 +292,9 @@ public class HangfireJobQueueRepository : IJobQueueRepository
         "pending" or "queued" => JobStatus.Pending,
         "processing" or "running" => JobStatus.Running,
         "completed" => JobStatus.Completed,
+        "partial" => JobStatus.Partial,
+        "capped" => JobStatus.Capped,
+        "inconclusive" => JobStatus.Inconclusive,
         "failed" => JobStatus.Failed,
         "cancelled" => JobStatus.Cancelled,
         _ => JobStatus.Pending

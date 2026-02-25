@@ -18,6 +18,8 @@ public sealed class UrlPatternDiscoveryAdapter : IDiscoveryAdapter
         var template = config.UrlTemplate!;
         var parameters = config.Params;
 
+        var snapshotYear = config.SnapshotAt?.Year ?? DateTime.UtcNow.Year;
+
         if (parameters == null || parameters.Count == 0)
         {
             yield return new DiscoveredSource(template, sourceId, new Dictionary<string, object>(), DateTime.UtcNow);
@@ -37,7 +39,7 @@ public sealed class UrlPatternDiscoveryAdapter : IDiscoveryAdapter
         {
             start = GetInt(dict, "Start", "start");
             var endVal = GetObject(dict, "End", "end");
-            end = ResolveEndValue(endVal);
+            end = ResolveEndValue(endVal, snapshotYear);
             step = GetInt(dict, "Step", "step");
             if (step <= 0)
                 step = 1;
@@ -45,7 +47,7 @@ public sealed class UrlPatternDiscoveryAdapter : IDiscoveryAdapter
         else if (paramValue is ParameterRange range)
         {
             start = range.Start;
-            end = range.End.Resolve();
+            end = range.End.Resolve(snapshotYear);
             step = range.Step;
         }
         else
@@ -60,8 +62,8 @@ public sealed class UrlPatternDiscoveryAdapter : IDiscoveryAdapter
             end = endValue switch
             {
                 int i => i,
-                string s when s.Equals("current", StringComparison.OrdinalIgnoreCase) => DateTime.UtcNow.Year,
-                ParameterRangeEnd pre => pre.Resolve(),
+                string s when s.Equals("current", StringComparison.OrdinalIgnoreCase) => snapshotYear,
+                ParameterRangeEnd pre => pre.Resolve(snapshotYear),
                 _ => Convert.ToInt32(endValue)
             };
 
@@ -132,20 +134,21 @@ public sealed class UrlPatternDiscoveryAdapter : IDiscoveryAdapter
         return null;
     }
 
-    private static int ResolveEndValue(object? endVal)
+    private static int ResolveEndValue(object? endVal, int? currentYear = null)
     {
+        var year = currentYear ?? DateTime.UtcNow.Year;
         return endVal switch
         {
             int i => i,
             long l => (int)l,
-            string s when s.Equals("current", StringComparison.OrdinalIgnoreCase) => DateTime.UtcNow.Year,
-            ParameterRangeEnd pre => pre.Resolve(),
+            string s when s.Equals("current", StringComparison.OrdinalIgnoreCase) => year,
+            ParameterRangeEnd pre => pre.Resolve(currentYear),
             JsonElement je when je.ValueKind == JsonValueKind.String =>
                 je.GetString()?.Equals("current", StringComparison.OrdinalIgnoreCase) == true
-                    ? DateTime.UtcNow.Year
+                    ? year
                     : int.Parse(je.GetString() ?? "0"),
             JsonElement je when je.ValueKind == JsonValueKind.Number => je.TryGetInt32(out var i) ? i : (int)je.GetDouble(),
-            _ => endVal is int i2 ? i2 : (endVal is string ? DateTime.UtcNow.Year : Convert.ToInt32(endVal))
+            _ => endVal is int i2 ? i2 : (endVal is string ? year : Convert.ToInt32(endVal))
         };
     }
 }

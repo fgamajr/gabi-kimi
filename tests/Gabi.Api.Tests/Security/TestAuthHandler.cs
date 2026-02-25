@@ -23,10 +23,14 @@ internal sealed class TestAuthHandler : AuthenticationHandler<AuthenticationSche
         var role = Request.Headers.TryGetValue("X-Test-Role", out var roleHeader)
             ? roleHeader.ToString()
             : "Operator";
+        var username = Request.Headers.TryGetValue("X-Test-User", out var userHeader)
+            ? userHeader.ToString()
+            : "test-user";
 
         var claims = new[]
         {
-            new Claim(ClaimTypes.Name, "test-user"),
+            new Claim(ClaimTypes.Name, username),
+            new Claim(ClaimTypes.NameIdentifier, username),
             new Claim(ClaimTypes.Role, role)
         };
 

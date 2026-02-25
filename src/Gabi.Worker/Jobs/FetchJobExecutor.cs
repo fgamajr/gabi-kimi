@@ -77,6 +77,8 @@ public class FetchJobExecutor : IJobExecutor
         activity?.SetTag("source.id", sourceId);
         var startedAt = DateTime.UtcNow;
         var maxDocsPerSource = ReadMaxDocsPerSource(job.Payload);
+        var strictCoverage = ReadStrictCoverage(job.Payload);
+        activity?.SetTag("coverage.strict", strictCoverage);
 
         var fetchRun = new FetchRunEntity
         {
@@ -98,7 +100,7 @@ public class FetchJobExecutor : IJobExecutor
             activity?.SetStatus(ActivityStatusCode.Error, $"Source {sourceId} not found");
             activity?.SetTag("error.type", "source_not_found");
             PipelineTelemetry.RecordStageLatency(stageStopwatch.Elapsed.TotalMilliseconds, sourceId, "fetch");
-            return new JobResult { Success = false, ErrorMessage = $"Source {sourceId} not found" };
+            return new JobResult { Status = JobTerminalStatus.Failed, ErrorMessage = $"Source {sourceId} not found" };
         }
 
         // Cleanup: reset items stuck in "processing" from previous interrupted runs
@@ -123,7 +125,7 @@ public class FetchJobExecutor : IJobExecutor
             progress.Report(new JobProgress { PercentComplete = 100, Message = "Nenhum fetch_item pendente" });
             activity?.SetTag("docs.count", 0);
             PipelineTelemetry.RecordStageLatency(stageStopwatch.Elapsed.TotalMilliseconds, sourceId, "fetch");
-            return new JobResult { Success = true };
+            return new JobResult { Status = JobTerminalStatus.Success };
         }
 
         if (maxDocsPerSource.HasValue)
@@ -322,7 +324,7 @@ public class FetchJobExecutor : IJobExecutor
 
             return new JobResult
             {
-                Success = failed < total,
+                Status = ResolveFetchTerminalStatus(failed, total, capped),
                 Metadata = new Dictionary<string, object>
                 {
                     ["fetch_run_id"] = fetchRun.Id.ToString(),
@@ -333,7 +335,8 @@ public class FetchJobExecutor : IJobExecutor
                     ["rows_processed"] = totalRows,
                     ["fields_truncated"] = 0,
                     ["capped"] = capped,
-                    ["content_strategy"] = "link_only"
+                    ["content_strategy"] = "link_only",
+                    ["strict_coverage"] = strictCoverage
                 }
             };
         }
@@ -534,7 +537,7 @@ public class FetchJobExecutor : IJobExecutor
 
         return new JobResult
         {
-            Success = failed < total,
+            Status = ResolveFetchTerminalStatus(failed, total, capped),
             Metadata = new Dictionary<string, object>
             {
                 ["fetch_run_id"] = fetchRun.Id.ToString(),
@@ -544,9 +547,18 @@ public class FetchJobExecutor : IJobExecutor
                 ["documents_created"] = totalDocs,
                 ["rows_processed"] = totalRows,
                 ["fields_truncated"] = totalTruncatedFields,
-                ["capped"] = capped
+                ["capped"] = capped,
+                ["strict_coverage"] = strictCoverage
             }
         };
+    }
+
+    private static JobTerminalStatus ResolveFetchTerminalStatus(int failed, int total, bool capped)
+    {
+        if (failed == total) return JobTerminalStatus.Failed;
+        if (failed > 0) return JobTerminalStatus.Partial;
+        if (capped) return JobTerminalStatus.Capped;
+        return JobTerminalStatus.Success;
     }
 
     private async Task<FetchResult> FetchAndConvertLinkOnlyAsync(
@@ -1409,6 +1421,78 @@ public class FetchJobExecutor : IJobExecutor
                 _ => ParseString(element.ToString())
             },
             _ => ParseString(raw.ToString())
+        };
+    }
+
+    public static bool ReadStrictCoverage(Dictionary<string, object>? payload)
+    {
+        if (payload == null || !payload.TryGetValue("strict_coverage", out var raw) || raw == null)
+            return false;
+
+        return raw switch
+        {
+            bool b => b,
+            string s when bool.TryParse(s, out var parsedBool) => parsedBool,
+            int i => i > 0,
+            long l => l > 0,
+            JsonElement element => element.ValueKind switch
+            {
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                JsonValueKind.String when bool.TryParse(element.GetString(), out var parsedBool) => parsedBool,
+                JsonValueKind.Number when element.TryGetInt32(out var parsedInt) => parsedInt > 0,
+                _ => false
+            },
+            _ => false
+        };
+    }
+
+    /// <summary>Reads min_coverage_ratio from job payload (0.0–1.0; default 0.5). Used for discovery coverage gate.</summary>
+    public static double ReadMinCoverageRatio(Dictionary<string, object>? payload)
+    {
+        if (payload == null || !payload.TryGetValue("min_coverage_ratio", out var raw) || raw == null)
+            return 0.5;
+
+        static double Clamp(double v) => Math.Clamp(v, 0.0, 1.0);
+        return raw switch
+        {
+            double d => Clamp(d),
+            float f => Clamp(f),
+            int i => Clamp(i / 100.0),
+            long l => Clamp(l / 100.0),
+            decimal dec => Clamp((double)dec),
+            string s when double.TryParse(s, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var parsed) => Clamp(parsed),
+            JsonElement element => element.ValueKind switch
+            {
+                JsonValueKind.Number when element.TryGetDouble(out var d) => Clamp(d),
+                JsonValueKind.String when double.TryParse(element.GetString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var d) => Clamp(d),
+                _ => 0.5
+            },
+            _ => double.TryParse(raw.ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var p) ? Clamp(p) : 0.5
+        };
+    }
+
+    /// <summary>Reads zero_ok from job payload (when true, 0 links discovered is accepted; default false).</summary>
+    public static bool ReadZeroOk(Dictionary<string, object>? payload)
+    {
+        if (payload == null || !payload.TryGetValue("zero_ok", out var raw) || raw == null)
+            return false;
+
+        return raw switch
+        {
+            bool b => b,
+            string s when bool.TryParse(s, out var parsedBool) => parsedBool,
+            int i => i > 0,
+            long l => l > 0,
+            JsonElement element => element.ValueKind switch
+            {
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                JsonValueKind.String when bool.TryParse(element.GetString(), out var parsedBool) => parsedBool,
+                JsonValueKind.Number when element.TryGetInt32(out var parsedInt) => parsedInt > 0,
+                _ => false
+            },
+            _ => false
         };
     }
 

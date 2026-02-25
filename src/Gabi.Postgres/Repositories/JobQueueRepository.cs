@@ -100,10 +100,15 @@ public class JobQueueRepository : IJobQueueRepository
 
     public async Task CompleteAsync(Guid jobId, CancellationToken ct = default)
     {
+        await CompleteAsync(jobId, "completed", ct);
+    }
+
+    public async Task CompleteAsync(Guid jobId, string terminalStatus, CancellationToken ct = default)
+    {
         var updated = await _context.IngestJobs
             .Where(j => j.Id == jobId)
             .ExecuteUpdateAsync(setters => setters
-                .SetProperty(j => j.Status, "completed")
+                .SetProperty(j => j.Status, terminalStatus)
                 .SetProperty(j => j.WorkerId, (string?)null)
                 .SetProperty(j => j.LockedAt, (DateTime?)null)
                 .SetProperty(j => j.LockExpiresAt, (DateTime?)null)
@@ -111,7 +116,7 @@ public class JobQueueRepository : IJobQueueRepository
                 .SetProperty(j => j.ProgressPercent, 100), ct);
 
         if (updated > 0)
-            _logger.LogInformation("Job {JobId} completed", jobId);
+            _logger.LogInformation("Job {JobId} completed with status {Status}", jobId, terminalStatus);
     }
 
     public async Task FailAsync(Guid jobId, string error, bool shouldRetry, CancellationToken ct = default)
@@ -385,6 +390,9 @@ public class JobQueueRepository : IJobQueueRepository
         "pending" => Gabi.Contracts.Jobs.JobStatus.Pending,
         "running" => Gabi.Contracts.Jobs.JobStatus.Running,
         "completed" => Gabi.Contracts.Jobs.JobStatus.Completed,
+        "partial" => Gabi.Contracts.Jobs.JobStatus.Partial,
+        "capped" => Gabi.Contracts.Jobs.JobStatus.Capped,
+        "inconclusive" => Gabi.Contracts.Jobs.JobStatus.Inconclusive,
         "failed" => Gabi.Contracts.Jobs.JobStatus.Failed,
         "cancelled" => Gabi.Contracts.Jobs.JobStatus.Cancelled,
         _ => Gabi.Contracts.Jobs.JobStatus.Pending

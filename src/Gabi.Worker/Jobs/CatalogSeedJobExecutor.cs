@@ -59,7 +59,7 @@ public class CatalogSeedJobExecutor : IJobExecutor
                 sourcesPath != null && File.Exists(sourcesPath));
             return new JobResult
             {
-                Success = false,
+                Status = JobTerminalStatus.Failed,
                 ErrorMessage = $"Sources file not found. Path={sourcesPath ?? "(null)"}, CWD={cwd}"
             };
         }
@@ -70,7 +70,7 @@ public class CatalogSeedJobExecutor : IJobExecutor
             _logger.LogWarning("No sources parsed from YAML at {Path}", sourcesPath);
             return new JobResult
             {
-                Success = false,
+                Status = JobTerminalStatus.Failed,
                 ErrorMessage = "No sources found in YAML or parse error"
             };
         }
@@ -145,7 +145,7 @@ public class CatalogSeedJobExecutor : IJobExecutor
 
         return new JobResult
         {
-            Success = true,
+            Status = JobTerminalStatus.Success,
             Metadata = new Dictionary<string, object>
             {
                 ["sourcesSeeded"] = seeded,
@@ -230,6 +230,10 @@ public class CatalogSeedJobExecutor : IJobExecutor
             {
                 foreach (var (id, sourceDef) in doc.Sources)
                 {
+                    var fetchProtocol = GetConfigString(sourceDef.Fetch, "protocol") ?? "https";
+                    var fetchConfig = BuildConfigObject(sourceDef.Fetch);
+                    var pipelineConfig = BuildConfigObject(sourceDef.Pipeline);
+
                     sources.Add(new SourceRegistryEntity
                     {
                         Id = id,
@@ -239,8 +243,12 @@ public class CatalogSeedJobExecutor : IJobExecutor
                         Domain = sourceDef.Identity?.Domain,
                         Jurisdiction = sourceDef.Identity?.Jurisdiction,
                         Category = sourceDef.Identity?.Category,
+                        CanonicalType = sourceDef.Identity?.CanonicalType,
                         DiscoveryStrategy = sourceDef.Discovery?.Strategy ?? "unknown",
                         DiscoveryConfig = JsonSerializer.Serialize(BuildDiscoveryConfigObject(sourceDef.Discovery)),
+                        FetchProtocol = fetchProtocol,
+                        FetchConfig = fetchConfig is null ? null : JsonSerializer.Serialize(fetchConfig),
+                        PipelineConfig = pipelineConfig is null ? null : JsonSerializer.Serialize(pipelineConfig),
                         Enabled = sourceDef.Enabled
                     });
                 }
@@ -264,6 +272,8 @@ public class CatalogSeedJobExecutor : IJobExecutor
         public bool Enabled { get; set; } = true;
         public SeedIdentityDefinition? Identity { get; set; }
         public SeedDiscoveryDefinition? Discovery { get; set; }
+        public object? Fetch { get; set; }
+        public object? Pipeline { get; set; }
     }
 
     private class SeedIdentityDefinition
@@ -274,6 +284,7 @@ public class CatalogSeedJobExecutor : IJobExecutor
         public string? Domain { get; set; }
         public string? Jurisdiction { get; set; }
         public string? Category { get; set; }
+        public string? CanonicalType { get; set; }
     }
 
     private class SeedDiscoveryDefinition
@@ -295,6 +306,12 @@ public class CatalogSeedJobExecutor : IJobExecutor
             result[key] = value;
 
         return result;
+    }
+
+    private static Dictionary<string, object?>? BuildConfigObject(object? config)
+    {
+        var map = NormalizeMap(config);
+        return map.Count == 0 ? null : map;
     }
 
     private static string? GetConfigString(object? config, params string[] keys)

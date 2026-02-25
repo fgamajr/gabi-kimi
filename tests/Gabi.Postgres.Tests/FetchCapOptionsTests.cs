@@ -76,4 +76,32 @@ public class FetchCapOptionsTests
 
         Assert.Equal(20000, maxDocs);
     }
+
+    [Fact]
+    public void ReadStrictCoverage_FromPayloadVariants_ParsesBooleanValues()
+    {
+        var fromBool = new Dictionary<string, object> { ["strict_coverage"] = true };
+        var fromString = new Dictionary<string, object> { ["strict_coverage"] = "true" };
+        var fromJsonBool = new Dictionary<string, object>
+        {
+            ["strict_coverage"] = JsonDocument.Parse("true").RootElement.Clone()
+        };
+        var fromJsonNumber = new Dictionary<string, object>
+        {
+            ["strict_coverage"] = JsonDocument.Parse("1").RootElement.Clone()
+        };
+
+        Assert.True(FetchJobExecutor.ReadStrictCoverage(fromBool));
+        Assert.True(FetchJobExecutor.ReadStrictCoverage(fromString));
+        Assert.True(FetchJobExecutor.ReadStrictCoverage(fromJsonBool));
+        Assert.True(FetchJobExecutor.ReadStrictCoverage(fromJsonNumber));
+    }
+
+    [Fact]
+    public void ReadStrictCoverage_MissingOrInvalid_ReturnsFalse()
+    {
+        Assert.False(FetchJobExecutor.ReadStrictCoverage(null));
+        Assert.False(FetchJobExecutor.ReadStrictCoverage(new Dictionary<string, object>()));
+        Assert.False(FetchJobExecutor.ReadStrictCoverage(new Dictionary<string, object> { ["strict_coverage"] = "abc" }));
+    }
 }

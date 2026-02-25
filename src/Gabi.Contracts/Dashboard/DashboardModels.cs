@@ -218,6 +218,9 @@ public record RefreshSourceRequest
 
     [JsonPropertyName("max_docs_per_source")]
     public int? MaxDocsPerSource { get; init; }
+
+    [JsonPropertyName("strict_coverage")]
+    public bool? StrictCoverage { get; init; }
 }
 
 /// <summary>
@@ -227,6 +230,9 @@ public record StartPhaseRequest
 {
     [JsonPropertyName("max_docs_per_source")]
     public int? MaxDocsPerSource { get; init; }
+
+    [JsonPropertyName("strict_coverage")]
+    public bool? StrictCoverage { get; init; }
 }
 
 /// <summary>

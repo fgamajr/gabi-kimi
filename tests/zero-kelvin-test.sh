@@ -22,7 +22,7 @@
 #   --phase <discovery|fetch|ingest|full|media-projection> Fase targeted (default: full)
 #   --max-docs <n>                Cap nativo do fetch (default: 20000)
 #   --monitor-memory              Habilita amostragem contínua de memória no stress run
-#   --report-json <path>          Saída JSON estruturada (default: /tmp/gabi-zero-kelvin-report.json)
+#   --report-json <path>          Saída JSON estruturada (default: reports/zero-kelvin-report.json)
 #
 # Critério de Sucesso:
 #   - Todos os checks retornam PASS ou WARN
@@ -48,7 +48,7 @@ TARGET_SOURCE="tcu_acordaos"
 TARGET_PHASE=""          # discovery|fetch|ingest|full|media-projection (default resolved later)
 TARGET_MAX_DOCS=20000
 MONITOR_MEMORY=false
-REPORT_JSON_FILE="/tmp/gabi-zero-kelvin-report.json"
+REPORT_JSON_FILE="${GABI_ROOT}/reports/zero-kelvin-report.json"
 TARGETED_STRESS=false
 
 # Pipeline evidence (for report)
@@ -231,6 +231,36 @@ defaults = (((doc.get("defaults") or {}).get("pipeline") or {}).get("ingest") or
 source = (((doc.get("sources") or {}).get(source_id) or {}).get("pipeline") or {}).get("ingest") or {}
 readiness = source.get("readiness") or defaults.get("readiness") or "text_ready"
 print(str(readiness).strip() or "text_ready")
+PY
+}
+
+get_source_strict_coverage() {
+    local source_id="$1"
+    local sources_path="${GABI_SOURCES_PATH:-$GABI_ROOT/sources_v2.yaml}"
+
+    python3 - "$sources_path" "$source_id" <<'PY' 2>/dev/null || echo "false"
+import sys
+try:
+    import yaml
+except Exception:
+    print("false")
+    raise SystemExit(0)
+
+path = sys.argv[1]
+source_id = sys.argv[2]
+try:
+    with open(path, "r", encoding="utf-8") as fh:
+        doc = yaml.safe_load(fh) or {}
+except Exception:
+    print("false")
+    raise SystemExit(0)
+
+defaults = (((doc.get("defaults") or {}).get("pipeline") or {}).get("coverage") or {})
+source = ((((doc.get("sources") or {}).get(source_id) or {}).get("pipeline") or {}).get("coverage") or {})
+strict = source.get("strict")
+if strict is None:
+    strict = defaults.get("strict")
+print("true" if bool(strict) else "false")
 PY
 }
 
@@ -648,7 +678,7 @@ phase_verify() {
     local seed_http_code
     seed_http_code=$(curl -s -o /tmp/gabi-seed-response.json -w "%{http_code}" -X POST "$base_url/api/v1/dashboard/seed" \
         -H "Authorization: Bearer $token_operator" -H "Content-Type: application/json" 2>/dev/null || echo "000")
-    
+    seed_http_code="${seed_http_code:0:3}"
     if [[ "$seed_http_code" == "200" ]]; then
         # Seed é assíncrono (job catalog_seed no Worker): aguardar seed_runs ser preenchido (até 60s)
         log "Aguardando Worker concluir seed (poll GET /api/v1/dashboard/seed/last)..."
@@ -781,6 +811,15 @@ phase_verify() {
         else
             fail "Discovery – Total: ${total_links} links (expected ~42)"
         fi
+
+        # CODEX-A: execution_manifest must have external_id_set_hash after discovery
+        local manifest_hash
+        manifest_hash=$(psql_scalar "SELECT \"ExternalIdSetHash\" FROM execution_manifest WHERE \"SourceId\" = 'tcu_acordaos' ORDER BY \"SnapshotAt\" DESC LIMIT 1" "")
+        if [[ -n "$manifest_hash" ]]; then
+            pass "Discovery – execution_manifest hash present (tcu_acordaos)"
+        else
+            fail "Discovery – execution_manifest hash missing (tcu_acordaos); ensure AddExecutionManifest migration applied"
+        fi
     fi
 
     # Fetch endpoint (opcional - não implementado ainda)
@@ -789,7 +828,7 @@ phase_verify() {
     local links_code
     links_code=$(curl -s -o /tmp/gabi-links-response.json -w "%{http_code}" "$base_url/api/v1/sources/${pipeline_source_id}/links" \
         -H "Authorization: Bearer $token_viewer" 2>/dev/null || echo "000")
-
+    links_code="${links_code:0:3}"
     if [[ "$links_code" == "200" ]]; then
         pass "Fetch endpoint – implementado e respondendo"
         PIPELINE_FETCH_STATUS="PASS"
@@ -840,19 +879,32 @@ run_targeted_source() {
     if [[ "$TARGET_SOURCE" == "all" && "$TARGET_PHASE" == "full" && "${TARGET_MAX_DOCS:-0}" -ge 10000 ]]; then
         strict_all_e2e=true
     fi
+    local source_strict_coverage
+    source_strict_coverage="$(get_source_strict_coverage "$source_id" | tr '[:upper:]' '[:lower:]')"
+    if [[ "$source_strict_coverage" != "true" ]]; then
+        source_strict_coverage="false"
+    fi
 
     if [[ "$TARGET_PHASE" == "discovery" || "$TARGET_PHASE" == "full" || "$TARGET_PHASE" == "fetch" || "$TARGET_PHASE" == "ingest" ]]; then
-        log "Discovery ${source_id}..."
+        log "Discovery ${source_id} (strict_coverage=${source_strict_coverage})..."
         local disc_code="000"
+        local discovery_payload_parts=()
         local discovery_payload="{}"
         if [[ "${TARGET_MAX_DOCS:-0}" -gt 0 ]]; then
-            discovery_payload="{\"max_docs_per_source\":${TARGET_MAX_DOCS}}"
+            discovery_payload_parts+=("\"max_docs_per_source\":${TARGET_MAX_DOCS}")
+        fi
+        if [[ "$source_strict_coverage" == "true" ]]; then
+            discovery_payload_parts+=("\"strict_coverage\":true")
+        fi
+        if [[ "${#discovery_payload_parts[@]}" -gt 0 ]]; then
+            discovery_payload="{$(IFS=,; echo "${discovery_payload_parts[*]}")}"
         fi
         for trigger_attempt in 1 2 3; do
             disc_code=$(curl -s -o "/tmp/gabi-disc-${source_id}.json" -w "%{http_code}" -X POST \
                 "$base_url/api/v1/dashboard/sources/${source_id}/phases/discovery" \
                 -H "Authorization: Bearer $token_operator" -H "Content-Type: application/json" \
                 -d "$discovery_payload" 2>/dev/null || echo "000")
+            disc_code="${disc_code:0:3}"
             [[ "$disc_code" == "200" ]] && break
 
             # Retry path for transient API connectivity issues in long all-sources runs.
@@ -968,6 +1020,19 @@ run_targeted_source() {
                 discovery_no_links=true
                 break
             fi
+            if [[ "$discovery_status" == "inconclusive" ]]; then
+                local discovery_error
+                discovery_error=$(psql_scalar "SELECT COALESCE((SELECT \"ErrorSummary\" FROM discovery_runs WHERE \"SourceId\"='${source_id}' ORDER BY \"StartedAt\" DESC LIMIT 1),'');" "")
+                CURRENT_20K_STATUS="FAIL"
+                CURRENT_20K_DOCS="0"
+                CURRENT_20K_PEAK_MEM=$($MONITOR_MEMORY && echo "0 MiB (n/a)" || echo "monitoring_disabled")
+                CURRENT_20K_DURATION="0s"
+                CURRENT_20K_THROUGHPUT="0"
+                CURRENT_20K_STATUS_BREAKDOWN=$(psql_csv_compact "SELECT \"Status\", COUNT(*) FROM fetch_items WHERE \"SourceId\"='${source_id}' GROUP BY \"Status\" ORDER BY \"Status\";")
+                CURRENT_20K_ERROR_SUMMARY="${discovery_error:-discovery_run_inconclusive}"
+                fail "Targeted stress – discovery inconclusive (${source_id}): ${CURRENT_20K_ERROR_SUMMARY}"
+                return 1
+            fi
             if [[ "$discovery_status" == "failed" ]]; then
                 local discovery_error
                 discovery_error=$(psql_scalar "SELECT COALESCE((SELECT \"ErrorSummary\" FROM discovery_runs WHERE \"SourceId\"='${source_id}' ORDER BY \"StartedAt\" DESC LIMIT 1),'');" "")
@@ -999,6 +1064,17 @@ run_targeted_source() {
             CURRENT_20K_STATUS_BREAKDOWN=""
             warn "Targeted stress – discovery não materializou em ${max_discovery_attempts} tentativas (${source_id})"
             return 0
+        fi
+
+        # CODEX-A: execution_manifest must have external_id_set_hash for this source
+        if [[ "${links_count:-0}" -gt 0 ]]; then
+            local manifest_hash
+            manifest_hash=$(psql_scalar "SELECT \"ExternalIdSetHash\" FROM execution_manifest WHERE \"SourceId\"='${source_id}' ORDER BY \"SnapshotAt\" DESC LIMIT 1" "")
+            if [[ -n "$manifest_hash" ]]; then
+                pass "Discovery – execution_manifest hash present (${source_id})"
+            else
+                warn "Discovery – execution_manifest hash missing (${source_id}); ensure AddExecutionManifest migration applied"
+            fi
         fi
 
         if $discovery_no_links; then
@@ -1044,12 +1120,24 @@ run_targeted_source() {
         return 0
     fi
 
-    log "Trigger fetch ${source_id} (native cap ${TARGET_MAX_DOCS} docs)..."
+    log "Trigger fetch ${source_id} (native cap ${TARGET_MAX_DOCS} docs, strict_coverage=${source_strict_coverage})..."
+    local fetch_payload_parts=()
+    local fetch_payload="{}"
+    if [[ "${TARGET_MAX_DOCS:-0}" -gt 0 ]]; then
+        fetch_payload_parts+=("\"max_docs_per_source\":${TARGET_MAX_DOCS}")
+    fi
+    if [[ "$source_strict_coverage" == "true" ]]; then
+        fetch_payload_parts+=("\"strict_coverage\":true")
+    fi
+    if [[ "${#fetch_payload_parts[@]}" -gt 0 ]]; then
+        fetch_payload="{$(IFS=,; echo "${fetch_payload_parts[*]}")}"
+    fi
     local fetch_code
     fetch_code=$(curl -s -o "/tmp/gabi-fetch-${source_id}.json" -w "%{http_code}" -X POST \
         "$base_url/api/v1/dashboard/sources/${source_id}/phases/fetch" \
         -H "Authorization: Bearer $token_operator" -H "Content-Type: application/json" \
-        -d "{\"max_docs_per_source\":${TARGET_MAX_DOCS}}" 2>/dev/null || echo "000")
+        -d "$fetch_payload" 2>/dev/null || echo "000")
+    fetch_code="${fetch_code:0:3}"
     if [[ "$fetch_code" != "200" ]]; then
         CURRENT_20K_ERROR_SUMMARY="fetch_http_${fetch_code}"
         fail "Targeted stress – fetch trigger falhou (${source_id}, HTTP $fetch_code)"
@@ -1130,7 +1218,7 @@ run_targeted_source() {
         local fetch_status
         fetch_status=$(psql_scalar "SELECT COALESCE((SELECT \"Status\" FROM fetch_runs WHERE \"SourceId\"='${source_id}' ORDER BY \"StartedAt\" DESC LIMIT 1),'');" "")
 
-        if [[ "$fetch_status" == "capped" || "$fetch_status" == "completed" || "$fetch_status" == "failed" ]]; then
+        if [[ "$fetch_status" == "capped" || "$fetch_status" == "completed" || "$fetch_status" == "failed" || "$fetch_status" == "partial" ]]; then
             stop_reason="$fetch_status"
             break
         fi
@@ -1200,6 +1288,10 @@ run_targeted_source() {
     elif [[ "$stop_reason" == "completed" ]]; then
         pass "Targeted fetch – concluído sem cap (source=${source_id}, docs=${final_docs}, peak_mem=${CURRENT_20K_PEAK_MEM}, throughput=${docs_per_min} docs/min)"
         CURRENT_20K_STATUS="PASS"
+    elif [[ "$stop_reason" == "partial" ]]; then
+        CURRENT_20K_ERROR_SUMMARY="${error_summary:-fetch_run_partial}"
+        fail "Targeted fetch – partial (some items failed; source=${source_id}, docs=${final_docs}, peak_mem=${CURRENT_20K_PEAK_MEM})"
+        CURRENT_20K_STATUS="FAIL"
     elif [[ "$stop_reason" == "failed" ]]; then
         local last_item_error
         last_item_error=$(psql_scalar "SELECT COALESCE((SELECT \"LastError\" FROM fetch_items WHERE \"SourceId\"='${source_id}' ORDER BY \"UpdatedAt\" DESC LIMIT 1),'');" "")
@@ -1268,6 +1360,7 @@ run_targeted_source() {
             "$base_url/api/v1/dashboard/sources/${source_id}/phases/ingest" \
             -H "Authorization: Bearer $token_operator" -H "Content-Type: application/json" \
             -d "{}" 2>/dev/null || echo "000")
+        ingest_code="${ingest_code:0:3}"
         if [[ "$ingest_code" != "200" ]]; then
             CURRENT_20K_STATUS="FAIL"
             CURRENT_20K_ERROR_SUMMARY="ingest_http_${ingest_code}"
@@ -1609,7 +1702,12 @@ phase_report() {
         fi
     fi
 
-    cat > "$REPORT_JSON_FILE" <<EOF
+    _report_path="$REPORT_JSON_FILE"
+    if [[ "$_report_path" != /* ]]; then
+        _report_path="${GABI_ROOT}/${_report_path}"
+    fi
+    mkdir -p "$(dirname "$_report_path")"
+    if ! cat > "$_report_path" <<EOF
 {
   "timestamp_utc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "mode": "$(json_escape "$TEST_MODE")",
@@ -1650,6 +1748,27 @@ phase_report() {
   }
 }
 EOF
+    then
+        _fallback="${GABI_ROOT}/reports/zero-kelvin-report.json"
+        mkdir -p "$(dirname "$_fallback")"
+        if cat > "$_fallback" <<EOF
+{
+  "timestamp_utc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "mode": "$(json_escape "$TEST_MODE")",
+  "tests": { "total": ${TESTS_TOTAL}, "passed": ${TESTS_PASSED}, "failed": ${TESTS_FAILED} },
+  "pipeline": { "seed": { "status": "$(json_escape "${PIPELINE_SEED_STATUS:-n/a}")" }, "discovery": { "status": "$(json_escape "${PIPELINE_DISCOVERY_STATUS:-n/a}")" }, "fetch": { "status": "$(json_escape "${PIPELINE_FETCH_STATUS:-n/a}")" } },
+  "targeted_stress": { "status": "$(json_escape "${PIPELINE_20K_STATUS:-n/a}")", "error_summary": "$(json_escape "${PIPELINE_20K_ERROR_SUMMARY:-}")" }
+}
+EOF
+        then
+            warn "Report write to ${REPORT_JSON_FILE} failed; wrote to ${_fallback}"
+            REPORT_JSON_FILE="$_fallback"
+        else
+            warn "Report write failed (${REPORT_JSON_FILE} and fallback ${_fallback})"
+        fi
+    else
+        REPORT_JSON_FILE="$_report_path"
+    fi
     echo "Structured report: ${REPORT_JSON_FILE}" >> "$LOG_FILE"
     
     echo -e "\n${BLUE}Log completo: $LOG_FILE${NC}"

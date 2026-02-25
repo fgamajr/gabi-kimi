@@ -33,6 +33,10 @@ defaults:
       memory_threshold: 300MB
 
     # Ingest gate defaults (override per source when needed)
+    coverage:
+      strict: false
+      zero_ok: false  # when true, 0 links discovered is accepted; when false, 0 links → inconclusive
+
     ingest:
       readiness: text_ready
       empty_content_action: fail
@@ -200,6 +204,8 @@ sources:
       enabled: true
       schedule: "0 2 * * *"  # Daily at 2 AM
       mode: incremental
+      coverage:
+        strict: true
       ingest:
         readiness: text_ready
         empty_content_action: fail
@@ -396,6 +402,8 @@ sources:
       enabled: true
       schedule: "0 4 * * *"
       mode: full_reload
+      coverage:
+        strict: true
       ingest:
         readiness: text_ready
         empty_content_action: fail
@@ -634,6 +642,8 @@ sources:
       enabled: true
       schedule: "0 5 * * *"
       mode: full_reload
+      coverage:
+        strict: true
       ingest:
         readiness: text_ready
         empty_content_action: fail
@@ -709,6 +719,8 @@ sources:
       enabled: true
       schedule: "0 5 * * *"
       mode: full_reload
+      coverage:
+        strict: true
       ingest:
         readiness: text_ready
         empty_content_action: fail
@@ -788,6 +800,8 @@ sources:
       enabled: true
       schedule: "0 5 * * *"
       mode: full_reload
+      coverage:
+        strict: true
       ingest:
         readiness: text_ready
         empty_content_action: fail

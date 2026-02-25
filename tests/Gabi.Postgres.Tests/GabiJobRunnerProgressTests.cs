@@ -46,11 +46,22 @@ public class GabiJobRunnerProgressTests
 
         await using var assertScope = serviceProvider.CreateAsyncScope();
         var assertDb = assertScope.ServiceProvider.GetRequiredService<GabiDbContext>();
-        var reg = await assertDb.JobRegistry.SingleAsync(r => r.JobId == jobId);
 
+        // Allow progress pump to flush last update (race under parallel test runs)
+        var deadline = DateTime.UtcNow.AddSeconds(2);
+        JobRegistryEntity? reg = null;
+        while (DateTime.UtcNow < deadline)
+        {
+            reg = await assertDb.JobRegistry.AsNoTracking().SingleOrDefaultAsync(r => r.JobId == jobId);
+            if (reg?.ProgressMessage == "step-2")
+                break;
+            await Task.Delay(50);
+        }
+
+        reg = await assertDb.JobRegistry.AsNoTracking().SingleAsync(r => r.JobId == jobId);
         reg.Status.Should().Be("completed");
         reg.ProgressPercent.Should().Be(100);
-        reg.ProgressMessage.Should().Be("step-2");
+        reg.ProgressMessage.Should().Be("step-2", "progress pump must have persisted the last reported message");
     }
 
     [Fact]
@@ -102,7 +113,7 @@ public class GabiJobRunnerProgressTests
             progress.Report(new JobProgress { PercentComplete = 10, Message = "step-1" });
             progress.Report(new JobProgress { PercentComplete = 90, Message = "step-2" });
             await Task.Delay(100, CancellationToken.None);
-            return new JobResult { Success = true };
+            return new JobResult { Status = JobTerminalStatus.Success };
         }
     }
 
@@ -127,7 +138,7 @@ public class GabiJobRunnerProgressTests
                 }
             }, CancellationToken.None);
 
-            return Task.FromResult(new JobResult { Success = true });
+            return Task.FromResult(new JobResult { Status = JobTerminalStatus.Success });
         }
     }
 }

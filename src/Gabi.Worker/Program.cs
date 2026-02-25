@@ -1,3 +1,4 @@
+using Elastic.Clients.Elasticsearch;
 using Gabi.Contracts.Jobs;
 using Gabi.Contracts.Ingest;
 using Gabi.Contracts.Chunk;
@@ -51,6 +52,14 @@ try
     var connectionString = builder.Configuration.GetConnectionString("Default");
     if (string.IsNullOrWhiteSpace(connectionString))
         throw new InvalidOperationException("ConnectionStrings:Default is required");
+
+    if (!builder.Environment.IsDevelopment())
+    {
+        var embeddingsUrl = builder.Configuration["GABI_EMBEDDINGS_URL"];
+        if (string.IsNullOrWhiteSpace(embeddingsUrl))
+            throw new InvalidOperationException(
+                "GABI_EMBEDDINGS_URL is required in non-development. Configure via environment variable GABI_EMBEDDINGS_URL.");
+    }
 
     builder.Services.AddDbContext<GabiDbContext>(options =>
         options.UseNpgsql(connectionString));
@@ -128,8 +137,44 @@ try
     builder.Services.AddHostedService<SourceCatalogStartupValidationService>();
     builder.Services.AddSingleton<ICanonicalDocumentNormalizer, CanonicalDocumentNormalizer>();
     builder.Services.AddSingleton<IChunker, FixedSizeChunker>();
-    builder.Services.AddSingleton<IEmbedder, HashEmbedder>();
-    builder.Services.AddSingleton<IDocumentIndexer, LocalDocumentIndexer>();
+
+    var teiUrl = builder.Configuration["GABI_EMBEDDINGS_URL"];
+    if (!string.IsNullOrWhiteSpace(teiUrl))
+    {
+        var baseUrl = teiUrl.TrimEnd('/') + "/";
+        builder.Services.AddHttpClient("TeiEmbedder", client =>
+        {
+            client.BaseAddress = new Uri(baseUrl);
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+        builder.Services.AddSingleton<TeiEmbedder>(sp => new TeiEmbedder(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient("TeiEmbedder"),
+            sp.GetRequiredService<ILogger<TeiEmbedder>>()));
+        builder.Services.AddSingleton<IEmbedder>(sp => sp.GetRequiredService<TeiEmbedder>());
+    }
+    else
+    {
+        Log.Warning("GABI_EMBEDDINGS_URL not set; using HashEmbedder (dev fallback)");
+        builder.Services.AddSingleton<IEmbedder, HashEmbedder>();
+    }
+
+    var elasticsearchUrl = builder.Configuration["Gabi:ElasticsearchUrl"]
+        ?? builder.Configuration.GetConnectionString("Elasticsearch");
+    if (!string.IsNullOrWhiteSpace(elasticsearchUrl))
+    {
+        var settings = new ElasticsearchClientSettings(new Uri(elasticsearchUrl));
+        builder.Services.AddSingleton(new ElasticsearchClient(settings));
+        builder.Services.AddSingleton<IDocumentIndexer>(sp => new ElasticsearchDocumentIndexer(
+            sp.GetRequiredService<ElasticsearchClient>(),
+            sp.GetRequiredService<ILogger<ElasticsearchDocumentIndexer>>(),
+            indexName: null));
+    }
+    else
+    {
+        Log.Warning("Elasticsearch URL not set; using LocalDocumentIndexer (dev fallback)");
+        builder.Services.AddSingleton<IDocumentIndexer, LocalDocumentIndexer>();
+    }
+
     builder.Services.AddSingleton<IMediaTextProjector, MediaTextProjector>();
 
     builder.Services.AddScoped<IGabiJobRunner, GabiJobRunner>();

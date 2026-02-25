@@ -13,20 +13,23 @@ public class UrlPatternExpander
     /// <summary>
     /// Expands a URL pattern configuration into a list of discovered links.
     /// </summary>
-    public IReadOnlyList<DiscoveredLink> Expand(UrlPatternConfig config, string sourceId)
+    /// <param name="config">URL pattern config with template and year range.</param>
+    /// <param name="sourceId">Source identifier.</param>
+    /// <param name="snapshotYear">Year to use for "current" when resolving end of range; null uses DateTime.UtcNow.Year.</param>
+    public IReadOnlyList<DiscoveredLink> Expand(UrlPatternConfig config, string sourceId, int? snapshotYear = null)
     {
         if (config == null)
             throw new ArgumentNullException(nameof(config));
-        
+
         if (string.IsNullOrEmpty(config.Template))
             throw new ArgumentException("Template cannot be empty", nameof(config));
-        
+
         if (config.YearRange == null)
             throw new ArgumentException("YearRange is required for URL pattern expansion", nameof(config));
 
         var links = new List<DiscoveredLink>();
         var yearRange = config.YearRange;
-        var end = yearRange.ResolveEnd();
+        var end = yearRange.ResolveEnd(snapshotYear);
         
         for (var year = yearRange.Start; year <= end; year += yearRange.Step)
         {
