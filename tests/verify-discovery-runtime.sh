@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# ╔═══════════════════════════════════════════════════════════════╗
+# ║ DEPRECATED: Este script esta sendo migrado para o            ║
+# ║ ReliabilityLab C# (tests/ReliabilityLab/).                  ║
+# ║ Ver: tests/ReliabilityLab/README.md para a versao moderna.   ║
+# ╚═══════════════════════════════════════════════════════════════╝
 set -euo pipefail
 
 API_URL="${API_URL:-http://localhost:5100}"
