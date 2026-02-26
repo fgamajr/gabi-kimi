@@ -12,15 +12,16 @@ using Moq;
 
 namespace Gabi.Postgres.Tests;
 
-public class SourceDiscoveryJobExecutorMetadataTests : IDisposable
+[Collection("Postgres")]
+public class SourceDiscoveryJobExecutorMetadataTests
 {
     private readonly GabiDbContext _context;
     private readonly SourceDiscoveryJobExecutor _executor;
 
-    public SourceDiscoveryJobExecutorMetadataTests()
+    public SourceDiscoveryJobExecutorMetadataTests(PostgresFixture fixture)
     {
         var options = new DbContextOptionsBuilder<GabiDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .UseNpgsql(fixture.ConnectionString)
             .Options;
 
         _context = new GabiDbContext(options);
@@ -39,10 +40,17 @@ public class SourceDiscoveryJobExecutorMetadataTests : IDisposable
         });
         var discoveryEngine = new DiscoveryEngine(adapterRegistry);
 
+        var jobQueueMock = new Mock<IJobQueueRepository>();
+        jobQueueMock.Setup(q => q.EnqueueAsync(It.IsAny<IngestJob>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Guid.NewGuid());
+        jobQueueMock.Setup(q => q.ScheduleAsync(It.IsAny<IngestJob>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Guid.NewGuid());
+
         _executor = new SourceDiscoveryJobExecutor(
             linkRepository,
             fetchItemRepository,
             _context,
+            jobQueueMock.Object,
             discoveryEngine,
             executorLogger.Object);
     }

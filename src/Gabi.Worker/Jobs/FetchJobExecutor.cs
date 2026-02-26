@@ -31,6 +31,8 @@ public class FetchJobExecutor : IJobExecutor
 
     private readonly GabiDbContext _context;
     private readonly IFetchItemRepository _fetchItemRepository;
+    private readonly IFetchUrlValidator _fetchUrlValidator;
+    private readonly IJobQueueRepository _jobQueue;
     private readonly ILogger<FetchJobExecutor> _logger;
     private readonly HttpClient _httpClient;
     private const int BatchSize = 25;
@@ -50,10 +52,14 @@ public class FetchJobExecutor : IJobExecutor
     public FetchJobExecutor(
         GabiDbContext context,
         IFetchItemRepository fetchItemRepository,
+        IFetchUrlValidator fetchUrlValidator,
+        IJobQueueRepository jobQueue,
         ILogger<FetchJobExecutor> logger)
     {
         _context = context;
         _fetchItemRepository = fetchItemRepository;
+        _fetchUrlValidator = fetchUrlValidator;
+        _jobQueue = jobQueue;
         _logger = logger;
 
         var handler = new SocketsHttpHandler
@@ -128,6 +134,51 @@ public class FetchJobExecutor : IJobExecutor
             return new JobResult { Status = JobTerminalStatus.Success };
         }
 
+        if (await _context.IsSourcePausedOrStoppedAsync(sourceId, ct))
+        {
+            _logger.LogInformation("Fetch skipped for {SourceId}: source is paused or stopped", sourceId);
+            fetchRun.CompletedAt = DateTime.UtcNow;
+            fetchRun.Status = "completed";
+            fetchRun.ItemsTotal = total;
+            await _context.SaveChangesAsync(ct);
+            return new JobResult
+            {
+                Status = JobTerminalStatus.Success,
+                Metadata = new Dictionary<string, object> { ["interrupted_by"] = "pause", ["documents_created"] = 0 }
+            };
+        }
+
+        var backpressure = PipelineBackpressureConfig.Load();
+        var pendingIngest = await _context.Documents.CountAsync(d => d.SourceId == sourceId && d.Status == "pending", ct);
+        if (pendingIngest > backpressure.MaxPendingIngest)
+        {
+            _logger.LogInformation(
+                "Fetch yielding for {SourceId}: backpressure pending_ingest={Pending} > {Max}",
+                sourceId, pendingIngest, backpressure.MaxPendingIngest);
+            fetchRun.CompletedAt = DateTime.UtcNow;
+            fetchRun.Status = "completed";
+            fetchRun.ItemsTotal = total;
+            await _context.SaveChangesAsync(ct);
+            var retryJob = new IngestJob
+            {
+                Id = Guid.NewGuid(),
+                SourceId = sourceId,
+                JobType = "fetch",
+                Payload = job.Payload ?? new Dictionary<string, object>()
+            };
+            await _jobQueue.ScheduleAsync(retryJob, TimeSpan.FromSeconds(60), ct);
+            return new JobResult
+            {
+                Status = JobTerminalStatus.Success,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["yielded"] = true,
+                    ["reason"] = "backpressure",
+                    ["pending_downstream"] = pendingIngest
+                }
+            };
+        }
+
         if (maxDocsPerSource.HasValue)
         {
             _logger.LogInformation(
@@ -157,8 +208,15 @@ public class FetchJobExecutor : IJobExecutor
         if (string.Equals(fetchContentStrategy, "link_only", StringComparison.OrdinalIgnoreCase))
         {
             var processed = 0;
+            var interruptedByPause = false;
             while (true)
             {
+                if (await _context.IsSourcePausedOrStoppedAsync(sourceId, ct))
+                {
+                    _logger.LogInformation("Fetch interrupted for {SourceId}: source paused/stopped (link_only)", sourceId);
+                    interruptedByPause = true;
+                    break;
+                }
                 if (IsCapReached(totalDocs, maxDocsPerSource))
                 {
                     capped = true;
@@ -195,6 +253,15 @@ public class FetchJobExecutor : IJobExecutor
                             item.CompletedAt = DateTime.UtcNow;
                             completed++;
                             processed++;
+                        }
+                        else if (!await _fetchUrlValidator.IsUrlAllowedAsync(item.Url, ct))
+                        {
+                            item.Status = "skipped";
+                            item.LastError = "url_blocked_ssrf";
+                            item.CompletedAt = DateTime.UtcNow;
+                            completed++;
+                            processed++;
+                            _logger.LogWarning("Fetch skipped (URL blocked by SSRF policy): {Url}", item.Url);
                         }
                         else
                         {
@@ -322,28 +389,41 @@ public class FetchJobExecutor : IJobExecutor
             PipelineTelemetry.RecordDocsProcessed(totalDocs, sourceId, "fetch");
             PipelineTelemetry.RecordStageLatency(stageStopwatch.Elapsed.TotalMilliseconds, sourceId, "fetch");
 
+            var linkOnlyMetadata = new Dictionary<string, object>
+            {
+                ["fetch_run_id"] = fetchRun.Id.ToString(),
+                ["items_total"] = total,
+                ["items_completed"] = completed,
+                ["items_failed"] = failed,
+                ["documents_created"] = totalDocs,
+                ["rows_processed"] = totalRows,
+                ["fields_truncated"] = 0,
+                ["capped"] = capped,
+                ["content_strategy"] = "link_only",
+                ["strict_coverage"] = strictCoverage
+            };
+            if (interruptedByPause)
+            {
+                linkOnlyMetadata["interrupted_by"] = "pause";
+                linkOnlyMetadata["last_cursor"] = totalDocs;
+            }
             return new JobResult
             {
                 Status = ResolveFetchTerminalStatus(failed, total, capped),
-                Metadata = new Dictionary<string, object>
-                {
-                    ["fetch_run_id"] = fetchRun.Id.ToString(),
-                    ["items_total"] = total,
-                    ["items_completed"] = completed,
-                    ["items_failed"] = failed,
-                    ["documents_created"] = totalDocs,
-                    ["rows_processed"] = totalRows,
-                    ["fields_truncated"] = 0,
-                    ["capped"] = capped,
-                    ["content_strategy"] = "link_only",
-                    ["strict_coverage"] = strictCoverage
-                }
+                Metadata = linkOnlyMetadata
             };
         }
 
         var processedCount = 0;
+        var interruptedByPauseMain = false;
         while (true)
         {
+            if (await _context.IsSourcePausedOrStoppedAsync(sourceId, ct))
+            {
+                _logger.LogInformation("Fetch interrupted for {SourceId}: source paused/stopped at {Processed} items", sourceId, processedCount);
+                interruptedByPauseMain = true;
+                break;
+            }
             if (capped || IsCapReached(totalDocs, maxDocsPerSource))
             {
                 capped = true;
@@ -384,6 +464,14 @@ public class FetchJobExecutor : IJobExecutor
                             unsupportedScheme,
                             item.Url);
                         completed++;
+                    }
+                    else if (!await _fetchUrlValidator.IsUrlAllowedAsync(item.Url, ct))
+                    {
+                        item.Status = "skipped";
+                        item.LastError = "url_blocked_ssrf";
+                        item.CompletedAt = DateTime.UtcNow;
+                        completed++;
+                        _logger.LogWarning("Fetch skipped (URL blocked by SSRF policy): {Url}", item.Url);
                     }
                     else
                     {
@@ -535,21 +623,27 @@ public class FetchJobExecutor : IJobExecutor
         PipelineTelemetry.RecordDocsProcessed(totalDocs, sourceId, "fetch");
         PipelineTelemetry.RecordStageLatency(stageStopwatch.Elapsed.TotalMilliseconds, sourceId, "fetch");
 
+        var mainMetadata = new Dictionary<string, object>
+        {
+            ["fetch_run_id"] = fetchRun.Id.ToString(),
+            ["items_total"] = total,
+            ["items_completed"] = completed,
+            ["items_failed"] = failed,
+            ["documents_created"] = totalDocs,
+            ["rows_processed"] = totalRows,
+            ["fields_truncated"] = totalTruncatedFields,
+            ["capped"] = capped,
+            ["strict_coverage"] = strictCoverage
+        };
+        if (interruptedByPauseMain)
+        {
+            mainMetadata["interrupted_by"] = "pause";
+            mainMetadata["last_cursor"] = totalDocs;
+        }
         return new JobResult
         {
             Status = ResolveFetchTerminalStatus(failed, total, capped),
-            Metadata = new Dictionary<string, object>
-            {
-                ["fetch_run_id"] = fetchRun.Id.ToString(),
-                ["items_total"] = total,
-                ["items_completed"] = completed,
-                ["items_failed"] = failed,
-                ["documents_created"] = totalDocs,
-                ["rows_processed"] = totalRows,
-                ["fields_truncated"] = totalTruncatedFields,
-                ["capped"] = capped,
-                ["strict_coverage"] = strictCoverage
-            }
+            Metadata = mainMetadata
         };
     }
 
@@ -644,11 +738,7 @@ public class FetchJobExecutor : IJobExecutor
         var externalId = FirstNonEmpty(
             TryReadMetadataValueAsString(linkMetadataJson, "external_id"),
             docId,
-            ComputeHash(new Dictionary<string, string>
-            {
-                ["url"] = url,
-                ["title"] = conversion.Title ?? string.Empty
-            }));
+            ComputeHash(new Dictionary<string, string> { ["url"] = url }));
 
         var title = FirstNonEmpty(
             conversion.Title,
@@ -915,7 +1005,7 @@ public class FetchJobExecutor : IJobExecutor
 
         var externalId = !string.IsNullOrWhiteSpace(extractedId)
             ? extractedId!
-            : ComputeHash(new Dictionary<string, string> { ["url"] = url, ["title"] = extractedTitle ?? string.Empty });
+            : ComputeHash(new Dictionary<string, string> { ["url"] = url });
 
         var content = extractedContent ?? extractedTitle ?? string.Empty;
         var docEntity = new DocumentEntity

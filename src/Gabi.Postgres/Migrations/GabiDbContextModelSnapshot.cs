@@ -375,6 +375,41 @@ namespace Gabi.Postgres.Migrations
                     b.ToTable("reconciliation_records", (string)null);
                 });
 
+            modelBuilder.Entity("Gabi.Postgres.Entities.SourcePipelineStateEntity", b =>
+                {
+                    b.Property<string>("SourceId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ActivePhase")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime?>("LastResumedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PausedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("PausedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("SourceId");
+
+                    b.HasIndex("State");
+
+                    b.ToTable("source_pipeline_state", (string)null);
+                });
+
             modelBuilder.Entity("Gabi.Postgres.Entities.DlqEntryEntity", b =>
                 {
                     b.Property<Guid>("Id")

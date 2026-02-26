@@ -266,6 +266,42 @@ public record SeedResponse
 }
 
 /// <summary>
+/// Resposta do reindex: quantidade de documentos enfileirados para re-ingest e source_id.
+/// </summary>
+public record ReindexSourceResponse
+{
+    [JsonPropertyName("queued")]
+    public int Queued { get; init; }
+
+    [JsonPropertyName("source_id")]
+    public string SourceId { get; init; } = null!;
+}
+
+/// <summary>
+/// Pipeline state for a source (idle, running, paused, failed).
+/// </summary>
+public record SourcePipelineStateDto
+{
+    [JsonPropertyName("source_id")]
+    public string SourceId { get; init; } = null!;
+
+    [JsonPropertyName("state")]
+    public string State { get; init; } = "idle";
+
+    [JsonPropertyName("active_phase")]
+    public string? ActivePhase { get; init; }
+
+    [JsonPropertyName("paused_at")]
+    public DateTime? PausedAt { get; init; }
+
+    [JsonPropertyName("last_resumed_at")]
+    public DateTime? LastResumedAt { get; init; }
+
+    [JsonPropertyName("updated_at")]
+    public DateTime UpdatedAt { get; init; }
+}
+
+/// <summary>
 /// Última execução do seed (tabela seed_runs). Usado pela fase de discovery para saber se o catálogo está pronto.
 /// </summary>
 public record SeedRunDto

@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Gabi.ReliabilityLab.Pipeline</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.2" />
+    <PackageReference Include="Npgsql" Version="8.0.3" />
+    <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="8.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Gabi.ReliabilityLab\Gabi.ReliabilityLab.csproj" />
+    <ProjectReference Include="..\Gabi.ReliabilityLab.Environment\Gabi.ReliabilityLab.Environment.csproj" />
+    <ProjectReference Include="..\..\..\src\Gabi.Api\Gabi.Api.csproj" />
+    <ProjectReference Include="..\..\..\src\Gabi.Worker\Gabi.Worker.csproj" />
+    <ProjectReference Include="..\..\..\src\Gabi.Postgres\Gabi.Postgres.csproj" />
+    <ProjectReference Include="..\..\..\src\Gabi.Contracts\Gabi.Contracts.csproj" />
+  </ItemGroup>
+</Project>

@@ -13,7 +13,16 @@ public interface IJobQueueRepository
     /// <param name="ct">Cancellation token.</param>
     /// <returns>The ID of the enqueued job.</returns>
     Task<Guid> EnqueueAsync(IngestJob job, CancellationToken ct = default);
-    
+
+    /// <summary>
+    /// Schedules a job to run after a delay (e.g. for backpressure re-trigger).
+    /// </summary>
+    /// <param name="job">The job to schedule.</param>
+    /// <param name="delay">Delay before the job is enqueued.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The ID of the scheduled job.</returns>
+    Task<Guid> ScheduleAsync(IngestJob job, TimeSpan delay, CancellationToken ct = default);
+
     /// <summary>
     /// Atomically claims the next available job from the queue using SKIP LOCKED.
     /// </summary>

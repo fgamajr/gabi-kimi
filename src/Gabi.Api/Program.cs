@@ -1,3 +1,4 @@
+using Elastic.Clients.Elasticsearch;
 using Gabi.Api;
 using Gabi.Api.Configuration;
 using Gabi.Api.Endpoints;
@@ -6,8 +7,10 @@ using Gabi.Api.Security;
 using Gabi.Api.Services;
 using Gabi.Contracts.Api;
 using Gabi.Contracts.Dashboard;
+using Gabi.Contracts.Embed;
 using Gabi.Contracts.Jobs;
 using Gabi.Contracts.Observability;
+using Gabi.Ingest;
 using Gabi.Postgres;
 using Gabi.Postgres.Repositories;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -101,6 +104,28 @@ builder.Services.AddSingleton<ISourceCatalog>(sp =>
 
 // Dashboard Service
 builder.Services.AddScoped<IDashboardService, DashboardService>();
+
+// Elasticsearch + Embedder + SearchService (busca híbrida BM25 + kNN + RRF)
+var elasticsearchUrl = builder.Configuration["Gabi:ElasticsearchUrl"] ?? builder.Configuration.GetConnectionString("Elasticsearch");
+var embeddingsUrl = builder.Configuration["GABI_EMBEDDINGS_URL"] ?? builder.Configuration["Gabi:EmbeddingsUrl"];
+if (!string.IsNullOrWhiteSpace(elasticsearchUrl) && !string.IsNullOrWhiteSpace(embeddingsUrl))
+{
+    builder.Services.AddSingleton(new ElasticsearchClient(new ElasticsearchClientSettings(new Uri(elasticsearchUrl))));
+    builder.Services.AddHttpClient("TeiEmbedder", client =>
+    {
+        client.BaseAddress = new Uri(embeddingsUrl.TrimEnd('/') + "/");
+        client.Timeout = TimeSpan.FromSeconds(30);
+    });
+    builder.Services.AddSingleton<TeiEmbedder>(sp => new TeiEmbedder(
+        sp.GetRequiredService<IHttpClientFactory>().CreateClient("TeiEmbedder"),
+        sp.GetRequiredService<ILogger<TeiEmbedder>>()));
+    builder.Services.AddSingleton<IEmbedder>(sp => sp.GetRequiredService<TeiEmbedder>());
+    builder.Services.AddSingleton<ISearchService>(sp => new SearchService(
+        sp.GetRequiredService<ElasticsearchClient>(),
+        sp.GetRequiredService<IEmbedder>(),
+        sp.GetRequiredService<ILogger<SearchService>>(),
+        indexName: null));
+}
 
 // DLQ Service
 builder.Services.AddScoped<IDlqService, DlqService>();
@@ -295,8 +320,11 @@ app.MapGet("/api/v1/jobs/{sourceId}/status", [Authorize(Policy = "RequireViewer"
 })
 .RequireRateLimiting("read");
 
-// GET /api/v1/search - Busca textual básica em documentos ingeridos.
+// GET /api/v1/search - Busca híbrida (ES: BM25 + kNN + RRF) ou fallback PostgreSQL (LIKE).
+// CODEX-E: Quando ISearchService está configurado (ES + TEI), usa SearchService; senão usa busca textual no PG.
+// Se Gabi:Search:RequireElasticsearch=true e ES não estiver configurado, retorna 503 (evita DoS por full table scan em produção).
 app.MapGet("/api/v1/search", [Authorize(Policy = "RequireViewer")] async (
+    HttpContext httpContext,
     string q,
     string? sourceId,
     int page,
@@ -310,6 +338,20 @@ app.MapGet("/api/v1/search", [Authorize(Policy = "RequireViewer")] async (
 
     var safePage = page > 0 ? page : 1;
     var safePageSize = Math.Clamp(pageSize > 0 ? pageSize : 20, 1, 100);
+
+    var searchService = httpContext.RequestServices.GetService<ISearchService>();
+    var requireEs = httpContext.RequestServices.GetRequiredService<IConfiguration>().GetValue<bool>("Gabi:Search:RequireElasticsearch");
+    if (requireEs && searchService == null)
+        return Results.Json(
+            new { error = "Search requires Elasticsearch; not configured. Set Gabi:ElasticsearchUrl and GABI_EMBEDDINGS_URL (or Gabi:EmbeddingsUrl)." },
+            statusCode: 503);
+
+    if (searchService != null)
+    {
+        var result = await searchService.SearchAsync(queryText, sourceId, safePage, safePageSize, ct);
+        if (result != null)
+            return Results.Ok(result);
+    }
 
     var query = db.Documents
         .AsNoTracking()
@@ -352,26 +394,23 @@ app.MapGet("/api/v1/search", [Authorize(Policy = "RequireViewer")] async (
         })
         .ToListAsync(ct);
 
-    var hits = rows.Select(d => new
-    {
-        id = d.Id,
-        sourceId = d.SourceId,
-        externalId = d.ExternalId,
-        title = d.Title,
-        updatedAt = d.UpdatedAt,
-        snippet = string.IsNullOrWhiteSpace(d.Content)
-            ? string.Empty
-            : (d.Content!.Length <= 240 ? d.Content : d.Content[..240])
-    });
+    var hits = rows.Select(d => new SearchHitDto(
+        Id: d.Id.ToString(),
+        SourceId: d.SourceId,
+        ExternalId: d.ExternalId,
+        Title: d.Title,
+        UpdatedAt: d.UpdatedAt,
+        Snippet: string.IsNullOrWhiteSpace(d.Content) ? string.Empty : (d.Content!.Length <= 240 ? d.Content : d.Content[..240])
+    ));
 
-    return Results.Ok(new
-    {
-        query = queryText,
-        total,
-        page = safePage,
-        pageSize = safePageSize,
-        hits
-    });
+    return Results.Ok(new SearchResultDto(
+        Query: queryText,
+        Total: total,
+        Page: safePage,
+        PageSize: safePageSize,
+        Hits: hits.ToList(),
+        LatencyMs: 0
+    ));
 })
 .RequireRateLimiting("read");
 
@@ -432,6 +471,26 @@ app.MapGet("/api/v1/dashboard/pipeline/phases", [Authorize(Policy = "RequireView
 .RequireRateLimiting("read");
 
 // POST /api/v1/dashboard/sources/{sourceId}/phases/{phase} - Start a pipeline phase (discovery | fetch | ingest)
+app.MapGet("/api/v1/dashboard/sources/{sourceId}/state", [Authorize(Policy = "RequireViewer")] async (string sourceId, IDashboardService dashboard, CancellationToken ct) =>
+{
+    var state = await dashboard.GetSourcePipelineStateAsync(sourceId, ct);
+    return state == null ? Results.NotFound() : Results.Ok(state);
+});
+app.MapPost("/api/v1/dashboard/sources/{sourceId}/pause", [Authorize(Policy = "RequireOperator")] async (string sourceId, IDashboardService dashboard, CancellationToken ct) =>
+{
+    var result = await dashboard.PauseSourceAsync(sourceId, pausedBy: null, ct);
+    return Results.Ok(result);
+});
+app.MapPost("/api/v1/dashboard/sources/{sourceId}/resume", [Authorize(Policy = "RequireOperator")] async (string sourceId, IDashboardService dashboard, CancellationToken ct) =>
+{
+    var result = await dashboard.ResumeSourceAsync(sourceId, ct);
+    return Results.Ok(result);
+});
+app.MapPost("/api/v1/dashboard/sources/{sourceId}/stop", [Authorize(Policy = "RequireOperator")] async (string sourceId, IDashboardService dashboard, CancellationToken ct) =>
+{
+    var result = await dashboard.StopSourceAsync(sourceId, ct);
+    return Results.Ok(result);
+});
 app.MapPost("/api/v1/dashboard/sources/{sourceId}/phases/{phase}", [Authorize(Policy = "RequireOperator")] async (
     string sourceId,
     string phase,
@@ -443,6 +502,19 @@ app.MapPost("/api/v1/dashboard/sources/{sourceId}/phases/{phase}", [Authorize(Po
         return Results.BadRequest(new { error = "phase must be discovery, fetch, or ingest" });
     var result = await dashboard.StartPhaseAsync(sourceId, phase, request, ct);
     return result.Success ? Results.Ok(result) : Results.NotFound(result);
+})
+.RequireRateLimiting("write");
+
+// POST /admin/sources/{sourceId}/reindex - Reindex: set active docs to pending and enqueue ingest (Admin only)
+app.MapPost("/admin/sources/{sourceId}/reindex", [Authorize(Policy = "RequireAdmin")] async (
+    string sourceId,
+    IDashboardService dashboard,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(sourceId))
+        return Results.BadRequest(new { error = "sourceId is required" });
+    var result = await dashboard.ReindexSourceAsync(sourceId, ct);
+    return result != null ? Results.Ok(result) : Results.NotFound(new { error = $"Source '{sourceId}' not found" });
 })
 .RequireRateLimiting("write");
 

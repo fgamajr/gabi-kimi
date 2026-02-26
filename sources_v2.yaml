@@ -41,6 +41,18 @@ defaults:
       readiness: text_ready
       empty_content_action: fail
 
+    # Backpressure: max pending items per stage (upstream yields when downstream exceeds)
+    backpressure:
+      max_pending_fetch: 10000
+      max_pending_ingest: 5000
+      max_pending_embed: 500
+
+    # Embed batch sizing (dynamic batching by content size)
+    embed:
+      max_chars_per_batch: 500000
+      max_docs_per_batch: 32
+      min_docs_per_batch: 1
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # SOURCES
 # ═══════════════════════════════════════════════════════════════════════════════

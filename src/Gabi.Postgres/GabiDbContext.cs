@@ -33,6 +33,7 @@ public class GabiDbContext : DbContext
     // Documents (extracted from links for future ingest phase)
     public DbSet<DocumentEntity> Documents => Set<DocumentEntity>();
     public DbSet<ReconciliationRecordEntity> ReconciliationRecords => Set<ReconciliationRecordEntity>();
+    public DbSet<SourcePipelineStateEntity> SourcePipelineStates => Set<SourcePipelineStateEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -54,6 +55,21 @@ public class GabiDbContext : DbContext
         ConfigureJobRegistry(modelBuilder);
         ConfigureDlqEntry(modelBuilder);
         ConfigureMediaItem(modelBuilder);
+        ConfigureSourcePipelineState(modelBuilder);
+    }
+
+    private static void ConfigureSourcePipelineState(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<SourcePipelineStateEntity>(entity =>
+        {
+            entity.ToTable("source_pipeline_state");
+            entity.HasKey(e => e.SourceId);
+            entity.Property(e => e.SourceId).HasMaxLength(100);
+            entity.Property(e => e.State).HasMaxLength(20).IsRequired();
+            entity.Property(e => e.ActivePhase).HasMaxLength(20);
+            entity.Property(e => e.PausedBy).HasMaxLength(100);
+            entity.HasIndex(e => e.State);
+        });
     }
 
     private static void ConfigureMediaItem(ModelBuilder modelBuilder)

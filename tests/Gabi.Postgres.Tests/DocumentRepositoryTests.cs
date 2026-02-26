@@ -7,16 +7,17 @@ using Moq;
 
 namespace Gabi.Postgres.Tests;
 
+[Collection("Postgres")]
 public class DocumentRepositoryTests : IDisposable
 {
     private const string TestSourceId = "test_source_docs";
     private readonly GabiDbContext _context;
     private readonly DocumentRepository _repository;
 
-    public DocumentRepositoryTests()
+    public DocumentRepositoryTests(PostgresFixture fixture)
     {
         var options = new DbContextOptionsBuilder<GabiDbContext>()
-            .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+            .UseNpgsql(fixture.ConnectionString)
             .Options;
 
         _context = new GabiDbContext(options);

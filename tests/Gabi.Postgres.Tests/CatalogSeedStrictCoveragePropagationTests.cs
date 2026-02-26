@@ -14,15 +14,16 @@ namespace Gabi.Postgres.Tests;
 /// <summary>
 /// Verifies that pipeline.coverage.strict from YAML is persisted into source_registry.PipelineConfig (config propagation A).
 /// </summary>
+[Collection("Postgres")]
 public class CatalogSeedStrictCoveragePropagationTests : IDisposable
 {
     private readonly GabiDbContext _context;
     private readonly CatalogSeedJobExecutor _executor;
 
-    public CatalogSeedStrictCoveragePropagationTests()
+    public CatalogSeedStrictCoveragePropagationTests(PostgresFixture fixture)
     {
         var options = new DbContextOptionsBuilder<GabiDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .UseNpgsql(fixture.ConnectionString)
             .Options;
         _context = new GabiDbContext(options);
 

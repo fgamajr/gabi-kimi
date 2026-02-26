@@ -1,4 +1,5 @@
 using System;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -6,7 +7,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 namespace Gabi.Postgres.Migrations
 {
-    /// <inheritdoc />
+    [DbContext(typeof(GabiDbContext))]
+    [Migration("20260225120000_AddExecutionManifest")]
     public partial class AddExecutionManifest : Migration
     {
         /// <inheritdoc />

@@ -32,11 +32,13 @@
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="7.3.1" />
     <PackageReference Include="YamlDotNet" Version="15.1.0" />
+    <PackageReference Include="Elastic.Clients.Elasticsearch" Version="8.11.0" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Gabi.Contracts\Gabi.Contracts.csproj" />
     <ProjectReference Include="..\Gabi.Discover\Gabi.Discover.csproj" />
+    <ProjectReference Include="..\Gabi.Ingest\Gabi.Ingest.csproj" />
     <ProjectReference Include="..\Gabi.Postgres\Gabi.Postgres.csproj" />
   </ItemGroup>
 

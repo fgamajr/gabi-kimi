@@ -1,513 +1,164 @@
-# AGENTS.md - GABI (Sistema de Ingestão e Busca Jurídica TCU)
+# AGENTS.md - GABI (Sistema de Ingestão Jurídica TCU)
 
-> Este arquivo é destinado a agentes de IA. Contém informações essenciais sobre a arquitetura, convenções e processos de desenvolvimento do projeto GABI.
-
-## Governança de Instruções para IA (canônica)
-
-1. `AGENTS.md` é a fonte canônica de instruções do repositório.
-2. `CLAUDE.md` e `GEMINI.md` devem permanecer wrappers mínimos apontando para este arquivo.
-3. Priorizar constraints e resultados mensuráveis (SLOs, testes, evidência), evitando workflows rígidos quando o padrão já estiver explícito no código.
-4. Regras inegociáveis: arquitetura em camadas, budget de memória, migrations aditivas, contracts em `Gabi.Contracts`.
+> **Fonte canônica para agentes de IA.** `CLAUDE.md` e `GEMINI.md` são wrappers que apontam para este arquivo.
 
 ---
 
-## 1. Visão Geral do Projeto
+## 🛠️ Build, Lint & Test Commands
 
-**GABI** é um sistema de ingestão, processamento e busca de dados jurídicos do Tribunal de Contas da União (TCU). O sistema segue uma arquitetura em camadas estrita com separação clara de responsabilidades.
+```bash
+# Build
+dotnet build GabiSync.sln
+dotnet build GabiSync.sln -c Release
 
-### Pipeline de Dados
+# Format & Lint
+dotnet format GabiSync.sln
 
-```
-Seed → Discovery → Fetch → Ingest
-```
+# Run ALL tests
+dotnet test GabiSync.sln
 
-1. **Seed**: Carrega definições de fontes do `sources_v2.yaml` para o PostgreSQL
-2. **Discovery**: Descobre URLs e links de documentos nas fontes configuradas
-3. **Fetch**: Recupera conteúdo bruto das URLs descobertas
-4. **Ingest**: Processa, normaliza e indexa os documentos
+# Run SINGLE test by name
+dotnet test --filter "FullyQualifiedName~HealthEndpoint_ReturnsSuccess"
 
-### Stack Tecnológico
+# Run SINGLE test with detailed verbosity for debugging
+dotnet test --filter "FullyQualifiedName~JobStateMachineTests" --logger "console;verbosity=detailed"
 
-| Componente | Tecnologia | Versão |
-|------------|------------|--------|
-| Plataforma | .NET | 8.0 |
-| Linguagem | C# | 12.0 |
-| Banco de Dados | PostgreSQL | 15 |
-| Motor de Busca | Elasticsearch | 8.11 |
-| Cache/Filas | Redis | 7 |
-| Job Scheduler | Hangfire | 1.8.17 |
-| ORM | EF Core | 8.0.2 |
-| Container | Docker | - |
-| Deploy | Fly.io | - |
-| Testes | xUnit | 2.6.2 |
+# Run tests by class
+dotnet test --filter "FullyQualifiedName~JobStateMachineTests"
 
----
+# Run specific test project
+dotnet test tests/Gabi.Api.Tests
 
-## 2. Estrutura do Projeto
+# Architecture tests (MUST pass before commit)
+dotnet test tests/Gabi.Architecture.Tests
 
-```
-.
-├── src/
-│   ├── Gabi.Api/              # REST API (Minimal API) - Layer 5
-│   ├── Gabi.Worker/           # Background worker (Hangfire) - Layer 5
-│   ├── Gabi.Contracts/        # Interfaces e DTOs - Layer 0-1 (ZERO dependências)
-│   ├── Gabi.Postgres/         # EF Core + PostgreSQL - Layer 2-3
-│   ├── Gabi.Discover/         # Motor de discovery - Layer 4
-│   ├── Gabi.Fetch/            # Fetch de conteúdo - Layer 4
-│   ├── Gabi.Ingest/           # Ingestão e parse - Layer 4
-│   ├── Gabi.Sync/             # Sync engine - Layer 4
-│   └── Gabi.Jobs/             # Job state machine - Layer 4
-├── tests/
-│   ├── Gabi.Api.Tests/        # Testes de integração da API
-│   ├── Gabi.Architecture.Tests/ # Testes de arquitetura (NetArchTest)
-│   ├── Gabi.Discover.Tests/   # Testes de discovery
-│   ├── Gabi.Fetch.Tests/      # Testes de fetch
-│   ├── Gabi.Jobs.Tests/       # Testes de jobs
-│   ├── Gabi.Postgres.Tests/   # Testes de repositórios
-│   └── Gabi.Sync.Tests/       # Testes de sync
-├── scripts/                   # CLI de desenvolvimento
-├── sources_v2.yaml            # Definição completa das fontes
-├── docker-compose.yml         # Infraestrutura (Postgres, ES, Redis)
-├── Dockerfile                 # Worker para Fly.io
-├── fly.toml                   # Config Fly.io (Worker)
-└── fly.api.toml               # Config Fly.io (API)
+# Apply database migrations
+./scripts/dev db apply
 ```
 
 ---
 
-## 3. Arquitetura em Camadas (Strict)
-
-A arquitetura segue regras estritas de dependência: camadas superiores NÃO referenciam camadas inferiores.
+## 🏗️ Layered Architecture (STRICT)
 
 ```
 Layer 5: Orchestration  → Gabi.Worker, Gabi.Api
 Layer 4: Domain Logic   → Gabi.Discover, Gabi.Fetch, Gabi.Ingest, Gabi.Sync, Gabi.Jobs
-Layer 2-3: Infrastructure → Gabi.Postgres
-Layer 0-1: Contracts    → Gabi.Contracts (ZERO referências a outros projetos)
+Layer 2-3: Infra        → Gabi.Postgres
+Layer 0-1: Contracts    → Gabi.Contracts (ZERO dependencies)
 ```
 
-### Regras Fundamentais
-
-1. **Gabi.Contracts** não tem referências a nenhum outro projeto
-2. Projetos de domínio (Layer 4) NÃO referenciam Gabi.Postgres ou EF Core
-3. Comunicação apenas via interfaces definidas em Gabi.Contracts
-4. DI registration acontece em Layer 5 (Worker/Api `Program.cs`)
-
-### Grafo de Dependências
-
-```
-                    ┌─────────────┐
-                    │ Gabi.Worker │
-                    └──────┬──────┘
-                           │
-              ┌────────────┼────────────┐
-              ▼            ▼            ▼
-        ┌──────────┐ ┌──────────┐ ┌──────────┐
-        │Gabi.Sync │ │Gabi.Api  │ │Gabi.Jobs │
-        └────┬─────┘ └────┬─────┘ └────┬─────┘
-             │            │            │
-        ┌────┴────────────┴────────────┘
-        │
-        ▼
-┌─────────────────┬─────────────────┐
-│  Gabi.Discover  │   Gabi.Ingest   │
-│  Gabi.Fetch     │                 │
-└────────┬────────┴────────┬────────┘
-         │                 │
-         └────────┬────────┘
-                  │
-                  ▼
-           ┌─────────────┐
-           │Gabi.Postgres│
-           └──────┬──────┘
-                  │
-                  ▼
-           ┌─────────────┐
-           │Gabi.Contracts│  ← Layer 0-1 (Zero deps)
-           └─────────────┘
-```
-
-### Verificação de Arquitetura
-
-O projeto inclui testes de arquitetura automatizados em `tests/Gabi.Architecture.Tests/` usando NetArchTest:
-
-```bash
-dotnet test tests/Gabi.Architecture.Tests
-```
-
-Testes incluídos:
-- `ContractsLayer_ShouldNotReference_AnyOtherGabiProject`
-- `DomainLayer_ShouldNotReference_Infrastructure`
-- `NoDuplicatedTypeNames_InDifferentNamespaces`
+**UNBREAKABLE RULES:**
+1. `Gabi.Contracts` has NO project references
+2. Domain projects (Layer 4) NEVER reference `Gabi.Postgres` or `EF Core`
+3. Communication via interfaces defined in `Gabi.Contracts`
+4. DI registration happens in Layer 5 (`Program.cs`) via `ServiceCollectionExtensions`
 
 ---
 
-## 4. Build e Execução
+## 📏 Code Style
 
-### Pré-requisitos
+### Project Settings
+- `ImplicitUsings` and `Nullable` enabled in all `.csproj`
+- Target: .NET 8.0, C# 12.0
 
-- .NET 8 SDK
-- Docker + Docker Compose
+### Naming Conventions
+| Type | Convention | Example |
+|------|------------|---------|
+| Interface | `I{Name}` | `IDiscoveryEngine` |
+| Class | PascalCase | `JobQueueRepository` |
+| Record (DTO) | PascalCase | `IngestJob`, `SyncResult` |
+| Method | PascalCase | `ExecuteDeltaAsync` |
+| Parameter | camelCase | `sourceId`, `cancellationToken` |
+| Private field | `_camelCase` | `_context`, `_logger` |
 
-### Comandos de Build
-
-```bash
-# Build completo
-dotnet build GabiSync.sln
-
-# Build release
-dotnet build GabiSync.sln -c Release
-
-# Publicar Worker
-dotnet publish src/Gabi.Worker -c Release -o ./publish
-```
-
-### Executar Localmente
-
-**Opção 1: Tudo com Docker (recomendado)**
-
-```bash
-./scripts/dev infra up
-docker compose --profile api --profile worker up -d
-```
-
-**Opção 2: Infra Docker + API no host**
-
-```bash
-# Terminal 1
-./scripts/dev infra up
-
-# Terminal 2 (raiz do repo)
-dotnet run --project src/Gabi.Api --urls "http://localhost:5100"
-```
-
-### CLI de Desenvolvimento (`./scripts/dev`)
-
-```bash
-./scripts/dev setup              # Setup inicial completo
-./scripts/dev infra up           # Inicia Postgres (5433), ES (9200), Redis (6380)
-./scripts/dev infra down         # Para containers (mantém volumes)
-./scripts/dev infra destroy      # Para e remove volumes
-./scripts/dev app up             # Roda API em foreground (:5100)
-./scripts/dev app start          # Roda API em background
-./scripts/dev app stop           # Para API
-./scripts/dev app status         # Status dos serviços
-./scripts/dev db apply           # Aplica migrations
-./scripts/dev db create <Nome>   # Cria nova migration
-./scripts/dev db status          # Lista migrations
-./scripts/dev db reset           # Drop DB e reaplica (destructivo)
-```
-
----
-
-## 5. Testes
-
-### Testes Unitários/Integração
-
-```bash
-# Todos os testes
-dotnet test GabiSync.sln
-
-# Projeto específico
-dotnet test tests/Gabi.Api.Tests
-dotnet test tests/Gabi.Discover.Tests
-dotnet test tests/Gabi.Postgres.Tests
-
-# Com filtro
-dotnet test tests/Gabi.Api.Tests --filter "FullyQualifiedName~BasicEndpointTests"
-```
-
-### Teste Zero Kelvin (E2E Completo)
-
-Valida reconstrução do zero - destroi tudo e recria:
-
-```bash
-# Modo padrão (docker-only)
-./tests/zero-kelvin-test.sh
-
-# Com target específico
-./tests/zero-kelvin-test.sh docker-only \
-  --source tcu_sumulas \
-  --phase discovery
-
-# Stress test com cap
-./tests/zero-kelvin-test.sh docker-only \
-  --source tcu_acordaos \
-  --phase full \
-  --max-docs 20000 \
-  --monitor-memory \
-  --report-json /tmp/report.json
-```
-
----
-
-## 6. Configuração
-
-### Variáveis de Ambiente Principais
-
-| Variável | Descrição | Padrão |
-|----------|-----------|--------|
-| `ConnectionStrings__Default` | PostgreSQL | Host=localhost;Port=5433;... |
-| `GABI_SOURCES_PATH` | Caminho do YAML | sources_v2.yaml |
-| `Gabi__ElasticsearchUrl` | Elasticsearch | http://localhost:9200 |
-| `Gabi__RedisUrl` | Redis | redis://localhost:6380/0 |
-| `GABI_RUN_MIGRATIONS` | Executar migrations | false |
-| `GABI_INLABS_COOKIE` | Cookie para INLABS | - |
-| `GABI_USERS` | JSON de usuários com hash bcrypt (`[{"username":"...","password_hash":"...","role":"..."}]`) | - |
-| `Gabi:Media:BasePath` | Diretório base permitido para `/api/v1/media/local-file` | `/workspace/` |
-| `Gabi:Media:AllowedUrlPatterns` | Allowlist de URLs para `media_url` (proteção SSRF) | `https://*.youtube.com/*`, `https://*.gov.br/*`, `https://*.leg.br/*` |
-
-### Portas de Serviço
-
-| Serviço | Porta Host | Porta Container |
-|---------|------------|-----------------|
-| PostgreSQL | 5433 | 5432 |
-| Elasticsearch | 9200 | 9200 |
-| Redis | 6380 | 6379 |
-| API | 5100 | 8080 |
-
-### Usuários de Teste (JWT)
-
-| Usuário | Senha | Role | Permissões |
-|---------|-------|------|------------|
-| operator | op123 | Operator | Seed, trigger fases, DLQ replay |
-| viewer | view123 | Viewer | Leitura apenas |
-| admin | admin123 | Admin | Acesso total |
-
----
-
-## 7. Convenções de Código
-
-### Estilo
-
-- Usar `ImplicitUsings` e `Nullable` habilitados em todos os projetos
-- Preferir `record` para DTOs e contratos imutáveis
-- Usar `init` setters para propriedades imutáveis
-- Nomes em inglês para código, português para documentação
-
-### Padrões Importantes
-
-**Streaming Obrigatório** (restrição de memória: 300MB efetivo)
+### Types & Models
+- Prefer `record` for DTOs and immutable contracts.
+- Use `init` setters for immutable properties, `required` for mandatory properties.
+- **EF Core:** Keep `DbContext` clean. Configure entities using `IEntityTypeConfiguration<T>`.
 
 ```csharp
-// ✅ Correto: Streaming com IAsyncEnumerable
+public record IngestJob
+{
+    public required Guid Id { get; init; }
+    public string SourceId { get; init; } = string.Empty;
+    public JobStatus Status { get; init; }
+}
+```
+
+### Imports (File-scoped namespaces)
+```csharp
+using Gabi.Contracts.Jobs;
+using Microsoft.EntityFrameworkCore;
+
+namespace Gabi.Postgres.Repositories;
+
+public class JobQueueRepository : IJobQueueRepository
+```
+
+### Async Patterns
+- **ALWAYS** propagate `CancellationToken`.
+- **NEVER** buffer entire collections in memory (300MB limit).
+- Use `IAsyncEnumerable<T>` for streaming.
+
+```csharp
 public async IAsyncEnumerable<Document> FetchAsync(
     [EnumeratorCancellation] CancellationToken ct = default)
 {
     await foreach (var item in source.WithCancellation(ct))
-    {
         yield return Transform(item);
-    }
-}
-
-// ❌ Incorreto: Bufferização em memória
-var all = await source.ToListAsync();  // NUNCA faça isso
-```
-
-**Interfaces em Contracts, Implementações nos Projetos de Domínio**
-
-```csharp
-// Em Gabi.Contracts
-public interface IDiscoveryEngine { ... }
-
-// Em Gabi.Discover
-public class DiscoveryEngine : IDiscoveryEngine { ... }
-```
-
-**CancellationToken Propagation**
-
-```csharp
-public async Task DoWorkAsync(CancellationToken ct = default)
-{
-    await foreach (var item in source.WithCancellation(ct)) { ... }
 }
 ```
 
----
-
-## 8. Estratégias de Discovery
-
-O sistema suporta múltiplas estratégias de discovery definidas em `sources_v2.yaml`:
-
-| Estratégia | Descrição |
-|------------|-----------|
-| `static_url` | URL única, não muda |
-| `url_pattern` | Template com parâmetros (range, lista) |
-| `api_pagination` | APIs paginadas com drivers específicos |
-| `web_crawl` | Crawling de páginas web |
+### Error Handling
+- Use `ErrorClassifier` for categorizing exceptions (`Transient`, `Throttled`, `Permanent`, `Bug`).
+- Throw `InvalidOperationException` for invalid state transitions.
 
 ---
 
-## 9. Migrations de Banco
+## 🧪 Test Conventions
 
-### Criar Nova Migration
-
-```bash
-./scripts/dev db create NomeDaMigration
-# Ou diretamente:
-dotnet ef migrations add NomeDaMigration --project src/Gabi.Postgres
-```
-
-### Aplicar Migrations
-
-```bash
-./scripts/dev db apply
-```
-
-### Regras para Migrations
-
-- **Apenas adições** - nunca modificar migrations existentes
-- Índices criados com `CONCURRENTLY` para evitar locks
-- Migrations aplicam automaticamente no startup da API quando `GABI_RUN_MIGRATIONS=true`
+- Framework: xUnit
+- Use `IClassFixture<T>` for shared context
+- Test method naming: `MethodName_Scenario_ExpectedResult`
 
 ---
 
-## 10. Deploy (Fly.io)
+## 🗄️ Database & Migrations
 
-### Apps Separados
-
-- **gabi-api**: REST API (HTTP service)
-- **gabi-worker**: Background worker (processo)
-
-### Deploy API
-
-```bash
-fly deploy --config fly.api.toml
-```
-
-### Deploy Worker
-
-```bash
-fly deploy --config fly.toml
-```
-
-### Secrets (configurar via CLI)
-
-```bash
-fly secrets set ConnectionStrings__Default="..." -a gabi-api
-fly secrets set GABI_ELASTICSEARCH_URL="..." -a gabi-worker
-```
+- **ONLY additive migrations** - never modify existing migrations.
+- Create indices with `CONCURRENTLY` to avoid locks.
+- Command: `./scripts/dev db create NomeDaMigration` then `./scripts/dev db apply`
 
 ---
 
-## 11. Health Checks e Observabilidade
+## 🔒 Invariants & Key Files
 
-### Endpoints
+**INVARIANTS (NEVER violate):**
+1. No hardcoded URLs in code - all from `sources_v2.yaml`.
+2. Fingerprint always SHA-256.
+3. PostgreSQL is source of truth; ES/vectors are derived.
+4. Idempotent execution: same input → same output.
+5. Soft delete only - no physical deletions.
 
-- `GET /health` - Live check (sempre retorna 200 se processo rodando)
-- `GET /health/ready` - Readiness check (inclui PostgreSQL)
-- `GET /swagger` - Documentação da API
-- `GET /hangfire` - Dashboard do Hangfire (requer auth)
+**KEY FILES:**
+- `sources_v2.yaml`: All data source definitions
+- `docs/architecture/LAYERED_ARCHITECTURE.md`: Architecture details
+- `docs/architecture/INVARIANTS.md`: Unbreakable system rules
+- `docker-compose.yml`: Local infra (Postgres:5433, ES:9200, Redis:6380)
 
-### Logs
+**Fetch SSRF mitigation (Worker):** URLs used for fetch are validated by `Gabi:Fetch:AllowedUrlPatterns` (wildcard patterns). Blocklist (metadata IPs, loopback, private nets) is always applied. If allowlist is empty, all fetch URLs are blocked. In production set explicit patterns (e.g. `https://*.gov.br/*`); in dev `appsettings.Development.json` may use `["https://*","http://*"]`.
 
-- Desenvolvimento: formato legível via console
-- Produção: JSON formatado via Serilog (`CompactJsonFormatter`)
+**Search in production:** In production, search MUST use Elasticsearch + embeddings (TEI). The PG fallback (`ToLower().Contains`) is for dev/test only and can cause full table scan and DoS. Set `Gabi:Search:RequireElasticsearch=true` in production; if ES/embedder are not configured, `GET /api/v1/search` returns 503 with a clear error instead of falling back to PG.
 
-### OpenTelemetry
-
-Ambos API e Worker exportam traces e métricas via OTLP:
-- Traces: AspNetCore, EF Core, HttpClient
-- Métricas: Runtime, AspNetCore
-
-### DLQ (Dead Letter Queue)
-
-Falhas após retries são registradas na tabela `dlq_entries`:
-- `GET /api/v1/dlq` - Listar entradas
-- `POST /api/v1/dlq/{id}/replay` - Reprocessar entrada (operator)
+**Chaos / Staging validation:** Experimentos de confiabilidade (PostgreSQL stall, tarpit, poison pill, ES outage, SIGTERM, DLQ replay, idempotency, clock skew) estão documentados em [docs/reliability/CHAOS_PLAYBOOK.md](docs/reliability/CHAOS_PLAYBOOK.md). O runner `./tests/chaos-test.sh` só executa quando `DOTNET_ENVIRONMENT` não é `Production`; use `timeout 900 ./tests/chaos-test.sh <n>` para limite de 15 min.
 
 ---
 
-## 12. Endpoints Essenciais da API
+## ⚠️ Common Issues
 
-| Método | Endpoint | Auth | Descrição |
-|--------|----------|------|-----------|
-| POST | `/api/v1/auth/login` | - | Login JWT |
-| GET | `/health` | - | Health check |
-| GET | `/api/v1/sources` | viewer | Listar fontes |
-| POST | `/api/v1/dashboard/seed` | operator | Executar seed |
-| POST | `/api/v1/dashboard/sources/{id}/phases/{phase}` | operator | Disparar fase |
-| GET | `/api/v1/dlq` | viewer | Listar DLQ |
-| POST | `/api/v1/dlq/{id}/replay` | operator | Reprocessar DLQ |
-
----
-
-## 13. Segurança
-
-### Autenticação
-
-- JWT Bearer tokens com validação de issuer, audience, lifetime e signing key
-- Clock skew de 5 minutos tolerado
-- Tokens expiram em 24 horas (configurável)
-
-### Autorização
-
-- Policies baseadas em roles: `Admin`, `Operator`, `Viewer`
-- Hierarquia: Admin > Operator > Viewer
-
-### Rate Limiting
-
-| Endpoint | Política | Limite |
-|----------|----------|--------|
-| Leitura | Fixed Window | 100 req/min |
-| Escrita | Fixed Window | 10 req/min |
-| Auth | Sliding Window | 5 req/5min |
-
-### CORS
-
-- Desenvolvimento: localhost:5173, localhost:4173
-- Produção: origins configurados via `Cors:AllowedOrigins`
-
----
-
-## 14. Arquivos Importantes
-
-- `sources_v2.yaml` - Definição completa das fontes de dados
-- `CLAUDE.md` - Wrapper mínimo para agentes Claude (aponta para `AGENTS.md`)
-- `GEMINI.md` - Wrapper mínimo para agentes Gemini (aponta para `AGENTS.md`)
-- `docs/architecture/LAYERED_ARCHITECTURE.md` - Detalhes da arquitetura
-- `docs/infrastructure/FLY_DEPLOY.md` - Deploy em Fly.io
-- `DOCKER.md` - Guia completo de Docker
-
----
-
-## 15. Dicas para Agentes
-
-1. **Sempre verifique a arquitetura em camadas** - não quebre as regras de dependência
-2. **Use streaming** - nunca carregue coleções inteiras em memória
-3. **Propage CancellationToken** - em toda operação async
-4. **Teste com Zero Kelvin** - após mudanças significativas no pipeline
-5. **Migrations são aditivas** - nunca modifique migrations existentes
-6. **Use o CLI `./scripts/dev`** - para operações de desenvolvimento
-7. **Consulte `sources_v2.yaml`** - para entender configurações de fontes
-8. **Respeite o budget de memória** - 300MB efetivo para o Worker
-
----
-
-## 16. Troubleshooting Comum
-
-### "Project file does not exist"
-Execute comandos a partir da **raiz do repositório**, não de dentro de `src/Gabi.Api`.
-
-### Porta 5100 em uso
-```bash
-pkill -f "dotnet.*Gabi.Api"
-# ou use --urls "http://localhost:5101"
-```
-
-### Porta 6380 em uso
-Redis do projeto usa **6380** no host (evitar conflito com Redis do sistema em 6379).
-```bash
-fuser -k 6380/tcp
-```
-
-### Migrations pendentes
-```bash
-./scripts/dev db apply
-```
-
-### Reset completo (destructivo)
-```bash
-./scripts/dev infra destroy
-./scripts/dev setup
-```
+| Issue | Solution |
+|-------|----------|
+| "Project file does not exist" | Run commands from repo root, not subdirectories |
+| Port 5100 in use | `pkill -f "dotnet.*Gabi.Api"` |
+| Port 6380 in use | `fuser -k 6380/tcp` |
+| Architecture test fails | Check layer dependencies - domain shouldn't reference infra |

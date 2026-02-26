@@ -63,6 +63,24 @@ public interface IDashboardService
     /// Lista fases do pipeline com disponibilidade e como disparar (para o frontend).
     /// </summary>
     Task<IReadOnlyList<PipelinePhaseDto>> GetPipelinePhasesAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Reindex: marca documentos ativos (completed/completed_metadata_only) da fonte como pending e enfileira um job de ingest.
+    /// Retorna quantidade de documentos enfileirados para re-ingest e source_id.
+    /// </summary>
+    Task<ReindexSourceResponse?> ReindexSourceAsync(string sourceId, CancellationToken ct = default);
+
+    /// <summary>Gets pipeline state for a source (idle, running, paused, failed).</summary>
+    Task<SourcePipelineStateDto?> GetSourcePipelineStateAsync(string sourceId, CancellationToken ct = default);
+
+    /// <summary>Pauses the pipeline for a source (running jobs will exit gracefully on next check).</summary>
+    Task<RefreshSourceResponse> PauseSourceAsync(string sourceId, string? pausedBy = null, CancellationToken ct = default);
+
+    /// <summary>Resumes the pipeline and optionally re-enqueues the active phase.</summary>
+    Task<RefreshSourceResponse> ResumeSourceAsync(string sourceId, CancellationToken ct = default);
+
+    /// <summary>Stops the pipeline for a source (sets state to idle).</summary>
+    Task<RefreshSourceResponse> StopSourceAsync(string sourceId, CancellationToken ct = default);
 }
 
 public class DashboardService : IDashboardService
@@ -501,6 +519,29 @@ public class DashboardService : IDashboardService
 
         var jobId = await jobQueue.EnqueueAsync(job, ct);
 
+        var db = scope.ServiceProvider.GetRequiredService<GabiDbContext>();
+        var pipelineState = await db.SourcePipelineStates.FirstOrDefaultAsync(s => s.SourceId == sourceId, ct);
+        var now = DateTime.UtcNow;
+        if (pipelineState == null)
+        {
+            db.SourcePipelineStates.Add(new SourcePipelineStateEntity
+            {
+                SourceId = sourceId,
+                State = "running",
+                ActivePhase = "discovery",
+                LastResumedAt = now,
+                UpdatedAt = now
+            });
+        }
+        else
+        {
+            pipelineState.State = "running";
+            pipelineState.ActivePhase = "discovery";
+            pipelineState.LastResumedAt = now;
+            pipelineState.UpdatedAt = now;
+        }
+        await db.SaveChangesAsync(ct);
+
         _logger.LogInformation("Enqueued refresh job {JobId} for source {SourceId}", jobId, sourceId);
 
         return new RefreshSourceResponse
@@ -579,6 +620,29 @@ public class DashboardService : IDashboardService
         var jobId = await jobQueue.EnqueueAsync(job, ct);
         _logger.LogInformation("Enqueued {Phase} job {JobId} for source {SourceId}", normalized, jobId, sourceId);
 
+        var db = scope.ServiceProvider.GetRequiredService<GabiDbContext>();
+        var pipelineState = await db.SourcePipelineStates.FirstOrDefaultAsync(s => s.SourceId == sourceId, ct);
+        var now = DateTime.UtcNow;
+        if (pipelineState == null)
+        {
+            db.SourcePipelineStates.Add(new SourcePipelineStateEntity
+            {
+                SourceId = sourceId,
+                State = "running",
+                ActivePhase = normalized,
+                LastResumedAt = now,
+                UpdatedAt = now
+            });
+        }
+        else
+        {
+            pipelineState.State = "running";
+            pipelineState.ActivePhase = normalized;
+            pipelineState.LastResumedAt = now;
+            pipelineState.UpdatedAt = now;
+        }
+        await db.SaveChangesAsync(ct);
+
         return new RefreshSourceResponse
         {
             Success = true,
@@ -597,6 +661,195 @@ public class DashboardService : IDashboardService
             new() { Id = "ingest", Name = "Ingest", Description = "Processar e indexar documentos", Availability = "requires_previous", TriggerEndpoint = "POST /api/v1/dashboard/sources/{sourceId}/phases/ingest" }
         };
         return Task.FromResult<IReadOnlyList<PipelinePhaseDto>>(phases);
+    }
+
+    public async Task<ReindexSourceResponse?> ReindexSourceAsync(string sourceId, CancellationToken ct = default)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var sourceRepo = scope.ServiceProvider.GetRequiredService<ISourceRegistryRepository>();
+        var jobQueue = scope.ServiceProvider.GetRequiredService<IJobQueueRepository>();
+        var db = scope.ServiceProvider.GetRequiredService<GabiDbContext>();
+
+        var source = await sourceRepo.GetByIdAsync(sourceId, ct);
+        if (source == null)
+            return null;
+
+        var latestJob = await jobQueue.GetLatestForSourceAsync(sourceId, ct);
+        if (latestJob?.Status is JobStatus.Running or JobStatus.Pending)
+        {
+            _logger.LogInformation("Reindex skipped for {SourceId}: ingest job already in progress", sourceId);
+            return new ReindexSourceResponse { Queued = 0, SourceId = sourceId };
+        }
+
+        var activeStatuses = new[] { "completed", "completed_metadata_only" };
+        var count = await db.Documents
+            .Where(d => d.SourceId == sourceId && activeStatuses.Contains(d.Status) && d.RemovedFromSourceAt == null)
+            .CountAsync(ct);
+        if (count == 0)
+            return new ReindexSourceResponse { Queued = 0, SourceId = sourceId };
+
+        await db.Documents
+            .Where(d => d.SourceId == sourceId && activeStatuses.Contains(d.Status) && d.RemovedFromSourceAt == null)
+            .ExecuteUpdateAsync(s => s.SetProperty(d => d.Status, "pending"), ct);
+
+        var payload = BuildTraceContextPayload(new Dictionary<string, object> { ["phase"] = "ingest" });
+        var job = new IngestJob
+        {
+            Id = Guid.NewGuid(),
+            JobType = "ingest",
+            SourceId = sourceId,
+            Payload = payload,
+            Status = JobStatus.Pending,
+            Priority = JobPriority.Normal,
+            ScheduledAt = DateTime.UtcNow,
+            IdempotencyKey = Guid.NewGuid().ToString()
+        };
+        await jobQueue.EnqueueAsync(job, ct);
+        _logger.LogInformation("Reindex enqueued for {SourceId}: {Count} documents set to pending, ingest job enqueued", sourceId, count);
+        return new ReindexSourceResponse { Queued = count, SourceId = sourceId };
+    }
+
+    public async Task<SourcePipelineStateDto?> GetSourcePipelineStateAsync(string sourceId, CancellationToken ct = default)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<GabiDbContext>();
+        var state = await db.SourcePipelineStates.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.SourceId == sourceId, ct);
+        if (state == null)
+            return null;
+        return new SourcePipelineStateDto
+        {
+            SourceId = state.SourceId,
+            State = state.State,
+            ActivePhase = state.ActivePhase,
+            PausedAt = state.PausedAt,
+            LastResumedAt = state.LastResumedAt,
+            UpdatedAt = state.UpdatedAt
+        };
+    }
+
+    public async Task<RefreshSourceResponse> PauseSourceAsync(string sourceId, string? pausedBy = null, CancellationToken ct = default)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<GabiDbContext>();
+        var sourceRepo = scope.ServiceProvider.GetRequiredService<ISourceRegistryRepository>();
+        var source = await sourceRepo.GetByIdAsync(sourceId, ct);
+        if (source == null)
+            return new RefreshSourceResponse { Success = false, Message = $"Source not found: {sourceId}" };
+
+        var state = await db.SourcePipelineStates.FirstOrDefaultAsync(s => s.SourceId == sourceId, ct);
+        var now = DateTime.UtcNow;
+        if (state == null)
+        {
+            db.SourcePipelineStates.Add(new SourcePipelineStateEntity
+            {
+                SourceId = sourceId,
+                State = "paused",
+                PausedBy = pausedBy,
+                PausedAt = now,
+                UpdatedAt = now
+            });
+        }
+        else
+        {
+            state.State = "paused";
+            state.PausedBy = pausedBy;
+            state.PausedAt = now;
+            state.UpdatedAt = now;
+        }
+        await db.SaveChangesAsync(ct);
+        _logger.LogInformation("Pipeline paused for source {SourceId} by {PausedBy}", sourceId, pausedBy ?? "operator");
+        return new RefreshSourceResponse { Success = true, Message = $"Pipeline paused for {sourceId}" };
+    }
+
+    public async Task<RefreshSourceResponse> ResumeSourceAsync(string sourceId, CancellationToken ct = default)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<GabiDbContext>();
+        var sourceRepo = scope.ServiceProvider.GetRequiredService<ISourceRegistryRepository>();
+        var jobQueue = scope.ServiceProvider.GetRequiredService<IJobQueueRepository>();
+        var source = await sourceRepo.GetByIdAsync(sourceId, ct);
+        if (source == null)
+            return new RefreshSourceResponse { Success = false, Message = $"Source not found: {sourceId}" };
+
+        var state = await db.SourcePipelineStates.FirstOrDefaultAsync(s => s.SourceId == sourceId, ct);
+        var now = DateTime.UtcNow;
+        if (state == null)
+        {
+            db.SourcePipelineStates.Add(new SourcePipelineStateEntity
+            {
+                SourceId = sourceId,
+                State = "running",
+                LastResumedAt = now,
+                UpdatedAt = now
+            });
+        }
+        else
+        {
+            state.State = "running";
+            state.PausedBy = null;
+            state.PausedAt = null;
+            state.LastResumedAt = now;
+            state.UpdatedAt = now;
+        }
+        await db.SaveChangesAsync(ct);
+
+        var activePhase = state?.ActivePhase;
+        if (!string.IsNullOrEmpty(activePhase) && activePhase is "discovery" or "fetch" or "ingest")
+        {
+            var latestJob = await jobQueue.GetLatestForSourceAsync(sourceId, ct);
+            if (latestJob?.Status is not JobStatus.Running and not JobStatus.Pending)
+            {
+                var payload = BuildTraceContextPayload(new Dictionary<string, object> { ["phase"] = activePhase });
+                var job = new IngestJob
+                {
+                    Id = Guid.NewGuid(),
+                    JobType = activePhase == "discovery" ? "source_discovery" : activePhase,
+                    SourceId = sourceId,
+                    Payload = payload,
+                    Status = JobStatus.Pending
+                };
+                await jobQueue.EnqueueAsync(job, ct);
+                _logger.LogInformation("Resumed pipeline for {SourceId}: enqueued {Phase} job", sourceId, activePhase);
+                return new RefreshSourceResponse { Success = true, JobId = job.Id, Message = $"Pipeline resumed and {activePhase} job enqueued for {sourceId}" };
+            }
+        }
+
+        _logger.LogInformation("Pipeline resumed for source {SourceId}", sourceId);
+        return new RefreshSourceResponse { Success = true, Message = $"Pipeline resumed for {sourceId}" };
+    }
+
+    public async Task<RefreshSourceResponse> StopSourceAsync(string sourceId, CancellationToken ct = default)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<GabiDbContext>();
+        var sourceRepo = scope.ServiceProvider.GetRequiredService<ISourceRegistryRepository>();
+        var source = await sourceRepo.GetByIdAsync(sourceId, ct);
+        if (source == null)
+            return new RefreshSourceResponse { Success = false, Message = $"Source not found: {sourceId}" };
+
+        var state = await db.SourcePipelineStates.FirstOrDefaultAsync(s => s.SourceId == sourceId, ct);
+        var now = DateTime.UtcNow;
+        if (state == null)
+        {
+            db.SourcePipelineStates.Add(new SourcePipelineStateEntity
+            {
+                SourceId = sourceId,
+                State = "idle",
+                UpdatedAt = now
+            });
+        }
+        else
+        {
+            state.State = "idle";
+            state.ActivePhase = null;
+            state.PausedBy = null;
+            state.PausedAt = null;
+            state.UpdatedAt = now;
+        }
+        await db.SaveChangesAsync(ct);
+        _logger.LogInformation("Pipeline stopped for source {SourceId}", sourceId);
+        return new RefreshSourceResponse { Success = true, Message = $"Pipeline stopped for {sourceId}" };
     }
 
     private static Dictionary<string, object> BuildTraceContextPayload(Dictionary<string, object> payload)

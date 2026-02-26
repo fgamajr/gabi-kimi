@@ -180,3 +180,31 @@ public record JobStatusDto(
 
 // SourceDetailsResponse, SourceStatisticsDto and LinkIngestStatsDto are defined
 // in Gabi.Contracts.Dashboard.DashboardModels.cs to align with the React frontend contract.
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Search DTOs
+// ═════════════════════════════════════════════════════════════════════════════
+
+/// <summary>
+/// Um hit de busca (documento).
+/// </summary>
+public record SearchHitDto(
+    string Id,
+    string SourceId,
+    string? ExternalId,
+    string? Title,
+    DateTime? UpdatedAt,
+    string Snippet
+);
+
+/// <summary>
+/// Resposta da busca híbrida (BM25 + kNN + RRF).
+/// </summary>
+public record SearchResultDto(
+    string Query,
+    long Total,
+    int Page,
+    int PageSize,
+    IReadOnlyList<SearchHitDto> Hits,
+    double LatencyMs
+);

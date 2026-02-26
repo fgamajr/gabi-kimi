@@ -2,8 +2,6 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Gabi.Contracts.Chunk;
-using Gabi.Contracts.Embed;
 using Gabi.Contracts.Ingest;
 using Gabi.Contracts.Index;
 using Gabi.Contracts.Jobs;
@@ -17,12 +15,13 @@ using YamlDotNet.Serialization.NamingConventions;
 namespace Gabi.Worker.Jobs;
 
 /// <summary>
-/// Ingest v2: normalize -> chunk -> embed -> index -> persist status.
-/// Also keeps media projection (youtube/upload) into textual documents.
+/// Ingest v2: fan-out only. Queries pending document IDs, batches into 32-64, enqueues EmbedAndIndex jobs.
+/// Keeps media projection and reconciliation. Embed/index run in EmbedAndIndexJobExecutor (embed queue).
 /// </summary>
 public class IngestJobExecutor : IJobExecutor
 {
     private const int MaxPendingDocsPerRun = 5000;
+    private const int EmbedFanOutPageSize = 200;
     private const int MaxMediaItemsPerRun = 1000;
 
     public string JobType => "ingest";
@@ -30,135 +29,139 @@ public class IngestJobExecutor : IJobExecutor
     private readonly GabiDbContext _context;
     private readonly ILogger<IngestJobExecutor> _logger;
     private readonly ICanonicalDocumentNormalizer _normalizer;
-    private readonly IChunker _chunker;
-    private readonly IEmbedder _embedder;
     private readonly IDocumentIndexer _indexer;
     private readonly IMediaTextProjector _mediaTextProjector;
+    private readonly IJobQueueRepository _jobQueue;
 
     public IngestJobExecutor(
         GabiDbContext context,
         ICanonicalDocumentNormalizer normalizer,
-        IChunker chunker,
-        IEmbedder embedder,
         IDocumentIndexer indexer,
         IMediaTextProjector mediaTextProjector,
+        IJobQueueRepository jobQueue,
         ILogger<IngestJobExecutor> logger)
     {
         _context = context;
         _normalizer = normalizer;
-        _chunker = chunker;
-        _embedder = embedder;
         _indexer = indexer;
         _mediaTextProjector = mediaTextProjector;
+        _jobQueue = jobQueue;
         _logger = logger;
     }
 
     public async Task<JobResult> ExecuteAsync(IngestJob job, IProgress<JobProgress> progress, CancellationToken ct)
     {
         var sourceId = job.SourceId;
-        var sourcePolicy = await LoadSourceIngestPolicyAsync(sourceId, ct);
         var stageStopwatch = Stopwatch.StartNew();
-        using var parseActivity = PipelineTelemetry.ActivitySource.StartActivity("pipeline.parse", ActivityKind.Internal);
+        using var parseActivity = PipelineTelemetry.ActivitySource.StartActivity("pipeline.ingest_fanout", ActivityKind.Internal);
         parseActivity?.SetTag("source.id", sourceId);
-        parseActivity?.SetTag("ingest.readiness", sourcePolicy.Readiness);
-        parseActivity?.SetTag("ingest.empty_content_action", sourcePolicy.EmptyContentAction);
 
-        var docs = await _context.Documents
-            .Where(d => d.SourceId == sourceId && d.Status == "pending")
-            .OrderBy(d => d.CreatedAt)
-            .Take(MaxPendingDocsPerRun)
-            .ToListAsync(ct);
-        parseActivity?.SetTag("docs.count", docs.Count);
+        var totalPending = await _context.Documents
+            .CountAsync(d => d.SourceId == sourceId && d.Status == "pending", ct);
+        var totalCap = Math.Min(MaxPendingDocsPerRun, totalPending);
+        parseActivity?.SetTag("docs.count", totalCap);
 
-        using var chunkActivity = PipelineTelemetry.ActivitySource.StartActivity("pipeline.chunk", ActivityKind.Internal);
-        chunkActivity?.SetTag("source.id", sourceId);
-        chunkActivity?.SetTag("docs.count", docs.Count);
+        if (await _context.IsSourcePausedOrStoppedAsync(sourceId, ct))
+        {
+            _logger.LogInformation("Ingest fan-out skipped for {SourceId}: source is paused or stopped", sourceId);
+            return new JobResult
+            {
+                Status = JobTerminalStatus.Success,
+                Metadata = new Dictionary<string, object> { ["interrupted_by"] = "pause", ["document_ids_enqueued"] = 0 }
+            };
+        }
 
-        using var embedActivity = PipelineTelemetry.ActivitySource.StartActivity("pipeline.embed", ActivityKind.Internal);
-        embedActivity?.SetTag("source.id", sourceId);
-        embedActivity?.SetTag("docs.count", docs.Count);
+        var backpressure = PipelineBackpressureConfig.Load();
+        var pendingEmbed = await _context.JobRegistry
+            .CountAsync(r => r.SourceId == sourceId && r.JobType == "embed_and_index"
+                && (r.Status == "pending" || r.Status == "processing"), ct);
+        if (pendingEmbed > backpressure.MaxPendingEmbed)
+        {
+            _logger.LogInformation(
+                "Ingest yielding for {SourceId}: backpressure pending_embed={Pending} > {Max}",
+                sourceId, pendingEmbed, backpressure.MaxPendingEmbed);
+            var retryJob = new IngestJob
+            {
+                Id = Guid.NewGuid(),
+                SourceId = sourceId,
+                JobType = "ingest",
+                Payload = job.Payload ?? new Dictionary<string, object>()
+            };
+            await _jobQueue.ScheduleAsync(retryJob, TimeSpan.FromSeconds(60), ct);
+            return new JobResult
+            {
+                Status = JobTerminalStatus.Success,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["yielded"] = true,
+                    ["reason"] = "backpressure",
+                    ["pending_downstream"] = pendingEmbed
+                }
+            };
+        }
 
-        using var indexActivity = PipelineTelemetry.ActivitySource.StartActivity("pipeline.index", ActivityKind.Internal);
-        indexActivity?.SetTag("source.id", sourceId);
-        indexActivity?.SetTag("docs.count", docs.Count);
-
-        var docsCompleted = 0;
-        var docsFailed = 0;
-        var docsMetadataOnly = 0;
+        var embedConfig = PipelineEmbedBatchConfig.Load();
+        var batchesEnqueued = 0;
+        var documentIdsEnqueued = 0;
         var mediaProjected = 0;
+        var interruptedByPause = false;
         try
         {
-            for (var i = 0; i < docs.Count; i++)
+            var lastId = Guid.Empty;
+            while (documentIdsEnqueued < totalCap)
             {
-                var doc = docs[i];
-                var canonical = _normalizer.Normalize(new CanonicalTextDocument
+                if (await _context.IsSourcePausedOrStoppedAsync(sourceId, ct))
                 {
-                    SourceId = doc.SourceId,
-                    ExternalId = doc.ExternalId ?? doc.DocumentId ?? doc.Id.ToString(),
-                    Title = doc.Title,
-                    Content = doc.Content ?? string.Empty,
-                    ContentType = "text/plain",
-                    Language = "pt-BR",
-                    Metadata = DeserializeMetadata(doc.Metadata)
-                });
-
-                if (string.IsNullOrWhiteSpace(canonical.Content))
-                {
-                    if (string.Equals(sourcePolicy.EmptyContentAction, "metadata_only", StringComparison.OrdinalIgnoreCase))
-                    {
-                        docsMetadataOnly++;
-                        MarkDocumentMetadataOnly(doc);
-                    }
-                    else
-                    {
-                        docsFailed++;
-                        MarkDocumentFailed(doc, "ingest_failed_empty_content");
-                    }
-                }
-                else
-                {
-                    try
-                    {
-                        await ProcessCanonicalDocumentAsync(doc, canonical, chunkActivity, embedActivity, indexActivity, ct);
-                        docsCompleted++;
-                    }
-                    catch (Exception ex)
-                    {
-                        docsFailed++;
-                        MarkDocumentFailed(doc, "ingest_failed_v2_pipeline", ex.Message);
-                    }
+                    _logger.LogInformation("Ingest fan-out interrupted for {SourceId}: source paused/stopped at {Enqueued} docs", sourceId, documentIdsEnqueued);
+                    interruptedByPause = true;
+                    break;
                 }
 
-                if (doc.FetchItemId.HasValue)
+                var remaining = totalCap - documentIdsEnqueued;
+                var page = await _context.Documents
+                    .Where(d => d.SourceId == sourceId && d.Status == "pending" && d.Id.CompareTo(lastId) > 0)
+                    .OrderBy(d => d.Id)
+                    .Take(Math.Min(EmbedFanOutPageSize, remaining))
+                    .Select(d => new { d.Id, ContentLength = d.Content != null ? d.Content.Length : 0 })
+                    .ToListAsync(ct);
+
+                if (page.Count == 0)
+                    break;
+
+                var pageTuples = page.Select(x => (x.Id, x.ContentLength)).ToList();
+                var batches = FormBatches(pageTuples, embedConfig);
+                foreach (var batchIds in batches)
                 {
-                    var fetchItemId = doc.FetchItemId.Value;
-                    var allDone = await _context.Documents
-                        .Where(d => d.FetchItemId == fetchItemId)
-                        .AllAsync(d => d.Id == doc.Id || d.Status == "completed", ct);
-                    if (allDone)
+                    if (batchIds.Count == 0) continue;
+                    var payload = new Dictionary<string, object>
                     {
-                        await _context.DiscoveredLinks
-                            .Where(l => l.Id == doc.LinkId)
-                            .ExecuteUpdateAsync(setters => setters
-                                .SetProperty(x => x.IngestStatus, "completed")
-                                .SetProperty(x => x.UpdatedAt, DateTime.UtcNow), ct);
-                    }
+                        ["document_ids"] = batchIds.Select(g => g.ToString()).ToList()
+                    };
+                    var embedJob = new IngestJob
+                    {
+                        Id = Guid.NewGuid(),
+                        SourceId = sourceId,
+                        JobType = "embed_and_index",
+                        Payload = payload
+                    };
+                    await _jobQueue.EnqueueAsync(embedJob, ct);
+                    batchesEnqueued++;
+                    documentIdsEnqueued += batchIds.Count;
+
+                    progress.Report(new JobProgress
+                    {
+                        PercentComplete = totalCap == 0 ? 100 : Math.Min(100, (int)Math.Round((documentIdsEnqueued * 100.0) / totalCap)),
+                        Message = $"Ingest fan-out {documentIdsEnqueued}/{totalCap}",
+                        Metrics = new Dictionary<string, object>
+                        {
+                            ["documents_total"] = totalCap,
+                            ["batches_enqueued"] = batchesEnqueued,
+                            ["document_ids_enqueued"] = documentIdsEnqueued
+                        }
+                    });
                 }
 
-                await _context.SaveChangesAsync(ct);
-
-                progress.Report(new JobProgress
-                {
-                    PercentComplete = docs.Count == 0 ? 100 : (int)Math.Round(((i + 1) * 100.0) / docs.Count),
-                    Message = $"Ingest {i + 1}/{docs.Count}",
-                    Metrics = new Dictionary<string, object>
-                    {
-                        ["documents_total"] = docs.Count,
-                        ["documents_completed"] = docsCompleted,
-                        ["documents_failed"] = docsFailed,
-                        ["documents_metadata_only"] = docsMetadataOnly
-                    }
-                });
+                lastId = page[page.Count - 1].Id;
             }
 
             mediaProjected = await ProjectMediaItemsAsDocumentsAsync(sourceId, progress, ct);
@@ -166,33 +169,16 @@ public class IngestJobExecutor : IJobExecutor
         catch (Exception ex)
         {
             parseActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-            chunkActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-            embedActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-            indexActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
             parseActivity?.AddException(ex);
-            chunkActivity?.AddException(ex);
-            embedActivity?.AddException(ex);
-            indexActivity?.AddException(ex);
             parseActivity?.SetTag("error.type", ex.GetType().Name);
-            chunkActivity?.SetTag("error.type", ex.GetType().Name);
-            embedActivity?.SetTag("error.type", ex.GetType().Name);
-            indexActivity?.SetTag("error.type", ex.GetType().Name);
             throw;
         }
 
-        var totalIngested = docsCompleted + mediaProjected;
         _logger.LogInformation(
-            "Ingest v2 finished for {SourceId}: docs_completed={DocsCompleted}, docs_failed={DocsFailed}, docs_metadata_only={DocsMetadataOnly}, media_projected={MediaProjected}",
-            sourceId,
-            docsCompleted,
-            docsFailed,
-            docsMetadataOnly,
-            mediaProjected);
+            "Ingest fan-out finished for {SourceId}: batches_enqueued={Batches}, document_ids_enqueued={Ids}, media_projected={MediaProjected}",
+            sourceId, batchesEnqueued, documentIdsEnqueued, mediaProjected);
 
-        PipelineTelemetry.RecordDocsProcessed(totalIngested, sourceId, "parse");
-        PipelineTelemetry.RecordDocsProcessed(totalIngested, sourceId, "chunk");
-        PipelineTelemetry.RecordDocsProcessed(totalIngested, sourceId, "embed");
-        PipelineTelemetry.RecordDocsProcessed(totalIngested, sourceId, "index");
+        PipelineTelemetry.RecordDocsProcessed(documentIdsEnqueued + mediaProjected, sourceId, "parse");
         PipelineTelemetry.RecordStageLatency(stageStopwatch.Elapsed.TotalMilliseconds, sourceId, "index");
 
         const double maxDrift = 0.1;
@@ -223,75 +209,17 @@ public class IngestJobExecutor : IJobExecutor
                 sourceId, driftRatio, pgActiveCount, indexActiveCount, maxDrift);
         }
 
-        return new JobResult
+        var resultMetadata = new Dictionary<string, object>
         {
-            Status = JobTerminalStatus.Success,
-            Metadata = new Dictionary<string, object>
-            {
-                ["documents_completed"] = docsCompleted,
-                ["documents_failed"] = docsFailed,
-                ["documents_metadata_only"] = docsMetadataOnly,
-                ["media_projected"] = mediaProjected,
-                ["reconciliation_status"] = reconciliationStatus,
-                ["reconciliation_drift_ratio"] = driftRatio
-            }
+            ["batches_enqueued"] = batchesEnqueued,
+            ["document_ids_enqueued"] = documentIdsEnqueued,
+            ["media_projected"] = mediaProjected,
+            ["reconciliation_status"] = reconciliationStatus,
+            ["reconciliation_drift_ratio"] = driftRatio
         };
-    }
-
-    private async Task ProcessCanonicalDocumentAsync(
-        DocumentEntity doc,
-        CanonicalTextDocument canonical,
-        Activity? chunkActivity,
-        Activity? embedActivity,
-        Activity? indexActivity,
-        CancellationToken ct)
-    {
-        var chunkMetadata = new Dictionary<string, object>(canonical.Metadata, StringComparer.OrdinalIgnoreCase)
-        {
-            ["source_id"] = canonical.SourceId,
-            ["external_id"] = canonical.ExternalId
-        };
-
-        var chunkConfig = new ChunkConfig
-        {
-            Strategy = "fixed",
-            MaxChunkSize = 512,
-            Overlap = 64
-        };
-
-        var chunkResult = _chunker.Chunk(canonical.Content, chunkConfig, chunkMetadata);
-        if (chunkResult.Chunks.Count == 0)
-            throw new InvalidOperationException("Chunking returned zero chunks for non-empty content.");
-
-        chunkActivity?.SetTag("chunks.count", chunkResult.Chunks.Count);
-        chunkActivity?.SetTag("chunks.tokens", chunkResult.TotalTokens);
-
-        var embeddings = await _embedder.EmbedChunksAsync(chunkResult.Chunks, doc.Id.ToString(), ct);
-        embedActivity?.SetTag("embeddings.count", embeddings.TotalEmbeddings);
-        embedActivity?.SetTag("embeddings.model", embeddings.Model);
-
-        var indexDocument = BuildIndexDocument(doc, canonical, chunkResult.Chunks.Count);
-        var indexChunks = BuildIndexChunks(embeddings);
-        var indexingResult = await _indexer.IndexAsync(indexDocument, indexChunks, ct);
-
-        indexActivity?.SetTag("index.status", indexingResult.Status.ToString().ToLowerInvariant());
-        indexActivity?.SetTag("index.chunks", indexingResult.ChunksIndexed);
-
-        if (indexingResult.Status is IndexingStatus.Failed or IndexingStatus.RolledBack)
-        {
-            var message = indexingResult.Errors.Count > 0
-                ? string.Join("; ", indexingResult.Errors)
-                : "Indexing failed without explicit error";
-            throw new InvalidOperationException(message);
-        }
-
-        var enrichedCanonical = canonical with
-        {
-            Metadata = EnrichMetadataForIngestV2(canonical.Metadata, chunkConfig, chunkResult, embeddings, indexingResult)
-        };
-
-        ApplyCanonicalToDocument(doc, enrichedCanonical, doc.LinkId, doc.FetchItemId, "ingest_v2", "ingested_v2");
-        doc.ElasticsearchId = indexDocument.DocumentId;
+        if (interruptedByPause)
+            resultMetadata["interrupted_by"] = "pause";
+        return new JobResult { Status = JobTerminalStatus.Success, Metadata = resultMetadata };
     }
 
     private async Task<int> ProjectMediaItemsAsDocumentsAsync(
@@ -567,74 +495,6 @@ public class IngestJobExecutor : IJobExecutor
         return "fail";
     }
 
-    private static IndexDocument BuildIndexDocument(DocumentEntity doc, CanonicalTextDocument canonical, int chunksCount)
-    {
-        return new IndexDocument
-        {
-            DocumentId = doc.Id.ToString(),
-            SourceId = canonical.SourceId,
-            Title = canonical.Title ?? string.Empty,
-            ContentPreview = BuildContentPreview(canonical.Content),
-            Fingerprint = ComputeSha256(canonical.Content),
-            Metadata = canonical.Metadata,
-            Status = "active",
-            ChunksCount = chunksCount,
-            IngestedAt = DateTime.UtcNow
-        };
-    }
-
-    private static IReadOnlyList<IndexChunk> BuildIndexChunks(EmbeddingResult embeddingResult)
-    {
-        var chunks = new List<IndexChunk>(embeddingResult.Chunks.Count);
-        foreach (var embeddedChunk in embeddingResult.Chunks)
-        {
-            chunks.Add(new IndexChunk
-            {
-                ChunkId = $"{embeddingResult.DocumentId}:chunk:{embeddedChunk.Index}",
-                ChunkIndex = embeddedChunk.Index,
-                Text = embeddedChunk.Text,
-                Embedding = embeddedChunk.Embedding,
-                Metadata = embeddedChunk.Metadata
-            });
-        }
-
-        return chunks;
-    }
-
-    private static IReadOnlyDictionary<string, object> EnrichMetadataForIngestV2(
-        IReadOnlyDictionary<string, object> existingMetadata,
-        ChunkConfig chunkConfig,
-        ChunkResult chunkResult,
-        EmbeddingResult embeddings,
-        IndexingResult indexingResult)
-    {
-        var metadata = new Dictionary<string, object>(existingMetadata, StringComparer.OrdinalIgnoreCase)
-        {
-            ["ingest_version"] = "v2",
-            ["ingest_chunk_strategy"] = chunkConfig.Strategy,
-            ["ingest_chunk_size"] = chunkConfig.MaxChunkSize,
-            ["ingest_chunk_overlap"] = chunkConfig.Overlap,
-            ["ingest_chunk_count"] = chunkResult.Chunks.Count,
-            ["ingest_total_tokens"] = chunkResult.TotalTokens,
-            ["ingest_embedding_model"] = embeddings.Model,
-            ["ingest_embedding_dimensions"] = embeddings.Chunks.FirstOrDefault()?.Dimensions ?? 0,
-            ["ingest_index_status"] = indexingResult.Status.ToString().ToLowerInvariant(),
-            ["ingest_index_chunks"] = indexingResult.ChunksIndexed,
-            ["ingest_indexed_at"] = DateTime.UtcNow.ToString("O")
-        };
-
-        return metadata;
-    }
-
-    private static string BuildContentPreview(string content)
-    {
-        if (string.IsNullOrWhiteSpace(content))
-            return string.Empty;
-
-        var trimmed = content.Trim();
-        return trimmed.Length <= 240 ? trimmed : trimmed[..240];
-    }
-
     private static void ApplyCanonicalToDocument(
         DocumentEntity doc,
         CanonicalTextDocument canonical,
@@ -697,6 +557,44 @@ public class IngestJobExecutor : IJobExecutor
     {
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(input));
         return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// Splits a page of (Id, ContentLength) into batches respecting max chars and max docs per batch.
+    /// </summary>
+    private static List<List<Guid>> FormBatches(
+        List<(Guid Id, int ContentLength)> page,
+        PipelineEmbedBatchConfig config)
+    {
+        var result = new List<List<Guid>>();
+        var currentBatch = new List<Guid>();
+        var currentChars = 0;
+
+        foreach (var item in page)
+        {
+            var wouldExceedChars = currentChars + item.ContentLength > config.MaxCharsPerBatch;
+            if (currentBatch.Count >= config.MinDocsPerBatch && wouldExceedChars)
+            {
+                if (currentBatch.Count > 0)
+                {
+                    result.Add(currentBatch);
+                    currentBatch = new List<Guid>();
+                    currentChars = 0;
+                }
+            }
+            if (currentBatch.Count >= config.MaxDocsPerBatch)
+            {
+                result.Add(currentBatch);
+                currentBatch = new List<Guid>();
+                currentChars = 0;
+            }
+            currentBatch.Add(item.Id);
+            currentChars += item.ContentLength;
+        }
+
+        if (currentBatch.Count > 0)
+            result.Add(currentBatch);
+        return result;
     }
 
     private sealed record SourceIngestPolicy(string Readiness, string EmptyContentAction)

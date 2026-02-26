@@ -1,10 +1,12 @@
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
 namespace Gabi.Postgres.Migrations
 {
-    /// <inheritdoc />
+    [DbContext(typeof(GabiDbContext))]
+    [Migration("20260225000000_AddDocumentStatusCompletedMetadataOnly")]
     public partial class AddDocumentStatusCompletedMetadataOnly : Migration
     {
         /// <inheritdoc />

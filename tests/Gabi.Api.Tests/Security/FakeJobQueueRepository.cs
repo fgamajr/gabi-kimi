@@ -17,6 +17,8 @@ internal sealed class FakeJobQueueRepository : IJobQueueRepository
         return Task.FromResult(Guid.NewGuid());
     }
 
+    public Task<Guid> ScheduleAsync(IngestJob job, TimeSpan delay, CancellationToken ct = default) => Task.FromResult(Guid.NewGuid());
+
     public Task<IngestJob?> DequeueAsync(string workerId, TimeSpan leaseDuration, CancellationToken ct = default) => Task.FromResult<IngestJob?>(null);
 
     public Task CompleteAsync(Guid jobId, CancellationToken ct = default) => Task.CompletedTask;
