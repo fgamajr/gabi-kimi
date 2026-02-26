@@ -1,4 +1,5 @@
 #!/bin/bash
+# DEPRECATED: Migrado para ReliabilityLab C# (tests/ReliabilityLab/). Ver tests/ReliabilityLab/README.md
 # ═══════════════════════════════════════════════════════════════════════════════
 # GABI - Zero Kelvin Test
 # ═══════════════════════════════════════════════════════════════════════════════
