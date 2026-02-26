@@ -33,6 +33,13 @@ public static class ErrorClassifier
         if (exception is HttpRequestException http)
             return ClassifyHttpStatus(http.StatusCode, exception.Message);
 
+        // Unwrap custom wrapper exceptions that conceal an HttpRequestException
+        // (e.g. EmbeddingRateLimitException wraps HttpRequestException{429}).
+        // Avoids a direct type reference from Contracts to Worker while still
+        // producing the correct Throttled classification for retry planning.
+        if (exception.InnerException is HttpRequestException innerHttp)
+            return ClassifyHttpStatus(innerHttp.StatusCode, exception.Message);
+
         return new ErrorClassification(ErrorCategory.Transient, "UNCLASSIFIED", exception.Message);
     }
 

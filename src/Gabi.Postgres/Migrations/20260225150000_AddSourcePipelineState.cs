@@ -1,4 +1,5 @@
 using System;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -6,6 +7,8 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Gabi.Postgres.Migrations
 {
     /// <inheritdoc />
+    [DbContext(typeof(GabiDbContext))]
+    [Migration("20260225150000_AddSourcePipelineState")]
     public partial class AddSourcePipelineState : Migration
     {
         /// <inheritdoc />

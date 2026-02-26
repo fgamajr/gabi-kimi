@@ -60,6 +60,15 @@ public sealed class EmbedAndIndexJobExecutorTests : IDisposable
                 PgSuccess = true,
                 EsSuccess = true
             });
+        _indexerMock
+            .Setup(x => x.BulkIndexAsync(It.IsAny<IReadOnlyList<(IndexDocument, IReadOnlyList<IndexChunk>)>>(), It.IsAny<CancellationToken>()))
+            .Returns(async (IReadOnlyList<(IndexDocument d, IReadOnlyList<IndexChunk> c)> batch, CancellationToken ct) =>
+            {
+                var results = new List<IndexingResult>();
+                foreach (var (d, c) in batch)
+                    results.Add(new IndexingResult { DocumentId = d.DocumentId, Status = IndexingStatus.Success, ChunksIndexed = c.Count, PgSuccess = true, EsSuccess = true });
+                return (IReadOnlyList<IndexingResult>)results;
+            });
 
         var normalizer = new Mock<ICanonicalDocumentNormalizer>();
         normalizer
@@ -124,7 +133,7 @@ public sealed class EmbedAndIndexJobExecutorTests : IDisposable
             JobType = "embed_and_index",
             Payload = new Dictionary<string, object>
             {
-                ["document_ids"] = new List<string> { docId1.ToString(), docId2.ToString() }
+                ["document_ids"] = new List<object> { (object)docId1.ToString(), (object)docId2.ToString() }
             }
         };
 

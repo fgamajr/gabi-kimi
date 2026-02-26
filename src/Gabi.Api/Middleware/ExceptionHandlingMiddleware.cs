@@ -56,8 +56,9 @@ public class ExceptionHandlingMiddleware
         context.Response.StatusCode = statusCode;
         context.Response.ContentType = "application/json";
 
-        // Em desenvolvimento, incluir detalhes da exceção
-        var includeDetails = _environment.IsDevelopment();
+        // Em desenvolvimento ou teste, incluir detalhes da exceção (debug 400/500)
+        var includeDetails = _environment.IsDevelopment()
+            || _environment.IsEnvironment("Testing");
         
         var response = new ErrorResponse
         {

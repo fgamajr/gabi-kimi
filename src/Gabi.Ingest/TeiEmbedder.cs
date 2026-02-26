@@ -140,6 +140,20 @@ public sealed class TeiEmbedder : IEmbedder
                 ? new { inputs = inputs[0] }
                 : new { inputs };
             using var response = await _httpClient.PostAsJsonAsync("embed", payload, ct);
+
+            // Read Retry-After before EnsureSuccessStatusCode disposes the response (GAP-06).
+            // The header is logged for operational observability; the actual retry delay is
+            // controlled by IntelligentRetryPlanner (15 min for Throttled) which is conservative
+            // and safe without requiring the header value to propagate through the exception chain.
+            if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+            {
+                var retryAfterDelta = response.Headers.RetryAfter?.Delta;
+                _logger.LogWarning(
+                    "TEI rate limit (429). Retry-After={RetryAfterSeconds}s. Batch size={BatchSize}.",
+                    retryAfterDelta.HasValue ? (int)retryAfterDelta.Value.TotalSeconds : (int?)null,
+                    inputs.Count);
+            }
+
             response.EnsureSuccessStatusCode();
             var json = await response.Content.ReadAsStringAsync(ct);
             var embeddings = JsonSerializer.Deserialize<float[][]>(json);

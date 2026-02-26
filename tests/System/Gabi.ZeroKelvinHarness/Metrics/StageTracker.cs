@@ -12,6 +12,8 @@ public static class StageTracker
     /// </summary>
     public static async Task<Dictionary<string, int>> GetStageCountsAsync(string connectionString, string? sourceId, CancellationToken ct = default)
     {
+        // source_registry uses "Id" for the source key; other tables use "SourceId"
+        var sourceRegistryFilter = string.IsNullOrEmpty(sourceId) ? "" : " WHERE \"Id\" = @sid";
         var sourceFilter = string.IsNullOrEmpty(sourceId) ? "" : " WHERE \"SourceId\" = @sid";
         var sourceAnd = string.IsNullOrEmpty(sourceId) ? "" : " AND \"SourceId\" = @sid";
 
@@ -30,7 +32,7 @@ public static class StageTracker
             return o is DBNull || o == null ? 0 : Convert.ToInt32(o);
         }
 
-        result["sources_seeded"] = await ScalarAsync("SELECT COUNT(*) FROM source_registry" + sourceFilter, ct).ConfigureAwait(false);
+        result["sources_seeded"] = await ScalarAsync("SELECT COUNT(*) FROM source_registry" + sourceRegistryFilter, ct).ConfigureAwait(false);
         result["discovered_links"] = await ScalarAsync("SELECT COUNT(*) FROM discovered_links" + sourceFilter, ct).ConfigureAwait(false);
         result["fetch_items_pending"] = await ScalarAsync("SELECT COUNT(*) FROM fetch_items WHERE \"Status\" = 'pending'" + sourceAnd, ct).ConfigureAwait(false);
         result["fetch_items_completed"] = await ScalarAsync("SELECT COUNT(*) FROM fetch_items WHERE \"Status\" IN ('completed','skipped_format','skipped_unchanged','capped','failed')" + sourceAnd, ct).ConfigureAwait(false);

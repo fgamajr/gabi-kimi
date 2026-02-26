@@ -228,11 +228,19 @@ public class CatalogSeedJobExecutor : IJobExecutor
             var doc = deserializer.Deserialize<SeedYamlDocument>(yaml);
             if (doc?.Sources != null)
             {
+                // CODEX-D: Extract defaults.pipeline to merge into sources that don't override it
+                var defaultPipeline = BuildConfigObject(doc.Defaults?.Pipeline);
+
                 foreach (var (id, sourceDef) in doc.Sources)
                 {
                     var fetchProtocol = GetConfigString(sourceDef.Fetch, "protocol") ?? "https";
                     var fetchConfig = BuildConfigObject(sourceDef.Fetch);
-                    var pipelineConfig = BuildConfigObject(sourceDef.Pipeline);
+                    var sourcePipeline = BuildConfigObject(sourceDef.Pipeline);
+
+                    // Deep-merge defaults.pipeline into source pipeline (source values win on conflict)
+                    var pipelineConfig = defaultPipeline is null
+                        ? sourcePipeline
+                        : DeepMerge(defaultPipeline, sourcePipeline);
 
                     sources.Add(new SourceRegistryEntity
                     {
@@ -261,10 +269,45 @@ public class CatalogSeedJobExecutor : IJobExecutor
         return sources;
     }
 
+    /// <summary>
+    /// Deep-merges two config dicts. Values from <paramref name="overlay"/> win on conflict.
+    /// Nested dicts are merged recursively; all other types are replaced.
+    /// </summary>
+    private static Dictionary<string, object?> DeepMerge(
+        Dictionary<string, object?> baseDict,
+        Dictionary<string, object?>? overlay)
+    {
+        var result = new Dictionary<string, object?>(baseDict, StringComparer.OrdinalIgnoreCase);
+        if (overlay == null)
+            return result;
+        foreach (var (key, overlayValue) in overlay)
+        {
+            if (overlayValue is Dictionary<string, object?> overlayChild
+                && result.TryGetValue(key, out var baseValue)
+                && baseValue is Dictionary<string, object?> baseChild)
+            {
+                result[key] = DeepMerge(baseChild, overlayChild);
+            }
+            else
+            {
+                result[key] = overlayValue;
+            }
+        }
+        return result;
+    }
+
     private class SeedYamlDocument
     {
+        [YamlDotNet.Serialization.YamlMember(Alias = "defaults")]
+        public SeedDefaultsDefinition? Defaults { get; set; }
+
         [YamlDotNet.Serialization.YamlMember(Alias = "sources")]
         public Dictionary<string, SeedSourceDefinition>? Sources { get; set; }
+    }
+
+    private class SeedDefaultsDefinition
+    {
+        public object? Pipeline { get; set; }
     }
 
     private class SeedSourceDefinition

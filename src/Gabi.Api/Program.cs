@@ -41,6 +41,15 @@ builder.Host.UseSerilog((context, _, configuration) =>
         configuration.WriteTo.Console(new CompactJsonFormatter());
 });
 
+// Fail fast in non-Development if embeddings URL is not set (DEF-19 / GAP-10)
+if (!builder.Environment.IsDevelopment() && !builder.Environment.IsEnvironment("Testing"))
+{
+    var embeddingsUrlCheck = builder.Configuration["GABI_EMBEDDINGS_URL"] ?? builder.Configuration["Gabi:EmbeddingsUrl"];
+    if (string.IsNullOrWhiteSpace(embeddingsUrlCheck))
+        throw new InvalidOperationException(
+            "GABI_EMBEDDINGS_URL is required in non-development. Configure via environment variable GABI_EMBEDDINGS_URL.");
+}
+
 // Database
 var connectionString = builder.Configuration.GetConnectionString("Default");
 if (string.IsNullOrWhiteSpace(connectionString) && !builder.Environment.IsEnvironment("Testing"))
@@ -340,7 +349,10 @@ app.MapGet("/api/v1/search", [Authorize(Policy = "RequireViewer")] async (
     var safePageSize = Math.Clamp(pageSize > 0 ? pageSize : 20, 1, 100);
 
     var searchService = httpContext.RequestServices.GetService<ISearchService>();
-    var requireEs = httpContext.RequestServices.GetRequiredService<IConfiguration>().GetValue<bool>("Gabi:Search:RequireElasticsearch");
+    // Default to true in non-Development to prevent O(N) full table scan fallback in production (GEMINI-01)
+    var env = httpContext.RequestServices.GetRequiredService<IHostEnvironment>();
+    var requireEs = httpContext.RequestServices.GetRequiredService<IConfiguration>()
+        .GetValue<bool>("Gabi:Search:RequireElasticsearch", !env.IsDevelopment());
     if (requireEs && searchService == null)
         return Results.Json(
             new { error = "Search requires Elasticsearch; not configured. Set Gabi:ElasticsearchUrl and GABI_EMBEDDINGS_URL (or Gabi:EmbeddingsUrl)." },
@@ -504,6 +516,67 @@ app.MapPost("/api/v1/dashboard/sources/{sourceId}/phases/{phase}", [Authorize(Po
     return result.Success ? Results.Ok(result) : Results.NotFound(result);
 })
 .RequireRateLimiting("write");
+
+// GET /api/v1/dashboard/sources/{sourceId}/metrics - Actionable metrics by source (DEF-16/17)
+app.MapGet("/api/v1/dashboard/sources/{sourceId}/metrics", [Authorize(Policy = "RequireViewer")] async (
+    string sourceId,
+    GabiDbContext db,
+    CancellationToken ct) =>
+{
+    var docStats = await db.Documents
+        .AsNoTracking()
+        .Where(d => d.SourceId == sourceId)
+        .GroupBy(d => d.Status)
+        .Select(g => new { Status = g.Key, Count = g.Count() })
+        .ToListAsync(ct);
+
+    var docsCompleted = docStats.FirstOrDefault(x => x.Status == "completed")?.Count ?? 0;
+    var docsPending = docStats.FirstOrDefault(x => x.Status == "pending")?.Count ?? 0;
+    var docsFailed = docStats.FirstOrDefault(x => x.Status == "failed")?.Count ?? 0;
+    var docsTotal = docStats.Sum(x => x.Count);
+    var docsSuccessRate = (docsCompleted + docsFailed) > 0
+        ? Math.Round(docsCompleted / (double)(docsCompleted + docsFailed), 4)
+        : 0.0;
+
+    var jobStats = await db.JobRegistry
+        .AsNoTracking()
+        .Where(j => j.SourceId == sourceId)
+        .GroupBy(j => j.Status)
+        .Select(g => new { Status = g.Key, Count = g.Count() })
+        .ToListAsync(ct);
+
+    var jobsSucceeded = jobStats.FirstOrDefault(x => x.Status == "succeeded")?.Count ?? 0;
+    var jobsFailed = jobStats.FirstOrDefault(x => x.Status == "failed")?.Count ?? 0;
+    var jobsProcessing = jobStats.FirstOrDefault(x => x.Status == "processing")?.Count ?? 0;
+    var jobsPending = jobStats.FirstOrDefault(x => x.Status == "pending")?.Count ?? 0;
+    var jobsTotal = jobStats.Sum(x => x.Count);
+    var jobsErrorRate = (jobsSucceeded + jobsFailed) > 0
+        ? Math.Round(jobsFailed / (double)(jobsSucceeded + jobsFailed), 4)
+        : 0.0;
+
+    return Results.Ok(new
+    {
+        sourceId,
+        docs = new
+        {
+            completed = docsCompleted,
+            pending = docsPending,
+            failed = docsFailed,
+            total = docsTotal,
+            success_rate = docsSuccessRate
+        },
+        jobs = new
+        {
+            succeeded = jobsSucceeded,
+            failed = jobsFailed,
+            processing = jobsProcessing,
+            pending = jobsPending,
+            total = jobsTotal,
+            error_rate = jobsErrorRate
+        }
+    });
+})
+.RequireRateLimiting("read");
 
 // POST /admin/sources/{sourceId}/reindex - Reindex: set active docs to pending and enqueue ingest (Admin only)
 app.MapPost("/admin/sources/{sourceId}/reindex", [Authorize(Policy = "RequireAdmin")] async (

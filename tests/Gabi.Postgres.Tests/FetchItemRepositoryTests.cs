@@ -47,8 +47,9 @@ public class FetchItemRepositoryTests : IDisposable
 
         first.Should().Be(2);
         second.Should().Be(0);
-        (await _context.FetchItems.CountAsync()).Should().Be(2);
-        (await _context.FetchItems.CountAsync(i => i.Status == "pending")).Should().Be(2);
+        // DB-ISO: scope to this test's source to avoid interference from parallel tests sharing the Postgres fixture
+        (await _context.FetchItems.CountAsync(i => i.SourceId == source.Id)).Should().Be(2);
+        (await _context.FetchItems.CountAsync(i => i.SourceId == source.Id && i.Status == "pending")).Should().Be(2);
     }
 
     [Fact]
@@ -85,12 +86,22 @@ public class FetchItemRepositoryTests : IDisposable
         _context.SourceRegistries.Add(source);
         await _context.SaveChangesAsync();
 
+        var links = new[]
+        {
+            new DiscoveredLinkEntity { SourceId = source.Id, Url = "https://a", UrlHash = $"lh1_{source.Id}" },
+            new DiscoveredLinkEntity { SourceId = source.Id, Url = "https://b", UrlHash = $"lh2_{source.Id}" },
+            new DiscoveredLinkEntity { SourceId = source.Id, Url = "https://c", UrlHash = $"lh3_{source.Id}" },
+            new DiscoveredLinkEntity { SourceId = source.Id, Url = "https://d", UrlHash = $"lh4_{source.Id}" },
+        };
+        _context.DiscoveredLinks.AddRange(links);
+        await _context.SaveChangesAsync();
+
         var items = new[]
         {
-            new FetchItemEntity { SourceId = source.Id, Url = "https://a", UrlHash = "h1", Status = "pending", CreatedAt = DateTime.UtcNow.AddMinutes(-3) },
-            new FetchItemEntity { SourceId = source.Id, Url = "https://b", UrlHash = "h2", Status = "failed", CreatedAt = DateTime.UtcNow.AddMinutes(-2) },
-            new FetchItemEntity { SourceId = source.Id, Url = "https://c", UrlHash = "h3", Status = "pending", CreatedAt = DateTime.UtcNow.AddMinutes(-1) },
-            new FetchItemEntity { SourceId = source.Id, Url = "https://d", UrlHash = "h4", Status = "completed", CreatedAt = DateTime.UtcNow }
+            new FetchItemEntity { SourceId = source.Id, Url = "https://a", UrlHash = "h1", Status = "pending", CreatedAt = DateTime.UtcNow.AddMinutes(-3), DiscoveredLinkId = links[0].Id },
+            new FetchItemEntity { SourceId = source.Id, Url = "https://b", UrlHash = "h2", Status = "failed", CreatedAt = DateTime.UtcNow.AddMinutes(-2), DiscoveredLinkId = links[1].Id },
+            new FetchItemEntity { SourceId = source.Id, Url = "https://c", UrlHash = "h3", Status = "pending", CreatedAt = DateTime.UtcNow.AddMinutes(-1), DiscoveredLinkId = links[2].Id },
+            new FetchItemEntity { SourceId = source.Id, Url = "https://d", UrlHash = "h4", Status = "completed", CreatedAt = DateTime.UtcNow, DiscoveredLinkId = links[3].Id }
         };
         _context.FetchItems.AddRange(items);
         await _context.SaveChangesAsync();
@@ -111,9 +122,15 @@ public class FetchItemRepositoryTests : IDisposable
         _context.SourceRegistries.Add(source);
         await _context.SaveChangesAsync();
 
-        var a = new FetchItemEntity { SourceId = source.Id, Url = "https://a", UrlHash = "h1", Status = "pending", CreatedAt = DateTime.UtcNow.AddMinutes(-3) };
-        var b = new FetchItemEntity { SourceId = source.Id, Url = "https://b", UrlHash = "h2", Status = "pending", CreatedAt = DateTime.UtcNow.AddMinutes(-2) };
-        var c = new FetchItemEntity { SourceId = source.Id, Url = "https://c", UrlHash = "h3", Status = "pending", CreatedAt = DateTime.UtcNow.AddMinutes(-1) };
+        var la = new DiscoveredLinkEntity { SourceId = source.Id, Url = "https://a", UrlHash = $"lha_{source.Id}" };
+        var lb = new DiscoveredLinkEntity { SourceId = source.Id, Url = "https://b", UrlHash = $"lhb_{source.Id}" };
+        var lc = new DiscoveredLinkEntity { SourceId = source.Id, Url = "https://c", UrlHash = $"lhc_{source.Id}" };
+        _context.DiscoveredLinks.AddRange(la, lb, lc);
+        await _context.SaveChangesAsync();
+
+        var a = new FetchItemEntity { SourceId = source.Id, Url = "https://a", UrlHash = "h1", Status = "pending", CreatedAt = DateTime.UtcNow.AddMinutes(-3), DiscoveredLinkId = la.Id };
+        var b = new FetchItemEntity { SourceId = source.Id, Url = "https://b", UrlHash = "h2", Status = "pending", CreatedAt = DateTime.UtcNow.AddMinutes(-2), DiscoveredLinkId = lb.Id };
+        var c = new FetchItemEntity { SourceId = source.Id, Url = "https://c", UrlHash = "h3", Status = "pending", CreatedAt = DateTime.UtcNow.AddMinutes(-1), DiscoveredLinkId = lc.Id };
         _context.FetchItems.AddRange(a, b, c);
         await _context.SaveChangesAsync();
 

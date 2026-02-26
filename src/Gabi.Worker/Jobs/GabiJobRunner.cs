@@ -2,6 +2,7 @@ using Gabi.Contracts.Common;
 using Gabi.Contracts.Jobs;
 using Gabi.Contracts.Observability;
 using Gabi.Postgres;
+using Gabi.Postgres.Entities;
 using Microsoft.EntityFrameworkCore;
 using System.Diagnostics;
 using System.Threading.Channels;
@@ -13,6 +14,12 @@ namespace Gabi.Worker.Jobs;
 /// </summary>
 public class GabiJobRunner : IGabiJobRunner
 {
+    // Job types that own a specific source's pipeline state (GAP-07).
+    // embed_and_index is excluded: it's a fan-out sub-job with many concurrent instances.
+    // seed is excluded: it processes all sources at once, has no per-source state.
+    private static readonly HashSet<string> PipelinePhaseJobTypes =
+        new(StringComparer.OrdinalIgnoreCase) { "discovery", "fetch", "ingest" };
+
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<GabiJobRunner> _logger;
 
@@ -47,6 +54,11 @@ public class GabiJobRunner : IGabiJobRunner
             reg.CompletedAt = null;
             await context.SaveChangesAsync(ct);
         }
+
+        // GAP-07: confirm pipeline state = "running" at actual job start.
+        // Handles Hangfire retries where StartPhaseAsync (which sets "running" at enqueue time)
+        // was never called (e.g. worker restart, Hangfire re-pickup after crash).
+        await TrySetPipelineStateAsync(context, jobType, sourceId, "running", jobType, ct);
 
         var discoveryConfig = JobPayloadParser.ParseDiscoveryConfigFromPayload(payloadJson) ?? new Gabi.Contracts.Discovery.DiscoveryConfig();
 
@@ -91,6 +103,12 @@ public class GabiJobRunner : IGabiJobRunner
             await AwaitProgressPumpSafelyAsync(jobId, progressPumpTask);
             var statusString = StatusVocabulary.ToCanonical(result.Status);
             await UpdateRegistryAsync(context, jobId, statusString, result.ErrorMessage, ct);
+
+            // GAP-07: return source to "idle" after a phase completes.
+            // Partial/Capped/Inconclusive are still terminal completions — source is idle.
+            // Only JobTerminalStatus.Failed maps to pipeline state "failed".
+            var pipelineEndState = result.Status == JobTerminalStatus.Failed ? "failed" : "idle";
+            await TrySetPipelineStateAsync(context, jobType, sourceId, pipelineEndState, null, ct);
         }
         catch (Exception ex)
         {
@@ -101,6 +119,9 @@ public class GabiJobRunner : IGabiJobRunner
             activity?.SetTag("error.type", ex.GetType().Name);
             _logger.LogError(ex, "Job {JobId} failed", jobId);
             await UpdateRegistryAsync(context, jobId, "failed", ex.Message, ct);
+
+            // GAP-07: unhandled exception → source enters "failed" state.
+            await TrySetPipelineStateAsync(context, jobType, sourceId, "failed", null, ct);
             throw;
         }
     }
@@ -190,6 +211,65 @@ public class GabiJobRunner : IGabiJobRunner
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Progress pump task failed for job {JobId}", jobId);
+        }
+    }
+
+    /// <summary>
+    /// Writes source pipeline state (GAP-07). Only applies to phase-owning job types
+    /// (discovery, fetch, ingest). Never overwrites operator-set states (paused, stopped)
+    /// so that Pause/Stop controls are not clobbered by job lifecycle events.
+    /// Failures are non-fatal: state is observability metadata, not business logic.
+    /// </summary>
+    private async Task TrySetPipelineStateAsync(
+        GabiDbContext context,
+        string jobType,
+        string sourceId,
+        string targetState,
+        string? activePhase,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(sourceId) || !PipelinePhaseJobTypes.Contains(jobType))
+            return;
+
+        try
+        {
+            var existing = await context.SourcePipelineStates
+                .FirstOrDefaultAsync(s => s.SourceId == sourceId, ct);
+            var now = DateTime.UtcNow;
+
+            if (existing == null)
+            {
+                context.SourcePipelineStates.Add(new SourcePipelineStateEntity
+                {
+                    SourceId = sourceId,
+                    State = targetState,
+                    ActivePhase = activePhase,
+                    UpdatedAt = now
+                });
+            }
+            else
+            {
+                // Never overwrite a state set by the operator (Pause/Stop).
+                // The executor already checked IsSourcePausedOrStoppedAsync and returned
+                // early, so the source remains paused/stopped after the job exits.
+                if (existing.State is "paused" or "stopped")
+                    return;
+
+                existing.State = targetState;
+                existing.ActivePhase = activePhase;
+                existing.UpdatedAt = now;
+            }
+
+            await context.SaveChangesAsync(ct);
+            _logger.LogDebug(
+                "Pipeline state for {SourceId}: {PreviousState} → {TargetState} (job={JobType})",
+                sourceId, existing?.State ?? "new", targetState, jobType);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Failed to update pipeline state for {SourceId} to {TargetState} (non-fatal)",
+                sourceId, targetState);
         }
     }
 }

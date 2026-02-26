@@ -5,6 +5,7 @@ using Gabi.Contracts.Index;
 using Gabi.Contracts.Jobs;
 using Gabi.Postgres;
 using Gabi.Postgres.Entities;
+using Gabi.Postgres.Repositories;
 using Gabi.Worker.Jobs;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -35,6 +36,7 @@ public sealed class IngestFanOutTests : IDisposable
         indexer.Setup(x => x.GetActiveDocumentCountAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(0);
         var mediaProjector = new Mock<IMediaTextProjector>();
+        var docRepository = new Mock<IDocumentRepository>();
         var logger = new Mock<ILogger<IngestJobExecutor>>();
 
         _executor = new IngestJobExecutor(
@@ -43,6 +45,7 @@ public sealed class IngestFanOutTests : IDisposable
             indexer.Object,
             mediaProjector.Object,
             jobQueue,
+            docRepository.Object,
             logger.Object);
     }
 

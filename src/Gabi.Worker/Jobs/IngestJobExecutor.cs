@@ -8,6 +8,7 @@ using Gabi.Contracts.Jobs;
 using Gabi.Contracts.Observability;
 using Gabi.Postgres;
 using Gabi.Postgres.Entities;
+using Gabi.Postgres.Repositories;
 using Microsoft.EntityFrameworkCore;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
@@ -32,6 +33,7 @@ public class IngestJobExecutor : IJobExecutor
     private readonly IDocumentIndexer _indexer;
     private readonly IMediaTextProjector _mediaTextProjector;
     private readonly IJobQueueRepository _jobQueue;
+    private readonly IDocumentRepository _docRepository;
 
     public IngestJobExecutor(
         GabiDbContext context,
@@ -39,6 +41,7 @@ public class IngestJobExecutor : IJobExecutor
         IDocumentIndexer indexer,
         IMediaTextProjector mediaTextProjector,
         IJobQueueRepository jobQueue,
+        IDocumentRepository docRepository,
         ILogger<IngestJobExecutor> logger)
     {
         _context = context;
@@ -46,6 +49,7 @@ public class IngestJobExecutor : IJobExecutor
         _indexer = indexer;
         _mediaTextProjector = mediaTextProjector;
         _jobQueue = jobQueue;
+        _docRepository = docRepository;
         _logger = logger;
     }
 
@@ -171,6 +175,7 @@ public class IngestJobExecutor : IJobExecutor
             parseActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
             parseActivity?.AddException(ex);
             parseActivity?.SetTag("error.type", ex.GetType().Name);
+            PipelineTelemetry.RecordStageError(sourceId, "ingest");
             throw;
         }
 
@@ -286,7 +291,7 @@ public class IngestJobExecutor : IJobExecutor
                     CreatedAt = DateTime.UtcNow,
                     CreatedBy = "ingest_v1"
                 };
-                _context.Documents.Add(doc);
+                await _docRepository.AddAsync(doc, ct);
             }
 
             ApplyCanonicalToDocument(doc, canonical, link.Id, null);

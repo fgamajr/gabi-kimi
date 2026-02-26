@@ -14,6 +14,7 @@ using Gabi.Postgres;
 using Gabi.Postgres.Entities;
 using Gabi.Postgres.Repositories;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Npgsql;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
@@ -33,6 +34,7 @@ public class FetchJobExecutor : IJobExecutor
     private readonly IFetchItemRepository _fetchItemRepository;
     private readonly IFetchUrlValidator _fetchUrlValidator;
     private readonly IJobQueueRepository _jobQueue;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<FetchJobExecutor> _logger;
     private readonly HttpClient _httpClient;
     private const int BatchSize = 25;
@@ -54,12 +56,14 @@ public class FetchJobExecutor : IJobExecutor
         IFetchItemRepository fetchItemRepository,
         IFetchUrlValidator fetchUrlValidator,
         IJobQueueRepository jobQueue,
+        IConfiguration configuration,
         ILogger<FetchJobExecutor> logger)
     {
         _context = context;
         _fetchItemRepository = fetchItemRepository;
         _fetchUrlValidator = fetchUrlValidator;
         _jobQueue = jobQueue;
+        _configuration = configuration;
         _logger = logger;
 
         var handler = new SocketsHttpHandler
@@ -1092,7 +1096,11 @@ public class FetchJobExecutor : IJobExecutor
 
     private async Task<SourceFetchConfig> LoadSourceFetchConfigAsync(string sourceId, CancellationToken ct)
     {
-        var sourcesPath = Environment.GetEnvironmentVariable("GABI_SOURCES_PATH") ?? "sources_v2.yaml";
+        var sourcesPath = Environment.GetEnvironmentVariable("GABI_SOURCES_PATH");
+        if (string.IsNullOrEmpty(sourcesPath))
+            sourcesPath = _configuration["GABI_SOURCES_PATH"];
+        if (string.IsNullOrEmpty(sourcesPath))
+            sourcesPath = "sources_v2.yaml";
 
         if (!File.Exists(sourcesPath))
         {
@@ -2091,9 +2099,12 @@ public class FetchJobExecutor : IJobExecutor
         {
             return Encoding.UTF8.GetString(bytes);
         }
-        catch
+        catch (Exception ex)
         {
-            return Encoding.Latin1.GetString(bytes);
+            // GEMINI-07: Do not silently decode as Latin1 — that produces mojibake persisted permanently in ES.
+            // Reject and let the caller mark the document as failed.
+            throw new InvalidOperationException(
+                $"Content is not valid UTF-8 and no explicit charset was declared. Rejecting to prevent mojibake. ({bytes.Length} bytes)", ex);
         }
     }
 

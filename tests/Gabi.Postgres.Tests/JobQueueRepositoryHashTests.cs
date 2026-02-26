@@ -12,7 +12,7 @@ namespace Gabi.Postgres.Tests;
 [Collection("Postgres")]
 public class JobQueueRepositoryHashTests : IDisposable
 {
-    private const string TestSourceId = "test_source_hash";
+    private readonly string _testSourceId = "hash_" + Guid.NewGuid().ToString("N")[..12];
     private readonly GabiDbContext _context;
     private readonly JobQueueRepository _repository;
 
@@ -32,7 +32,7 @@ public class JobQueueRepositoryHashTests : IDisposable
     {
         var source = new SourceRegistryEntity
         {
-            Id = TestSourceId,
+            Id = _testSourceId,
             Name = "Test Source Hash",
             Provider = "TEST",
             DiscoveryStrategy = "url_pattern",
@@ -45,7 +45,7 @@ public class JobQueueRepositoryHashTests : IDisposable
         {
             Id = Guid.NewGuid(),
             JobType = "source_discovery",
-            SourceId = TestSourceId,
+            SourceId = _testSourceId,
             Payload = new Dictionary<string, object> { ["force"] = true, ["request_id"] = "a" },
             Status = JobStatus.Pending
         };
@@ -54,7 +54,7 @@ public class JobQueueRepositoryHashTests : IDisposable
         {
             Id = Guid.NewGuid(),
             JobType = "source_discovery",
-            SourceId = TestSourceId,
+            SourceId = _testSourceId,
             Payload = new Dictionary<string, object> { ["force"] = false, ["request_id"] = "b" },
             Status = JobStatus.Pending
         };
@@ -63,6 +63,7 @@ public class JobQueueRepositoryHashTests : IDisposable
         await _repository.EnqueueAsync(second);
 
         var hashes = await _context.IngestJobs
+            .Where(x => x.SourceId == _testSourceId)
             .OrderBy(x => x.CreatedAt)
             .Select(x => x.PayloadHash)
             .ToListAsync();
@@ -76,7 +77,7 @@ public class JobQueueRepositoryHashTests : IDisposable
     {
         var source = new SourceRegistryEntity
         {
-            Id = TestSourceId,
+            Id = _testSourceId,
             Name = "Test Source Discovery Payload",
             Provider = "TEST",
             DiscoveryStrategy = "url_pattern",
@@ -100,7 +101,7 @@ public class JobQueueRepositoryHashTests : IDisposable
         {
             Id = Guid.NewGuid(),
             JobType = "source_discovery",
-            SourceId = TestSourceId,
+            SourceId = _testSourceId,
             Payload = new Dictionary<string, object>
             {
                 ["force"] = true,
@@ -113,7 +114,7 @@ public class JobQueueRepositoryHashTests : IDisposable
 
         await _repository.EnqueueAsync(job);
 
-        var latest = await _repository.GetLatestForSourceAsync(TestSourceId);
+        var latest = await _repository.GetLatestForSourceAsync(_testSourceId);
 
         latest.Should().NotBeNull();
         latest!.DiscoveryConfig.Should().NotBeNull();
