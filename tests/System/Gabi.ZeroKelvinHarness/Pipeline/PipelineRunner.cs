@@ -31,12 +31,17 @@ public static class PipelineRunner
         object? body = null,
         CancellationToken ct = default)
     {
-        var content = body != null ? JsonContent.Create(body) : null;
+        var content = body != null ? JsonContent.Create(body, options: JsonOptions) : null;
         var res = await client.PostAsync(
             $"/api/v1/dashboard/sources/{sourceId}/phases/{phase}",
             content,
             ct).ConfigureAwait(false);
-        res.EnsureSuccessStatusCode();
+        if (!res.IsSuccessStatusCode)
+        {
+            var bodyText = await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            throw new HttpRequestException(
+                $"Phase {phase} failed: {res.StatusCode}. Response: {bodyText}");
+        }
     }
 
     /// <summary>
@@ -62,12 +67,12 @@ public static class PipelineRunner
                     if (status is "completed" or "partial")
                         return true;
                 }
+                await Task.Delay(pollInterval, cts.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
                 return false;
             }
-            await Task.Delay(pollInterval, cts.Token).ConfigureAwait(false);
         }
     }
 
@@ -97,12 +102,12 @@ public static class PipelineRunner
                     if (status is "completed" or "partial" or "failed" or "capped" or "inconclusive")
                         return true;
                 }
+                await Task.Delay(pollInterval, cts.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
                 return false;
             }
-            await Task.Delay(pollInterval, cts.Token).ConfigureAwait(false);
         }
     }
 
@@ -125,12 +130,12 @@ public static class PipelineRunner
                 var pending = await getPendingCountAsync(cts.Token).ConfigureAwait(false);
                 if (pending == 0)
                     return true;
+                await Task.Delay(pollInterval, cts.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
                 return false;
             }
-            await Task.Delay(pollInterval, cts.Token).ConfigureAwait(false);
         }
     }
 

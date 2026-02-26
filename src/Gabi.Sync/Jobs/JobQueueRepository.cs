@@ -19,6 +19,9 @@ public class JobQueueRepository : IJobQueueRepository
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
+    // Reject payloads above 256 KB to prevent OOM poison-pill jobs (GEMINI-04)
+    private const int MaxPayloadBytes = 256 * 1024;
+
     public JobQueueRepository(IDbConnection connection, ILogger<JobQueueRepository> logger)
     {
         _connection = connection;
@@ -47,6 +50,9 @@ public class JobQueueRepository : IJobQueueRepository
             RETURNING id";
 
         var payloadJson = JsonSerializer.Serialize(job.Payload, JsonOptions);
+        if (payloadJson.Length > MaxPayloadBytes)
+            throw new InvalidOperationException(
+                $"Job payload for source '{job.SourceId}' exceeds the {MaxPayloadBytes / 1024} KB limit ({payloadJson.Length / 1024} KB). Reduce payload size.");
         var payloadHash = ComputeHash(payloadJson);
 
         var parameters = new
@@ -70,6 +76,58 @@ public class JobQueueRepository : IJobQueueRepository
             id, job.SourceId, job.Priority);
 
         // Return a deterministic GUID based on the ID for consistency
+        return IdToGuid(id);
+    }
+
+    /// <inheritdoc />
+    public async Task<Guid> ScheduleAsync(IngestJob job, TimeSpan delay, CancellationToken ct = default)
+    {
+        var scheduledAt = DateTime.UtcNow.Add(delay);
+        const string sql = @"
+            INSERT INTO ingest_jobs (
+                job_type, payload, payload_hash, source_id, status,
+                priority, scheduled_at, max_attempts, attempts,
+                link_id, progress_percent, progress_message,
+                created_at, updated_at
+            ) VALUES (
+                @JobType, @Payload::jsonb, @PayloadHash, @SourceId, @Status,
+                @Priority, @ScheduledAt, @MaxRetries, 0,
+                NULL, 0, @ProgressMessage,
+                NOW(), NOW()
+            )
+            ON CONFLICT (payload_hash)
+            WHERE status IN ('pending', 'queued', 'processing')
+            DO UPDATE SET
+                scheduled_at = @ScheduledAt,
+                updated_at = NOW()
+            RETURNING id";
+
+        var payloadJson = JsonSerializer.Serialize(job.Payload, JsonOptions);
+        if (payloadJson.Length > MaxPayloadBytes)
+            throw new InvalidOperationException(
+                $"Job payload for source '{job.SourceId}' exceeds the {MaxPayloadBytes / 1024} KB limit ({payloadJson.Length / 1024} KB). Reduce payload size.");
+        var payloadHash = ComputeHash(payloadJson);
+
+        var parameters = new
+        {
+            job.JobType,
+            Payload = payloadJson,
+            PayloadHash = payloadHash,
+            job.SourceId,
+            Status = "pending",
+            Priority = (int)job.Priority,
+            ScheduledAt = scheduledAt,
+            job.MaxRetries,
+            ProgressMessage = $"Scheduled in {delay.TotalSeconds:F0}s for {job.SourceId}"
+        };
+
+        var id = await _connection.ExecuteScalarAsync<long>(
+            new CommandDefinition(sql, parameters, cancellationToken: ct));
+
+        _logger.LogInformation(
+            "Scheduled job for source {SourceId} in {Delay}s",
+            job.SourceId, delay.TotalSeconds);
+
         return IdToGuid(id);
     }
 
@@ -528,6 +586,9 @@ public class JobQueueRepository : IJobQueueRepository
     private static T DeserializeOrDefault<T>(string? json) where T : new()
     {
         if (string.IsNullOrEmpty(json))
+            return new T();
+
+        if (json.Length > MaxPayloadBytes)
             return new T();
 
         try

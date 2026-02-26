@@ -113,10 +113,19 @@ try
     });
 
     // DlqFilter will be registered via GlobalJobFilters after host is built
+    // pipeline-stages: 1 worker; controls pipeline stage ordering and avoids embed fan-out tarpitting other stages
     builder.Services.AddHangfireServer(options =>
     {
-        options.WorkerCount = builder.Configuration.GetValue<int>("WorkerPool:WorkerCount", 2);
-        options.Queues = new[] { "seed", "discovery", "fetch", "ingest", "embed", "default" };
+        options.ServerName = "pipeline-stages";
+        options.WorkerCount = 1;
+        options.Queues = new[] { "seed", "discovery", "fetch", "ingest", "default" };
+    });
+    // embed-pool: separate concurrency, scales independently of pipeline stages
+    builder.Services.AddHangfireServer(options =>
+    {
+        options.ServerName = "embed-pool";
+        options.WorkerCount = builder.Configuration.GetValue<int>("WorkerPool:EmbedWorkerCount", 3);
+        options.Queues = new[] { "embed" };
     });
 
     builder.Services.AddScoped<HangfireJobQueueRepository>();
@@ -124,6 +133,7 @@ try
     builder.Services.AddScoped<ISourceRegistryRepository, SourceRegistryRepository>();
     builder.Services.AddScoped<IDiscoveredLinkRepository, DiscoveredLinkRepository>();
     builder.Services.AddScoped<IFetchItemRepository, FetchItemRepository>();
+    builder.Services.AddScoped<IDocumentRepository, DocumentRepository>();
 
     builder.Services.AddSingleton<Gabi.Worker.Security.FetchUrlValidator>();
     builder.Services.AddSingleton<Gabi.Contracts.Fetch.IFetchUrlValidator>(sp => sp.GetRequiredService<Gabi.Worker.Security.FetchUrlValidator>());

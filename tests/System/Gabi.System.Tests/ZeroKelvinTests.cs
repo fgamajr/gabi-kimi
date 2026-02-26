@@ -1,8 +1,16 @@
+using System.Collections.Generic;
 using FluentAssertions;
+using Gabi.Contracts.Jobs;
+using Gabi.Postgres;
+using Gabi.Postgres.Repositories;
+using Gabi.Worker.Jobs;
 using Gabi.ZeroKelvinHarness;
 using Gabi.ZeroKelvinHarness.Infrastructure;
 using Gabi.ZeroKelvinHarness.Metrics;
 using Gabi.ZeroKelvinHarness.Models;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace Gabi.System.Tests;
@@ -10,6 +18,57 @@ namespace Gabi.System.Tests;
 [Trait("Category", "System")]
 public sealed class ZeroKelvinTests
 {
+    /// <summary>
+    /// Runs catalog seed synchronously so source_registry is populated before pipeline phases.
+    /// Zero Kelvin only runs the API (no Worker), so we must seed the DB directly.
+    /// </summary>
+    private static async Task SeedSourceRegistryFromYamlAsync(string connectionString, CancellationToken ct = default)
+    {
+        var sourcesPath = FindSourcesV2Path();
+        if (string.IsNullOrEmpty(sourcesPath) || !File.Exists(sourcesPath))
+            throw new InvalidOperationException($"sources_v2.yaml not found. Looked at: {sourcesPath ?? "(null)"}; CWD={Directory.GetCurrentDirectory()}");
+
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["GABI_SOURCES_PATH"] = sourcesPath })
+            .Build();
+
+        var options = new DbContextOptionsBuilder<GabiDbContext>()
+            .UseNpgsql(connectionString)
+            .Options;
+
+        await using var context = new GabiDbContext(options);
+        var logger = LoggerFactory.Create(_ => { }).CreateLogger<CatalogSeedJobExecutor>();
+        var sourceRepo = new SourceRegistryRepository(context, LoggerFactory.Create(_ => { }).CreateLogger<SourceRegistryRepository>());
+        var executor = new CatalogSeedJobExecutor(sourceRepo, context, config, logger);
+
+        var job = new IngestJob
+        {
+            Id = Guid.NewGuid(),
+            JobType = "catalog_seed",
+            SourceId = string.Empty,
+            Payload = new Dictionary<string, object>(),
+            Status = JobStatus.Pending
+        };
+        var result = await executor.ExecuteAsync(job, new Progress<JobProgress>(_ => { }), ct);
+        if (!result.Success)
+            throw new InvalidOperationException($"Seed failed: {result.ErrorMessage}");
+    }
+
+    private static string? FindSourcesV2Path()
+    {
+        var baseDir = AppContext.BaseDirectory;
+        var dir = baseDir;
+        for (var i = 0; i < 8; i++)
+        {
+            if (string.IsNullOrEmpty(dir)) return null;
+            var path = Path.Combine(dir, "sources_v2.yaml");
+            if (File.Exists(path)) return Path.GetFullPath(path);
+            dir = Path.GetDirectoryName(dir);
+        }
+        var fromCwd = Path.Combine(Directory.GetCurrentDirectory(), "sources_v2.yaml");
+        return File.Exists(fromCwd) ? Path.GetFullPath(fromCwd) : null;
+    }
+
     [Fact]
     public async Task Harness_EnvironmentManager_StartsAndResets()
     {
@@ -39,14 +98,16 @@ public sealed class ZeroKelvinTests
 
         try
         {
-            using var factory = new ZeroKelvinWebApplicationFactory(env.ConnectionString, env.RedisUrl);
+            var sourcesPath = FindSourcesV2Path();
+            using var factory = new ZeroKelvinWebApplicationFactory(env.ConnectionString, env.RedisUrl, sourcesPath);
             var client = factory.CreateOperatorClient();
             var config = new ZeroKelvinConfig
             {
                 MaxDocs = documentCount,
                 SourceId = "tcu_sumulas",
                 PhaseTimeout = TimeSpan.FromMinutes(2),
-                SampleSize = 30
+                SampleSize = 30,
+                Phases = new[] { "seed", "discovery", "fetch", "ingest" }
             };
 
             async Task<int> GetPendingAsync(string sourceId, CancellationToken ct)

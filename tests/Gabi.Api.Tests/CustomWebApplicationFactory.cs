@@ -13,9 +13,16 @@ using Gabi.Api.Tests.Security;
 
 namespace Gabi.Api.Tests;
 
-public class CustomWebApplicationFactory : WebApplicationFactory<Program>
+public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IDisposable
 {
     private readonly string _dbName = $"GabiTestDb_{Guid.NewGuid():N}";
+    private readonly string? _savedConnectionStringsDefault;
+
+    public CustomWebApplicationFactory()
+    {
+        _savedConnectionStringsDefault = Environment.GetEnvironmentVariable("ConnectionStrings__Default");
+        Environment.SetEnvironmentVariable("ConnectionStrings__Default", null);
+    }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -25,6 +32,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
         {
             var testConfig = new Dictionary<string, string?>
             {
+                ["ConnectionStrings:Default"] = "",
                 ["Jwt:Key"] = "test-key-minimum-32-characters-long-for-testing-only!",
                 ["Jwt:Issuer"] = "GabiApiTest",
                 ["Jwt:Audience"] = "GabiDashboardTest",
@@ -139,6 +147,12 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             : "Viewer";
         client.DefaultRequestHeaders.Add("X-Test-Role", role);
         return Task.FromResult(client);
+    }
+
+    public new void Dispose()
+    {
+        Environment.SetEnvironmentVariable("ConnectionStrings__Default", _savedConnectionStringsDefault);
+        base.Dispose();
     }
 
     private static string BuildUsersJson()

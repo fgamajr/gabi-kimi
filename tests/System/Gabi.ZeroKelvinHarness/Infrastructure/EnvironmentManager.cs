@@ -67,13 +67,32 @@ public sealed class EnvironmentManager : IAsyncDisposable
             "discovery_runs", "discovered_links", "seed_runs", "source_registry", "job_registry",
             "dlq_entries", "media_items", "source_pipeline_state", "pipeline_actions", "audit_log", "ingest_jobs"
         };
-        var truncateSql = "TRUNCATE " + string.Join(", ", tables) + " RESTART IDENTITY CASCADE;";
 
         await using var conn = new Npgsql.NpgsqlConnection(ConnectionString);
         await conn.OpenAsync(ct).ConfigureAwait(false);
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = truncateSql;
-        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        var truncateSql = "TRUNCATE " + string.Join(", ", tables) + " RESTART IDENTITY CASCADE;";
+        try
+        {
+            cmd.CommandText = truncateSql;
+            await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        }
+        catch (Npgsql.PostgresException ex) when (ex.SqlState == "42P01")
+        {
+            // One or more tables do not exist; truncate only existing tables
+            foreach (var table in tables)
+            {
+                cmd.CommandText = $"TRUNCATE {table} RESTART IDENTITY CASCADE;";
+                try
+                {
+                    await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+                }
+                catch (Npgsql.PostgresException inner) when (inner.SqlState == "42P01")
+                {
+                    // relation does not exist
+                }
+            }
+        }
 
         // Clear Hangfire enqueued/scheduled jobs so next run has clean queue
         cmd.CommandText = @"

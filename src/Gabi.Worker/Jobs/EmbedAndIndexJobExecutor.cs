@@ -68,6 +68,11 @@ public class EmbedAndIndexJobExecutor : IJobExecutor
         var completed = 0;
         var failed = 0;
         var interruptedByPause = false;
+
+        // Phase 1: normalize + chunk + embed (sequential; embedding is the bottleneck)
+        // Collect successfully embedded docs for bulk indexing in Phase 2.
+        var pendingIndex = new List<(DocumentEntity Doc, CanonicalTextDocument Canonical, IndexDocument IndexDoc, IReadOnlyList<IndexChunk> Chunks)>();
+
         foreach (var doc in docs)
         {
             if (await _context.IsSourcePausedOrStoppedAsync(sourceId, ct))
@@ -97,14 +102,69 @@ public class EmbedAndIndexJobExecutor : IJobExecutor
                     continue;
                 }
 
-                await ProcessOneDocumentAsync(doc, canonical, ct);
-                completed++;
+                var (indexDoc, indexChunks) = await EmbedDocumentAsync(doc, canonical, ct);
+                pendingIndex.Add((doc, canonical, indexDoc, indexChunks));
             }
             catch (Exception ex)
             {
                 failed++;
-                MarkDocumentFailed(doc, "embed_and_index_failed", ex.Message);
-                _logger.LogWarning(ex, "EmbedAndIndex failed for document {DocId}", doc.Id);
+                MarkDocumentFailed(doc, "embed_failed", ex.Message);
+                _logger.LogWarning(ex, "EmbedAndIndex embed phase failed for document {DocId}", doc.Id);
+            }
+        }
+
+        // Phase 2: bulk index all successfully embedded docs in a single HTTP round-trip
+        if (pendingIndex.Count > 0)
+        {
+            var bulkBatch = pendingIndex
+                .Select(p => (p.IndexDoc, p.Chunks))
+                .ToList();
+            var bulkResults = await _indexer.BulkIndexAsync(bulkBatch, ct);
+
+            for (var i = 0; i < pendingIndex.Count && i < bulkResults.Count; i++)
+            {
+                var (doc, canonical, indexDoc, _) = pendingIndex[i];
+                var result = bulkResults[i];
+
+                if (result.Status is IndexingStatus.Failed or IndexingStatus.RolledBack)
+                {
+                    failed++;
+                    var message = result.Errors.Count > 0
+                        ? string.Join("; ", result.Errors)
+                        : "Bulk indexing failed without explicit error";
+                    MarkDocumentFailed(doc, "index_failed", message);
+                    _logger.LogWarning("BulkIndex failed for document {DocId}: {Error}", doc.Id, message);
+                    continue;
+                }
+
+                var enrichedCanonical = canonical with
+                {
+                    Metadata = EnrichMetadataForIngestV2(canonical.Metadata, result)
+                };
+                ApplyCanonicalToDocument(doc, enrichedCanonical, doc.LinkId, doc.FetchItemId, "ingest_v2", "ingested_v2");
+                doc.ElasticsearchId = indexDoc.DocumentId;
+
+                if (doc.FetchItemId.HasValue)
+                {
+                    var fetchItemId = doc.FetchItemId.Value;
+                    var linkId = doc.LinkId;
+                    var docId = doc.Id;
+                    var now = DateTime.UtcNow;
+                    await _context.Database.ExecuteSqlRawAsync(
+                        """
+                        UPDATE discovered_links
+                        SET "IngestStatus" = 'completed', "UpdatedAt" = {0}
+                        WHERE "Id" = {1}
+                          AND NOT EXISTS (
+                            SELECT 1 FROM documents d
+                            WHERE d."FetchItemId" = {2} AND d."Id" <> {3}
+                              AND (d."Status" IS NULL OR d."Status" <> 'completed')
+                          )
+                        """,
+                        ct, now, linkId, fetchItemId, docId);
+                }
+
+                completed++;
             }
         }
 
@@ -135,7 +195,9 @@ public class EmbedAndIndexJobExecutor : IJobExecutor
         return new JobResult { Status = JobTerminalStatus.Success, Metadata = metadata };
     }
 
-    private async Task ProcessOneDocumentAsync(DocumentEntity doc, CanonicalTextDocument canonical, CancellationToken ct)
+    /// <summary>Returns (IndexDocument, IndexChunks) after normalize→chunk→embed. Throws on failure.</summary>
+    private async Task<(IndexDocument IndexDoc, IReadOnlyList<IndexChunk> Chunks)> EmbedDocumentAsync(
+        DocumentEntity doc, CanonicalTextDocument canonical, CancellationToken ct)
     {
         var chunkMetadata = new Dictionary<string, object>(canonical.Metadata, StringComparer.OrdinalIgnoreCase)
         {
@@ -143,13 +205,7 @@ public class EmbedAndIndexJobExecutor : IJobExecutor
             ["external_id"] = canonical.ExternalId
         };
 
-        var chunkConfig = new ChunkConfig
-        {
-            Strategy = "fixed",
-            MaxChunkSize = 512,
-            Overlap = 64
-        };
-
+        var chunkConfig = new ChunkConfig { Strategy = "fixed", MaxChunkSize = 512, Overlap = 64 };
         var chunkResult = _chunker.Chunk(canonical.Content, chunkConfig, chunkMetadata);
         if (chunkResult.Chunks.Count == 0)
             throw new InvalidOperationException("Chunking returned zero chunks for non-empty content.");
@@ -166,43 +222,7 @@ public class EmbedAndIndexJobExecutor : IJobExecutor
 
         var indexDocument = BuildIndexDocument(doc, canonical, chunkResult.Chunks.Count);
         var indexChunks = BuildIndexChunks(embeddings);
-        var indexingResult = await _indexer.IndexAsync(indexDocument, indexChunks, ct);
-
-        if (indexingResult.Status is IndexingStatus.Failed or IndexingStatus.RolledBack)
-        {
-            var message = indexingResult.Errors.Count > 0
-                ? string.Join("; ", indexingResult.Errors)
-                : "Indexing failed without explicit error";
-            throw new InvalidOperationException(message);
-        }
-
-        var enrichedCanonical = canonical with
-        {
-            Metadata = EnrichMetadataForIngestV2(canonical.Metadata, chunkConfig, chunkResult, embeddings, indexingResult)
-        };
-
-        ApplyCanonicalToDocument(doc, enrichedCanonical, doc.LinkId, doc.FetchItemId, "ingest_v2", "ingested_v2");
-        doc.ElasticsearchId = indexDocument.DocumentId;
-
-        if (doc.FetchItemId.HasValue)
-        {
-            var fetchItemId = doc.FetchItemId.Value;
-            var linkId = doc.LinkId;
-            var docId = doc.Id;
-            var now = DateTime.UtcNow;
-            await _context.Database.ExecuteSqlRawAsync(
-                """
-                UPDATE discovered_links
-                SET "IngestStatus" = 'completed', "UpdatedAt" = {0}
-                WHERE "Id" = {1}
-                  AND NOT EXISTS (
-                    SELECT 1 FROM documents d
-                    WHERE d."FetchItemId" = {2} AND d."Id" <> {3}
-                      AND (d."Status" IS NULL OR d."Status" <> 'completed')
-                  )
-                """,
-                ct, now, linkId, fetchItemId, docId);
-        }
+        return (indexDocument, indexChunks);
     }
 
     private static List<Guid> ParseDocumentIdsFromPayload(IReadOnlyDictionary<string, object> payload)
@@ -263,21 +283,11 @@ public class EmbedAndIndexJobExecutor : IJobExecutor
 
     private static IReadOnlyDictionary<string, object> EnrichMetadataForIngestV2(
         IReadOnlyDictionary<string, object> existingMetadata,
-        ChunkConfig chunkConfig,
-        ChunkResult chunkResult,
-        EmbeddingResult embeddings,
         IndexingResult indexingResult)
     {
         var metadata = new Dictionary<string, object>(existingMetadata, StringComparer.OrdinalIgnoreCase)
         {
             ["ingest_version"] = "v2",
-            ["ingest_chunk_strategy"] = chunkConfig.Strategy,
-            ["ingest_chunk_size"] = chunkConfig.MaxChunkSize,
-            ["ingest_chunk_overlap"] = chunkConfig.Overlap,
-            ["ingest_chunk_count"] = chunkResult.Chunks.Count,
-            ["ingest_total_tokens"] = chunkResult.TotalTokens,
-            ["ingest_embedding_model"] = embeddings.Model,
-            ["ingest_embedding_dimensions"] = embeddings.Chunks.FirstOrDefault()?.Dimensions ?? 0,
             ["ingest_index_status"] = indexingResult.Status.ToString().ToLowerInvariant(),
             ["ingest_index_chunks"] = indexingResult.ChunksIndexed,
             ["ingest_indexed_at"] = DateTime.UtcNow.ToString("O")

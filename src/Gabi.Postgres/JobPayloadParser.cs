@@ -12,6 +12,10 @@ public static class JobPayloadParser
         if (string.IsNullOrWhiteSpace(payloadJson)) return new Dictionary<string, object>();
         try
         {
+            // Previne OOM poison pill (GEMINI-04) rejeitando payloads massivos (>5MB)
+            if (payloadJson.Length > 5 * 1024 * 1024)
+                throw new InvalidOperationException("Payload size exceeds 5MB limit");
+
             var doc = ParsePossiblyDoubleEncodedJson(payloadJson);
             return doc.HasValue && doc.Value.ValueKind == System.Text.Json.JsonValueKind.Object
                 ? JsonElementToDictionary(doc.Value)
@@ -28,6 +32,10 @@ public static class JobPayloadParser
         if (string.IsNullOrWhiteSpace(payloadJson)) return null;
         try
         {
+            // Previne OOM poison pill (GEMINI-04) rejeitando payloads massivos (>5MB)
+            if (payloadJson.Length > 5 * 1024 * 1024)
+                throw new InvalidOperationException("Payload size exceeds 5MB limit");
+
             var doc = ParsePossiblyDoubleEncodedJson(payloadJson);
             if (!doc.HasValue || doc.Value.ValueKind != System.Text.Json.JsonValueKind.Object)
                 return null;

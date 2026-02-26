@@ -125,12 +125,31 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
             };
         }
 
+        // GEMINI-08: Read checkpoint from previous incomplete run and pass cursor to adapters.
+        var checkpoint = await ReadDiscoveryCheckpointAsync(sourceId, ct);
+        if (checkpoint.Count > 0)
+        {
+            var resumedLinks = checkpoint.TryGetValue("links_found", out var lf) ? lf : 0;
+            _logger.LogInformation(
+                "Resuming discovery for {SourceId} from checkpoint (links_found={LinksFound})",
+                sourceId, resumedLinks);
+            var extra = new Dictionary<string, JsonElement>(discoveryConfig.Extra ?? new Dictionary<string, JsonElement>());
+            foreach (var (key, value) in checkpoint)
+            {
+                if (key == "links_found") continue;
+                using var doc = JsonDocument.Parse(JsonSerializer.Serialize(value));
+                extra[key] = doc.RootElement.Clone();
+            }
+            discoveryConfig = discoveryConfig with { Extra = extra };
+        }
+
         var linksTotal = 0;
         var fetchItemsCreatedTotal = 0;
         var batchesPersisted = 0;
         var interruptedByPause = false;
         var batch = new List<DiscoveredSource>(DiscoveryBatchSize);
         var discoveredUrlsForHash = new List<string>();
+        var cursor = new Dictionary<string, object>();
         var discoveryRunEntity = new DiscoveryRunEntity
         {
             Id = Guid.NewGuid(),
@@ -156,6 +175,7 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
 
                 batch.Add(discovered);
                 discoveredUrlsForHash.Add(discovered.Url);
+                UpdateCursorFromItem(discovered.Metadata, cursor);
                 linksTotal++;
 
                 if (batch.Count >= DiscoveryBatchSize)
@@ -165,6 +185,7 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
                     discoveryRunEntity.LinksTotal = linksTotal;
                     await _context.SaveChangesAsync(ct);
                     batch.Clear();
+                    await PersistDiscoveryCheckpointAsync(sourceId, linksTotal, cursor, ct);
 
                     progress.Report(new JobProgress
                     {
@@ -192,6 +213,7 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
                 discoveryRunEntity.LinksTotal = linksTotal;
                 await _context.SaveChangesAsync(ct);
                 batch.Clear();
+                await PersistDiscoveryCheckpointAsync(sourceId, linksTotal, cursor, ct);
             }
 
             if (linksTotal == 0)
@@ -266,6 +288,9 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
             };
             _context.ExecutionManifests.Add(manifest);
             await _context.SaveChangesAsync(ct);
+
+            // GEMINI-08: Clear checkpoint — this run completed (successfully or capped).
+            await ClearDiscoveryCheckpointAsync(sourceId, ct);
         }
         catch (Exception ex)
         {
@@ -359,6 +384,136 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
             sourceId, linksToUpsert.Count, persistedLinks.Count, createdFetchItems);
 
         return createdFetchItems;
+    }
+
+    // ── GEMINI-08: Discovery checkpoint (cursor) helpers ─────────────────────
+
+    /// <summary>Reads discovery_checkpoint from source_registry.PipelineConfig. Returns empty dict if none.</summary>
+    private async Task<Dictionary<string, object>> ReadDiscoveryCheckpointAsync(string sourceId, CancellationToken ct)
+    {
+        var pipelineConfigJson = await _context.SourceRegistries
+            .AsNoTracking()
+            .Where(s => s.Id == sourceId)
+            .Select(s => s.PipelineConfig)
+            .FirstOrDefaultAsync(ct);
+
+        if (string.IsNullOrWhiteSpace(pipelineConfigJson))
+            return new Dictionary<string, object>();
+
+        try
+        {
+            using var doc = JsonDocument.Parse(pipelineConfigJson);
+            if (!doc.RootElement.TryGetProperty("discovery_checkpoint", out var checkpoint)
+                || checkpoint.ValueKind != JsonValueKind.Object)
+                return new Dictionary<string, object>();
+
+            var result = new Dictionary<string, object>();
+            foreach (var prop in checkpoint.EnumerateObject())
+            {
+                result[prop.Name] = prop.Value.ValueKind switch
+                {
+                    JsonValueKind.Number => prop.Value.TryGetInt32(out var i) ? (object)i : prop.Value.GetDouble(),
+                    JsonValueKind.String => prop.Value.GetString() ?? string.Empty,
+                    _ => prop.Value.Clone()
+                };
+            }
+            return result;
+        }
+        catch
+        {
+            return new Dictionary<string, object>();
+        }
+    }
+
+    /// <summary>Merges discovery_checkpoint into source_registry.PipelineConfig without overwriting other keys.</summary>
+    private async Task PersistDiscoveryCheckpointAsync(string sourceId, int linksFound, Dictionary<string, object> cursor, CancellationToken ct)
+    {
+        if (cursor.Count == 0) return;
+
+        var existing = await _context.SourceRegistries
+            .AsNoTracking()
+            .Where(s => s.Id == sourceId)
+            .Select(s => s.PipelineConfig)
+            .FirstOrDefaultAsync(ct);
+
+        var pipelineConfig = new Dictionary<string, JsonElement>();
+        if (!string.IsNullOrWhiteSpace(existing))
+        {
+            try
+            {
+                using var existingDoc = JsonDocument.Parse(existing);
+                foreach (var prop in existingDoc.RootElement.EnumerateObject())
+                    pipelineConfig[prop.Name] = prop.Value.Clone();
+            }
+            catch { }
+        }
+
+        var checkpointPayload = new Dictionary<string, object>(cursor) { ["links_found"] = linksFound };
+        var checkpointJson = JsonSerializer.Serialize(checkpointPayload);
+        using var checkpointDoc = JsonDocument.Parse(checkpointJson);
+        pipelineConfig["discovery_checkpoint"] = checkpointDoc.RootElement.Clone();
+
+        var newJson = JsonSerializer.Serialize(pipelineConfig);
+        await _context.SourceRegistries
+            .Where(s => s.Id == sourceId)
+            .ExecuteUpdateAsync(s => s.SetProperty(r => r.PipelineConfig, newJson), ct);
+    }
+
+    /// <summary>Removes discovery_checkpoint from source_registry.PipelineConfig after successful completion.</summary>
+    private async Task ClearDiscoveryCheckpointAsync(string sourceId, CancellationToken ct)
+    {
+        var existing = await _context.SourceRegistries
+            .AsNoTracking()
+            .Where(s => s.Id == sourceId)
+            .Select(s => s.PipelineConfig)
+            .FirstOrDefaultAsync(ct);
+
+        if (string.IsNullOrWhiteSpace(existing)) return;
+
+        try
+        {
+            var pipelineConfig = new Dictionary<string, JsonElement>();
+            using var doc = JsonDocument.Parse(existing);
+            foreach (var prop in doc.RootElement.EnumerateObject())
+            {
+                if (prop.Name != "discovery_checkpoint")
+                    pipelineConfig[prop.Name] = prop.Value.Clone();
+            }
+            var newJson = pipelineConfig.Count == 0 ? null : JsonSerializer.Serialize(pipelineConfig);
+            await _context.SourceRegistries
+                .Where(s => s.Id == sourceId)
+                .ExecuteUpdateAsync(s => s.SetProperty(r => r.PipelineConfig, newJson), ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to clear discovery checkpoint for {SourceId}", sourceId);
+        }
+    }
+
+    /// <summary>Extracts adapter-specific cursor position from a discovered item's metadata.</summary>
+    private static void UpdateCursorFromItem(IReadOnlyDictionary<string, object>? metadata, Dictionary<string, object> cursor)
+    {
+        if (metadata == null) return;
+        var driver = metadata.TryGetValue("driver", out var d) ? d?.ToString() : null;
+        switch (driver)
+        {
+            case "btcu_api_v1":
+                if (metadata.TryGetValue("api_page", out var page)) cursor["resume_btcu_page"] = page;
+                break;
+            case "camara_api_v1":
+                if (metadata.TryGetValue("year", out var cy)) cursor["resume_camara_year"] = cy;
+                break;
+            case "senado_legislacao_api_v1":
+                if (metadata.TryGetValue("year", out var sy)) cursor["resume_senado_year"] = sy;
+                break;
+            case "dou_inlabs_xml_v1":
+                if (metadata.TryGetValue("data_publicacao", out var dp)) cursor["resume_dou_date"] = dp;
+                break;
+            case "dou_monthly_pattern_v1":
+                if (metadata.TryGetValue("year", out var dy)) cursor["resume_dou_year"] = dy;
+                if (metadata.TryGetValue("month", out var dm)) cursor["resume_dou_month"] = dm;
+                break;
+        }
     }
 
     private static string ComputeExternalIdSetHash(List<string> urls)

@@ -134,7 +134,7 @@ public sealed class SearchService : ISearchService
             {
                 b.Must(m => m.MultiMatch(mm => mm
                     .Query(queryText)
-                    .Fields("title")
+                    .Fields(new[] { "title^3", "contentPreview^2" })
                     .Analyzer("portuguese")));
                 if (string.IsNullOrWhiteSpace(sourceId))
                     b.Filter(f => f.Term(t => t.Field("status").Value("active")));

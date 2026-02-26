@@ -90,7 +90,7 @@ public sealed class ApiPaginationDiscoveryAdapter : IDiscoveryAdapter
         var maxPages = ResolveBtcuMaxPages(config);
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        var page = pageStart;
+        var page = Math.Max(pageStart, ReadResumeCursorInt(config, "resume_btcu_page", pageStart));
         var pagesProcessed = 0;
         var totalPages = int.MaxValue;
 
@@ -183,9 +183,12 @@ public sealed class ApiPaginationDiscoveryAdapter : IDiscoveryAdapter
     {
         var (startYear, endYear) = ResolveYearRange(config, "start_year");
         var endpointTemplate = ResolveCamaraEndpointTemplate(config);
+        var resumeYear = ReadResumeCursorInt(config, "resume_camara_year", startYear);
 
         for (var year = startYear; year <= endYear; year++)
         {
+            if (year < resumeYear)
+                continue; // skip years already fully processed before last checkpoint
             ct.ThrowIfCancellationRequested();
             var endpoint = endpointTemplate.Replace("{year}", year.ToString(), StringComparison.OrdinalIgnoreCase);
 
@@ -220,9 +223,12 @@ public sealed class ApiPaginationDiscoveryAdapter : IDiscoveryAdapter
         var tipo = ResolveSenadoTipo(config);
         var (startYear, endYear) = ResolveYearRange(config, "start_year");
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var resumeYear = ReadResumeCursorInt(config, "resume_senado_year", startYear);
 
         for (var year = startYear; year <= endYear; year++)
         {
+            if (year < resumeYear)
+                continue; // skip years already fully processed before last checkpoint
             ct.ThrowIfCancellationRequested();
             var endpoint = endpointTemplate
                 .Replace("{tipo}", tipo, StringComparison.OrdinalIgnoreCase)
@@ -290,9 +296,13 @@ public sealed class ApiPaginationDiscoveryAdapter : IDiscoveryAdapter
         var sections = ResolveDouSections(config);
         var (startDate, endDate) = ResolveDouDateRange(config);
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var resumeDateStr = ReadResumeCursorString(config, "resume_dou_date");
+        var resumeDate = resumeDateStr != null && DateTime.TryParse(resumeDateStr, out var rd) ? rd.Date : DateTime.MinValue;
 
         for (var date = startDate.Date; date <= endDate.Date; date = date.AddDays(1))
         {
+            if (date < resumeDate)
+                continue; // skip dates already fully processed before last checkpoint
             foreach (var section in sections)
             {
                 ct.ThrowIfCancellationRequested();
@@ -363,6 +373,8 @@ public sealed class ApiPaginationDiscoveryAdapter : IDiscoveryAdapter
         var endMonthDefault = endYear == current.Year ? current.Month : 12;
         var startMonth = Math.Clamp(ResolvePositiveInt(config, "start_month", startMonthDefault), 1, 12);
         var endMonth = Math.Clamp(ResolvePositiveInt(config, "end_month", endMonthDefault), 1, 12);
+        var resumeDouYear = ReadResumeCursorInt(config, "resume_dou_year", 0);
+        var resumeDouMonth = ReadResumeCursorInt(config, "resume_dou_month", 0);
 
         for (var year = startYear; year <= endYear; year++)
         {
@@ -373,6 +385,8 @@ public sealed class ApiPaginationDiscoveryAdapter : IDiscoveryAdapter
 
             for (var month = monthFrom; month <= monthTo; month++)
             {
+                if (resumeDouYear > 0 && (year < resumeDouYear || (year == resumeDouYear && month < resumeDouMonth)))
+                    continue; // skip months already fully processed before last checkpoint
                 foreach (var section in sections)
                 {
                     ct.ThrowIfCancellationRequested();
@@ -1171,4 +1185,20 @@ public sealed class ApiPaginationDiscoveryAdapter : IDiscoveryAdapter
             return false;
         }
     }
+
+    /// <summary>Reads an integer resume cursor from DiscoveryConfig.Extra (set by SourceDiscoveryJobExecutor on restart).</summary>
+    private static int ReadResumeCursorInt(DiscoveryConfig config, string key, int defaultVal)
+    {
+        if (config.Extra != null && config.Extra.TryGetValue(key, out var v))
+        {
+            if (v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var i)) return i;
+            if (v.ValueKind == JsonValueKind.String && int.TryParse(v.GetString(), out var i2)) return i2;
+        }
+        return defaultVal;
+    }
+
+    /// <summary>Reads a string resume cursor from DiscoveryConfig.Extra (set by SourceDiscoveryJobExecutor on restart).</summary>
+    private static string? ReadResumeCursorString(DiscoveryConfig config, string key)
+        => config.Extra != null && config.Extra.TryGetValue(key, out var v) && v.ValueKind == JsonValueKind.String
+            ? v.GetString() : null;
 }
