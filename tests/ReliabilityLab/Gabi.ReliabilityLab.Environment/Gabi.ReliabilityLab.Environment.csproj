@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Gabi.ReliabilityLab.Environment</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Testcontainers.PostgreSql" Version="4.4.0" />
+    <PackageReference Include="Testcontainers.Redis" Version="4.4.0" />
+    <PackageReference Include="Testcontainers.Elasticsearch" Version="4.4.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Gabi.ReliabilityLab\Gabi.ReliabilityLab.csproj" />
+    <ProjectReference Include="..\..\..\src\Gabi.Postgres\Gabi.Postgres.csproj" />
+  </ItemGroup>
+</Project>

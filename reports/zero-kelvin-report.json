@@ -1,0 +1,39 @@
+{
+  "timestamp_utc": "2026-02-25T21:42:48Z",
+  "mode": "docker-20k",
+  "tests": {
+    "total": 15,
+    "passed": 14,
+    "failed": 1
+  },
+  "pipeline": {
+    "seed": {
+      "status": "PASS",
+      "sources_registered": 34,
+      "source_ids": "camara_medidas_provisorias,camara_propostas_emenda_constitucional,camara_projetos_decreto_legislativo,camara_projetos_lei_complementar,camara_projetos_lei_conversao,camara_projetos_resolucao,camara_leis_ordinarias,dou_dados_abertos_mensal,dou_inlabs_secao1_atos_administrativos,dou_inlabs_secao3_licitacoes_contratos"
+    },
+    "discovery": {
+      "status": "N/A",
+      "links_total": 0,
+      "source": "SKIPPED_TARGETED"
+    },
+    "fetch": {
+      "status": "N/A"
+    }
+  },
+  "targeted_stress": {
+    "enabled": true,
+    "source": "tcu_acordaos",
+    "phase": "full",
+    "max_docs": 20,
+    "monitor_memory": false,
+    "status": "FAIL",
+    "docs_processed": 0,
+    "peak_memory": "monitoring_disabled",
+    "duration": "0s",
+    "throughput_docs_per_min": "0",
+    "status_breakdown": "pending,20",
+    "error_summary": "capped at max_docs_per_source=20 (strict_coverage=true)",
+    "source_summary": "tcu_acordaos,FAIL,0,monitoring_disabled,0s,0,capped at max_docs_per_source=20 (strict_coverage=true)"
+  }
+}

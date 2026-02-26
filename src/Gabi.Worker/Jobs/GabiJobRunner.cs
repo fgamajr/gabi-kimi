@@ -153,15 +153,30 @@ public class GabiJobRunner : IGabiJobRunner
         using var scope = _serviceProvider.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<GabiDbContext>();
 
+        var nextUpdateAllowed = DateTime.UtcNow;
+
         await foreach (var update in reader.ReadAllAsync(ct))
         {
-            try
+            var latestUpdate = update;
+            
+            // Drena a fila para pegar apenas a atualização mais recente (Debounce/Write-Amplification fix)
+            while (reader.TryRead(out var newerUpdate))
             {
-                await UpdateProgressAsync(context, jobId, update.PercentComplete, update.Message, ct);
+                latestUpdate = newerUpdate;
             }
-            catch (Exception ex)
+
+            var now = DateTime.UtcNow;
+            if (now >= nextUpdateAllowed || latestUpdate.PercentComplete == 100)
             {
-                _logger.LogWarning(ex, "Progress update failed for job {JobId}", jobId);
+                try
+                {
+                    await UpdateProgressAsync(context, jobId, latestUpdate.PercentComplete, latestUpdate.Message, ct);
+                    nextUpdateAllowed = now.AddSeconds(1); // Throttle: máx 1 update por segundo
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Progress update failed for job {JobId}", jobId);
+                }
             }
         }
     }

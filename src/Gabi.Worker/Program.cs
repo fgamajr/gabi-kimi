@@ -116,12 +116,17 @@ try
     builder.Services.AddHangfireServer(options =>
     {
         options.WorkerCount = builder.Configuration.GetValue<int>("WorkerPool:WorkerCount", 2);
-        options.Queues = new[] { "seed", "discovery", "fetch", "ingest", "default" };
+        options.Queues = new[] { "seed", "discovery", "fetch", "ingest", "embed", "default" };
     });
 
+    builder.Services.AddScoped<HangfireJobQueueRepository>();
+    builder.Services.AddScoped<IJobQueueRepository>(sp => sp.GetRequiredService<HangfireJobQueueRepository>());
     builder.Services.AddScoped<ISourceRegistryRepository, SourceRegistryRepository>();
     builder.Services.AddScoped<IDiscoveredLinkRepository, DiscoveredLinkRepository>();
     builder.Services.AddScoped<IFetchItemRepository, FetchItemRepository>();
+
+    builder.Services.AddSingleton<Gabi.Worker.Security.FetchUrlValidator>();
+    builder.Services.AddSingleton<Gabi.Contracts.Fetch.IFetchUrlValidator>(sp => sp.GetRequiredService<Gabi.Worker.Security.FetchUrlValidator>());
 
     builder.Services.AddSingleton<IDiscoveryAdapter, StaticUrlDiscoveryAdapter>();
     builder.Services.AddSingleton<IDiscoveryAdapter, UrlPatternDiscoveryAdapter>();
@@ -164,6 +169,11 @@ try
     {
         var settings = new ElasticsearchClientSettings(new Uri(elasticsearchUrl));
         builder.Services.AddSingleton(new ElasticsearchClient(settings));
+        builder.Services.AddSingleton<ElasticsearchIndexSetup>(sp => new ElasticsearchIndexSetup(
+            sp.GetRequiredService<ElasticsearchClient>(),
+            sp.GetRequiredService<ILogger<ElasticsearchIndexSetup>>(),
+            indexName: null));
+        builder.Services.AddHostedService<ElasticsearchIndexSetupHostedService>();
         builder.Services.AddSingleton<IDocumentIndexer>(sp => new ElasticsearchDocumentIndexer(
             sp.GetRequiredService<ElasticsearchClient>(),
             sp.GetRequiredService<ILogger<ElasticsearchDocumentIndexer>>(),
@@ -182,6 +192,7 @@ try
     builder.Services.AddScoped<IJobExecutor, SourceDiscoveryJobExecutor>();
     builder.Services.AddScoped<IJobExecutor, FetchJobExecutor>();
     builder.Services.AddScoped<IJobExecutor, IngestJobExecutor>();
+    builder.Services.AddScoped<IJobExecutor, EmbedAndIndexJobExecutor>();
     builder.Services.AddScoped<IJobExecutor, MediaTranscribeJobExecutor>();
 
     var host = builder.Build();

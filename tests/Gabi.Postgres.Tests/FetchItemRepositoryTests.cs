@@ -8,16 +8,17 @@ using Moq;
 
 namespace Gabi.Postgres.Tests;
 
+[Collection("Postgres")]
 public class FetchItemRepositoryTests : IDisposable
 {
     private readonly GabiDbContext _context;
     private readonly FetchItemRepository _repository;
     private readonly DiscoveredLinkRepository _linkRepository;
 
-    public FetchItemRepositoryTests()
+    public FetchItemRepositoryTests(PostgresFixture fixture)
     {
         var options = new DbContextOptionsBuilder<GabiDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .UseNpgsql(fixture.ConnectionString)
             .Options;
 
         _context = new GabiDbContext(options);

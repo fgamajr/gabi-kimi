@@ -9,16 +9,17 @@ using Moq;
 
 namespace Gabi.Postgres.Tests;
 
+[Collection("Postgres")]
 public class JobQueueRepositoryHashTests : IDisposable
 {
     private const string TestSourceId = "test_source_hash";
     private readonly GabiDbContext _context;
     private readonly JobQueueRepository _repository;
 
-    public JobQueueRepositoryHashTests()
+    public JobQueueRepositoryHashTests(PostgresFixture fixture)
     {
         var options = new DbContextOptionsBuilder<GabiDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .UseNpgsql(fixture.ConnectionString)
             .Options;
 
         _context = new GabiDbContext(options);

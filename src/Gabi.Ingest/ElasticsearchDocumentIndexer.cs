@@ -50,6 +50,39 @@ public sealed class ElasticsearchDocumentIndexer : IDocumentIndexer
 
         try
         {
+            var esChunks = chunks.Select(c => new EsChunk
+            {
+                ChunkId = c.ChunkId,
+                ChunkIndex = c.ChunkIndex,
+                Text = c.Text,
+                Embedding = c.Embedding?.ToArray(),
+                Metadata = c.Metadata
+            }).ToList();
+
+            // Embedding top-level para kNN/busca híbrida: primeiro chunk com embedding ou média dos chunks
+            float[]? docEmbedding = null;
+            if (chunks.Count > 0)
+            {
+                var withEmbedding = chunks.Where(c => c.Embedding is { Count: > 0 }).ToList();
+                if (withEmbedding.Count > 0)
+                {
+                    var dims = withEmbedding[0].Embedding!.Count;
+                    if (withEmbedding.Count == 1)
+                        docEmbedding = withEmbedding[0].Embedding!.ToArray();
+                    else
+                    {
+                        docEmbedding = new float[dims];
+                        foreach (var c in withEmbedding)
+                        {
+                            for (var i = 0; i < dims && i < c.Embedding!.Count; i++)
+                                docEmbedding[i] += c.Embedding![i];
+                        }
+                        for (var i = 0; i < dims; i++)
+                            docEmbedding[i] /= withEmbedding.Count;
+                    }
+                }
+            }
+
             var doc = new EsDocument
             {
                 DocumentId = document.DocumentId,
@@ -59,13 +92,9 @@ public sealed class ElasticsearchDocumentIndexer : IDocumentIndexer
                 Fingerprint = document.Fingerprint,
                 Status = document.Status,
                 IngestedAt = document.IngestedAt,
-                Chunks = chunks.Select(c => new EsChunk
-                {
-                    ChunkId = c.ChunkId,
-                    ChunkIndex = c.ChunkIndex,
-                    Text = c.Text,
-                    Embedding = c.Embedding?.ToArray()
-                }).ToList()
+                Embedding = docEmbedding,
+                Chunks = esChunks,
+                Metadata = document.Metadata
             };
 
             var response = await _client.IndexAsync(doc, idx => idx
@@ -170,7 +199,11 @@ public sealed class ElasticsearchDocumentIndexer : IDocumentIndexer
         public string Fingerprint { get; init; } = string.Empty;
         public string Status { get; init; } = "active";
         public DateTime IngestedAt { get; init; }
+        /// <summary>Vetor único por documento para kNN/busca híbrida (primeiro chunk ou média dos chunks).</summary>
+        public float[]? Embedding { get; init; }
         public IReadOnlyList<EsChunk> Chunks { get; init; } = Array.Empty<EsChunk>();
+        /// <summary>Metadados extraídos (normative_force, datas, categorias) para filtros facetados.</summary>
+        public IReadOnlyDictionary<string, object>? Metadata { get; init; }
     }
 
     private sealed class EsChunk
@@ -179,5 +212,6 @@ public sealed class ElasticsearchDocumentIndexer : IDocumentIndexer
         public int ChunkIndex { get; init; }
         public string Text { get; init; } = string.Empty;
         public float[]? Embedding { get; init; }
+        public IReadOnlyDictionary<string, object>? Metadata { get; init; }
     }
 }

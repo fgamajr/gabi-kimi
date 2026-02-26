@@ -29,6 +29,7 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
     private readonly IDiscoveredLinkRepository _linkRepository;
     private readonly IFetchItemRepository _fetchItemRepository;
     private readonly GabiDbContext _context;
+    private readonly IJobQueueRepository _jobQueue;
     private readonly ILogger<SourceDiscoveryJobExecutor> _logger;
     private readonly DiscoveryEngine _discoveryEngine;
 
@@ -36,12 +37,14 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
         IDiscoveredLinkRepository linkRepository,
         IFetchItemRepository fetchItemRepository,
         GabiDbContext context,
+        IJobQueueRepository jobQueue,
         DiscoveryEngine discoveryEngine,
         ILogger<SourceDiscoveryJobExecutor> logger)
     {
         _linkRepository = linkRepository;
         _fetchItemRepository = fetchItemRepository;
         _context = context;
+        _jobQueue = jobQueue;
         _discoveryEngine = discoveryEngine;
         _logger = logger;
     }
@@ -84,9 +87,48 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
             Metrics = new Dictionary<string, object>()
         });
 
+        if (await _context.IsSourcePausedOrStoppedAsync(sourceId, ct))
+        {
+            _logger.LogInformation("Discovery skipped for {SourceId}: source is paused or stopped", sourceId);
+            return new JobResult
+            {
+                Status = JobTerminalStatus.Success,
+                Metadata = new Dictionary<string, object> { ["interrupted_by"] = "pause", ["links_total"] = 0 }
+            };
+        }
+
+        var backpressure = PipelineBackpressureConfig.Load();
+        var pendingFetch = await _fetchItemRepository.CountBySourceAndStatusesAsync(sourceId, new[] { "pending", "failed" }, ct);
+        if (pendingFetch > backpressure.MaxPendingFetch)
+        {
+            _logger.LogInformation(
+                "Discovery yielding for {SourceId}: backpressure pending_fetch={Pending} > {Max}",
+                sourceId, pendingFetch, backpressure.MaxPendingFetch);
+            var retryJob = new IngestJob
+            {
+                Id = Guid.NewGuid(),
+                SourceId = sourceId,
+                JobType = "source_discovery",
+                Payload = job.Payload ?? new Dictionary<string, object>(),
+                DiscoveryConfig = job.DiscoveryConfig
+            };
+            await _jobQueue.ScheduleAsync(retryJob, TimeSpan.FromSeconds(60), ct);
+            return new JobResult
+            {
+                Status = JobTerminalStatus.Success,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["yielded"] = true,
+                    ["reason"] = "backpressure",
+                    ["pending_downstream"] = pendingFetch
+                }
+            };
+        }
+
         var linksTotal = 0;
         var fetchItemsCreatedTotal = 0;
         var batchesPersisted = 0;
+        var interruptedByPause = false;
         var batch = new List<DiscoveredSource>(DiscoveryBatchSize);
         var discoveredUrlsForHash = new List<string>();
         var discoveryRunEntity = new DiscoveryRunEntity
@@ -105,6 +147,13 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
         {
             await foreach (var discovered in _discoveryEngine.DiscoverAsync(sourceId, discoveryConfig, ct))
             {
+                if (await _context.IsSourcePausedOrStoppedAsync(sourceId, ct))
+                {
+                    _logger.LogInformation("Discovery interrupted for {SourceId}: source paused/stopped at {LinksTotal} links", sourceId, linksTotal);
+                    interruptedByPause = true;
+                    break;
+                }
+
                 batch.Add(discovered);
                 discoveredUrlsForHash.Add(discovered.Url);
                 linksTotal++;
@@ -259,18 +308,20 @@ public class SourceDiscoveryJobExecutor : IJobExecutor
         PipelineTelemetry.RecordDocsProcessed(linksTotal, sourceId, "discovery");
         PipelineTelemetry.RecordStageLatency(stageStopwatch.Elapsed.TotalMilliseconds, sourceId, "discovery");
 
-        return new JobResult
+        var metadata = new Dictionary<string, object>
         {
-            Status = status,
-            Metadata = new Dictionary<string, object>
-            {
-                ["urls_discovered"] = linksTotal,
-                ["source_id"] = sourceId,
-                ["discovery_run_id"] = discoveryRunEntity.Id.ToString(),
-                ["strict_coverage"] = strictCoverage,
-                ["zero_ok"] = zeroOk
-            }
+            ["urls_discovered"] = linksTotal,
+            ["source_id"] = sourceId,
+            ["discovery_run_id"] = discoveryRunEntity.Id.ToString(),
+            ["strict_coverage"] = strictCoverage,
+            ["zero_ok"] = zeroOk
         };
+        if (interruptedByPause)
+        {
+            metadata["interrupted_by"] = "pause";
+            metadata["last_cursor"] = linksTotal;
+        }
+        return new JobResult { Status = status, Metadata = metadata };
     }
 
     private async Task<int> PersistBatchAsync(string sourceId, List<DiscoveredSource> batch, CancellationToken ct)

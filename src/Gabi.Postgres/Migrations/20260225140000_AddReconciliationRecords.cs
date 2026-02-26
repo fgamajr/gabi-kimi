@@ -1,11 +1,13 @@
 using System;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
 namespace Gabi.Postgres.Migrations
 {
-    /// <inheritdoc />
+    [DbContext(typeof(GabiDbContext))]
+    [Migration("20260225140000_AddReconciliationRecords")]
     public partial class AddReconciliationRecords : Migration
     {
         /// <inheritdoc />

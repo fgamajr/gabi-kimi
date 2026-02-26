@@ -54,6 +54,32 @@ public class JobQueueRepository : IJobQueueRepository
         return entity.Id;
     }
 
+    public async Task<Guid> ScheduleAsync(IngestJob job, TimeSpan delay, CancellationToken ct = default)
+    {
+        var id = job.Id == Guid.Empty ? Guid.NewGuid() : job.Id;
+        var payloadJson = System.Text.Json.JsonSerializer.Serialize(job.Payload ?? new Dictionary<string, object>());
+        var hashInput = $"scheduled|{job.JobType}|{job.SourceId}|{id}";
+        var entity = new IngestJobEntity
+        {
+            Id = id,
+            JobType = job.JobType,
+            Payload = payloadJson,
+            PayloadHash = ComputeHash(hashInput),
+            SourceId = string.IsNullOrEmpty(job.SourceId) ? null : job.SourceId,
+            Status = "queued",
+            Priority = (int)job.Priority,
+            ScheduledAt = DateTime.UtcNow.Add(delay),
+            MaxAttempts = job.MaxRetries,
+            ProgressPercent = 0,
+            ProgressMessage = null,
+            LinksDiscovered = 0
+        };
+        await _context.IngestJobs.AddAsync(entity, ct);
+        await _context.SaveChangesAsync(ct);
+        _logger.LogInformation("Scheduled job {JobId} for source {SourceId} in {Delay}s", id, job.SourceId, delay.TotalSeconds);
+        return id;
+    }
+
     public async Task<IngestJob?> DequeueAsync(string workerId, TimeSpan leaseDuration, CancellationToken ct = default)
     {
         var now = DateTime.UtcNow;

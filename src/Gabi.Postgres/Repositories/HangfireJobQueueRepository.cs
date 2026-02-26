@@ -39,6 +39,7 @@ public class HangfireJobQueueRepository : IJobQueueRepository
             "fetch" => "fetch",
             "ingest" => "ingest",
             "media_transcribe" => "ingest",
+            "embed_and_index" => "embed",
             _ => "default"
         };
     }
@@ -120,6 +121,49 @@ public class HangfireJobQueueRepository : IJobQueueRepository
 
         await tx.CommitAsync(ct);
         _logger.LogInformation("Enqueued job {JobId} ({JobType}) for source {SourceId} in queue '{Queue}'", jobId, job.JobType, job.SourceId, queue);
+        return jobId;
+    }
+
+    public async Task<Guid> ScheduleAsync(IngestJob job, TimeSpan delay, CancellationToken ct = default)
+    {
+        var jobId = job.Id == Guid.Empty ? Guid.NewGuid() : job.Id;
+        var payloadJson = System.Text.Json.JsonSerializer.Serialize(job.Payload ?? new Dictionary<string, object>());
+
+        var reg = new JobRegistryEntity
+        {
+            JobId = jobId,
+            SourceId = string.IsNullOrEmpty(job.SourceId) ? null : job.SourceId,
+            JobType = job.JobType,
+            Status = "pending",
+            CreatedAt = DateTime.UtcNow,
+            ProgressPercent = 0
+        };
+        _context.JobRegistry.Add(reg);
+        await _context.SaveChangesAsync(ct);
+
+        try
+        {
+            var hangfireJobId = _client.Create(
+                (IGabiJobRunner r) => r.RunAsync(jobId, job.JobType, job.SourceId ?? string.Empty, payloadJson, CancellationToken.None),
+                new ScheduledState(delay));
+
+            if (string.IsNullOrWhiteSpace(hangfireJobId))
+                throw new InvalidOperationException("Hangfire returned an empty job id for schedule request.");
+
+            reg.HangfireJobId = hangfireJobId;
+            await _context.SaveChangesAsync(ct);
+            _logger.LogInformation("Scheduled job {JobId} ({JobType}) for source {SourceId} in {Delay}s", jobId, job.JobType, job.SourceId, delay.TotalSeconds);
+        }
+        catch (Exception ex)
+        {
+            reg.Status = "failed";
+            reg.ErrorMessage = "Falha ao agendar no Hangfire: " + (ex.Message.Length > 1900 ? ex.Message[..1900] : ex.Message);
+            reg.CompletedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync(ct);
+            _logger.LogError(ex, "Failed to schedule Hangfire job {JobId} of type {JobType}", jobId, job.JobType);
+            throw;
+        }
+
         return jobId;
     }
 
