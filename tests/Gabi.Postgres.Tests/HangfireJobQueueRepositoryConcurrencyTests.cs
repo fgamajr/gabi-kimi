@@ -8,6 +8,7 @@ using Hangfire.Common;
 using Hangfire.States;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Moq;
 
@@ -50,7 +51,8 @@ public sealed class HangfireJobQueueRepositoryConcurrencyTests : IDisposable
 
         var clientMock = new Mock<IBackgroundJobClient>(MockBehavior.Strict);
         var loggerMock = new Mock<ILogger<HangfireJobQueueRepository>>();
-        var repository = new HangfireJobQueueRepository(_context, clientMock.Object, loggerMock.Object);
+        var config = new ConfigurationBuilder().Build();
+        var repository = new HangfireJobQueueRepository(_context, clientMock.Object, loggerMock.Object, config);
 
         var jobId = await repository.EnqueueAsync(new IngestJob
         {
@@ -86,7 +88,8 @@ public sealed class HangfireJobQueueRepositoryConcurrencyTests : IDisposable
             .Setup(c => c.Create(It.IsAny<Job>(), It.IsAny<IState>()))
             .Returns("hf-1");
         var loggerMock = new Mock<ILogger<HangfireJobQueueRepository>>();
-        var repository = new HangfireJobQueueRepository(_context, clientMock.Object, loggerMock.Object);
+        var config = new ConfigurationBuilder().Build();
+        var repository = new HangfireJobQueueRepository(_context, clientMock.Object, loggerMock.Object, config);
 
         var newId = await repository.EnqueueAsync(new IngestJob
         {

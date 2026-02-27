@@ -1,6 +1,7 @@
 using Gabi.Contracts.Common;
 using Gabi.Contracts.Jobs;
 using Gabi.Contracts.Observability;
+using Gabi.Contracts.Workflow;
 using Gabi.Postgres;
 using Gabi.Postgres.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -29,11 +30,18 @@ public class GabiJobRunner : IGabiJobRunner
         _logger = logger;
     }
 
+    private static IWorkflowEventRepository? TryGetEventRepo(IServiceScope scope)
+    {
+        try { return scope.ServiceProvider.GetService<IWorkflowEventRepository>(); }
+        catch { return null; }
+    }
+
     public async Task RunAsync(Guid jobId, string jobType, string sourceId, string payloadJson, CancellationToken ct)
     {
         using var scope = _serviceProvider.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<GabiDbContext>();
         var executors = scope.ServiceProvider.GetRequiredService<IEnumerable<IJobExecutor>>();
+        var eventRepo = TryGetEventRepo(scope);
         var payload = JobPayloadParser.ParsePayload(payloadJson);
 
         var requestId = payload.TryGetValue("request_id", out var requestIdValue)
@@ -96,6 +104,12 @@ public class GabiJobRunner : IGabiJobRunner
             }
         });
 
+        var correlationId = jobId; // use jobId as correlation unless a parent context exists
+
+        // Phase A: emit stage_started (best-effort)
+        if (eventRepo is not null)
+            _ = eventRepo.EmitAsync(correlationId, jobId, sourceId, jobType, "stage_started", null, ct);
+
         try
         {
             var result = await executor.ExecuteAsync(job, progress, ct);
@@ -103,6 +117,10 @@ public class GabiJobRunner : IGabiJobRunner
             await AwaitProgressPumpSafelyAsync(jobId, progressPumpTask);
             var statusString = StatusVocabulary.ToCanonical(result.Status);
             await UpdateRegistryAsync(context, jobId, statusString, result.ErrorMessage, ct);
+
+            // Phase A: emit stage_completed (best-effort)
+            if (eventRepo is not null)
+                _ = eventRepo.EmitAsync(correlationId, jobId, sourceId, jobType, "stage_completed", result.Metadata, ct);
 
             // GAP-07: return source to "idle" after a phase completes.
             // Partial/Capped/Inconclusive are still terminal completions — source is idle.
@@ -119,6 +137,13 @@ public class GabiJobRunner : IGabiJobRunner
             activity?.SetTag("error.type", ex.GetType().Name);
             _logger.LogError(ex, "Job {JobId} failed", jobId);
             await UpdateRegistryAsync(context, jobId, Status.Failed, ex.Message, ct);
+
+            // Phase A: emit stage_failed (best-effort)
+            if (eventRepo is not null)
+            {
+                var errMeta = new Dictionary<string, object> { ["error"] = ex.Message, ["error_type"] = ex.GetType().Name };
+                _ = eventRepo.EmitAsync(correlationId, jobId, sourceId, jobType, "stage_failed", errMeta, ct);
+            }
 
             // GAP-07: unhandled exception → source enters "failed" state.
             await TrySetPipelineStateAsync(context, jobType, sourceId, Status.Failed, null, ct);

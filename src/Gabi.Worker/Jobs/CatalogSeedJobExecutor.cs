@@ -4,6 +4,7 @@ using Gabi.Contracts.Jobs;
 using Gabi.Postgres;
 using Gabi.Postgres.Entities;
 using Gabi.Postgres.Repositories;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
@@ -26,6 +27,13 @@ public class CatalogSeedJobExecutor : IJobExecutor
     private const int MaxRetryAttempts = 3;
     private static readonly TimeSpan InitialRetryDelay = TimeSpan.FromSeconds(1);
 
+    /// <summary>
+    /// Skip seed if last_seeded_at is more recent than this window (Invariant 1 replay guard).
+    /// Configurable via Gabi:SeedIdempotencyWindowMinutes (default 5).
+    /// </summary>
+    private TimeSpan SeedIdempotencyWindow =>
+        TimeSpan.FromMinutes(_configuration.GetValue<double>("Gabi:SeedIdempotencyWindowMinutes", 5));
+
     public CatalogSeedJobExecutor(
         ISourceRegistryRepository sourceRepo,
         GabiDbContext context,
@@ -44,6 +52,29 @@ public class CatalogSeedJobExecutor : IJobExecutor
         CancellationToken ct)
     {
         var startedAt = DateTime.UtcNow;
+
+        // Invariant 1: replay safety guard — skip if seeded within the idempotency window
+        var lastSeedRun = await _context.SeedRuns
+            .OrderByDescending(r => r.CompletedAt)
+            .FirstOrDefaultAsync(r => r.Status == "completed", ct);
+        if (lastSeedRun is not null && (startedAt - lastSeedRun.CompletedAt) < SeedIdempotencyWindow)
+        {
+            _logger.LogInformation(
+                "Catalog seed skipped: already seeded {Ago:F1}m ago (idempotency window={Window}m)",
+                (startedAt - lastSeedRun.CompletedAt).TotalMinutes,
+                SeedIdempotencyWindow.TotalMinutes);
+            return new JobResult
+            {
+                Status = JobTerminalStatus.Skipped,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["reason"] = "seeded_within_window",
+                    ["last_seeded_at"] = lastSeedRun.CompletedAt.ToString("O"),
+                    ["window_minutes"] = SeedIdempotencyWindow.TotalMinutes
+                }
+            };
+        }
+
         progress.Report(new JobProgress { PercentComplete = 0, Message = "Carregando YAML...", Metrics = new Dictionary<string, object>() });
 
         var sourcesPath = ResolveSourcesPath();

@@ -69,6 +69,12 @@ public class SourceRegistryEntity : AuditableEntity
 
     public DateTime? LastRefresh { get; set; }
 
+    /// <summary>When true and global EnableTemporalWorker=true, jobs for this source are dispatched via Temporal.</summary>
+    public bool UseTemporalOrchestration { get; set; } = false;
+
+    /// <summary>When true and global EnableWalProjection=true, ES writes for this source come from WAL listener (not EmbedAndIndexJobExecutor).</summary>
+    public bool UseWalProjection { get; set; } = false;
+
     public int TotalLinks { get; set; }
 
     // Navigation

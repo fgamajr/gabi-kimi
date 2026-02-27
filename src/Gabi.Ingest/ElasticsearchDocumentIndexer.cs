@@ -64,13 +64,42 @@ public sealed class ElasticsearchDocumentIndexer : IDocumentIndexer
         {
             var doc = BuildEsDocument(document, chunks);
 
-            var response = await _client.IndexAsync(doc, idx => idx
-                .Index(_indexName)
-                .Id(document.DocumentId),
-                ct);
+            Elastic.Clients.Elasticsearch.IndexResponse response;
+            if (document.ExternalVersion.HasValue)
+            {
+                // WAL projection path: external versioning (version_type=external)
+                response = await _client.IndexAsync(doc, idx => idx
+                    .Index(_indexName)
+                    .Id(document.DocumentId)
+                    .VersionType(Elastic.Clients.Elasticsearch.VersionType.External)
+                    .Version(document.ExternalVersion.Value),
+                    ct);
+            }
+            else
+            {
+                response = await _client.IndexAsync(doc, idx => idx
+                    .Index(_indexName)
+                    .Id(document.DocumentId),
+                    ct);
+            }
 
             if (!response.IsValidResponse)
             {
+                // HTTP 409 = version conflict (stale write from WAL projection)
+                var statusCode = response.ElasticsearchServerError?.Status ?? 0;
+                if (statusCode == 409)
+                {
+                    return new IndexingResult
+                    {
+                        DocumentId = document.DocumentId,
+                        Status = IndexingStatus.VersionConflict,
+                        ChunksIndexed = 0,
+                        PgSuccess = false,
+                        EsSuccess = false,
+                        DurationMs = stopwatch.Elapsed.TotalMilliseconds
+                    };
+                }
+
                 var errors = response.ElasticsearchServerError?.Error?.Reason ?? response.DebugInformation ?? "Unknown";
                 _logger.LogWarning("ES index failed for {DocumentId}: {Error}", document.DocumentId, errors);
                 RecordFailure();
@@ -387,6 +416,8 @@ public sealed class ElasticsearchDocumentIndexer : IDocumentIndexer
             Fingerprint = document.Fingerprint,
             Status = document.Status,
             IngestedAt = document.IngestedAt,
+            UpdatedAt = document.UpdatedAt != default ? document.UpdatedAt : document.IngestedAt,
+            DocVersion = document.ExternalVersion ?? document.IngestedAt.Ticks,
             Embedding = docEmbedding,
             Chunks = esChunks,
             Metadata = document.Metadata
@@ -402,6 +433,8 @@ public sealed class ElasticsearchDocumentIndexer : IDocumentIndexer
         public string Fingerprint { get; init; } = string.Empty;
         public string Status { get; init; } = "active";
         public DateTime IngestedAt { get; init; }
+        public DateTime UpdatedAt { get; init; }
+        public long DocVersion { get; init; }
         /// <summary>Vetor único por documento para kNN/busca híbrida (primeiro chunk ou média dos chunks).</summary>
         public float[]? Embedding { get; init; }
         public IReadOnlyList<EsChunk> Chunks { get; init; } = Array.Empty<EsChunk>();

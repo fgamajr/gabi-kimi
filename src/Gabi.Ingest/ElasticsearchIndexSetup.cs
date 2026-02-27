@@ -52,6 +52,8 @@ public sealed class ElasticsearchIndexSetup
                     .Keyword(k => k.Fingerprint)
                     .Keyword(k => k.Status)
                     .Date(d => d.IngestedAt)
+                    .Date(d => d.UpdatedAt)
+                    .LongNumber(l => l.DocVersion)
                     .DenseVector(dv => dv.Embedding!, d => d.Dims(EmbeddingDimensions).Index(true)))),
                 ct);
 
@@ -84,6 +86,8 @@ public sealed class ElasticsearchIndexSetup
         public string Fingerprint { get; set; } = string.Empty;
         public string Status { get; set; } = "active";
         public DateTime IngestedAt { get; set; }
+        public DateTime UpdatedAt { get; set; }
+        public long DocVersion { get; set; }
         public float[]? Embedding { get; set; }
         public IReadOnlyList<EsChunkMapping>? Chunks { get; set; }
         public Dictionary<string, object>? Metadata { get; set; }

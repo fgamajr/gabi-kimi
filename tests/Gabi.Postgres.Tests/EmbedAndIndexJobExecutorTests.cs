@@ -8,6 +8,7 @@ using Gabi.Postgres;
 using Gabi.Postgres.Entities;
 using Gabi.Worker.Jobs;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Moq;
 
@@ -86,13 +87,15 @@ public sealed class EmbedAndIndexJobExecutorTests : IDisposable
 
         var logger = new Mock<ILogger<EmbedAndIndexJobExecutor>>();
 
+        var config = new ConfigurationBuilder().Build();
         _executor = new EmbedAndIndexJobExecutor(
             _context,
             normalizer.Object,
             chunker.Object,
             _embedderMock.Object,
             _indexerMock.Object,
-            logger.Object);
+            logger.Object,
+            config);
     }
 
     [Fact]

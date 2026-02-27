@@ -79,24 +79,22 @@ public class PostgreSqlSourceCatalogService : ISourceCatalog, IHostedService
         var linkRepo = scope.ServiceProvider.GetRequiredService<IDiscoveredLinkRepository>();
 
         var sources = await repo.GetAllAsync(ct);
+        var sourceIds = sources.Select(s => s.Id).ToList();
 
-        var result = new List<SourceSummaryDto>();
-        foreach (var s in sources)
-        {
-            // Count all links for this source (not by status)
-            var links = await linkRepo.GetBySourceAsync(s.Id, ct);
-            result.Add(new SourceSummaryDto(
-                s.Id,
-                s.Name,
-                s.Provider,
-                s.DiscoveryStrategy,
-                s.Enabled,
-                links.Count,
-                SourceType: s.DiscoveryStrategy
-            ));
-        }
+        var allLinks = await linkRepo.GetBySourcesAsync(sourceIds, ct);
+        var linkCountBySource = allLinks
+            .GroupBy(l => l.SourceId)
+            .ToDictionary(g => g.Key, g => g.Count());
 
-        return result;
+        return sources.Select(s => new SourceSummaryDto(
+            s.Id,
+            s.Name,
+            s.Provider,
+            s.DiscoveryStrategy,
+            s.Enabled,
+            linkCountBySource.GetValueOrDefault(s.Id, 0),
+            SourceType: s.DiscoveryStrategy
+        )).ToList();
     }
 
     public async Task<SourceDetailDto?> GetSourceAsync(string sourceId, CancellationToken ct = default)
@@ -199,27 +197,26 @@ public class PostgreSqlSourceCatalogService : ISourceCatalog, IHostedService
         var linkRepo = scope.ServiceProvider.GetRequiredService<IDiscoveredLinkRepository>();
 
         var sources = await sourceRepo.GetAllAsync(ct);
-        var totalLinks = 0;
-        
-        var sourceSummaries = new List<SourceSummaryDto>();
-        foreach (var s in sources)
-        {
-            var links = await linkRepo.GetBySourceAsync(s.Id, ct);
-            totalLinks += links.Count;
-            sourceSummaries.Add(new SourceSummaryDto(
-                s.Id,
-                s.Name,
-                s.Provider,
-                s.DiscoveryStrategy,
-                s.Enabled,
-                links.Count,
-                SourceType: s.DiscoveryStrategy
-            ));
-        }
+        var sourceIds = sources.Select(s => s.Id).ToList();
+
+        var allLinks = await linkRepo.GetBySourcesAsync(sourceIds, ct);
+        var linkCountBySource = allLinks
+            .GroupBy(l => l.SourceId)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        var sourceSummaries = sources.Select(s => new SourceSummaryDto(
+            s.Id,
+            s.Name,
+            s.Provider,
+            s.DiscoveryStrategy,
+            s.Enabled,
+            linkCountBySource.GetValueOrDefault(s.Id, 0),
+            SourceType: s.DiscoveryStrategy
+        )).ToList();
 
         return new SystemStatsDto(
             sourceSummaries,
-            totalLinks,
+            allLinks.Count,
             true, // Assume ES is available for now
             DateTime.UtcNow
         );

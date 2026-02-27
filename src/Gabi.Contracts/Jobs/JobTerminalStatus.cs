@@ -18,5 +18,8 @@ public enum JobTerminalStatus
     Failed,
 
     /// <summary>Run inconclusive (e.g. discovery 0 links without zero_ok policy).</summary>
-    Inconclusive
+    Inconclusive,
+
+    /// <summary>Job was skipped because preconditions were already met (replay safety guard).</summary>
+    Skipped
 }

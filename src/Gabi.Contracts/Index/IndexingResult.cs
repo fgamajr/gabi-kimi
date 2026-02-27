@@ -18,7 +18,10 @@ public enum IndexingStatus
     Ignored,
     
     /// <summary>Rollback executado.</summary>
-    RolledBack
+    RolledBack,
+
+    /// <summary>ES rejected the write because stored version is newer (stale write from WAL projection).</summary>
+    VersionConflict
 }
 
 /// <summary>
@@ -74,6 +77,15 @@ public record IndexDocument
     
     /// <summary>Data de ingestão.</summary>
     public DateTime IngestedAt { get; init; }
+
+    /// <summary>Application-managed timestamp used as ES external version (UpdatedAt.Ticks).</summary>
+    public DateTime UpdatedAt { get; init; }
+
+    /// <summary>
+    /// When non-null, ES write uses version_type=external with this value.
+    /// Only set by WAL projection path; null means normal (non-versioned) ES write.
+    /// </summary>
+    public long? ExternalVersion { get; init; }
 }
 
 /// <summary>

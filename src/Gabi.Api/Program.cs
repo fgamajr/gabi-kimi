@@ -1,5 +1,6 @@
 using Elastic.Clients.Elasticsearch;
 using Gabi.Api;
+using Gabi.Api.Models;
 using Gabi.Api.Configuration;
 using Gabi.Api.Endpoints;
 using Gabi.Api.Middleware;
@@ -632,6 +633,59 @@ app.MapPost("/api/v1/dlq/{id:guid}/replay", [Authorize(Policy = "RequireOperator
     return result.Success
         ? Results.Ok(result)
         : Results.BadRequest(result);
+})
+.RequireRateLimiting("write");
+
+// POST /api/v1/admin/sources/{sourceId}/repair-projection
+// Enqueues an embed_and_index repair job for documents missing from ES.
+// Authorization: RequireAdmin
+app.MapPost("/api/v1/admin/sources/{sourceId}/repair-projection", [Authorize(Policy = "RequireAdmin")] async (
+    string sourceId,
+    RepairProjectionRequest? body,
+    GabiDbContext db,
+    IJobQueueRepository jobQueue,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(sourceId))
+        return Results.BadRequest(new { error = "sourceId is required" });
+
+    var sourceExists = await db.SourceRegistries.AsNoTracking().AnyAsync(s => s.Id == sourceId, ct);
+    if (!sourceExists)
+        return Results.NotFound(new { error = $"Source '{sourceId}' not found" });
+
+    // Optionally reset status to pending_projection for docs missing an ES ID
+    if (body?.ResetStatus == true)
+    {
+        await db.Documents
+            .Where(d => d.SourceId == sourceId && d.ElasticsearchId == null
+                        && (d.Status == "active" || d.Status == "completed"))
+            .ExecuteUpdateAsync(s => s.SetProperty(d => d.Status, "pending_projection"), ct);
+    }
+
+    // Find pending_projection documents
+    var docIds = await db.Documents
+        .Where(d => d.SourceId == sourceId && d.Status == "pending_projection")
+        .Select(d => d.Id)
+        .Take(1000)
+        .ToListAsync(ct);
+
+    if (docIds.Count == 0)
+        return Results.Ok(new { queued = 0, jobId = (Guid?)null, message = "No pending_projection documents found" });
+
+    var jobId = Guid.NewGuid();
+    await jobQueue.EnqueueAsync(new IngestJob
+    {
+        Id = jobId,
+        SourceId = sourceId,
+        JobType = "embed_and_index",
+        Payload = new Dictionary<string, object>
+        {
+            ["document_ids"] = docIds.Select(id => id.ToString()).Cast<object>().ToList(),
+            ["repair"] = true
+        }
+    }, ct);
+
+    return Results.Ok(new { queued = docIds.Count, jobId });
 })
 .RequireRateLimiting("write");
 

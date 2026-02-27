@@ -71,6 +71,7 @@ public static class StatusVocabulary
         JobTerminalStatus.Capped => Status.Capped,
         JobTerminalStatus.Failed => Status.Failed,
         JobTerminalStatus.Inconclusive => Status.Inconclusive,
+        JobTerminalStatus.Skipped => "skipped",
         _ => Status.Error
     };
 
