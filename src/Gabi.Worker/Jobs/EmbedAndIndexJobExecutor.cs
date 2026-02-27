@@ -20,6 +20,9 @@ public class EmbedAndIndexJobExecutor : IJobExecutor
 {
     public const int MaxBatchSize = 64;
 
+    /// <summary>Documents larger than this are skipped with status=failed to prevent OOM in the embed worker (GAP-13).</summary>
+    private const int MaxContentSizeBytes = 512 * 1024; // 512 KB
+
     public string JobType => "embed_and_index";
 
     private readonly GabiDbContext _context;
@@ -204,6 +207,12 @@ public class EmbedAndIndexJobExecutor : IJobExecutor
             ["source_id"] = canonical.SourceId,
             ["external_id"] = canonical.ExternalId
         };
+
+        // GAP-13: guard against poison-pill documents that would produce thousands of chunks → OOM.
+        var contentBytes = Encoding.UTF8.GetByteCount(canonical.Content);
+        if (contentBytes > MaxContentSizeBytes)
+            throw new InvalidOperationException(
+                $"Document content exceeds size limit ({contentBytes:N0} bytes > {MaxContentSizeBytes:N0}). Skipping embed.");
 
         var chunkConfig = new ChunkConfig { Strategy = "fixed", MaxChunkSize = 512, Overlap = 64 };
         var chunkResult = _chunker.Chunk(canonical.Content, chunkConfig, chunkMetadata);

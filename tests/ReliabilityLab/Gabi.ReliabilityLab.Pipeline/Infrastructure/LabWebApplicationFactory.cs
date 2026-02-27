@@ -23,7 +23,9 @@ public sealed class LabWebApplicationFactory : WebApplicationFactory<Program>
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.UseEnvironment("Development");
+        // "Testing" environment bypasses fail-fast startup guards in Program.cs
+        // (GABI_EMBEDDINGS_URL guard and ConnectionStrings:Default guard both check !IsEnvironment("Testing"))
+        builder.UseEnvironment("Testing");
         builder.ConfigureAppConfiguration((_, config) =>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>
@@ -38,7 +40,9 @@ public sealed class LabWebApplicationFactory : WebApplicationFactory<Program>
                 ["GABI_USERS"] = BuildUsersJson(),
                 ["Cors:AllowedOrigins:0"] = "http://localhost:5173",
                 ["Gabi:Media:BasePath"] = "/tmp/gabi-lab/workspace",
-                ["Gabi:Media:AllowedUrlPatterns:0"] = "https://*.gov.br/*"
+                ["Gabi:Media:AllowedUrlPatterns:0"] = "https://*.gov.br/*",
+                // Disable RequireElasticsearch — ES not needed by pipeline scenario
+                ["Gabi:Search:RequireElasticsearch"] = "false"
             });
         });
         builder.ConfigureServices(services =>

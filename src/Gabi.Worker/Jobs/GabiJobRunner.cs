@@ -48,7 +48,7 @@ public class GabiJobRunner : IGabiJobRunner
         var reg = await context.JobRegistry.FirstOrDefaultAsync(r => r.JobId == jobId, ct);
         if (reg != null)
         {
-            reg.Status = "processing";
+            reg.Status = Status.Processing;
             reg.StartedAt = DateTime.UtcNow;
             reg.ErrorMessage = null;
             reg.CompletedAt = null;
@@ -58,7 +58,7 @@ public class GabiJobRunner : IGabiJobRunner
         // GAP-07: confirm pipeline state = "running" at actual job start.
         // Handles Hangfire retries where StartPhaseAsync (which sets "running" at enqueue time)
         // was never called (e.g. worker restart, Hangfire re-pickup after crash).
-        await TrySetPipelineStateAsync(context, jobType, sourceId, "running", jobType, ct);
+        await TrySetPipelineStateAsync(context, jobType, sourceId, Status.Running, jobType, ct);
 
         var discoveryConfig = JobPayloadParser.ParseDiscoveryConfigFromPayload(payloadJson) ?? new Gabi.Contracts.Discovery.DiscoveryConfig();
 
@@ -76,7 +76,7 @@ public class GabiJobRunner : IGabiJobRunner
         if (executor == null)
         {
             _logger.LogError("No executor for job type {JobType}", jobType);
-            await UpdateRegistryAsync(context, jobId, "failed", "No executor for type: " + jobType, ct);
+            await UpdateRegistryAsync(context, jobId, Status.Failed, "No executor for type: " + jobType, ct);
             return;
         }
 
@@ -107,7 +107,7 @@ public class GabiJobRunner : IGabiJobRunner
             // GAP-07: return source to "idle" after a phase completes.
             // Partial/Capped/Inconclusive are still terminal completions — source is idle.
             // Only JobTerminalStatus.Failed maps to pipeline state "failed".
-            var pipelineEndState = result.Status == JobTerminalStatus.Failed ? "failed" : "idle";
+            var pipelineEndState = result.Status == JobTerminalStatus.Failed ? Status.Failed : Status.Idle;
             await TrySetPipelineStateAsync(context, jobType, sourceId, pipelineEndState, null, ct);
         }
         catch (Exception ex)
@@ -118,10 +118,10 @@ public class GabiJobRunner : IGabiJobRunner
             activity?.AddException(ex);
             activity?.SetTag("error.type", ex.GetType().Name);
             _logger.LogError(ex, "Job {JobId} failed", jobId);
-            await UpdateRegistryAsync(context, jobId, "failed", ex.Message, ct);
+            await UpdateRegistryAsync(context, jobId, Status.Failed, ex.Message, ct);
 
             // GAP-07: unhandled exception → source enters "failed" state.
-            await TrySetPipelineStateAsync(context, jobType, sourceId, "failed", null, ct);
+            await TrySetPipelineStateAsync(context, jobType, sourceId, Status.Failed, null, ct);
             throw;
         }
     }
@@ -252,7 +252,7 @@ public class GabiJobRunner : IGabiJobRunner
                 // Never overwrite a state set by the operator (Pause/Stop).
                 // The executor already checked IsSourcePausedOrStoppedAsync and returned
                 // early, so the source remains paused/stopped after the job exits.
-                if (existing.State is "paused" or "stopped")
+                if (existing.State is Status.Paused or Status.Stopped)
                     return;
 
                 existing.State = targetState;

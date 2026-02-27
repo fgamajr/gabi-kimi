@@ -1,3 +1,4 @@
+using Gabi.Contracts.Common;
 using Microsoft.EntityFrameworkCore;
 
 namespace Gabi.Postgres;
@@ -24,6 +25,6 @@ public static class GabiDbContextPipelineStateExtensions
             .Select(s => s.State)
             .FirstOrDefaultAsync(ct);
 
-        return state is "paused" or "stopped";
+        return state is Status.Paused or Status.Stopped;
     }
 }

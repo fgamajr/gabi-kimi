@@ -36,6 +36,9 @@ public sealed class ZeroKelvinScenario : IExperiment
     {
         var env = context.Environment;
         using var factory = new LabWebApplicationFactory(env.PostgreSqlConnectionString, env.RedisUrl);
+        // Start the in-process Worker so Hangfire jobs enqueued by the API are actually executed
+        await using var workerHost = LabWorkerHost.Create(env.PostgreSqlConnectionString);
+        await workerHost.StartAsync(ct).ConfigureAwait(false);
         var client = factory.CreateOperatorClient();
         var pollInterval = TimeSpan.FromSeconds(3);
         var sourceId = _config.SourceId ?? "tcu_sumulas";

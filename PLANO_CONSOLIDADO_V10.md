@@ -94,6 +94,7 @@ Visão futura (`image.png` — multi-agent, Qdrant, Neo4j, RAG): documentar em `
 8. **GEMINI-01**: `Gabi:Search:RequireElasticsearch=true` em produção; fallback → 503 implementado.
 9. **GEMINI-03**: Tarpitting mitigado separando HangfireServer em dois pools (`pipeline-stages` / `embed-pool`).
 10. **DEF-02/03**: Busca implementada com BM25 multi-field (`title^3 + contentPreview^2`) e fallback O(N) removido de produção.
+11. **GEMINI-04**: OOM poison pill prevenido. Guard de tamanho no `JobPayloadParser` (5 MB).
 11. **GEMINI-04**: OOM poison pill prevenido. Guard de tamanho no `JobPayloadParser` e `JobQueueRepository`.
 11. **GEMINI-04**: Payload size guard — `JobPayloadParser.cs` (5 MB) + `JobQueueRepository.cs` (256 KB enqueue + deserialize).
 12. **DEF-01**: `ElasticsearchDocumentIndexer` com `BulkAsync` (`_bulk` API) + circuit breaker (5 falhas → open 30s).

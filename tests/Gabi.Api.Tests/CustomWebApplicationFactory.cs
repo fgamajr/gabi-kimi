@@ -44,7 +44,9 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IDisp
                 ["Gabi:Media:BasePath"] = "/tmp/gabi-security-tests/workspace",
                 ["Gabi:Media:AllowedUrlPatterns:0"] = "https://*.youtube.com/*",
                 ["Gabi:Media:AllowedUrlPatterns:1"] = "https://*.gov.br/*",
-                ["Gabi:Media:AllowedUrlPatterns:2"] = "https://*.leg.br/*"
+                ["Gabi:Media:AllowedUrlPatterns:2"] = "https://*.leg.br/*",
+                // Disable RequireElasticsearch in tests — ES is not provisioned (GEMINI-01 guard would return 503)
+                ["Gabi:Search:RequireElasticsearch"] = "false"
             };
 
             config.AddInMemoryCollection(testConfig);
