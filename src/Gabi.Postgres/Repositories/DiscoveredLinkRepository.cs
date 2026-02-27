@@ -114,6 +114,11 @@ public interface IDiscoveredLinkRepository
     Task<DateTime?> GetLatestDiscoveryAsync(string sourceId, CancellationToken ct = default);
 
     /// <summary>
+    /// Gets all discovered links for multiple sources in a single query.
+    /// </summary>
+    Task<IReadOnlyList<DiscoveredLinkEntity>> GetBySourcesAsync(IReadOnlyList<string> sourceIds, CancellationToken ct = default);
+
+    /// <summary>
     /// Updates metadata and metadata hash for a link.
     /// </summary>
     Task UpdateMetadataAsync(long linkId, string metadataHash, Dictionary<string, object> metadata, CancellationToken ct = default);
@@ -138,6 +143,18 @@ public class DiscoveredLinkRepository : IDiscoveredLinkRepository
         return await _context.DiscoveredLinks
             .AsNoTracking()
             .Where(l => l.SourceId == sourceId)
+            .OrderByDescending(l => l.DiscoveredAt)
+            .ToListAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<DiscoveredLinkEntity>> GetBySourcesAsync(IReadOnlyList<string> sourceIds, CancellationToken ct = default)
+    {
+        if (sourceIds.Count == 0)
+            return Array.Empty<DiscoveredLinkEntity>();
+
+        return await _context.DiscoveredLinks
+            .AsNoTracking()
+            .Where(l => sourceIds.Contains(l.SourceId))
             .OrderByDescending(l => l.DiscoveredAt)
             .ToListAsync(ct);
     }

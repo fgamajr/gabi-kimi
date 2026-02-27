@@ -308,7 +308,8 @@ public class DiscoveryAdapterExecutionTests
 
         using var cfgDoc = JsonDocument.Parse("""
             {
-              "driver": "camara_api_v1"
+              "driver": "camara_api_v1",
+              "endpoint_template": "https://dadosabertos.camara.leg.br/api/v2/proposicoes?siglaTipo=PL&ano={year}&itens=100&ordem=ASC&ordenarPor=id"
             }
             """);
         using var paramsDoc = JsonDocument.Parse("""

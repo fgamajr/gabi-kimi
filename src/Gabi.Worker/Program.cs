@@ -5,11 +5,14 @@ using Gabi.Contracts.Chunk;
 using Gabi.Contracts.Embed;
 using Gabi.Contracts.Index;
 using Gabi.Contracts.Observability;
+using Gabi.Contracts.Workflow;
 using Gabi.Discover;
 using Gabi.Ingest;
 using Gabi.Postgres;
 using Gabi.Postgres.Repositories;
 using Gabi.Worker.Jobs;
+using Gabi.Worker.Projection;
+using Gabi.Worker.Temporal;
 using Hangfire;
 using Hangfire.PostgreSql;
 using Microsoft.EntityFrameworkCore;
@@ -204,7 +207,21 @@ try
     builder.Services.AddScoped<IJobExecutor, IngestJobExecutor>();
     builder.Services.AddScoped<IJobExecutor, EmbedAndIndexJobExecutor>();
     builder.Services.AddScoped<IJobExecutor, MediaTranscribeJobExecutor>();
+    builder.Services.AddScoped<IJobExecutor, DriftAuditorJobExecutor>();
 
+    // Phase A: Workflow event repository (best-effort observability)
+    builder.Services.AddScoped<IWorkflowEventRepository, WorkflowEventRepository>();
+
+    // Phase B: Temporal (globally gated; per-source routing in HangfireJobQueueRepository)
+    builder.Services.AddSingleton<ITemporalHealthCheck, TemporalHealthCheck>();
+    builder.Services.AddHostedService<TemporalWorkerHostedService>();
+
+    // Phase C: WAL projection (globally gated; WalProjectionBootstrapService must run first)
+    builder.Services.AddHostedService<WalProjectionBootstrapService>();
+    builder.Services.AddHostedService<LogicalReplicationProjectionWorker>();
+    builder.Services.AddSingleton<ProjectionLagMonitor>();
+
+    // DriftAuditor recurring job (registered after host build via RecurringJob API)
     var host = builder.Build();
 
     var retryPolicy = host.Services.GetRequiredService<IOptions<HangfireRetryPolicyOptions>>().Value.Normalize();
@@ -218,6 +235,12 @@ try
         "Hangfire retry policy configured: attempts={Attempts}, delays=[{Delays}]",
         retryPolicy.Attempts,
         string.Join(",", retryPolicy.DelaysInSeconds));
+
+    // Register drift-audit as hourly recurring Hangfire job
+    RecurringJob.AddOrUpdate<IGabiJobRunner>(
+        "drift-audit",
+        r => r.RunAsync(Guid.NewGuid(), "drift_audit", "*", "{}", CancellationToken.None),
+        "0 * * * *");
 
     host.Run();
 }

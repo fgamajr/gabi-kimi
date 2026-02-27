@@ -18,7 +18,12 @@ services:
   postgres:
     image: postgres:15-alpine
     restart: unless-stopped
-    command: postgres -c max_connections=200
+    command: >
+      postgres
+      -c max_connections=200
+      -c wal_level=logical
+      -c max_replication_slots=5
+      -c max_wal_senders=5
     environment:
       POSTGRES_USER: gabi
       POSTGRES_PASSWORD: gabi_dev_password
@@ -120,6 +125,25 @@ services:
           memory: 1G
         reservations:
           memory: 512M
+
+  # Temporal - Durable workflow engine
+  temporal:
+    image: temporalio/auto-setup:1.24.2
+    restart: unless-stopped
+    ports:
+      - "7233:7233"
+      - "8233:8233"
+    environment:
+      DB: postgresql
+      DB_PORT: 5432
+      POSTGRES_USER: gabi
+      POSTGRES_PWD: gabi_dev_password
+      POSTGRES_SEEDS: postgres
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: gabi
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   # Gabi.Api - REST API (optional, for full-docker development)
   # Usage: docker compose --profile api up -d

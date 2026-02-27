@@ -35,6 +35,11 @@ public class GabiDbContext : DbContext
     public DbSet<ReconciliationRecordEntity> ReconciliationRecords => Set<ReconciliationRecordEntity>();
     public DbSet<SourcePipelineStateEntity> SourcePipelineStates => Set<SourcePipelineStateEntity>();
 
+    // Reliability / workflow tracking
+    public DbSet<WorkflowEventEntity> WorkflowEvents => Set<WorkflowEventEntity>();
+    public DbSet<ProjectionDlqEntity> ProjectionDlqEntries => Set<ProjectionDlqEntity>();
+    public DbSet<ProjectionCheckpointEntity> ProjectionCheckpoints => Set<ProjectionCheckpointEntity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -56,6 +61,53 @@ public class GabiDbContext : DbContext
         ConfigureDlqEntry(modelBuilder);
         ConfigureMediaItem(modelBuilder);
         ConfigureSourcePipelineState(modelBuilder);
+        ConfigureWorkflowEvent(modelBuilder);
+        ConfigureProjectionDlq(modelBuilder);
+        ConfigureProjectionCheckpoint(modelBuilder);
+    }
+
+    private static void ConfigureWorkflowEvent(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<WorkflowEventEntity>(entity =>
+        {
+            entity.ToTable("workflow_events");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.SourceId).HasMaxLength(100).IsRequired();
+            entity.Property(e => e.JobType).HasMaxLength(50).IsRequired();
+            entity.Property(e => e.EventType).HasMaxLength(50).IsRequired();
+            entity.Property(e => e.Metadata).HasColumnType("jsonb");
+            entity.HasIndex(e => e.CorrelationId).HasDatabaseName("IX_workflow_events_correlation");
+            entity.HasIndex(e => new { e.SourceId, e.CreatedAt }).HasDatabaseName("IX_workflow_events_source");
+        });
+    }
+
+    private static void ConfigureProjectionDlq(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ProjectionDlqEntity>(entity =>
+        {
+            entity.ToTable("projection_dlq");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).UseIdentityByDefaultColumn();
+            entity.Property(e => e.DocumentId).HasMaxLength(255).IsRequired();
+            entity.Property(e => e.SourceId).HasMaxLength(100).IsRequired();
+            entity.Property(e => e.Operation).HasMaxLength(20).IsRequired();
+            entity.Property(e => e.Payload).HasColumnType("jsonb").IsRequired();
+            entity.Property(e => e.Status).HasMaxLength(20).IsRequired().HasDefaultValue("pending");
+            entity.HasIndex(e => new { e.Status, e.Id })
+                .HasDatabaseName("IX_projection_dlq_status")
+                .HasFilter("\"Status\" = 'pending'");
+        });
+    }
+
+    private static void ConfigureProjectionCheckpoint(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ProjectionCheckpointEntity>(entity =>
+        {
+            entity.ToTable("projection_checkpoint");
+            entity.HasKey(e => e.SlotName);
+            entity.Property(e => e.SlotName).HasMaxLength(100);
+            entity.Property(e => e.Lsn).IsRequired().HasDefaultValue("0/0");
+        });
     }
 
     private static void ConfigureSourcePipelineState(ModelBuilder modelBuilder)

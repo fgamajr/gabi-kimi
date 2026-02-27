@@ -1,8 +1,10 @@
 using Gabi.Contracts.Jobs;
+using Gabi.Contracts.Workflow;
 using Gabi.Postgres.Entities;
 using Hangfire;
 using Hangfire.States;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using System.Buffers.Binary;
 using System.Security.Cryptography;
@@ -19,15 +21,24 @@ public class HangfireJobQueueRepository : IJobQueueRepository
     private readonly GabiDbContext _context;
     private readonly IBackgroundJobClient _client;
     private readonly ILogger<HangfireJobQueueRepository> _logger;
+    private readonly IConfiguration _configuration;
+    private readonly IWorkflowOrchestrator? _orchestrator;
+    private readonly ITemporalHealthCheck? _temporalHealthCheck;
 
     public HangfireJobQueueRepository(
         GabiDbContext context,
         IBackgroundJobClient client,
-        ILogger<HangfireJobQueueRepository> logger)
+        ILogger<HangfireJobQueueRepository> logger,
+        IConfiguration configuration,
+        IWorkflowOrchestrator? orchestrator = null,
+        ITemporalHealthCheck? temporalHealthCheck = null)
     {
         _context = context;
         _client = client;
         _logger = logger;
+        _configuration = configuration;
+        _orchestrator = orchestrator;
+        _temporalHealthCheck = temporalHealthCheck;
     }
 
     private static string QueueForJobType(string jobType)
@@ -49,6 +60,34 @@ public class HangfireJobQueueRepository : IJobQueueRepository
 
     public async Task<Guid> EnqueueAsync(IngestJob job, CancellationToken ct = default)
     {
+        // Invariant 5: per-source Temporal dispatch (AND-gated with global kill-switch)
+        var globalEnabled = string.Equals(_configuration["Gabi:EnableTemporalWorker"], "true", StringComparison.OrdinalIgnoreCase);
+        if (globalEnabled && _orchestrator is not null && _temporalHealthCheck is not null
+            && !string.IsNullOrEmpty(job.SourceId))
+        {
+            var sourceConfig = await _context.SourceRegistries
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.Id == job.SourceId, ct);
+            if (sourceConfig?.UseTemporalOrchestration == true)
+            {
+                var timeoutMs = int.TryParse(_configuration["Gabi:TemporalReachabilityTimeoutMs"], out var ms) ? ms : 2000;
+                var reachabilityTimeout = TimeSpan.FromMilliseconds(timeoutMs);
+                var reachable = await _temporalHealthCheck.IsReachableAsync(reachabilityTimeout, ct);
+                if (reachable)
+                {
+                    var temporalJobId = await _orchestrator.StartAsync(job, ct);
+                    _logger.LogInformation(
+                        "Dispatched job {JobId} ({JobType}) via Temporal for source {SourceId}",
+                        temporalJobId, job.JobType, job.SourceId);
+                    return temporalJobId;
+                }
+                _logger.LogWarning(
+                    "Temporal unreachable (timeout {Ms}ms); falling back to Hangfire for source {SourceId}",
+                    reachabilityTimeout.TotalMilliseconds, job.SourceId);
+            }
+        }
+
+        // ── Hangfire path (unchanged) ──
         await using var tx = await _context.Database.BeginTransactionAsync(ct);
 
         if (job.JobType == "catalog_seed")

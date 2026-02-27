@@ -9,6 +9,7 @@ using Gabi.Contracts.Jobs;
 using Gabi.Postgres;
 using Gabi.Postgres.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 
 namespace Gabi.Worker.Jobs;
 
@@ -31,6 +32,7 @@ public class EmbedAndIndexJobExecutor : IJobExecutor
     private readonly IChunker _chunker;
     private readonly IEmbedder _embedder;
     private readonly IDocumentIndexer _indexer;
+    private readonly IConfiguration _configuration;
 
     public EmbedAndIndexJobExecutor(
         GabiDbContext context,
@@ -38,7 +40,8 @@ public class EmbedAndIndexJobExecutor : IJobExecutor
         IChunker chunker,
         IEmbedder embedder,
         IDocumentIndexer indexer,
-        ILogger<EmbedAndIndexJobExecutor> logger)
+        ILogger<EmbedAndIndexJobExecutor> logger,
+        IConfiguration configuration)
     {
         _context = context;
         _normalizer = normalizer;
@@ -46,6 +49,7 @@ public class EmbedAndIndexJobExecutor : IJobExecutor
         _embedder = embedder;
         _indexer = indexer;
         _logger = logger;
+        _configuration = configuration;
     }
 
     public async Task<JobResult> ExecuteAsync(IngestJob job, IProgress<JobProgress> progress, CancellationToken ct)
@@ -116,9 +120,33 @@ public class EmbedAndIndexJobExecutor : IJobExecutor
             }
         }
 
-        // Phase 2: bulk index all successfully embedded docs in a single HTTP round-trip
-        if (pendingIndex.Count > 0)
+        // Phase C: per-source WAL projection gate (AND-gated: global kill-switch AND source flag)
+        // When active, skip ES write here — WAL listener will index after PG commit.
+        var walGlobalEnabled = _configuration.GetValue<bool>("Gabi:EnableWalProjection");
+        SourceRegistryEntity? sourceConfig = null;
+        if (walGlobalEnabled && !string.IsNullOrEmpty(sourceId))
         {
+            sourceConfig = await _context.SourceRegistries.AsNoTracking()
+                .FirstOrDefaultAsync(s => s.Id == sourceId, ct);
+        }
+        var useWalProjection = walGlobalEnabled && sourceConfig?.UseWalProjection == true;
+
+        if (useWalProjection && pendingIndex.Count > 0)
+        {
+            // WAL projection path: mark documents for WAL-based ES indexing (skip ES write here)
+            foreach (var (doc, _, _, _) in pendingIndex)
+            {
+                doc.Status = "pending_projection";
+                doc.UpdatedAt = DateTime.UtcNow;
+                completed++;
+            }
+            _logger.LogDebug(
+                "EmbedAndIndex WAL path: marked {Count} docs as pending_projection for {SourceId}",
+                pendingIndex.Count, sourceId);
+        }
+        else if (pendingIndex.Count > 0)
+        {
+            // Phase 2: bulk index all successfully embedded docs in a single HTTP round-trip
             var bulkBatch = pendingIndex
                 .Select(p => (p.IndexDoc, p.Chunks))
                 .ToList();
