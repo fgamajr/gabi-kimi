@@ -37,6 +37,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IDiscoveredLinkRepository, DiscoveredLinkRepository>();
         services.AddScoped<ISourceRegistryRepository, SourceRegistryRepository>();
         services.AddScoped<IDocumentRepository, DocumentRepository>();
+        services.AddScoped<Gabi.Contracts.Pipeline.IPhase0LinkRepository, Phase0LinkRepository>();
 
         // Register Unit of Work
         services.AddScoped<IUnitOfWork, UnitOfWork>();
@@ -61,6 +62,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IDiscoveredLinkRepository, DiscoveredLinkRepository>();
         services.AddScoped<ISourceRegistryRepository, SourceRegistryRepository>();
         services.AddScoped<IDocumentRepository, DocumentRepository>();
+        services.AddScoped<Gabi.Contracts.Pipeline.IPhase0LinkRepository, Phase0LinkRepository>();
 
         // Register Unit of Work
         services.AddScoped<IUnitOfWork, UnitOfWork>();

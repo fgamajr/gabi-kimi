@@ -76,7 +76,7 @@ public class DlqFilter : JobFilterAttribute, IElectStateFilter
 
         try
         {
-            MoveToDlqAsync(context, failedState, retryCount, classification).GetAwaiter().GetResult();
+            MoveToDlq(context, failedState, retryCount, classification);
         }
         catch (Exception ex)
         {
@@ -103,7 +103,9 @@ public class DlqFilter : JobFilterAttribute, IElectStateFilter
         }
     }
 
-    private async Task MoveToDlqAsync(
+    // Synchronous by design: Hangfire's IElectStateFilter.OnStateElection is a synchronous API.
+    // This is a bounded, one-time-per-failure DB write — SaveChanges is acceptable here.
+    private void MoveToDlq(
         ElectStateContext context,
         FailedState failedState,
         int retryCount,
@@ -135,7 +137,7 @@ public class DlqFilter : JobFilterAttribute, IElectStateFilter
         };
 
         dbContext.DlqEntries.Add(dlqEntry);
-        await dbContext.SaveChangesAsync();
+        dbContext.SaveChanges();
 
         _logger.LogInformation(
             "Job {JobId} moved to DLQ as {DlqId}. JobType={JobType}, SourceId={SourceId}",

@@ -9,7 +9,6 @@ using Gabi.Contracts.Api;
 using Gabi.Contracts.Dashboard;
 using Gabi.Contracts.Embed;
 using Gabi.Contracts.Jobs;
-using Gabi.Contracts.Observability;
 using Gabi.Ingest;
 using Gabi.Postgres;
 using Gabi.Postgres.Repositories;
@@ -24,12 +23,6 @@ using Serilog.Formatting.Compact;
 using Microsoft.EntityFrameworkCore;
 using Hangfire;
 using Hangfire.Dashboard;
-using Hangfire.PostgreSql;
-using OpenTelemetry.Instrumentation.EntityFrameworkCore;
-using OpenTelemetry.Instrumentation.Runtime;
-using OpenTelemetry.Metrics;
-using OpenTelemetry.Resources;
-using OpenTelemetry.Trace;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -76,21 +69,7 @@ builder.Services.AddSingleton<UrlAllowlistValidator>();
 builder.Services.AddSingleton<LocalMediaPathValidator>();
 
 // Hangfire (enqueue + dashboard; Worker processa com Hangfire Server)
-if (!string.IsNullOrWhiteSpace(connectionString))
-{
-    builder.Services.AddHangfire(config => config
-        .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
-        .UseSimpleAssemblyNameTypeSerializer()
-        .UseRecommendedSerializerSettings()
-        .UsePostgreSqlStorage(
-            connectionString,
-            new PostgreSqlStorageOptions
-            {
-                QueuePollInterval = TimeSpan.FromSeconds(5),
-                InvisibilityTimeout = TimeSpan.FromMinutes(10),
-                UseSlidingInvisibilityTimeout = true
-            }));
-}
+builder.Services.AddHangfireServices(connectionString);
 
 // Repositories
 builder.Services.AddScoped<ISourceRegistryRepository, SourceRegistryRepository>();
@@ -103,13 +82,23 @@ builder.Services.AddScoped<IJobQueueRepository>(sp => sp.GetRequiredService<Hang
 builder.Services.AddScoped<IGabiJobRunner, Gabi.Api.Jobs.StubGabiJobRunner>();
 
 // Source Catalog Service (PostgreSQL version)
-builder.Services.AddSingleton<ISourceCatalog>(sp =>
+// Registered as Singleton and as IHostedService so InitializeAsync runs at startup.
+// Failures (missing YAML, parse errors) surface immediately instead of being swallowed.
+builder.Services.AddSingleton<PostgreSqlSourceCatalogService>(sp =>
 {
     var logger = sp.GetRequiredService<ILogger<PostgreSqlSourceCatalogService>>();
     var config = sp.GetRequiredService<IConfiguration>();
     var env = sp.GetRequiredService<IHostEnvironment>();
     return new PostgreSqlSourceCatalogService(sp, logger, config, env);
 });
+builder.Services.AddSingleton<ISourceCatalog>(sp => sp.GetRequiredService<PostgreSqlSourceCatalogService>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<PostgreSqlSourceCatalogService>());
+
+// Dashboard sub-services (extracted from DashboardService)
+builder.Services.AddScoped<ISystemHealthService, SystemHealthService>();
+builder.Services.AddScoped<ISourceControlService, SourceControlService>();
+builder.Services.AddScoped<IPipelineStatsService, PipelineStatsService>();
+builder.Services.AddScoped<ISourceQueryService, SourceQueryService>();
 
 // Dashboard Service
 builder.Services.AddScoped<IDashboardService, DashboardService>();
@@ -146,34 +135,7 @@ var healthBuilder = builder.Services.AddHealthChecks()
 if (!string.IsNullOrWhiteSpace(connectionString))
     healthBuilder.AddNpgSql(connectionString, name: "postgres", tags: new[] { "ready" });
 
-var otlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"] ?? "http://localhost:4317";
-var otlpHeaders = builder.Configuration["OTEL_EXPORTER_OTLP_HEADERS"];
-
-builder.Services.AddOpenTelemetry()
-    .ConfigureResource(resource => resource.AddService(
-        serviceName: "gabi-api",
-        serviceVersion: typeof(Program).Assembly.GetName().Version?.ToString() ?? "unknown"))
-    .WithTracing(tracing => tracing
-        .AddAspNetCoreInstrumentation()
-        .AddEntityFrameworkCoreInstrumentation()
-        .AddHttpClientInstrumentation()
-        .AddSource(PipelineTelemetry.ActivitySourceName)
-        .AddOtlpExporter(options =>
-        {
-            options.Endpoint = new Uri(otlpEndpoint);
-            if (!string.IsNullOrWhiteSpace(otlpHeaders))
-                options.Headers = otlpHeaders;
-        }))
-    .WithMetrics(metrics => metrics
-        .AddAspNetCoreInstrumentation()
-        .AddRuntimeInstrumentation()
-        .AddMeter(PipelineTelemetry.MeterName)
-        .AddOtlpExporter(options =>
-        {
-            options.Endpoint = new Uri(otlpEndpoint);
-            if (!string.IsNullOrWhiteSpace(otlpHeaders))
-                options.Headers = otlpHeaders;
-        }));
+builder.Services.AddObservabilityServices(builder.Configuration);
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>

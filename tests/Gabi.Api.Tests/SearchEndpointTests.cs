@@ -10,6 +10,7 @@ using Xunit;
 
 namespace Gabi.Api.Tests;
 
+[Collection("Api")]
 public class SearchEndpointTests : IClassFixture<CustomWebApplicationFactory>
 {
     private readonly CustomWebApplicationFactory _factory;

@@ -1,0 +1,19 @@
+<Project>
+
+  <!--
+    Directory.Build.props — applies to all projects under this repo root (GAP-14/15).
+    Enables NuGet audit at 'high' severity and sets deterministic build defaults.
+  -->
+
+  <PropertyGroup>
+    <!-- NuGet vulnerability audit: warn on high/critical packages (GAP-14) -->
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditLevel>high</NuGetAuditLevel>
+    <NuGetAuditMode>all</NuGetAuditMode>
+
+    <!-- Deterministic builds (GAP-15) -->
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+</Project>

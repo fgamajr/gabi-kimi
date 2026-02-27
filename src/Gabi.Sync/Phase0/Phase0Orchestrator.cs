@@ -5,8 +5,6 @@ using System.Text.Json;
 using Gabi.Contracts.Api;
 using Gabi.Contracts.Discovery;
 using Gabi.Contracts.Pipeline;
-using Gabi.Postgres.Entities;
-using Gabi.Postgres.Repositories;
 using Microsoft.Extensions.Logging;
 
 namespace Gabi.Sync.Phase0;
@@ -20,7 +18,7 @@ public class Phase0Orchestrator : IPhase0Orchestrator
     private readonly IDiscoveryEngine _discoveryEngine;
     private readonly IPhase0LinkComparator _linkComparator;
     private readonly IMetadataFetcher _metadataFetcher;
-    private readonly IDiscoveredLinkRepository _linkRepository;
+    private readonly IPhase0LinkRepository _linkRepository;
     private readonly ILogger<Phase0Orchestrator> _logger;
 
     public Phase0Orchestrator(
@@ -28,7 +26,7 @@ public class Phase0Orchestrator : IPhase0Orchestrator
         IDiscoveryEngine discoveryEngine,
         IPhase0LinkComparator linkComparator,
         IMetadataFetcher metadataFetcher,
-        IDiscoveredLinkRepository linkRepository,
+        IPhase0LinkRepository linkRepository,
         ILogger<Phase0Orchestrator> logger)
     {
         _sourceCatalog = sourceCatalog ?? throw new ArgumentNullException(nameof(sourceCatalog));
@@ -140,9 +138,8 @@ public class Phase0Orchestrator : IPhase0Orchestrator
         {
             ct.ThrowIfCancellationRequested();
 
-            // Check if link exists in database
-            var existing = await _linkRepository.GetBySourceAndUrlAsync(sourceId, discovered.Url, ct);
-            var existingLink = existing != null ? MapToPipelineLink(existing) : null;
+            // Check if link exists in database (returns Contracts type directly)
+            var existingLink = await _linkRepository.GetBySourceAndUrlAsync(sourceId, discovered.Url, ct);
 
             // If not exists, mark as new
             if (existingLink == null)
@@ -284,7 +281,6 @@ public class Phase0Orchestrator : IPhase0Orchestrator
         // Only persist new or changed links
         var linksToPersist = links
             .Where(l => l.Status is LinkDiscoveryStatus.New or LinkDiscoveryStatus.Changed or LinkDiscoveryStatus.MarkedForProcessing)
-            .Select(MapToEntity)
             .ToList();
 
         if (linksToPersist.Count == 0)
@@ -335,72 +331,6 @@ public class Phase0Orchestrator : IPhase0Orchestrator
             SkippedLinksCount = unchangedLinks.Count,
             LinksToProcess = linksToProcess
         };
-    }
-
-    private static Contracts.Pipeline.DiscoveredLinkPhase0 MapToPipelineLink(DiscoveredLinkEntity entity)
-    {
-        return new Contracts.Pipeline.DiscoveredLinkPhase0
-        {
-            Id = entity.Id,
-            SourceId = entity.SourceId,
-            Url = entity.Url,
-            UrlHash = entity.UrlHash,
-            Etag = entity.Etag,
-            LastModified = entity.LastModified,
-            ContentLength = entity.ContentLength,
-            ContentHash = entity.ContentHash,
-            Status = LinkDiscoveryStatus.Unchanged,
-            FirstSeenAt = entity.FirstSeenAt,
-            DiscoveredAt = entity.DiscoveredAt,
-            Metadata = DeserializeMetadata(entity.Metadata)
-        };
-    }
-
-    private static DiscoveredLinkEntity MapToEntity(Contracts.Pipeline.DiscoveredLinkPhase0 link)
-    {
-        return new DiscoveredLinkEntity
-        {
-            Id = link.Id,
-            SourceId = link.SourceId,
-            Url = link.Url,
-            UrlHash = string.IsNullOrEmpty(link.UrlHash) ? ComputeHash(link.Url) : link.UrlHash,
-            Etag = link.Etag,
-            LastModified = link.LastModified,
-            ContentLength = link.ContentLength,
-            ContentHash = link.ContentHash,
-            FirstSeenAt = link.FirstSeenAt == default ? DateTime.UtcNow : link.FirstSeenAt,
-            DiscoveredAt = DateTime.UtcNow,
-            Metadata = SerializeMetadata(link.Metadata),
-            Status = "pending"
-        };
-    }
-
-    private static IReadOnlyDictionary<string, object> DeserializeMetadata(string json)
-    {
-        if (string.IsNullOrEmpty(json) || json == "{}")
-        {
-            return new Dictionary<string, object>();
-        }
-
-        try
-        {
-            var result = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
-            return result ?? new Dictionary<string, object>();
-        }
-        catch
-        {
-            return new Dictionary<string, object>();
-        }
-    }
-
-    private static string SerializeMetadata(IReadOnlyDictionary<string, object> metadata)
-    {
-        if (metadata == null || metadata.Count == 0)
-        {
-            return "{}";
-        }
-
-        return JsonSerializer.Serialize(metadata);
     }
 
     private static string ComputeHash(string input)

@@ -6,6 +6,7 @@ namespace Gabi.Api.Tests;
 /// <summary>
 /// Testes básicos para verificar que a API está funcionando
 /// </summary>
+[Collection("Api")]
 public class BasicEndpointTests : IClassFixture<CustomWebApplicationFactory>
 {
     private readonly HttpClient _client;

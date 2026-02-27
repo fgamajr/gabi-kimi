@@ -1,10 +1,12 @@
 using System.Diagnostics;
 using Gabi.Contracts.Api;
+using Gabi.Contracts.Common;
 using Gabi.Contracts.Dashboard;
 using Gabi.Contracts.Discovery;
 using Gabi.Contracts.Jobs;
 using Gabi.Postgres.Entities;
 using Gabi.Postgres.Repositories;
+using Microsoft.Extensions.Hosting;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
@@ -13,8 +15,10 @@ namespace Gabi.Api.Services;
 /// <summary>
 /// PostgreSQL-based implementation of ISourceCatalog.
 /// Uses database for persistence and job queue for async processing.
+/// Implements IHostedService so that YAML initialization runs during ASP.NET Core startup;
+/// failures are surfaced immediately rather than swallowed silently.
 /// </summary>
-public class PostgreSqlSourceCatalogService : ISourceCatalog
+public class PostgreSqlSourceCatalogService : ISourceCatalog, IHostedService
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<PostgreSqlSourceCatalogService> _logger;
@@ -29,43 +33,43 @@ public class PostgreSqlSourceCatalogService : ISourceCatalog
         _serviceProvider = serviceProvider;
         _logger = logger;
         _sourcesPath = ResolveSourcesPath(configuration, env);
-
-        // Initialize sources from YAML on startup (fire and forget)
-        _ = Task.Run(async () => await InitializeAsync());
     }
+
+    // IHostedService — called by ASP.NET Core during startup before the app starts serving.
+    public async Task StartAsync(CancellationToken cancellationToken)
+    {
+        await InitializeAsync(cancellationToken);
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     /// <summary>
     /// Initialize source registry from YAML file.
     /// </summary>
     public async Task InitializeAsync(CancellationToken ct = default)
     {
-        try
+        using var scope = _serviceProvider.CreateScope();
+        var repo = scope.ServiceProvider.GetRequiredService<ISourceRegistryRepository>();
+
+        _logger.LogInformation("Attempting to load sources from: {Path}", _sourcesPath);
+
+        if (!File.Exists(_sourcesPath))
         {
-            using var scope = _serviceProvider.CreateScope();
-            var repo = scope.ServiceProvider.GetRequiredService<ISourceRegistryRepository>();
-
-            _logger.LogInformation("Attempting to load sources from: {Path}", _sourcesPath);
-            
-            if (!File.Exists(_sourcesPath)) 
-            {
-                 _logger.LogError("Sources file NOT FOUND at: {Path}", _sourcesPath);
-                 return;
-            }
-
-            var sources = LoadSourcesFromYaml();
-            _logger.LogInformation("Parsed {Count} sources from YAML", sources.Count);
-
-            foreach (var source in sources)
-            {
-                await repo.UpsertAsync(source, CancellationToken.None);
-            }
-
-            _logger.LogInformation("Initialized {Count} sources from YAML", sources.Count);
+            // Sources file missing is a fatal startup error — throw so the host surfaces it.
+            throw new InvalidOperationException(
+                $"Sources file NOT FOUND at: {_sourcesPath}. " +
+                "Set GABI_SOURCES_PATH or place sources_v2.yaml in the application root.");
         }
-        catch (Exception ex)
+
+        var sources = LoadSourcesFromYaml();
+        _logger.LogInformation("Parsed {Count} sources from YAML", sources.Count);
+
+        foreach (var source in sources)
         {
-            _logger.LogError(ex, "Failed to initialize sources from YAML at {Path}", _sourcesPath);
+            await repo.UpsertAsync(source, ct);
         }
+
+        _logger.LogInformation("Initialized {Count} sources from YAML", sources.Count);
     }
 
     public async Task<IReadOnlyList<SourceSummaryDto>> ListSourcesAsync(CancellationToken ct = default)
@@ -230,7 +234,7 @@ public class PostgreSqlSourceCatalogService : ISourceCatalog
         var stats = await jobQueue.GetStatisticsAsync(ct);
         var totalLinks = await linkRepo.GetTotalCountAsync(ct);
         var total = Math.Max(1, totalLinks);
-        var status = stats.RunningCount > 0 ? "active" : "idle";
+        var status = stats.RunningCount > 0 ? Status.Active : Status.Idle;
         var lastActivity = DateTime.UtcNow;
 
         return new List<PipelineStageDto>

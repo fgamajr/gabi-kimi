@@ -10,6 +10,7 @@ namespace Gabi.Api.Tests;
 /// Verifies that when triggering discovery (or fetch) without sending strict_coverage in the request,
 /// the Dashboard uses PipelineConfig from DB (coverage.strict) and enqueues the job with strict_coverage=true.
 /// </summary>
+[Collection("Api")]
 public class DashboardStrictCoverageFallbackTests : IClassFixture<CustomWebApplicationFactory>
 {
     private readonly CustomWebApplicationFactory _factory;
