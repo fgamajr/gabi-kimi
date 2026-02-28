@@ -51,12 +51,13 @@ public class HangfireJobQueueRepository : IJobQueueRepository
             "ingest" => "ingest",
             "media_transcribe" => "ingest",
             "embed_and_index" => "embed",
+            "chunk_and_extract" => "embed",
             _ => "default"
         };
     }
 
     private static bool EnforceSingleInFlightPerSource(string jobType)
-        => jobType is "source_discovery" or "fetch" or "ingest" or "media_transcribe";
+        => jobType is "source_discovery" or "fetch" or "ingest" or "media_transcribe" or "embed_and_index";
 
     public async Task<Guid> EnqueueAsync(IngestJob job, CancellationToken ct = default)
     {
