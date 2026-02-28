@@ -1,0 +1,646 @@
+sources:
+  dou:
+    crawl:
+      runtime:
+        mode: browser
+        wait_dom: network_idle
+        timeout: 20s
+
+      steps:
+        - load: entry
+
+        - wait:
+            selector: "a[href*='/web/dou/-/']"
+
+        - extract:
+            name: section_pages
+            selector: "a[href*='/web/dou/-/']"
+            attribute: href
+            absolute: true
+            deduplicate: true
+
+        - follow:
+            from: section_pages
+
+        - wait:
+            selector: "a[href*='/-/']"
+
+        - extract:
+            name: article_pages
+            selector: "a[href*='/-/']"
+            attribute: href
+            absolute: true
+            deduplicate: true
+            emit: document
+
+    model:
+      dsl_version: "1.0"
+      namespace: legal_publication
+      options:
+        naming: snake_case
+        strict_mode: true
+        track_lineage: true
+
+      entities:
+        publication_issue:
+          kind: record
+          table: publication_issue
+          identity:
+            primary_key:
+              field: id
+              type: uuid
+              generated: uuid_v7
+          fields:
+            id: { type: uuid, required: true, nullable: false }
+            source_id: { type: string, required: true, nullable: false }
+            external_id: { type: string, required: false, nullable: true }
+            source_url: { type: string, required: false, nullable: true }
+            publication_date: { type: date, required: true, nullable: false }
+            edition_number: { type: string, required: false, nullable: true }
+            edition_section: { type: string, required: false, nullable: true }
+            page_number: { type: string, required: false, nullable: true }
+            publication_type: { type: string, required: false, nullable: true }
+            language: { type: string, required: false, nullable: true }
+            metadata: { type: object, required: false, nullable: true }
+          constraints:
+            unique:
+              - name: uq_publication_issue_source_external
+                fields: [source_id, external_id]
+          indexes:
+            - name: idx_publication_issue_date
+              fields: [publication_date]
+              method: btree
+              unique: false
+            - name: idx_publication_issue_edition
+              fields: [edition_number, edition_section]
+              method: btree
+              unique: false
+
+        document_identity:
+          kind: record
+          table: document_identity
+          identity:
+            primary_key:
+              field: id
+              type: uuid
+              generated: uuid_v7
+          fields:
+            id: { type: uuid, required: true, nullable: false }
+            stable_hash: { type: string, required: true, nullable: false }
+            natural_keys: { type: object, required: false, nullable: true }
+            identity_source: { type: string, required: false, nullable: true }
+          constraints:
+            unique:
+              - name: uq_document_identity_stable_hash
+                fields: [stable_hash]
+          indexes:
+            - name: idx_document_identity_stable_hash
+              fields: [stable_hash]
+              method: btree
+              unique: true
+
+        document:
+          kind: record
+          table: document
+          identity:
+            primary_key:
+              field: id
+              type: uuid
+              generated: uuid_v7
+          fields:
+            id: { type: uuid, required: true, nullable: false }
+            publication_issue_id:
+              type: ref
+              required: true
+              nullable: false
+              ref:
+                entity: publication_issue
+                field: id
+                on_delete: cascade
+                on_update: cascade
+            document_identity_id:
+              type: ref
+              required: false
+              nullable: true
+              ref:
+                entity: document_identity
+                field: id
+                on_delete: set_null
+                on_update: cascade
+            document_type: { type: string, required: true, nullable: false }
+            document_number: { type: string, required: false, nullable: true }
+            document_year: { type: integer, required: false, nullable: true }
+            title: { type: text, required: true, nullable: false }
+            summary: { type: text, required: false, nullable: true }
+            body_text: { type: text, required: true, nullable: false }
+            issuing_authority: { type: string, required: false, nullable: true }
+            issuing_organ: { type: string, required: false, nullable: true }
+            source_occurrence: { type: object, required: false, nullable: true }
+            sequence_in_issue: { type: integer, required: false, nullable: true }
+          indexes:
+            - name: idx_document_type
+              fields: [document_type]
+              method: btree
+              unique: false
+            - name: idx_document_number_year
+              fields: [document_number, document_year]
+              method: btree
+              unique: false
+            - name: idx_document_issue
+              fields: [publication_issue_id]
+              method: btree
+              unique: false
+
+        document_participant:
+          kind: record
+          table: document_participant
+          identity:
+            primary_key:
+              field: id
+              type: uuid
+              generated: uuid_v7
+          fields:
+            id: { type: uuid, required: true, nullable: false }
+            document_id:
+              type: ref
+              required: true
+              nullable: false
+              ref:
+                entity: document
+                field: id
+                on_delete: cascade
+                on_update: cascade
+            person_name: { type: string, required: true, nullable: false }
+            role_label: { type: string, required: true, nullable: false }
+            organization_name: { type: string, required: false, nullable: true }
+            represents_entity: { type: string, required: false, nullable: true }
+          indexes:
+            - name: idx_document_participant_document
+              fields: [document_id]
+              method: btree
+              unique: false
+            - name: idx_document_participant_role
+              fields: [role_label]
+              method: btree
+              unique: false
+
+        document_signature:
+          kind: record
+          table: document_signature
+          identity:
+            primary_key:
+              field: id
+              type: uuid
+              generated: uuid_v7
+          fields:
+            id: { type: uuid, required: true, nullable: false }
+            document_id:
+              type: ref
+              required: true
+              nullable: false
+              ref:
+                entity: document
+                field: id
+                on_delete: cascade
+                on_update: cascade
+            person_name: { type: string, required: true, nullable: false }
+            role_title: { type: string, required: false, nullable: true }
+            sequence_in_document: { type: integer, required: false, nullable: true }
+          indexes:
+            - name: idx_document_signature_document
+              fields: [document_id]
+              method: btree
+              unique: false
+
+        normative_reference:
+          kind: record
+          table: normative_reference
+          identity:
+            primary_key:
+              field: id
+              type: uuid
+              generated: uuid_v7
+          fields:
+            id: { type: uuid, required: true, nullable: false }
+            document_id:
+              type: ref
+              required: true
+              nullable: false
+              ref:
+                entity: document
+                field: id
+                on_delete: cascade
+                on_update: cascade
+            reference_type: { type: string, required: true, nullable: false }
+            reference_category:
+              type: enum
+              required: true
+              nullable: false
+              enum_values: [law, constitution, precedent, regulation, article, treaty, unknown]
+            reference_text: { type: text, required: true, nullable: false }
+            normalized_identifier: { type: string, required: false, nullable: true }
+          indexes:
+            - name: idx_normative_reference_document
+              fields: [document_id]
+              method: btree
+              unique: false
+            - name: idx_normative_reference_category
+              fields: [reference_category]
+              method: btree
+              unique: false
+
+        procedure_reference:
+          kind: record
+          table: procedure_reference
+          identity:
+            primary_key:
+              field: id
+              type: uuid
+              generated: uuid_v7
+          fields:
+            id: { type: uuid, required: true, nullable: false }
+            document_id:
+              type: ref
+              required: true
+              nullable: false
+              ref:
+                entity: document
+                field: id
+                on_delete: cascade
+                on_update: cascade
+            procedure_type: { type: string, required: true, nullable: false }
+            procedure_identifier: { type: string, required: true, nullable: false }
+            jurisdiction: { type: string, required: false, nullable: true }
+          indexes:
+            - name: idx_procedure_reference_document
+              fields: [document_id]
+              method: btree
+              unique: false
+            - name: idx_procedure_reference_type_identifier
+              fields: [procedure_type, procedure_identifier]
+              method: btree
+              unique: false
+
+        document_event:
+          kind: record
+          table: document_event
+          identity:
+            primary_key:
+              field: id
+              type: uuid
+              generated: uuid_v7
+          fields:
+            id: { type: uuid, required: true, nullable: false }
+            document_id:
+              type: ref
+              required: true
+              nullable: false
+              ref:
+                entity: document
+                field: id
+                on_delete: cascade
+                on_update: cascade
+            event_type: { type: string, required: true, nullable: false }
+            event_date: { type: date, required: false, nullable: true }
+            session_period: { type: string, required: false, nullable: true }
+            event_text: { type: text, required: true, nullable: false }
+            outcome: { type: string, required: false, nullable: true }
+            sequence_in_document: { type: integer, required: false, nullable: true }
+          indexes:
+            - name: idx_document_event_document
+              fields: [document_id]
+              method: btree
+              unique: false
+            - name: idx_document_event_date
+              fields: [event_date]
+              method: btree
+              unique: false
+
+      relations:
+        - name: publication_issue_to_document
+          from: { entity: document, field: publication_issue_id }
+          to: { entity: publication_issue, field: id }
+          cardinality: many_to_one
+
+        - name: document_identity_to_document
+          from: { entity: document, field: document_identity_id }
+          to: { entity: document_identity, field: id }
+          cardinality: many_to_one
+
+        - name: document_to_participant
+          from: { entity: document_participant, field: document_id }
+          to: { entity: document, field: id }
+          cardinality: many_to_one
+
+        - name: document_to_signature
+          from: { entity: document_signature, field: document_id }
+          to: { entity: document, field: id }
+          cardinality: many_to_one
+
+        - name: document_to_normative_reference
+          from: { entity: normative_reference, field: document_id }
+          to: { entity: document, field: id }
+          cardinality: many_to_one
+
+        - name: document_to_procedure_reference
+          from: { entity: procedure_reference, field: document_id }
+          to: { entity: document, field: id }
+          cardinality: many_to_one
+
+        - name: document_to_event
+          from: { entity: document_event, field: document_id }
+          to: { entity: document, field: id }
+          cardinality: many_to_one
+
+    extract:
+      version: "1.0"
+      mode: dom_rules
+      page:
+        canonical_container_selectors:
+          - "main"
+          - "article"
+          - "div[class*='journal-content-article']"
+          - "div[class*='conteudo']"
+        metadata_scope_selectors:
+          - "article"
+          - "main"
+          - "body"
+      split:
+        document_boundaries:
+          strategy: semantic_heading_then_signature
+          candidate_selectors:
+            - "h2, h3, h4, h5"
+            - "strong"
+            - "p"
+          start_patterns:
+            - "(?i)^(decreto|portaria|resolucao|despacho|aviso|edital|instrucao normativa|deliberacao)\\b"
+            - "(?i)\\b(n[ºo\\.]\\s*\\d+|\\d{1,5}/\\d{4})\\b"
+          stop_patterns:
+            - "(?i)^assinado por:"
+            - "(?i)^este conteudo nao substitui"
+          fallback:
+            if_no_boundary_found: whole_page_is_single_document
+      fields:
+        publication_issue:
+          source_url:
+            selectors:
+              - "link[rel='canonical']::attr(href)"
+            fallback:
+              - "__page.url"
+          publication_date:
+            selectors:
+              - "time::attr(datetime)"
+              - "time"
+              - "p:contains('Publicado em:')"
+              - "span:contains('Publicado em:')"
+            normalize:
+              - "extract_date_dd_mm_yyyy"
+              - "extract_date_iso"
+          edition_number:
+            selectors:
+              - "p:contains('Edição:')"
+              - "span:contains('Edição:')"
+              - "p:contains('Nº')"
+            normalize:
+              - "extract_after_colon"
+              - "extract_edition_number"
+            fallback:
+              - null
+          edition_section:
+            selectors:
+              - "p:contains('Seção')"
+              - "span:contains('Seção')"
+              - "div:contains('DIÁRIO OFICIAL DA UNIÃO')"
+            normalize:
+              - "extract_section_token"
+            fallback:
+              - null
+          page_number:
+            selectors:
+              - "p:contains('Página')"
+              - "span:contains('Página')"
+            normalize:
+              - "extract_page_number"
+            fallback:
+              - null
+          publication_type:
+            selectors:
+              - "p:contains('DIÁRIO OFICIAL DA UNIÃO')"
+              - "h1"
+              - "h2"
+            normalize:
+              - "map_publication_type_keywords"
+            fallback:
+              - "official_gazette"
+        document:
+          document_type:
+            selectors:
+              - "__document.heading"
+              - "__document.first_strong"
+            normalize:
+              - "extract_document_type_keyword"
+          document_number:
+            selectors:
+              - "__document.heading"
+              - "__document.paragraphs"
+            normalize:
+              - "extract_document_number"
+            fallback:
+              - null
+          document_year:
+            selectors:
+              - "__document.heading"
+              - "__document.paragraphs"
+            normalize:
+              - "extract_document_year"
+            fallback:
+              - null
+          title:
+            selectors:
+              - "__document.heading"
+              - "__document.first_nonempty_paragraph"
+            normalize:
+              - "trim"
+          summary:
+            selectors:
+              - "__document.paragraphs[0]"
+              - "p:contains('Ementa:')"
+            normalize:
+              - "extract_after_label"
+              - "trim"
+            optional: true
+          body_text:
+            selectors:
+              - "__document.paragraphs"
+            normalize:
+              - "join_newlines"
+              - "strip_boilerplate_footer"
+          issuing_authority:
+            selectors:
+              - "p:contains('Ministério')"
+              - "p:contains('Secretaria')"
+              - "p:contains('Agência')"
+              - "__document.heading_context"
+            normalize:
+              - "trim"
+            optional: true
+          issuing_organ:
+            selectors:
+              - "p:contains('Órgão')"
+              - "p:contains('Poder')"
+              - "__document.heading_context"
+            normalize:
+              - "trim"
+            optional: true
+        document_identity:
+          stable_hash:
+            strategy: hash_fields
+            fields:
+              - "document_type"
+              - "document_number"
+              - "document_year"
+              - "title"
+              - "issuing_organ"
+            algorithm: sha256
+          natural_keys:
+            strategy: object_from_fields
+            fields:
+              - "document_type"
+              - "document_number"
+              - "document_year"
+              - "publication_date"
+        document_participant:
+          collection_scope:
+            selectors:
+              - "__document.paragraphs"
+          role_label:
+            detect_patterns:
+              - "(?i)\\b(relator|requerente|interessado|advogado|procurador|ministro|secretario|diretor)\\b"
+          person_name:
+            extract_patterns:
+              - "(?i)([A-ZÁÀÂÃÉÊÍÓÔÕÚÇ][A-ZÁÀÂÃÉÊÍÓÔÕÚÇ\\s\\.-]{4,})"
+          organization_name:
+            detect_patterns:
+              - "(?i)\\b(ministerio|secretaria|agencia|tribunal|conselho|prefeitura)\\b"
+            optional: true
+          represents_entity:
+            detect_patterns:
+              - "(?i)\\b(em nome de|representando|patrono de)\\b\\s*(.*)$"
+            optional: true
+        document_signature:
+          collection_scope:
+            selectors:
+              - "p:contains('Assinado por:')"
+              - "footer p"
+              - "__document.trailing_paragraphs"
+          person_name:
+            extract_patterns:
+              - "(?i)^assinado por:\\s*(.+)$"
+              - "(?i)^([A-ZÁÀÂÃÉÊÍÓÔÕÚÇ][A-ZÁÀÂÃÉÊÍÓÔÕÚÇ\\s\\.-]{4,})$"
+          role_title:
+            extract_patterns:
+              - "(?i)\\b(ministro|diretor|secretario|presidente|relator)\\b.*$"
+            optional: true
+          sequence_in_document:
+            strategy: ordinal_position
+        normative_reference:
+          collection_scope:
+            selectors:
+              - "__document.paragraphs"
+          reference_text:
+            extract_patterns:
+              - "(?i)\\b(lei\\s*n?[ºo\\.]?\\s*\\d+[\\./]?\\d*|decreto\\s*n?[ºo\\.]?\\s*\\d+[\\./]?\\d*|art\\.\\s*\\d+|constituicao federal|sumula\\s*\\d+|resolucao\\s*n?[ºo\\.]?\\s*\\d+)\\b"
+          reference_type:
+            strategy: classify_from_reference_text
+          reference_category:
+            mapping:
+              law: ["lei", "lei complementar"]
+              constitution: ["constituicao", "cf/88"]
+              precedent: ["sumula", "precedente", "tema"]
+              regulation: ["decreto", "portaria", "instrucao normativa", "resolucao"]
+              article: ["art.", "artigo"]
+              treaty: ["tratado", "convencao"]
+              unknown: []
+          normalized_identifier:
+            strategy: normalize_reference_id
+            optional: true
+        procedure_reference:
+          collection_scope:
+            selectors:
+              - "__document.paragraphs"
+          procedure_type:
+            extract_patterns:
+              - "(?i)\\b(adi|adc|adpf|re|resp|pet|processo administrativo|licitacao|pregao|concorrencia)\\b"
+          procedure_identifier:
+            extract_patterns:
+              - "(?i)\\b\\d{3,}(?:[\\./-]\\w+)*\\b"
+          jurisdiction:
+            extract_patterns:
+              - "(?i)\\b(stf|stj|tst|trf\\d|tj\\w+|df|sp|rj|mg|rs|pr|sc|ba)\\b"
+            optional: true
+        document_event:
+          collection_scope:
+            selectors:
+              - "__document.paragraphs"
+          event_type:
+            detect_patterns:
+              - "(?i)\\b(decisao|deliberacao|homologacao|revogacao|aprovacao|promulgacao|suspensao|votacao)\\b"
+            fallback:
+              - "publication_event"
+          event_date:
+            extract_patterns:
+              - "(?i)\\b\\d{1,2}/\\d{1,2}/\\d{4}\\b"
+              - "(?i)\\b\\d{4}-\\d{2}-\\d{2}\\b"
+            normalize:
+              - "parse_date"
+            optional: true
+          session_period:
+            extract_patterns:
+              - "(?i)(sessao\\s+de\\s+\\d{1,2}\\s+de\\s+[a-zç]+\\s+de\\s+\\d{4})"
+            optional: true
+          event_text:
+            selectors:
+              - "__document.paragraphs_matching_event_type"
+          outcome:
+            detect_patterns:
+              - "(?i)\\b(provido|improvido|deferido|indeferido|homologado|arquivado)\\b"
+            optional: true
+          sequence_in_document:
+            strategy: ordinal_position
+      collections:
+        deduplicate_keys:
+          document_participant: [document_id, person_name, role_label]
+          document_signature: [document_id, person_name, role_title]
+          normative_reference: [document_id, reference_text]
+          procedure_reference: [document_id, procedure_type, procedure_identifier]
+          document_event: [document_id, event_type, event_text]
+      fallbacks:
+        if_document_split_empty:
+          strategy: single_document_from_page
+        if_body_text_empty:
+          strategy: use_full_main_text
+      edge_cases:
+        - key: multi_acts_single_page
+          detection: ">=2 heading matches with act keyword/number pattern"
+          handling: "split by heading boundaries; emit multiple documents for same publication_issue"
+        - key: signatures_inline_vs_footer
+          detection: "signature tokens in body or footer"
+          handling: "merge both scopes into document_signature collection"
+        - key: missing_edition_or_page
+          detection: "edition/page selectors not found"
+          handling: "set null; do not fail extraction"
+        - key: document_without_number
+          detection: "document_number regex not found"
+          handling: "set document_number/document_year null; keep document_type/title/body"
+        - key: multiple_events_per_document
+          detection: "multiple event_type pattern hits"
+          handling: "emit one document_event per hit with sequence_in_document"
+        - key: citations_embedded_in_paragraphs
+          detection: "reference regex hits inside long body paragraphs"
+          handling: "extract all non-overlapping matches; classify reference_category by mapping"
+        - key: authority_format_variation
+          detection: "authority appears in heading context or labeled paragraph"
+          handling: "coalesce issuing_authority/issuing_organ from prioritized selector list"
+        - key: section_layout_variation
+          detection: "section-specific containers absent"
+          handling: "fallback to main/article/body generic scopes"
