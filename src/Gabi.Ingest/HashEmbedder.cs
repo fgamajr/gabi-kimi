@@ -13,7 +13,7 @@ namespace Gabi.Ingest;
 public sealed class HashEmbedder : IEmbedder
 {
     private const string ModelName = "hash-embedder-v1";
-    private const int VectorDimensions = 64;
+    private const int VectorDimensions = 384;
 
     public Task<IReadOnlyList<float>> EmbedAsync(string text, CancellationToken ct = default)
     {

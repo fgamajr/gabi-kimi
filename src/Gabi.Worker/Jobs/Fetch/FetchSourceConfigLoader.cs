@@ -52,7 +52,7 @@ internal static class FetchSourceConfigLoader
         {
             var yaml = await File.ReadAllTextAsync(sourcesPath, ct);
             var deserializer = new DeserializerBuilder()
-                .WithNamingConvention(UnderscoredNamingConvention.Instance)
+                .WithNamingConvention(NullNamingConvention.Instance)
                 .IgnoreUnmatchedProperties()
                 .Build();
 
