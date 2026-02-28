@@ -1,0 +1,23 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: gabi-postgres-appliance
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: gabi
+      POSTGRES_PASSWORD: gabi
+      POSTGRES_DB: gabi
+    ports:
+      - "5433:5432"
+    volumes:
+      - gabi_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gabi -d gabi"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 2s
+
+volumes:
+  gabi_postgres_data:
+    name: gabi_postgres_data
