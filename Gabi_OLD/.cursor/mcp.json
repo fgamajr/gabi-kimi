@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "gabi-search": {
+      "command": "dotnet",
+      "args": [
+        "run",
+        "--project",
+        "src/Gabi.Mcp/Gabi.Mcp.csproj",
+        "--no-build"
+      ],
+      "env": {
+        "GABI_API_URL": "http://localhost:5100",
+        "GABI_API_USER": "operator",
+        "GABI_API_PASSWORD": "op123"
+      }
+    }
+  }
+}

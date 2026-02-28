@@ -1,0 +1,239 @@
+# GABI - Docker Compose
+#
+# INFRASTRUCTURE (sempre ativo):
+#   - Postgres, Elasticsearch, Redis
+#
+# APPS (opcional - use --profile):
+#   - Gabi.Api:     docker compose --profile api up -d
+#   - Gabi.Worker:  docker compose --profile worker up -d
+#
+# FLY.IO: deploy de API e Worker são apps separados (ver docs/infrastructure/FLY_DEPLOY.md).
+#
+# USO:
+#   ./scripts/dev-up.sh              # Inicia infra
+#   dotnet run --project src/Gabi.Api  # Roda API no host (:5100)
+
+services:
+  # PostgreSQL - Banco de dados principal (pgvector for 384-dim embeddings)
+  postgres:
+    image: pgvector/pgvector:pg15
+    restart: unless-stopped
+    command: >
+      postgres
+      -c max_connections=200
+      -c wal_level=logical
+      -c max_replication_slots=5
+      -c max_wal_senders=5
+    environment:
+      POSTGRES_USER: gabi
+      POSTGRES_PASSWORD: gabi_dev_password
+      POSTGRES_DB: gabi
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5433:5432"  # Porta 5433 no host para evitar conflitos
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gabi -d gabi"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    # Nota: deploy.resources só é aplicado em Docker Swarm; em compose puro serve como documentação.
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+
+  # Elasticsearch - Motor de busca
+  elasticsearch:
+    image: elasticsearch:8.11.0
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - bootstrap.memory_lock=true
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+
+  # Redis - Cache e filas
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # requirepass: dev-only credential wired in api/worker RedisUrl below (GAP-09).
+    # Production uses Fly.io secrets — this password is never deployed to prod.
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --requirepass devredis
+    ports:
+      - "6380:6379"   # 6380 no host para não conflitar com Redis do sistema (interno: redis:6379)
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+
+  # TEI - Text Embeddings Inference (HuggingFace), 384-dim multilingual PT-BR
+  # Usage: docker compose --profile tei up -d
+  # Opt-in: ONNX Runtime in Worker replaces TEI on ARM64 and when model files are present.
+  tei:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
+    platform: linux/amd64
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    command: >
+      --model-id sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+      --max-batch-tokens 16384
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:80/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+    profiles:
+      - tei
+
+  # Temporal - Durable workflow engine
+  temporal:
+    image: temporalio/auto-setup:1.24.2
+    restart: unless-stopped
+    ports:
+      - "7233:7233"
+      - "8233:8233"
+    environment:
+      DB: postgresql
+      DB_PORT: 5432
+      POSTGRES_USER: gabi
+      POSTGRES_PWD: gabi_dev_password
+      POSTGRES_SEEDS: postgres
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: gabi
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Gabi.Api - REST API (optional, for full-docker development)
+  # Usage: docker compose --profile api up -d
+  api:
+    build:
+      context: .
+      dockerfile: src/Gabi.Api/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "5100:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - GABI_EMBEDDINGS_URL=${GABI_EMBEDDINGS_URL:-http://tei:80}
+      - Embeddings__Provider=${EMBEDDINGS_PROVIDER:-auto}
+      - ASPNETCORE_URLS=http://+:8080
+      - GABI_SOURCES_PATH=/app/sources_v2.yaml
+      - GABI_INLABS_COOKIE=${GABI_INLABS_COOKIE:-}
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY:-}
+      - YOUTUBE_CHANNEL_ID=${YOUTUBE_CHANNEL_ID:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GABI_MEDIA_ALLOW_LOCAL_FILE=true
+      - GABI_RUN_MIGRATIONS=true
+      - ConnectionStrings__Default=Host=postgres;Port=5432;Database=gabi;Username=gabi;Password=gabi_dev_password;Maximum Pool Size=15
+      - Jwt__Key=${JWT_KEY:-dev-only-jwt-key-not-for-production-please-change-0123456789}
+      - Gabi__ElasticsearchUrl=http://elasticsearch:9200
+      - Gabi__RedisUrl=redis://:devredis@redis:6379/0
+      - GABI_USERS=[{"username":"viewer","password_hash":"$$2b$$11$$Iln21JBYHB9gZjM5S6gG0.GKK1Lbm6bY6WxT5mj1rP53BS964PN8i","role":"Viewer"},{"username":"operator","password_hash":"$$2b$$11$$Qs/385eCFkSCZzXzrDwlNOWdfFbMChc3U/cJOpgJQYnihedI/cpjq","role":"Operator"},{"username":"admin","password_hash":"$$2b$$11$$yJVmTkx.Xu/P7ox3Atfl0u.4UD.D4r72CrlYCRVBKPtlCrZNPwdzS","role":"Admin"}]
+    volumes:
+      - ./sources_v2.yaml:/app/sources_v2.yaml:ro
+      - ./:/workspace:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+    profiles:
+      - api
+
+  # Gabi.Worker - Background worker (discovery, fetch, jobs)
+  # Usage: docker compose --profile worker up -d
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      - DOTNET_ENVIRONMENT=Development
+      - GABI_EMBEDDINGS_URL=${GABI_EMBEDDINGS_URL:-http://tei:80}
+      - Embeddings__Provider=${EMBEDDINGS_PROVIDER:-auto}
+      - ConnectionStrings__Default=Host=postgres;Port=5432;Database=gabi;Username=gabi;Password=gabi_dev_password;Maximum Pool Size=10
+      - GABI_SOURCES_PATH=/app/sources_v2.yaml
+      - GABI_INLABS_COOKIE=${GABI_INLABS_COOKIE:-}
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY:-}
+      - YOUTUBE_CHANNEL_ID=${YOUTUBE_CHANNEL_ID:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - Gabi__ElasticsearchUrl=http://elasticsearch:9200
+      - Gabi__RedisUrl=redis://:devredis@redis:6379/0
+      - WorkerPool__WorkerCount=1
+      - GABI_USERS=[{"username":"viewer","password_hash":"$$2b$$11$$Iln21JBYHB9gZjM5S6gG0.GKK1Lbm6bY6WxT5mj1rP53BS964PN8i","role":"Viewer"},{"username":"operator","password_hash":"$$2b$$11$$Qs/385eCFkSCZzXzrDwlNOWdfFbMChc3U/cJOpgJQYnihedI/cpjq","role":"Operator"},{"username":"admin","password_hash":"$$2b$$11$$yJVmTkx.Xu/P7ox3Atfl0u.4UD.D4r72CrlYCRVBKPtlCrZNPwdzS","role":"Admin"}]
+    volumes:
+      - ./sources_v2.yaml:/app/sources_v2.yaml:ro
+      - ./:/workspace:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+    profiles:
+      - worker
+
+# Volumes persistentes
+volumes:
+  postgres_data:
+    driver: local
+  elasticsearch_data:
+    driver: local
+  redis_data:
+    driver: local

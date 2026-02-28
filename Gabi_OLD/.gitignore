@@ -62,7 +62,6 @@ venv.bak/
 .env.test
 .env.production
 !.env.example
-.venv
 
 # Testing
 .pytest_cache/

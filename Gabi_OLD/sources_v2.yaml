@@ -1,0 +1,2051 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# GABI-SYNC: Source Definitions (v2 - Clean Architecture)
+# ═══════════════════════════════════════════════════════════════════════════════
+# This file defines WHAT sources to ingest. The pipeline configuration (HOW)
+# is separate and modular.
+#
+# Architecture alignment:
+# - contracts/: Maps directly to C# contracts
+# - discover/: Consumes 'discovery' section
+# - ingest/: Consumes 'fetch', 'parse', 'transform' sections
+# - sync/: Consumes 'pipeline' orchestration config
+#
+# Sources: 13 total (11 active, 2 inactive)
+# Version: 2.0.0
+# ═══════════════════════════════════════════════════════════════════════════════
+
+apiVersion: gabi.io/v2
+kind: SourceCatalog
+defaults:
+  # Default pipeline configuration (can be overridden per source)
+  pipeline:
+    retry:
+      max_attempts: 3
+      backoff: exponential
+      initial_delay: 1s
+      max_delay: 60s
+    
+    # Resource limits (safety guards)
+    limits:
+      max_file_size: 100MB
+      max_documents: null  # null = unlimited
+      timeout: 5m
+      memory_threshold: 300MB
+
+    # Ingest gate defaults (override per source when needed)
+    coverage:
+      strict: false
+      zero_ok: false  # when true, 0 links discovered is accepted; when false, 0 links → inconclusive
+
+    ingest:
+      readiness: text_ready
+      empty_content_action: fail
+
+    # Backpressure: max pending items per stage (upstream yields when downstream exceeds)
+    backpressure:
+      max_pending_fetch: 10000
+      max_pending_ingest: 5000
+      max_pending_embed: 500
+
+    # Embed batch sizing (dynamic batching by content size)
+    embed:
+      max_chars_per_batch: 500000
+      max_docs_per_batch: 32
+      min_docs_per_batch: 1
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SOURCES
+# ═══════════════════════════════════════════════════════════════════════════════
+sources:
+  
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 1. TCU - Acórdãos (Pattern-based discovery)
+  # ─────────────────────────────────────────────────────────────────────────────
+  tcu_acordaos:
+    # Identity (who/what is this source)
+    identity:
+      name: "TCU - Acórdãos"
+      description: "Acórdãos completos do Tribunal de Contas da União (1992-current)"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: jurisprudence
+      canonical_type: legal_decision
+      
+    # Discovery phase: Where to find content
+    discovery:
+      strategy: url_pattern
+      config:
+        template: "https://sites.tcu.gov.br/dados-abertos/jurisprudencia/arquivos/acordao-completo/acordao-completo-{year}.csv"
+        parameters:
+          year:
+            type: range
+            start: 1992
+            end: current
+            step: 1
+        change_detection:
+          method: etag
+          fingerprint_headers: [last-modified, content-length]
+      
+    # Fetch phase: How to retrieve
+    fetch:
+      protocol: https
+      method: GET
+      headers:
+        Accept: text/csv,application/octet-stream
+        User-Agent: "GABI-Sync/2.0 (TCU Data Ingestion)"
+      
+      # Format-specific options
+      format:
+        type: csv
+        encoding: utf-8
+        delimiter: "|"
+        quotechar: '"'
+        escapechar: null
+        doublequote: true
+        skipinitialspace: true
+        lineterminator: auto
+      
+      # Streaming configuration (file-size independent)
+      streaming:
+        enabled: true
+        chunk_size: 64KB
+        queue_size: 1000
+        decode_unicode: true
+      
+      limits:
+        max_size: 500MB  # Per-year files are smaller
+        connect_timeout: 30s
+        read_timeout: null  # Streaming = no timeout
+    
+    # Parse phase: Convert raw bytes to documents
+    parse:
+      strategy: csv_row_to_document
+      
+      # Row-level configuration
+      row:
+        header_row: 0
+        skip_rows: 0
+        id_column: KEY
+        
+      # Field extraction (maps CSV columns to document fields)
+      fields:
+        # Identity fields
+        document_id:
+          source: KEY
+          transforms: [strip_quotes]
+          required: true
+          
+        year:
+          source: ANOACORDAO
+          transforms: [strip_quotes, parse_int]
+          required: true
+          
+        number:
+          source: NUMACORDAO
+          transforms: [strip_quotes]
+          required: true
+          
+        # Content fields (full text)
+        content:
+          source: ACORDAO
+          transforms: [strip_quotes, strip_html]
+          required: true
+          store: true  # Store in PG
+          index: true  # Index in ES
+          chunk: true  # Create embeddings
+          
+        # Additional text fields
+        text_relatorio:
+          source: RELATORIO
+          transforms: [strip_quotes, strip_html]
+          chunk: true
+          
+        text_voto:
+          source: VOTO
+          transforms: [strip_quotes, strip_html]
+          chunk: true
+          
+        text_decisao:
+          source: DECISAO
+          transforms: [strip_quotes, strip_html]
+          chunk: true
+          
+        # Metadata fields
+        metadata:
+          tipo: {source: TIPO, transforms: [strip_quotes]}
+          colegiado: {source: COLEGIADO, transforms: [strip_quotes]}
+          relator: {source: RELATOR, transforms: [strip_quotes]}
+          situacao: {source: SITUACAO, transforms: [strip_quotes]}
+          assunto: {source: ASSUNTO, transforms: [strip_quotes]}
+          data_sessao: {source: DATASESSAO, transforms: [strip_quotes, parse_date]}
+          processo: {source: PROC, transforms: [strip_quotes]}
+          numata: {source: NUMATA, transforms: [strip_quotes]}
+          titulo: {source: TITULO, transforms: [strip_quotes]}
+      
+      # Document composition
+      document:
+        id_template: "acordao-{number}/{year}"
+        title_template: "Acórdão {number}/{year}"
+        content_fields: [content, text_relatorio, text_voto, text_decisao]
+        
+    # Transform phase: Post-processing (optional)
+    transform:
+      # Validation rules
+      validate:
+        - rule: required_fields
+          fields: [document_id, year, number, content]
+        - rule: field_format
+          field: year
+          pattern: "^\\d{4}$"
+        - rule: content_length
+          field: content
+          min: 100  # Characters
+          
+      # Enrichment
+      enrich:
+        - action: add_timestamp
+          field: ingested_at
+        - action: compute_hash
+          field: content_hash
+          source: content
+          algorithm: sha256
+    
+    # Pipeline configuration (orchestration)
+    pipeline:
+      enabled: true
+      schedule: "0 2 * * *"  # Daily at 2 AM
+      mode: incremental
+      coverage:
+        strict: true
+      ingest:
+        readiness: text_ready
+        empty_content_action: fail
+      
+      # Phase enablement (all true by default)
+      phases:
+        discover: true
+        fetch: true
+        parse: true
+        transform: true
+        deduplicate: true
+        chunk: true
+      
+      # Optional phases (require additional infrastructure)
+      optional:
+        embed:  # Requires TEI container
+          enabled: true
+          batch_size: 32
+          
+        index:  # Requires ES container
+          enabled: true
+          target: elasticsearch
+          index_name: gabi_documents_v1
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 2. TCU - Normas Internas (Single static URL with streaming)
+  # ─────────────────────────────────────────────────────────────────────────────
+  tcu_normas:
+    identity:
+      name: "TCU - Normas Internas"
+      description: "Normas internas do TCU (Portarias, Resoluções, etc.)"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: legislation
+      canonical_type: legal_norm
+      
+    discovery:
+      strategy: static_url
+      config:
+        url: "https://sites.tcu.gov.br/dados-abertos/normas/arquivos/norma.csv"
+        change_detection:
+          method: etag
+          
+    fetch:
+      protocol: https
+      method: GET
+      
+      format:
+        type: csv
+        encoding: utf-8
+        delimiter: "|"
+        quotechar: '"'
+        
+      streaming:
+        enabled: true
+        # Critical: 587MB file requires streaming
+        chunk_size: 64KB
+        queue_size: 1000
+        
+      limits:
+        max_size: 1GB  # File is 587MB
+        
+    parse:
+      strategy: csv_row_to_document
+      
+      row:
+        header_row: 0
+        id_column: KEY
+        
+      fields:
+        document_id:
+          source: KEY
+          transforms: [strip_quotes]
+          required: true
+          
+        year:
+          source: ANONORMA
+          transforms: [strip_quotes, parse_int]
+          
+        number:
+          source: NUMNORMA
+          transforms: [strip_quotes]
+          
+        type:
+          source: TIPONORMA
+          transforms: [strip_quotes]
+          
+        content:
+          source: TEXTONORMA
+          transforms: [strip_quotes, strip_html]
+          required: true
+          store: true
+          index: true
+          chunk: true
+          
+        metadata:
+          titulo: {source: TITULO, transforms: [strip_quotes]}
+          assunto: {source: ASSUNTO, transforms: [strip_quotes]}
+          situacao: {source: SITUACAO, transforms: [strip_quotes]}
+          url: {source: LINKBTCU, transforms: [strip_quotes]}
+          
+      document:
+        id_template: "norma-{type}-{number}/{year}"
+        title_template: "{type} nº {number}/{year}"
+        content_fields: [content]
+
+    transform:
+      validate:
+        - rule: required_fields
+          fields: [document_id, number, type, content]
+
+    pipeline:
+      enabled: true
+      schedule: "0 3 * * *"
+      mode: full_reload  # Single file, always full reload
+      ingest:
+        readiness: text_ready
+        empty_content_action: fail
+      
+      optional:
+        embed:
+          enabled: true
+          chunking:
+            strategy: semantic
+            unit: article
+            overlap_tokens: 0
+            
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 3. TCU - Súmulas
+  # ─────────────────────────────────────────────────────────────────────────────
+  tcu_sumulas:
+    identity:
+      name: "TCU - Súmulas"
+      description: "Súmulas do Tribunal de Contas da União"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: jurisprudence_highlight
+      canonical_type: jurisprudence_highlight
+      
+    discovery:
+      strategy: static_url
+      config:
+        url: "https://sites.tcu.gov.br/dados-abertos/jurisprudencia/arquivos/sumula/sumula.csv"
+        
+    fetch:
+      protocol: https
+      method: GET
+      format:
+        type: csv
+        delimiter: "|"
+        
+    parse:
+      strategy: csv_row_to_document
+      
+      fields:
+        document_id:
+          source: KEY
+          transforms: [strip_quotes]
+          required: true
+          
+        number:
+          source: NUMERO
+          transforms: [strip_quotes]
+          
+        year:
+          source: ANOAPROVACAO
+          transforms: [strip_quotes, parse_int]
+          
+        content:
+          source: ENUNCIADO
+          transforms: [strip_quotes]
+          required: true
+          store: true
+          index: true
+          chunk: true
+          
+        metadata:
+          excerto: {source: EXCERTO, transforms: [strip_quotes]}
+          vigente: {source: VIGENTE, transforms: [parse_boolean]}
+          
+      document:
+        id_template: "sumula-{number}/{year}"
+        title_template: "Súmula {number}"
+        content_fields: [content]
+
+    transform:
+      validate:
+        - rule: required_fields
+          fields: [number, content]
+
+    pipeline:
+      enabled: true
+      schedule: "0 4 * * *"
+      mode: full_reload
+      coverage:
+        strict: true
+      ingest:
+        readiness: text_ready
+        empty_content_action: fail
+
+      optional:
+        embed:
+          enabled: true
+          chunking:
+            strategy: whole_document
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 4. TCU - Jurisprudência Selecionada
+  # ─────────────────────────────────────────────────────────────────────────────
+  tcu_jurisprudencia_selecionada:
+    identity:
+      name: "TCU - Jurisprudência Selecionada"
+      description: "Jurisprudência selecionada do TCU com enunciados e excertos"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: jurisprudence_highlight
+      canonical_type: jurisprudence_highlight
+
+    discovery:
+      strategy: static_url
+      config:
+        url: "https://sites.tcu.gov.br/dados-abertos/jurisprudencia/arquivos/jurisprudencia-selecionada/jurisprudencia-selecionada.csv"
+
+    fetch:
+      protocol: https
+      method: GET
+      format:
+        type: csv
+        delimiter: "|"
+
+    parse:
+      strategy: csv_row_to_document
+
+      fields:
+        document_id:
+          source: KEY
+          transforms: [strip_quotes]
+          required: true
+
+        number:
+          source: NUMACORDAO
+          transforms: [strip_quotes]
+
+        year:
+          source: ANOACORDAO
+          transforms: [strip_quotes, parse_int]
+
+        content:
+          source: ENUNCIADO
+          transforms: [strip_quotes]
+          required: true
+          store: true
+          index: true
+          chunk: true
+
+        text_excerto:
+          source: EXCERTO
+          transforms: [strip_quotes]
+          chunk: true
+
+        text_paragrafo:
+          source: PARAGRAFOLC
+          transforms: [strip_quotes]
+          chunk: true
+
+        metadata: {}
+
+      document:
+        id_template: "jurisprudencia-selecionada-{number}/{year}"
+        title_template: "Jurisprudência Selecionada - Acórdão {number}/{year}"
+        content_fields: [content, text_excerto, text_paragrafo]
+
+    pipeline:
+      enabled: true
+      schedule: "0 4 * * *"
+      mode: full_reload
+      ingest:
+        readiness: text_ready
+        empty_content_action: fail
+
+      optional:
+        embed:
+          enabled: true
+          chunking:
+            strategy: whole_document
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 5. TCU - Resposta a Consulta
+  # ─────────────────────────────────────────────────────────────────────────────
+  tcu_resposta_consulta:
+    identity:
+      name: "TCU - Resposta a Consulta"
+      description: "Respostas a consultas do TCU com enunciados e excertos"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: jurisprudence_highlight
+      canonical_type: jurisprudence_highlight
+
+    discovery:
+      strategy: static_url
+      config:
+        url: "https://sites.tcu.gov.br/dados-abertos/jurisprudencia/arquivos/resposta-consulta/resposta-consulta.csv"
+
+    fetch:
+      protocol: https
+      method: GET
+      format:
+        type: csv
+        delimiter: "|"
+
+    parse:
+      strategy: csv_row_to_document
+
+      fields:
+        document_id:
+          source: KEY
+          transforms: [strip_quotes]
+          required: true
+
+        number:
+          source: NUMACORDAO
+          transforms: [strip_quotes]
+
+        year:
+          source: ANOACORDAO
+          transforms: [strip_quotes, parse_int]
+
+        content:
+          source: ENUNCIADO
+          transforms: [strip_quotes]
+          required: true
+          store: true
+          index: true
+          chunk: true
+
+        text_excerto:
+          source: EXCERTO
+          transforms: [strip_quotes]
+          chunk: true
+
+        metadata: {}
+
+      document:
+        id_template: "resposta-consulta-{number}/{year}"
+        title_template: "Resposta a Consulta - Acórdão {number}/{year}"
+        content_fields: [content, text_excerto]
+
+    pipeline:
+      enabled: true
+      schedule: "0 4 * * *"
+      mode: full_reload
+      ingest:
+        readiness: text_ready
+        empty_content_action: fail
+
+      optional:
+        embed:
+          enabled: true
+          chunking:
+            strategy: whole_document
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 6. TCU - Informativo de Licitações e Contratos
+  # ─────────────────────────────────────────────────────────────────────────────
+  tcu_informativo_lc:
+    identity:
+      name: "TCU - Informativo de Licitações e Contratos"
+      description: "Boletim informativo de licitações e contratos do TCU"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: jurisprudence_highlight
+      canonical_type: jurisprudence_highlight
+
+    discovery:
+      strategy: static_url
+      config:
+        url: "https://sites.tcu.gov.br/dados-abertos/jurisprudencia/arquivos/boletim-informativo-lc/boletim-informativo-lc.csv"
+
+    fetch:
+      protocol: https
+      method: GET
+      format:
+        type: csv
+        delimiter: "|"
+
+    parse:
+      strategy: csv_row_to_document
+
+      fields:
+        document_id:
+          source: KEY
+          transforms: [strip_quotes]
+          required: true
+
+        title:
+          source: TITULO
+          transforms: [strip_quotes]
+
+        number:
+          source: NUMERO
+          transforms: [strip_quotes]
+
+        content:
+          source: ENUNCIADO
+          transforms: [strip_quotes]
+          required: true
+          store: true
+          index: true
+          chunk: true
+
+        text_acordao:
+          source: TEXTOACORDAO
+          transforms: [strip_quotes]
+          chunk: true
+
+        text_info:
+          source: TEXTOINFO
+          transforms: [strip_quotes]
+          chunk: true
+
+        metadata: {}
+
+      document:
+        id_template: "informativo-lc-{number}"
+        title_template: "Informativo LC - {title}"
+        content_fields: [content, text_acordao, text_info]
+
+    pipeline:
+      enabled: true
+      schedule: "0 5 * * *"
+      mode: full_reload
+      coverage:
+        strict: true
+      ingest:
+        readiness: text_ready
+        empty_content_action: fail
+
+      optional:
+        embed:
+          enabled: true
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 7. TCU - Boletim de Jurisprudência
+  # ─────────────────────────────────────────────────────────────────────────────
+  tcu_boletim_jurisprudencia:
+    identity:
+      name: "TCU - Boletim de Jurisprudência"
+      description: "Boletim de jurisprudência do TCU com enunciados e referências"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: jurisprudence_highlight
+      canonical_type: jurisprudence_highlight
+
+    discovery:
+      strategy: static_url
+      config:
+        url: "https://sites.tcu.gov.br/dados-abertos/jurisprudencia/arquivos/boletim-jurisprudencia/boletim-jurisprudencia.csv"
+
+    fetch:
+      protocol: https
+      method: GET
+      format:
+        type: csv
+        delimiter: "|"
+
+    parse:
+      strategy: csv_row_to_document
+
+      fields:
+        document_id:
+          source: KEY
+          transforms: [strip_quotes]
+          required: true
+
+        title:
+          source: TITULO
+          transforms: [strip_quotes]
+
+        content:
+          source: ENUNCIADO
+          transforms: [strip_quotes]
+          required: true
+          store: true
+          index: true
+          chunk: true
+
+        text_referencia:
+          source: REFERENCIA
+          transforms: [strip_quotes]
+          chunk: true
+
+        text_acordao:
+          source: TEXTOACORDAO
+          transforms: [strip_quotes]
+          chunk: true
+
+        metadata: {}
+
+      document:
+        id_template: "boletim-jurisprudencia-{document_id}"
+        title_template: "Boletim de Jurisprudência - {title}"
+        content_fields: [content, text_referencia, text_acordao]
+
+    pipeline:
+      enabled: true
+      schedule: "0 5 * * *"
+      mode: full_reload
+      coverage:
+        strict: true
+      ingest:
+        readiness: text_ready
+        empty_content_action: fail
+
+      optional:
+        embed:
+          enabled: true
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 8. TCU - Boletim de Pessoal
+  # ─────────────────────────────────────────────────────────────────────────────
+  tcu_boletim_pessoal:
+    identity:
+      name: "TCU - Boletim de Pessoal"
+      description: "Boletim de pessoal do TCU com jurisprudência em matéria de pessoal"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: jurisprudence_highlight
+      canonical_type: jurisprudence_highlight
+
+    discovery:
+      strategy: static_url
+      config:
+        url: "https://sites.tcu.gov.br/dados-abertos/jurisprudencia/arquivos/boletim-pessoal/boletim-pessoal.csv"
+
+    fetch:
+      protocol: https
+      method: GET
+      format:
+        type: csv
+        delimiter: "|"
+
+    parse:
+      strategy: csv_row_to_document
+
+      fields:
+        document_id:
+          source: KEY
+          transforms: [strip_quotes]
+          required: true
+
+        title:
+          source: TITULO
+          transforms: [strip_quotes]
+
+        number:
+          source: NUMERO
+          transforms: [strip_quotes]
+
+        content:
+          source: ENUNCIADO
+          transforms: [strip_quotes]
+          required: true
+          store: true
+          index: true
+          chunk: true
+
+        text_referencia:
+          source: REFERENCIA
+          transforms: [strip_quotes]
+          chunk: true
+
+        text_acordao:
+          source: TEXTOACORDAO
+          transforms: [strip_quotes]
+          chunk: true
+
+        metadata: {}
+
+      document:
+        id_template: "boletim-pessoal-{number}"
+        title_template: "Boletim de Pessoal - {title}"
+        content_fields: [content, text_referencia, text_acordao]
+
+    pipeline:
+      enabled: true
+      schedule: "0 5 * * *"
+      mode: full_reload
+      coverage:
+        strict: true
+      ingest:
+        readiness: text_ready
+        empty_content_action: fail
+
+      optional:
+        embed:
+          enabled: true
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 9. TCU - Publicações Institucionais (PDF Crawler)
+  # ─────────────────────────────────────────────────────────────────────────────
+  tcu_publicacoes:
+    identity:
+      name: "TCU - Publicações Institucionais"
+      description: "Publicações institucionais em PDF do TCU"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: publication
+      canonical_type: publication
+
+    discovery:
+      strategy: web_crawl
+      config:
+        driver: "curl_html_v1"
+        root_url: "https://portal.tcu.gov.br/publicacoes-institucionais/todas"
+        rules:
+          pagination_param: "pagina"
+          link_selector: "a[href*='/publicacoes-institucionais/']:not([href$='todas'])"
+          asset_selector: "a[href$='.pdf']"
+          max_depth: 2
+          rate_limit: 1.0
+        http:
+          user_agent_mode: rotate
+          user_agents:
+            - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+            - "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+          timeout: "180s"
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      converter: pdf_to_text_heuristic
+      format:
+        type: pdf
+
+    parse:
+      strategy: layout_aware
+      tool: pymupdf
+
+      fields:
+        title:
+          source: metadata.title
+
+        source_url:
+          source: metadata.url
+
+        metadata: {}
+
+      document:
+        id_template: "publicacao-{document_id}"
+        content_fields: [content]
+
+    transform:
+      validate:
+        - rule: required_fields
+          fields: [title]
+
+    pipeline:
+      enabled: true
+      schedule: "0 6 * * 0"  # Weekly on Sunday
+      mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
+
+      optional:
+        embed:
+          enabled: true
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 10. TCU - Notas Técnicas SEFTI (PDF Crawler)
+  # ─────────────────────────────────────────────────────────────────────────────
+  tcu_notas_tecnicas_ti:
+    identity:
+      name: "TCU - Notas Técnicas SEFTI"
+      description: "Notas técnicas da SEFTI (Secretaria de Fiscalização de TI) do TCU"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: technical_note
+      canonical_type: technical_note
+
+    discovery:
+      strategy: web_crawl
+      config:
+        driver: "curl_html_v1"
+        root_url: "https://portal.tcu.gov.br/tecnologia-da-informacao/notas-tecnicas"
+        rules:
+          asset_selector: "a[href$='.pdf']"
+          max_depth: 1
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      converter: pdf_to_text_heuristic
+      format:
+        type: pdf
+
+    parse:
+      strategy: layout_aware
+
+      fields:
+        title:
+          source: link_text_or_metadata
+
+        source_url:
+          source: url
+
+        metadata: {}
+
+      document:
+        id_template: "nota-tecnica-{document_id}"
+        content_fields: [content]
+
+    pipeline:
+      enabled: true
+      schedule: "0 6 * * 0"  # Weekly on Sunday
+      mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
+
+      optional:
+        embed:
+          enabled: true
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 11. TCU - BTCU (Boletim do TCU) - Discovery via API paginada
+  # ─────────────────────────────────────────────────────────────────────────────
+  tcu_btcu_administrativo:
+    identity:
+      name: "TCU - BTCU Administrativo"
+      description: "Boletim do TCU - Caderno Administrativo"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: publication
+      canonical_type: publication
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: btcu_api_v1
+        endpoint_template: "https://btcu.apps.tcu.gov.br/api/filtrarBtcuPublicados/page/{page}"
+        pdf_endpoint_template: "https://btcu.apps.tcu.gov.br/api/obterDocumentoPdf/{id}"
+        request_body:
+          tipo: "1"
+        page_start: 0
+        max_pages: 500
+        http:
+          user_agent_mode: fixed
+          user_agent: "curl/8.5.0"
+          timeout: "180s"
+          request_delay_ms: 600
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      converter: pdf_to_text_heuristic
+      format:
+        type: pdf
+
+    pipeline:
+      enabled: true
+      schedule: "0 6 * * 1"
+      mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
+
+  tcu_btcu_especial:
+    identity:
+      name: "TCU - BTCU Especial"
+      description: "Boletim do TCU - Caderno Especial"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: publication
+      canonical_type: publication
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: btcu_api_v1
+        endpoint_template: "https://btcu.apps.tcu.gov.br/api/filtrarBtcuPublicados/page/{page}"
+        pdf_endpoint_template: "https://btcu.apps.tcu.gov.br/api/obterDocumentoPdf/{id}"
+        request_body:
+          tipo: "2"
+        page_start: 0
+        max_pages: 500
+        http:
+          user_agent_mode: fixed
+          user_agent: "curl/8.5.0"
+          timeout: "180s"
+          request_delay_ms: 600
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      converter: pdf_to_text_heuristic
+      format:
+        type: pdf
+
+    pipeline:
+      enabled: true
+      schedule: "0 6 * * 1"
+      mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
+
+  tcu_btcu_controle_externo:
+    identity:
+      name: "TCU - BTCU Controle Externo"
+      description: "Boletim do TCU - Caderno Controle Externo"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: publication
+      canonical_type: publication
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: btcu_api_v1
+        endpoint_template: "https://btcu.apps.tcu.gov.br/api/filtrarBtcuPublicados/page/{page}"
+        pdf_endpoint_template: "https://btcu.apps.tcu.gov.br/api/obterDocumentoPdf/{id}"
+        request_body:
+          tipo: "3"
+        page_start: 0
+        max_pages: 500
+        http:
+          user_agent_mode: fixed
+          user_agent: "curl/8.5.0"
+          timeout: "180s"
+          request_delay_ms: 600
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      converter: pdf_to_text_heuristic
+      format:
+        type: pdf
+
+    pipeline:
+      enabled: true
+      schedule: "0 6 * * 1"
+      mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
+
+  tcu_btcu_deliberacoes:
+    identity:
+      name: "TCU - BTCU Deliberações"
+      description: "Boletim do TCU - Caderno Deliberações"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: publication
+      canonical_type: publication
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: btcu_api_v1
+        endpoint_template: "https://btcu.apps.tcu.gov.br/api/filtrarBtcuPublicados/page/{page}"
+        pdf_endpoint_template: "https://btcu.apps.tcu.gov.br/api/obterDocumentoPdf/{id}"
+        request_body:
+          tipo: "4"
+        page_start: 0
+        max_pages: 500
+        http:
+          user_agent_mode: fixed
+          user_agent: "curl/8.5.0"
+          timeout: "180s"
+          request_delay_ms: 600
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      converter: pdf_to_text_heuristic
+      format:
+        type: pdf
+
+    pipeline:
+      enabled: true
+      schedule: "0 6 * * 1"
+      mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
+
+  tcu_btcu_deliberacoes_extra:
+    identity:
+      name: "TCU - BTCU Deliberações Extra"
+      description: "Boletim do TCU - Caderno Deliberações (tipo 5)"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: publication
+      canonical_type: publication
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: btcu_api_v1
+        endpoint_template: "https://btcu.apps.tcu.gov.br/api/filtrarBtcuPublicados/page/{page}"
+        pdf_endpoint_template: "https://btcu.apps.tcu.gov.br/api/obterDocumentoPdf/{id}"
+        request_body:
+          tipo: "5"
+        page_start: 0
+        max_pages: 500
+        http:
+          user_agent_mode: fixed
+          user_agent: "curl/8.5.0"
+          timeout: "180s"
+          request_delay_ms: 600
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      converter: pdf_to_text_heuristic
+      format:
+        type: pdf
+
+    pipeline:
+      enabled: true
+      schedule: "0 6 * * 1"
+      mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 12. Diário Oficial da União (DOU) - Baseline público mensal (Fase A)
+  # ─────────────────────────────────────────────────────────────────────────────
+  dou_dados_abertos_mensal:
+    identity:
+      name: "DOU - Base pública mensal (dados abertos)"
+      description: "Catálogo público mensal de publicações do DOU para baseline histórico (sem autenticação)"
+      provider: IMPRENSA_NACIONAL
+      domain: legal
+      jurisdiction: BR
+      category: publication
+      canonical_type: official_gazette
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: dou_public_monthly_v1
+        base_url: "https://www.in.gov.br/acesso-a-informacao/dados-abertos/base-de-dados"
+        start_year: 2021
+        end_year: current
+        start_month: 1
+        end_month: 12
+        sections: ["S01"]
+        http:
+          request_delay_ms: 2000
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      converter: zip_xml_dou
+      format:
+        type: archive
+
+    pipeline:
+      enabled: true
+      schedule: "0 3 2 * *"  # mensal, após fechamento do mês anterior
+      mode: incremental
+      ingest:
+        readiness: text_ready
+        empty_content_action: metadata_only
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 13. Diário Oficial da União (DOU) - INLABS XML (Fases B/C)
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Complementary DOU strategy:
+  #   - dou_dados_abertos_mensal: historical bulk (monthly ZIP archives from 2021)
+  #   - dou_inlabs_secao1_atos_administrativos: real-time gap (last 30 days via INLABS XML)
+  # Both sources are searched simultaneously. Documents may overlap in the 30-day window
+  # but are deduplicated by ContentHash. YAML controls the window, not C# code.
+  dou_inlabs_secao1_atos_administrativos:
+    enabled: true
+    identity:
+      name: "DOU - Seção 1 - Atos Administrativos"
+      description: "Diário Oficial da União (INLABS XML), foco em atos administrativos da Seção 1"
+      provider: IMPRENSA_NACIONAL
+      domain: legal
+      jurisdiction: BR
+      category: publication
+      canonical_type: official_gazette
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: dou_inlabs_xml_v1
+        endpoint_template: "https://inlabs.in.gov.br/index.php?p={date}"
+        sections: ["do1"]
+        parameters:
+          date_range:
+            type: range
+            start: "current-30d"
+            end: current
+        http:
+          user_agent_mode: rotate
+          user_agents:
+            - "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+            - "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0"
+            - "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15"
+          headers:
+            Cookie: "${GABI_INLABS_COOKIE}"
+          timeout: "120s"
+          request_delay_ms: 600
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      converter: zip_xml_dou
+      format:
+        type: archive
+
+    pipeline:
+      enabled: true
+      schedule: "0 6 * * *"
+      mode: incremental
+      ingest:
+        readiness: text_ready
+        empty_content_action: metadata_only
+      coverage:
+        zero_ok: true
+
+  dou_inlabs_secao3_licitacoes_contratos:
+    enabled: false
+    identity:
+      name: "DOU - Seção 3 - Licitações e Contratos"
+      description: "Diário Oficial da União (INLABS XML), foco em extratos de licitação/contrato na Seção 3"
+      provider: IMPRENSA_NACIONAL
+      domain: legal
+      jurisdiction: BR
+      category: publication
+      canonical_type: official_gazette
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: dou_inlabs_xml_v1
+        endpoint_template: "https://inlabs.in.gov.br/index.php?p={date}"
+        sections: ["do3"]
+        parameters:
+          date_range:
+            type: range
+            start: "2026-01-01"
+            end: current
+        http:
+          user_agent_mode: fixed
+          user_agent: "GabiBot/1.0 (+https://example.org/bot)"
+          headers:
+            Cookie: "${GABI_INLABS_COOKIE}"
+          timeout: "120s"
+          request_delay_ms: 600
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      converter: html_to_text
+      format:
+        type: html
+
+    pipeline:
+      enabled: false
+      schedule: "0 6 * * *"
+      mode: incremental
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 14. Câmara dos Deputados - Leis Ordinárias (API Query)
+  # ─────────────────────────────────────────────────────────────────────────────
+  camara_leis_ordinarias:
+    identity:
+      name: "Câmara dos Deputados - Proposições PL (não normas vigentes)"
+      description: "Proposições do tipo PL na API da Câmara (tramitação legislativa, não legislação consolidada)"
+      provider: CAMARA
+      domain: legal
+      jurisdiction: BR
+      category: legislation
+      canonical_type: legislation
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: camara_api_v1
+        endpoint_template: "https://dadosabertos.camara.leg.br/api/v2/proposicoes?siglaTipo=PL&ano={year}&itens=100&ordem=ASC&ordenarPor=id"
+        parameters:
+          start_year:
+            type: range
+            start: 1980
+            end: current
+        http:
+          user_agent_mode: rotate
+          user_agents:
+            - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+            - "GabiBot/1.0 (+https://example.org/bot)"
+          timeout: "180s"
+          request_delay_ms: 1000
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      converter: html_to_text
+      format:
+        type: html
+
+    parse:
+      strategy: legislation_structure
+      tool: built_in
+
+      rules:
+        content_selector: "div#content"
+        remove: [".revogado", "strike"]
+
+      fields:
+        title:
+          source: metadata.title
+
+        number:
+          source: metadata.number
+
+        year:
+          source: metadata.year
+
+        metadata: {}
+
+      document:
+        id_template: "lei-{number}/{year}"
+        title_template: "Lei nº {number}/{year}"
+        content_fields: [content]
+
+    pipeline:
+      enabled: true
+      schedule: "0 7 * * 0"  # Weekly on Sunday
+      mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
+
+      optional:
+        embed:
+          enabled: true
+        index:
+          enabled: true
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 12b. Câmara dos Deputados - Projetos por tipo (API de Proposições)
+  # Fonte oficial de tipos: /api/v2/referencias/proposicoes/siglaTipo
+  # ─────────────────────────────────────────────────────────────────────────────
+  camara_projetos_lei_complementar:
+    identity:
+      name: "Câmara dos Deputados - Projetos de Lei Complementar (PLP)"
+      description: "Proposições do tipo PLP na API de Dados Abertos da Câmara"
+      provider: CAMARA
+      domain: legal
+      jurisdiction: BR
+      category: legislation
+      canonical_type: legislation
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: camara_api_v1
+        endpoint_template: "https://dadosabertos.camara.leg.br/api/v2/proposicoes?siglaTipo=PLP&ano={year}&itens=100&ordem=ASC&ordenarPor=id"
+        parameters:
+          start_year:
+            type: range
+            start: 1988
+            end: current
+        http:
+          user_agent_mode: rotate
+          timeout: "180s"
+          request_delay_ms: 1000
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      converter: json_to_text
+      format:
+        type: json
+
+    pipeline:
+      enabled: true
+      schedule: "0 7 * * 0"
+      mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
+
+  camara_propostas_emenda_constitucional:
+    identity:
+      name: "Câmara dos Deputados - PEC"
+      description: "Propostas de Emenda à Constituição (PEC)"
+      provider: CAMARA
+      domain: legal
+      jurisdiction: BR
+      category: constitutional
+      canonical_type: constitutional_amendment
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: camara_api_v1
+        endpoint_template: "https://dadosabertos.camara.leg.br/api/v2/proposicoes?siglaTipo=PEC&ano={year}&itens=100&ordem=ASC&ordenarPor=id"
+        parameters:
+          start_year:
+            type: range
+            start: 1988
+            end: current
+        http:
+          user_agent_mode: rotate
+          timeout: "180s"
+          request_delay_ms: 1000
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: json_api
+      extract:
+        title_path: "dados.ementa"
+        content_path: "dados.ementaDetalhada"
+        id_path: "dados.id"
+        vides_path: "dados.vides"
+      format:
+        type: json
+
+    pipeline:
+      enabled: true
+      schedule: "0 7 * * 0"
+      mode: incremental
+      ingest:
+        readiness: text_ready
+        empty_content_action: metadata_only
+
+  camara_medidas_provisorias:
+    identity:
+      name: "Câmara dos Deputados - Medidas Provisórias (MPV)"
+      description: "Proposições do tipo Medida Provisória (MPV)"
+      provider: CAMARA
+      domain: legal
+      jurisdiction: BR
+      category: executive
+      canonical_type: provisional_measure
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: camara_api_v1
+        endpoint_template: "https://dadosabertos.camara.leg.br/api/v2/proposicoes?siglaTipo=MPV&ano={year}&itens=100&ordem=ASC&ordenarPor=id"
+        parameters:
+          start_year:
+            type: range
+            start: 1988
+            end: current
+        http:
+          user_agent_mode: rotate
+          timeout: "180s"
+          request_delay_ms: 1000
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      converter: json_to_text
+      format:
+        type: json
+
+    pipeline:
+      enabled: true
+      schedule: "0 7 * * 0"
+      mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
+
+  camara_projetos_decreto_legislativo:
+    identity:
+      name: "Câmara dos Deputados - Projetos de Decreto Legislativo (PDC)"
+      description: "Proposições do tipo PDC"
+      provider: CAMARA
+      domain: legal
+      jurisdiction: BR
+      category: legislation
+      canonical_type: decree
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: camara_api_v1
+        endpoint_template: "https://dadosabertos.camara.leg.br/api/v2/proposicoes?siglaTipo=PDC&ano={year}&itens=100&ordem=ASC&ordenarPor=id"
+        parameters:
+          start_year:
+            type: range
+            start: 1988
+            end: current
+        http:
+          user_agent_mode: rotate
+          timeout: "180s"
+          request_delay_ms: 1000
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      converter: json_to_text
+      format:
+        type: json
+
+    pipeline:
+      enabled: true
+      schedule: "0 7 * * 0"
+      mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
+
+  camara_projetos_resolucao:
+    identity:
+      name: "Câmara dos Deputados - Projetos de Resolução (PRC)"
+      description: "Proposições do tipo PRC"
+      provider: CAMARA
+      domain: legal
+      jurisdiction: BR
+      category: legislation
+      canonical_type: resolution
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: camara_api_v1
+        endpoint_template: "https://dadosabertos.camara.leg.br/api/v2/proposicoes?siglaTipo=PRC&ano={year}&itens=100&ordem=ASC&ordenarPor=id"
+        parameters:
+          start_year:
+            type: range
+            start: 1988
+            end: current
+        http:
+          user_agent_mode: rotate
+          timeout: "180s"
+          request_delay_ms: 1000
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      converter: json_to_text
+      format:
+        type: json
+
+    pipeline:
+      enabled: true
+      schedule: "0 7 * * 0"
+      mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
+
+  camara_projetos_lei_conversao:
+    identity:
+      name: "Câmara dos Deputados - Projetos de Lei de Conversão (PLV)"
+      description: "Proposições do tipo PLV"
+      provider: CAMARA
+      domain: legal
+      jurisdiction: BR
+      category: legislation
+      canonical_type: legislation
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: camara_api_v1
+        endpoint_template: "https://dadosabertos.camara.leg.br/api/v2/proposicoes?siglaTipo=PLV&ano={year}&itens=100&ordem=ASC&ordenarPor=id"
+        parameters:
+          start_year:
+            type: range
+            start: 1988
+            end: current
+        http:
+          user_agent_mode: rotate
+          timeout: "180s"
+          request_delay_ms: 1000
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      converter: json_to_text
+      format:
+        type: json
+
+    pipeline:
+      enabled: true
+      schedule: "0 7 * * 0"
+      mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 12c. Senado Federal - Legislação (Normas aprovadas)
+  # Fonte: https://legis.senado.leg.br/dadosabertos/legislacao/lista
+  # ─────────────────────────────────────────────────────────────────────────────
+  senado_legislacao_leis_ordinarias:
+    identity:
+      name: "Senado Federal - Leis Ordinárias"
+      description: "Normas do tipo LEI na API de Legislação do Senado"
+      provider: SENADO
+      domain: legal
+      jurisdiction: BR
+      category: legislation
+      canonical_type: legislation
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: senado_legislacao_api_v1
+        endpoint_template: "https://legis.senado.leg.br/dadosabertos/legislacao/lista?tipo={tipo}&ano={year}"
+        tipo: "LEI"
+        parameters:
+          start_year:
+            type: range
+            start: 1988
+            end: current
+        http:
+          user_agent_mode: rotate
+          timeout: "180s"
+          request_delay_ms: 800
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: json_api
+      extract:
+        title_path: "DetalheDocumento.documentos.documento[0].normaNome"
+        content_path: "DetalheDocumento.documentos.documento[0].ementa"
+        id_path: "DetalheDocumento.documentos.documento[0].norma"
+        vides_path: "DetalheDocumento.documentos.documento[0].vides"
+      format:
+        type: json
+
+    pipeline:
+      enabled: true
+      schedule: "0 6 * * 1"
+      mode: incremental
+      ingest:
+        readiness: text_ready
+        empty_content_action: fail
+
+  senado_legislacao_leis_complementares:
+    identity:
+      name: "Senado Federal - Leis Complementares"
+      description: "Normas do tipo LCP na API de Legislação do Senado"
+      provider: SENADO
+      domain: legal
+      jurisdiction: BR
+      category: legislation
+      canonical_type: legislation
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: senado_legislacao_api_v1
+        endpoint_template: "https://legis.senado.leg.br/dadosabertos/legislacao/lista?tipo={tipo}&ano={year}"
+        tipo: "LCP"
+        parameters:
+          start_year:
+            type: range
+            start: 1988
+            end: current
+        http:
+          user_agent_mode: rotate
+          timeout: "180s"
+          request_delay_ms: 800
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      converter: json_to_text
+      format:
+        type: json
+
+    pipeline:
+      enabled: true
+      schedule: "15 6 * * 1"
+      mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
+
+  senado_legislacao_decretos_lei:
+    identity:
+      name: "Senado Federal - Decretos-Lei"
+      description: "Normas do tipo DEL na API de Legislação do Senado"
+      provider: SENADO
+      domain: legal
+      jurisdiction: BR
+      category: legislation
+      canonical_type: decree
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: senado_legislacao_api_v1
+        endpoint_template: "https://legis.senado.leg.br/dadosabertos/legislacao/lista?tipo={tipo}&ano={year}"
+        tipo: "DEL"
+        parameters:
+          start_year:
+            type: range
+            start: 1940
+            end: current
+        http:
+          user_agent_mode: rotate
+          timeout: "180s"
+          request_delay_ms: 800
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      converter: json_to_text
+      format:
+        type: json
+
+    pipeline:
+      enabled: true
+      schedule: "30 6 * * 1"
+      mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
+
+  senado_legislacao_leis_delegadas:
+    identity:
+      name: "Senado Federal - Leis Delegadas"
+      description: "Normas do tipo LDL na API de Legislação do Senado"
+      provider: SENADO
+      domain: legal
+      jurisdiction: BR
+      category: legislation
+      canonical_type: legislation
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: senado_legislacao_api_v1
+        endpoint_template: "https://legis.senado.leg.br/dadosabertos/legislacao/lista?tipo={tipo}&ano={year}"
+        tipo: "LDL"
+        parameters:
+          start_year:
+            type: range
+            start: 1940
+            end: current
+        http:
+          user_agent_mode: rotate
+          timeout: "180s"
+          request_delay_ms: 800
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      converter: json_to_text
+      format:
+        type: json
+
+    pipeline:
+      enabled: true
+      schedule: "45 6 * * 1"
+      mode: incremental
+      ingest:
+        readiness: metadata_only
+        empty_content_action: metadata_only
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 12. TCU - YouTube Videos (CANARY, INACTIVE)
+  # ─────────────────────────────────────────────────────────────────────────────
+  tcu_youtube_videos:
+    enabled: true
+
+    identity:
+      name: "TCU - YouTube Videos"
+      description: "Vídeos oficiais do TCU via YouTube Data API v3"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: multimedia
+      canonical_type: session_media
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: youtube_channel_v1
+        http:
+          timeout: "30s"
+          request_delay_ms: 200
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      content_profile: media
+      format:
+        type: json
+
+    pipeline:
+      enabled: false
+      schedule: "0 6 * * 1"
+      mode: incremental
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 13. TCU - X Mentions (CANARY, INACTIVE)
+  # ─────────────────────────────────────────────────────────────────────────────
+  tcu_x_mentions:
+    enabled: false
+
+    identity:
+      name: "TCU - X Mentions"
+      description: "Menções ao TCU/Tribunal de Contas da União no X"
+      provider: SOCIAL
+      domain: legal
+      jurisdiction: BR
+      category: social_media
+      canonical_type: social_mention
+
+    discovery:
+      strategy: api_pagination
+      config:
+        driver: x_mentions_v1
+        endpoint_template: "https://api.x.com/2/tweets/search/recent?query={query}&max_results=100"
+        query: "\"Tribunal de Contas da União\" OR \"@TCUoficial\" OR \"TCU\" -is:retweet lang:pt"
+        http:
+          timeout: "30s"
+          request_delay_ms: 1000
+
+    fetch:
+      protocol: https
+      method: GET
+      content_strategy: link_only
+      format:
+        type: json
+
+    pipeline:
+      enabled: false
+      schedule: "0 */6 * * *"
+      mode: incremental
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 14. TCU - Media Upload (CANARY, API INGEST)
+  # ─────────────────────────────────────────────────────────────────────────────
+  tcu_media_upload:
+    enabled: true
+
+    identity:
+      name: "TCU - Media Upload"
+      description: "Ingestão reversa via API para mídia de sessões e julgamentos"
+      provider: TCU
+      domain: legal
+      jurisdiction: BR
+      category: multimedia
+      canonical_type: session_media
+
+    discovery:
+      strategy: static_url
+      config:
+        url: "upload://tcu_media_upload"
+
+    fetch:
+      protocol: upload
+      method: POST
+      content_strategy: media_transcribe
+      content_profile: media
+      format:
+        type: media
+
+    pipeline:
+      enabled: false
+      schedule: "0 3 * * *"
+      mode: manual
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 14. STF - Decisões (INACTIVE)
+  # ─────────────────────────────────────────────────────────────────────────────
+  stf_decisoes:
+    enabled: false
+
+    identity:
+      name: "STF - Decisões"
+      description: "Decisões do Supremo Tribunal Federal"
+      provider: STF
+      domain: legal
+      jurisdiction: BR
+      category: jurisprudence
+      canonical_type: legal_decision
+
+    discovery:
+      strategy: static_url
+      config:
+        url: "https://api.stf.jus.br/decisoes.csv"
+
+    fetch:
+      protocol: https
+      method: GET
+      format:
+        type: csv
+
+    parse:
+      strategy: csv_row_to_document
+
+    pipeline:
+      enabled: false
+      schedule: "0 8 * * *"
+      mode: incremental
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 15. STJ - Acórdãos (INACTIVE)
+  # ─────────────────────────────────────────────────────────────────────────────
+  stj_acordaos:
+    enabled: false
+
+    identity:
+      name: "STJ - Acórdãos"
+      description: "Acórdãos do Superior Tribunal de Justiça"
+      provider: STJ
+      domain: legal
+      jurisdiction: BR
+      category: jurisprudence
+      canonical_type: legal_decision
+
+    discovery:
+      strategy: url_pattern
+      config:
+        template: "https://api.stj.jus.br/acordaos/{year}.csv"
+        parameters:
+          year:
+            type: range
+            start: 2020
+            end: current
+
+    fetch:
+      protocol: https
+      method: GET
+      format:
+        type: csv
+
+    parse:
+      strategy: csv_row_to_document
+
+    pipeline:
+      enabled: false
+      schedule: "0 8 * * *"
+      mode: incremental
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TRANSFORMS (Reusable transform functions)
+# ═══════════════════════════════════════════════════════════════════════════════
+transforms:
+  strip_quotes:
+    description: "Remove surrounding quotes from string"
+    type: builtin
+    
+  strip_quotes_and_html:
+    description: "Remove quotes and HTML tags"
+    type: builtin
+    pipeline: [strip_quotes, strip_html]
+    
+  strip_html:
+    description: "Remove HTML tags from content"
+    type: builtin
+    options:
+      allowed_tags: []  # Empty = strip all
+      
+  parse_int:
+    description: "Parse string to integer"
+    type: builtin
+    
+  parse_date:
+    description: "Parse date string to ISO format"
+    type: builtin
+    options:
+      input_formats: ["%d/%m/%Y", "%Y-%m-%d"]
+      output_format: "iso"
+      
+  parse_boolean:
+    description: "Parse various boolean representations"
+    type: builtin
+    options:
+      true_values: ["true", "1", "yes", "sim", "S", "s"]
+      false_values: ["false", "0", "no", "nao", "N", "n"]
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VALIDATION RULES (Reusable validation rules)
+# ═══════════════════════════════════════════════════════════════════════════════
+validation_rules:
+  required_fields:
+    description: "Ensure specified fields are present and non-empty"
+    
+  field_format:
+    description: "Validate field matches regex pattern"
+    
+  content_length:
+    description: "Validate content meets minimum length"
+    
+  unique_document_id:
+    description: "Ensure document_id is unique within source"
