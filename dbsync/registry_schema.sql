@@ -194,3 +194,27 @@ CREATE TRIGGER trg_no_delete_occurrences BEFORE DELETE ON registry.occurrences
 -- WHERE v.natural_key_hash = $1
 -- GROUP BY v.content_hash, v.created_at
 -- ORDER BY first_published;
+
+-- ============================================================================
+-- Commitment anchoring (CRSS-1)
+-- ============================================================================
+
+-- commitments: append-only record of CRSS-1 commitment computations.
+-- Each row stores the full envelope and the snapshot boundary.
+-- log_high_water is the ingestion_log.id high-water mark (INV-4).
+CREATE TABLE registry.commitments (
+    id              bigserial PRIMARY KEY,
+    crss_version    text NOT NULL,
+    commitment_root char(64) NOT NULL,
+    record_count    bigint NOT NULL,
+    log_high_water  bigint NOT NULL,
+    envelope        jsonb NOT NULL,
+    computed_at     timestamptz NOT NULL DEFAULT now()
+);
+
+REVOKE UPDATE, DELETE ON registry.commitments FROM PUBLIC;
+
+CREATE TRIGGER trg_no_update_commitments BEFORE UPDATE ON registry.commitments
+    FOR EACH ROW EXECUTE FUNCTION registry.deny_mutation();
+CREATE TRIGGER trg_no_delete_commitments BEFORE DELETE ON registry.commitments
+    FOR EACH ROW EXECUTE FUNCTION registry.deny_mutation();
