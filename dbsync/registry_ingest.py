@@ -3,7 +3,14 @@
 Every document is ingested via ONE prepared SQL statement.
 Classification is derived entirely from INSERT...ON CONFLICT...RETURNING.
 No pre-reads. No fallback SELECTs. The database is the authority; Python is transport.
+
+LIFECYCLE CONTRACT:
+  A batch is COMPLETE iff a commitment exists whose:
+    commitment.log_high_water_mark == max(registry.ingestion_log.id)
+
+  Ingestion without commitment is failure.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -19,6 +26,8 @@ from typing import Any
 import psycopg
 from psycopg import IsolationLevel
 
+from commitment.anchor import compute_commitment
+from commitment.chain import chain_anchor
 from validation.identity_analyzer import (
     IdentityConfig,
     load_identity_config,
@@ -43,6 +52,9 @@ class IngestResult:
     new_version: int = 0
     new_publication: int = 0
     errors: list[dict] = field(default_factory=list)
+    log_high_water: int = 0
+    commitment_root: str | None = None
+    commitment_sealed: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -62,7 +74,9 @@ def _norm(v: Any) -> str:
     return s
 
 
-def _field_value(field_name: str, doc: dict[str, str], pub: dict[str, str], source: dict[str, Any]) -> str:
+def _field_value(
+    field_name: str, doc: dict[str, str], pub: dict[str, str], source: dict[str, Any]
+) -> str:
     if field_name == "issuing_organ_normalized":
         return doc.get("issuing_organ") or doc.get("issuing_authority") or ""
     if field_name == "title_normalized":
@@ -74,7 +88,12 @@ def _field_value(field_name: str, doc: dict[str, str], pub: dict[str, str], sour
     if field_name == "source_url_canonical":
         u = str(source.get("page_url") or "")
         return re.sub(r"[?#].*$", "", u)
-    if field_name in {"publication_date", "edition_number", "edition_section", "page_number"}:
+    if field_name in {
+        "publication_date",
+        "edition_number",
+        "edition_section",
+        "page_number",
+    }:
         return pub.get(field_name) or ""
     if field_name in doc:
         return doc.get(field_name) or ""
@@ -89,7 +108,12 @@ def _canonicalize_content(text: str, steps: list[str]) -> str:
         elif s == "normalize_whitespace":
             out = re.sub(r"\s+", " ", out).strip()
         elif s == "normalize_quotes":
-            out = out.replace("\u201c", '"').replace("\u201d", '"').replace("\u2018", "'").replace("`", "'")
+            out = (
+                out.replace("\u201c", '"')
+                .replace("\u201d", '"')
+                .replace("\u2018", "'")
+                .replace("`", "'")
+            )
         elif s == "remove_page_headers":
             out = re.sub(r"(?im)^\s*di[aá]rio oficial da uni[aã]o.*$", "", out)
     return out
@@ -131,12 +155,16 @@ def _hash_record(
 # ---------------------------------------------------------------------------
 
 
-def _evidence_edition_id(pub_date: str, edition_number: str, section: str, listing_sha256: str) -> str:
+def _evidence_edition_id(
+    pub_date: str, edition_number: str, section: str, listing_sha256: str
+) -> str:
     """edition_id = sha256(publication_date | edition_number | section | listing_sha256)"""
     return _sha(f"{pub_date}|{edition_number}|{section}|{listing_sha256 or ''}")
 
 
-def _evidence_occurrence_hash(edition_id: str, page_number: str, source_url: str) -> str:
+def _evidence_occurrence_hash(
+    edition_id: str, page_number: str, source_url: str
+) -> str:
     """occurrence_hash = sha256(edition_id | page_number | source_url_canonical)"""
     return _sha(f"{edition_id}|{page_number}|{source_url}")
 
@@ -236,28 +264,38 @@ def _load_ingest_records(
             edition_number = pub.get("edition_number") or ""
             edition_section = pub.get("edition_section") or ""
             page_number = pub.get("page_number") or ""
-            source_url = _field_value("source_url_canonical", doc_norm, pub_norm, source)
+            source_url = _field_value(
+                "source_url_canonical", doc_norm, pub_norm, source
+            )
 
             # Evidence-anchored hashes (computed HERE, not from identity_analyzer)
-            listing_sha = _lookup_listing_sha256(listing_index, pub_date or "", edition_section)
-            edition_id = _evidence_edition_id(pub_date or "", edition_number, edition_section, listing_sha)
-            occurrence_hash = _evidence_occurrence_hash(edition_id, page_number, source_url)
+            listing_sha = _lookup_listing_sha256(
+                listing_index, pub_date or "", edition_section
+            )
+            edition_id = _evidence_edition_id(
+                pub_date or "", edition_number, edition_section, listing_sha
+            )
+            occurrence_hash = _evidence_occurrence_hash(
+                edition_id, page_number, source_url
+            )
 
-            out.append({
-                "occurrence_hash": occurrence_hash,
-                "edition_id": edition_id,
-                "publication_date": pub_date,
-                "edition_number": edition_number or None,
-                "edition_section": edition_section or None,
-                "listing_sha256": listing_sha or None,
-                "natural_key_hash": rec["natural_key_hash"],
-                "strategy": rec["strategy"],
-                "content_hash": rec["content_hash"],
-                "body_text_semantic": rec["body_text_semantic"] or None,
-                "page_number": page_number or None,
-                "source_url": source_url or None,
-                "source_file": str(fp),
-            })
+            out.append(
+                {
+                    "occurrence_hash": occurrence_hash,
+                    "edition_id": edition_id,
+                    "publication_date": pub_date,
+                    "edition_number": edition_number or None,
+                    "edition_section": edition_section or None,
+                    "listing_sha256": listing_sha or None,
+                    "natural_key_hash": rec["natural_key_hash"],
+                    "strategy": rec["strategy"],
+                    "content_hash": rec["content_hash"],
+                    "body_text_semantic": rec["body_text_semantic"] or None,
+                    "page_number": page_number or None,
+                    "source_url": source_url or None,
+                    "source_file": str(fp),
+                }
+            )
     return out
 
 
@@ -339,6 +377,15 @@ ins_log AS (
 SELECT action, decision_basis::text FROM ins_log;
 """
 
+_PERSIST_COMMITMENT_SQL = """\
+INSERT INTO registry.commitments
+    (crss_version, commitment_root, record_count, log_high_water, envelope)
+VALUES (%(crss_version)s, %(commitment_root)s, %(record_count)s,
+        %(log_high_water)s, %(envelope)s);
+"""
+
+_HIGH_WATER_SQL = "SELECT COALESCE(max(id), 0) FROM registry.ingestion_log;"
+
 
 # ---------------------------------------------------------------------------
 # Ingestion
@@ -360,6 +407,51 @@ def _log(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
 
 
+def _seal_commitment(
+    dsn: str,
+    sources_yaml: Path | None = None,
+    identity_yaml: Path | None = None,
+) -> dict[str, Any]:
+    """Compute and persist commitment. Raises on failure.
+
+    This is the seal step. Without it, the batch never happened.
+    prev_commitment_root is NOT set here — it is injected by chain_anchor()
+    under an exclusive lock to avoid TOCTOU races.
+    """
+    envelope, records_bytes = compute_commitment(
+        dsn,
+        sources_yaml=sources_yaml,
+        identity_yaml=identity_yaml,
+    )
+
+    with psycopg.connect(dsn) as conn:
+        conn.execute("SET search_path = registry, public")
+        conn.execute(
+            _PERSIST_COMMITMENT_SQL,
+            {
+                "crss_version": envelope["crss_version"],
+                "commitment_root": envelope["commitment_root"],
+                "record_count": envelope["record_count"],
+                "log_high_water": envelope["snapshot"]["log_high_water_mark"],
+                "envelope": json.dumps(envelope),
+            },
+        )
+        conn.commit()
+
+    _log(
+        f"commitment sealed: root={envelope['commitment_root'][:16]}... "
+        f"records={envelope['record_count']} "
+        f"high_water={envelope['snapshot']['log_high_water_mark']}"
+    )
+    return envelope, records_bytes
+
+
+class IngestionUnsealedError(RuntimeError):
+    """Raised when ingestion completes but commitment seal fails."""
+
+    pass
+
+
 def ingest_batch(
     dsn: str,
     enriched_dir: Path,
@@ -370,6 +462,9 @@ def ingest_batch(
 
     Each document is ingested in its own SERIALIZABLE transaction.
     Classification is derived entirely from INSERT...ON CONFLICT...RETURNING.
+
+    NOTE: This function does NOT seal the batch with a commitment.
+    Use ingest_batch_sealed() for complete archival ingestion.
     """
     records = _load_ingest_records(enriched_dir, cfg, listing_index)
     result = IngestResult(total=len(records))
@@ -392,19 +487,25 @@ def ingest_batch(
                 except psycopg.errors.SerializationFailure:
                     # Transaction aborted — log was NOT written (atomic).
                     # Retry with exponential backoff to reduce contention.
-                    time.sleep(0.01 * (2 ** (attempt - 1)))  # 10ms, 20ms, 40ms, ...
+                    time.sleep(0.01 * (2 ** (attempt - 1)))
                     if attempt == MAX_SERIALIZATION_RETRIES:
-                        _log(f"  WARN: serialization exhausted for {rec.get('source_file')}")
-                        result.errors.append({
-                            "file": rec.get("source_file"),
-                            "error": "serialization_exhausted",
-                        })
+                        _log(
+                            f"  WARN: serialization exhausted for {rec.get('source_file')}"
+                        )
+                        result.errors.append(
+                            {
+                                "file": rec.get("source_file"),
+                                "error": "serialization_exhausted",
+                            }
+                        )
                 except Exception as ex:
                     _log(f"  ERROR: {rec.get('source_file')}: {ex}")
-                    result.errors.append({
-                        "file": rec.get("source_file"),
-                        "error": str(ex),
-                    })
+                    result.errors.append(
+                        {
+                            "file": rec.get("source_file"),
+                            "error": str(ex),
+                        }
+                    )
                     break
 
             if idx % 50 == 0:
@@ -414,10 +515,75 @@ def ingest_batch(
                     f"new_ver={result.new_version} new_pub={result.new_publication}"
                 )
 
+        row = conn.execute(_HIGH_WATER_SQL).fetchone()
+        result.log_high_water = row[0] if row else 0
+
     _log(
         f"ingest done: total={result.total} inserted={result.inserted} "
         f"duplicate_skipped={result.duplicate_skipped} new_version={result.new_version} "
-        f"new_publication={result.new_publication} errors={len(result.errors)}"
+        f"new_publication={result.new_publication} errors={len(result.errors)} "
+        f"high_water={result.log_high_water}"
+    )
+    return result
+
+
+def ingest_batch_sealed(
+    dsn: str,
+    enriched_dir: Path,
+    cfg: IdentityConfig,
+    listing_index: dict[tuple[str, str], str] | None = None,
+    sources_yaml: Path | None = None,
+    identity_yaml: Path | None = None,
+) -> IngestResult:
+    """Ingest documents and seal with CRSS-1 commitment.
+
+    COMPLETE ARCHIVAL INGESTION:
+      1. Ingest all documents into registry.* tables
+      2. Compute CRSS-1 commitment over ingested state
+      3. Persist commitment to registry.commitments
+      4. Return result with commitment_root set
+
+    FAILURE SEMANTICS:
+      - If any record fails to ingest, returns with errors populated
+      - If ingestion succeeds but commitment fails, raises IngestionUnsealedError
+      - Success requires: errors empty AND commitment_sealed True
+
+    This is the canonical entry point for archival ingestion.
+    """
+    result = ingest_batch(dsn, enriched_dir, cfg, listing_index)
+
+    if result.errors:
+        _log(f"ingest: {len(result.errors)} errors, skipping commitment seal")
+        return result
+
+    try:
+        envelope, records_bytes = _seal_commitment(dsn, sources_yaml, identity_yaml)
+        result.commitment_root = envelope["commitment_root"]
+
+        if result.log_high_water != envelope["snapshot"]["log_high_water_mark"]:
+            raise IngestionUnsealedError(
+                f"commitment high_water={envelope['snapshot']['log_high_water_mark']} "
+                f"!= ingestion high_water={result.log_high_water}"
+            )
+
+        # CHAIN-6: Every ingestion MUST produce an anchor.
+        anchor_path = chain_anchor(envelope, records_bytes)
+        _log(f"anchor written: {anchor_path}")
+
+        # Only mark sealed AFTER anchor succeeds (CHAIN-5/CHAIN-6).
+        result.commitment_sealed = True
+
+    except IngestionUnsealedError:
+        raise
+    except Exception as ex:
+        _log(f"FATAL: commitment seal or anchor chain failed: {ex}")
+        raise IngestionUnsealedError(
+            f"ingestion completed but commitment/anchor failed: {ex}"
+        ) from ex
+
+    _log(
+        f"BATCH SEALED + ANCHORED: high_water={result.log_high_water} "
+        f"commitment={result.commitment_root[:16]}..."
     )
     return result
 
@@ -436,3 +602,67 @@ def create_schema(dsn: str) -> None:
         conn.execute(sql)
         conn.commit()
     _log("registry schema created")
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+
+
+def main() -> int:
+    import argparse
+    import os
+
+    p = argparse.ArgumentParser(
+        description="Registry ingestion engine — sealed archival ingestion"
+    )
+    p.add_argument(
+        "--dsn",
+        default=os.environ.get(
+            "GABI_DSN", "host=localhost port=5433 dbname=gabi user=gabi password=gabi"
+        ),
+    )
+    p.add_argument("--enriched-dir", required=True, type=Path)
+    p.add_argument("--identity", required=True, type=Path)
+    p.add_argument("--sources", type=Path, default=None)
+    p.add_argument("--listing-index", type=Path, default=None)
+    p.add_argument(
+        "--unsealed",
+        action="store_true",
+        help="Skip commitment seal (NOT recommended for archival use)",
+    )
+
+    args = p.parse_args()
+    cfg = load_identity_config(args.identity)
+
+    listing_index = None
+    if args.listing_index and args.listing_index.exists():
+        listing_index = load_listing_index(args.listing_index)
+
+    if args.unsealed:
+        result = ingest_batch(args.dsn, args.enriched_dir, cfg, listing_index)
+    else:
+        result = ingest_batch_sealed(
+            args.dsn,
+            args.enriched_dir,
+            cfg,
+            listing_index=listing_index,
+            sources_yaml=args.sources,
+            identity_yaml=args.identity,
+        )
+
+    if result.errors:
+        _log(f"ERRORS: {len(result.errors)}")
+        for e in result.errors:
+            _log(f"  {e}")
+        return 1
+
+    if not args.unsealed and not result.commitment_sealed:
+        _log("FATAL: ingestion completed but commitment was not sealed")
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

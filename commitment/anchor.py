@@ -138,7 +138,8 @@ def compute_commitment(
     sources_yaml: Path | None = None,
     identity_yaml: Path | None = None,
     dump_records_path: Path | None = None,
-) -> dict[str, Any]:
+    prev_commitment_root: str | None = None,
+) -> tuple[dict[str, Any], bytes]:
     """Compute the full CRSS-1 commitment from the registry.
 
     OP-1: Entire computation runs in a single REPEATABLE READ transaction.
@@ -151,7 +152,7 @@ def compute_commitment(
         dump_records_path: If set, write canonical record lines to this file (debug mode).
 
     Returns:
-        Commitment envelope dict.
+        Tuple of (commitment envelope dict, canonical records bytes).
     """
     with psycopg.connect(dsn, autocommit=True) as conn:
         conn.execute("SET search_path = registry, public")
@@ -186,6 +187,7 @@ def compute_commitment(
 
             # Stream projection — server-side cursor for large registries
             leaves: list[str] = []
+            records_bytes_parts: list[bytes] = []
             dump_file = None
             if dump_records_path is not None:
                 dump_file = open(dump_records_path, "wb")
@@ -197,12 +199,18 @@ def compute_commitment(
                         record = _row_to_record(row)
                         cb = canonical_bytes(record)
                         leaves.append(hashlib.sha256(cb).hexdigest())
+                        records_bytes_parts.append(cb)
                         if dump_file is not None:
                             dump_file.write(cb)
                             dump_file.write(b"\n")
             finally:
                 if dump_file is not None:
                     dump_file.close()
+
+    # Store raw records for chaining (newline-separated)
+    records_bytes = b"\n".join(records_bytes_parts)
+    if records_bytes_parts:
+        records_bytes += b"\n"
 
     # Verify record count matches observation stats
     if len(leaves) != state_transitions:
@@ -228,6 +236,7 @@ def compute_commitment(
         "crss_version": CRSS_VERSION,
         "commitment_root": tree.root,
         "record_count": tree.leaf_count,
+        "prev_commitment_root": prev_commitment_root,
         "hash_algorithm": "sha256",
         "tree_structure": "binary_merkle_duplicate_last",
         "field_order": list(FIELD_ORDER),
@@ -265,7 +274,7 @@ def compute_commitment(
             "latest_publication_date": scope_row[4],
         },
     }
-    return envelope
+    return envelope, records_bytes
 
 
 # ---------------------------------------------------------------------------
@@ -294,16 +303,16 @@ def anchor_to_file(
     Returns:
         The commitment envelope dict.
     """
-    envelope = compute_commitment(
+    envelope, _records_bytes = compute_commitment(
         dsn,
         sources_yaml=sources_yaml,
         identity_yaml=identity_yaml,
         dump_records_path=dump_records_path,
     )
 
-    # Write JSON envelope
+    json_envelope = envelope
     out_path.write_text(
-        json.dumps(envelope, ensure_ascii=False, indent=2),
+        json.dumps(json_envelope, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
