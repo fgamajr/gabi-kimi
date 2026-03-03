@@ -1,0 +1,445 @@
+{
+  "dates": [
+    "2026-03-02",
+    "2026-02-27",
+    "2026-02-26",
+    "2026-02-25",
+    "2026-02-24",
+    "2026-02-23",
+    "2026-02-20"
+  ],
+  "sections": [
+    "DO1",
+    "DO2",
+    "DO3",
+    "DO1E",
+    "DO2E",
+    "DO3E"
+  ],
+  "total_files": 42,
+  "successful": 30,
+  "failed": 12,
+  "total_bytes": 69026577,
+  "files": [
+    {
+      "date": "2026-03-02",
+      "section": "DO1",
+      "success": true,
+      "filename": "2026-03-02_DO1.zip",
+      "size_bytes": 3335599,
+      "sha256": "bdac33c0e84655662495f6e73239109719464ceecc859b3a601b6b6a0f7b10b5",
+      "download_time_ms": 2989,
+      "error": null
+    },
+    {
+      "date": "2026-03-02",
+      "section": "DO2",
+      "success": true,
+      "filename": "2026-03-02_DO2.zip",
+      "size_bytes": 1493176,
+      "sha256": "19b9afce08c287a6b3da43d718fe827c69ef7b5330b278dfde37af666d55026c",
+      "download_time_ms": 3036,
+      "error": null
+    },
+    {
+      "date": "2026-03-02",
+      "section": "DO1E",
+      "success": true,
+      "filename": "2026-03-02_DO1E.zip",
+      "size_bytes": 851,
+      "sha256": "39d1bc597a17fc84fa4b67e3ebd64286252fabe079456195be0d1de90e391e63",
+      "download_time_ms": 299,
+      "error": null
+    },
+    {
+      "date": "2026-03-02",
+      "section": "DO2E",
+      "success": false,
+      "filename": "2026-03-02_DO2E.zip",
+      "size_bytes": 0,
+      "sha256": null,
+      "download_time_ms": 0,
+      "error": "HTTP 404"
+    },
+    {
+      "date": "2026-03-02",
+      "section": "DO3E",
+      "success": true,
+      "filename": "2026-03-02_DO3E.zip",
+      "size_bytes": 4543,
+      "sha256": "05642154e31fffde5bcfe20fab907435630d2dc9b56b88d8de193f3c6c52a9ea",
+      "download_time_ms": 563,
+      "error": null
+    },
+    {
+      "date": "2026-03-02",
+      "section": "DO3",
+      "success": true,
+      "filename": "2026-03-02_DO3.zip",
+      "size_bytes": 4068796,
+      "sha256": "fe00d786475fc968d47539df324ea491a113cc6d22e89043fc0625a19cce8a7b",
+      "download_time_ms": 4256,
+      "error": null
+    },
+    {
+      "date": "2026-02-27",
+      "section": "DO2",
+      "success": true,
+      "filename": "2026-02-27_DO2.zip",
+      "size_bytes": 1167108,
+      "sha256": "59663910efa47a657e5be761f0a037f38decc1d3dcd4bf36c47da156161a24f3",
+      "download_time_ms": 906,
+      "error": null
+    },
+    {
+      "date": "2026-02-27",
+      "section": "DO1",
+      "success": true,
+      "filename": "2026-02-27_DO1.zip",
+      "size_bytes": 2483460,
+      "sha256": "c574a4bcea1c66274936833ae53546858be6426c9c80faf3b7080269826488c8",
+      "download_time_ms": 3298,
+      "error": null
+    },
+    {
+      "date": "2026-02-27",
+      "section": "DO2E",
+      "success": false,
+      "filename": "2026-02-27_DO2E.zip",
+      "size_bytes": 0,
+      "sha256": null,
+      "download_time_ms": 0,
+      "error": "HTTP 404"
+    },
+    {
+      "date": "2026-02-27",
+      "section": "DO1E",
+      "success": true,
+      "filename": "2026-02-27_DO1E.zip",
+      "size_bytes": 2939233,
+      "sha256": "a2539d2c229e179c6efc3c79da4fb9a591339ff6dc394542cb53dc4a85059d65",
+      "download_time_ms": 2489,
+      "error": null
+    },
+    {
+      "date": "2026-02-27",
+      "section": "DO3E",
+      "success": false,
+      "filename": "2026-02-27_DO3E.zip",
+      "size_bytes": 0,
+      "sha256": null,
+      "download_time_ms": 0,
+      "error": "HTTP 404"
+    },
+    {
+      "date": "2026-02-27",
+      "section": "DO3",
+      "success": true,
+      "filename": "2026-02-27_DO3.zip",
+      "size_bytes": 5645388,
+      "sha256": "7efb3bbab7f3080cf50d7f092396250ca467dd19b1a99d2be87e24bf9ee24ada",
+      "download_time_ms": 3684,
+      "error": null
+    },
+    {
+      "date": "2026-02-26",
+      "section": "DO2",
+      "success": true,
+      "filename": "2026-02-26_DO2.zip",
+      "size_bytes": 940669,
+      "sha256": "5cc40a3114543c125fcfb47059ee1debac41330ebb894a5d2ca55c03d0a861c1",
+      "download_time_ms": 1096,
+      "error": null
+    },
+    {
+      "date": "2026-02-26",
+      "section": "DO1E",
+      "success": true,
+      "filename": "2026-02-26_DO1E.zip",
+      "size_bytes": 9480,
+      "sha256": "099a0e4292065fe1296783c27e94a6f1ff765c0b80e0ab920e5de3ed5225ab09",
+      "download_time_ms": 140,
+      "error": null
+    },
+    {
+      "date": "2026-02-26",
+      "section": "DO2E",
+      "success": false,
+      "filename": "2026-02-26_DO2E.zip",
+      "size_bytes": 0,
+      "sha256": null,
+      "download_time_ms": 0,
+      "error": "HTTP 404"
+    },
+    {
+      "date": "2026-02-26",
+      "section": "DO3E",
+      "success": false,
+      "filename": "2026-02-26_DO3E.zip",
+      "size_bytes": 0,
+      "sha256": null,
+      "download_time_ms": 0,
+      "error": "HTTP 404"
+    },
+    {
+      "date": "2026-02-26",
+      "section": "DO1",
+      "success": true,
+      "filename": "2026-02-26_DO1.zip",
+      "size_bytes": 4253031,
+      "sha256": "e8b41ab0df7e9b323822a634167d51f154d506e2e7e956a2f1086f5a09b70d15",
+      "download_time_ms": 3112,
+      "error": null
+    },
+    {
+      "date": "2026-02-26",
+      "section": "DO3",
+      "success": true,
+      "filename": "2026-02-26_DO3.zip",
+      "size_bytes": 4155023,
+      "sha256": "7331e695c39e67f03e9dfc8c7eec31a8bec32611c8fc1793d35d59764db0662a",
+      "download_time_ms": 3004,
+      "error": null
+    },
+    {
+      "date": "2026-02-25",
+      "section": "DO2",
+      "success": true,
+      "filename": "2026-02-25_DO2.zip",
+      "size_bytes": 899461,
+      "sha256": "fabec212413edcb8a7bb70368104f9d404d875332b6bbe7a406b3f9cbc43dfe0",
+      "download_time_ms": 1189,
+      "error": null
+    },
+    {
+      "date": "2026-02-25",
+      "section": "DO1E",
+      "success": true,
+      "filename": "2026-02-25_DO1E.zip",
+      "size_bytes": 10491,
+      "sha256": "e36a00254ce06bad8650aeda0eab45b532a086da9e39dc1e789abc5eed41aa20",
+      "download_time_ms": 345,
+      "error": null
+    },
+    {
+      "date": "2026-02-25",
+      "section": "DO2E",
+      "success": false,
+      "filename": "2026-02-25_DO2E.zip",
+      "size_bytes": 0,
+      "sha256": null,
+      "download_time_ms": 0,
+      "error": "HTTP 404"
+    },
+    {
+      "date": "2026-02-25",
+      "section": "DO3E",
+      "success": false,
+      "filename": "2026-02-25_DO3E.zip",
+      "size_bytes": 0,
+      "sha256": null,
+      "download_time_ms": 0,
+      "error": "HTTP 404"
+    },
+    {
+      "date": "2026-02-25",
+      "section": "DO1",
+      "success": true,
+      "filename": "2026-02-25_DO1.zip",
+      "size_bytes": 3548524,
+      "sha256": "d273ba3559f0f7b53a1052f989f56c87e9ff5cea5004fe19f5731451e7ed31c5",
+      "download_time_ms": 3455,
+      "error": null
+    },
+    {
+      "date": "2026-02-25",
+      "section": "DO3",
+      "success": true,
+      "filename": "2026-02-25_DO3.zip",
+      "size_bytes": 3620854,
+      "sha256": "93b8191565f952e7c5a240ea3a53feccf52a646cbafc30646b06b52a3a4cf0cd",
+      "download_time_ms": 3550,
+      "error": null
+    },
+    {
+      "date": "2026-02-24",
+      "section": "DO2",
+      "success": true,
+      "filename": "2026-02-24_DO2.zip",
+      "size_bytes": 944329,
+      "sha256": "5f297bb85434d0c115df3efed6c83dd8c07f7ac1775f1b7c2ec18dc2ea79d769",
+      "download_time_ms": 820,
+      "error": null
+    },
+    {
+      "date": "2026-02-24",
+      "section": "DO1E",
+      "success": true,
+      "filename": "2026-02-24_DO1E.zip",
+      "size_bytes": 413211,
+      "sha256": "f09b900f76b50a3fd9c08e592a8071f224c9694239bd94b10eb7959cd11106b4",
+      "download_time_ms": 858,
+      "error": null
+    },
+    {
+      "date": "2026-02-24",
+      "section": "DO2E",
+      "success": false,
+      "filename": "2026-02-24_DO2E.zip",
+      "size_bytes": 0,
+      "sha256": null,
+      "download_time_ms": 0,
+      "error": "HTTP 404"
+    },
+    {
+      "date": "2026-02-24",
+      "section": "DO1",
+      "success": true,
+      "filename": "2026-02-24_DO1.zip",
+      "size_bytes": 4247951,
+      "sha256": "cb794512f92d41cee8a54fbec94248e93c2c1117fd351d3f361c09af31025954",
+      "download_time_ms": 3064,
+      "error": null
+    },
+    {
+      "date": "2026-02-24",
+      "section": "DO3",
+      "success": true,
+      "filename": "2026-02-24_DO3.zip",
+      "size_bytes": 3088063,
+      "sha256": "ccdb6ca50c99ead796819800e751c35005baecf5b7298bda91b77517e38e3c63",
+      "download_time_ms": 1895,
+      "error": null
+    },
+    {
+      "date": "2026-02-24",
+      "section": "DO3E",
+      "success": false,
+      "filename": "2026-02-24_DO3E.zip",
+      "size_bytes": 0,
+      "sha256": null,
+      "download_time_ms": 0,
+      "error": "HTTP 404"
+    },
+    {
+      "date": "2026-02-23",
+      "section": "DO2",
+      "success": true,
+      "filename": "2026-02-23_DO2.zip",
+      "size_bytes": 969915,
+      "sha256": "3051f36e584b7a66918d5b160dd3d7819fec5dd52a93831c2e9f7fb420b626a1",
+      "download_time_ms": 1560,
+      "error": null
+    },
+    {
+      "date": "2026-02-23",
+      "section": "DO1E",
+      "success": false,
+      "filename": "2026-02-23_DO1E.zip",
+      "size_bytes": 0,
+      "sha256": null,
+      "download_time_ms": 0,
+      "error": "HTTP 404"
+    },
+    {
+      "date": "2026-02-23",
+      "section": "DO3",
+      "success": true,
+      "filename": "2026-02-23_DO3.zip",
+      "size_bytes": 3480876,
+      "sha256": "da4ef1f12664bc2f3ae77e83fb1079071aea9e550c974344aece88ad3f254267",
+      "download_time_ms": 2500,
+      "error": null
+    },
+    {
+      "date": "2026-02-23",
+      "section": "DO2E",
+      "success": true,
+      "filename": "2026-02-23_DO2E.zip",
+      "size_bytes": 1044,
+      "sha256": "662fa55957a38b8e395a48e5a8d7abd55cc6e32ddee52909e039630bbcefbf53",
+      "download_time_ms": 892,
+      "error": null
+    },
+    {
+      "date": "2026-02-23",
+      "section": "DO3E",
+      "success": false,
+      "filename": "2026-02-23_DO3E.zip",
+      "size_bytes": 0,
+      "sha256": null,
+      "download_time_ms": 0,
+      "error": "HTTP 404"
+    },
+    {
+      "date": "2026-02-23",
+      "section": "DO1",
+      "success": true,
+      "filename": "2026-02-23_DO1.zip",
+      "size_bytes": 5493246,
+      "sha256": "757536d0c482fb05e924d4fd54c70e94ac206ea90df36032c85ca181d20b211c",
+      "download_time_ms": 3534,
+      "error": null
+    },
+    {
+      "date": "2026-02-20",
+      "section": "DO2",
+      "success": true,
+      "filename": "2026-02-20_DO2.zip",
+      "size_bytes": 853886,
+      "sha256": "782e1e526cc23e53f55065ce11ad6f3825f295c90cca6ef23a97954fa906e8fb",
+      "download_time_ms": 951,
+      "error": null
+    },
+    {
+      "date": "2026-02-20",
+      "section": "DO1E",
+      "success": false,
+      "filename": "2026-02-20_DO1E.zip",
+      "size_bytes": 0,
+      "sha256": null,
+      "download_time_ms": 0,
+      "error": "HTTP 404"
+    },
+    {
+      "date": "2026-02-20",
+      "section": "DO2E",
+      "success": true,
+      "filename": "2026-02-20_DO2E.zip",
+      "size_bytes": 8556,
+      "sha256": "f7792cfdc13a21576de6ac18ece925542d0680af3f745f74ca3c5a45d406df16",
+      "download_time_ms": 651,
+      "error": null
+    },
+    {
+      "date": "2026-02-20",
+      "section": "DO3E",
+      "success": true,
+      "filename": "2026-02-20_DO3E.zip",
+      "size_bytes": 1392,
+      "sha256": "891039c33f1fe57f59b3fc6e7bb524c08e9861bc1113b6b5d4fcd58b34642bc7",
+      "download_time_ms": 605,
+      "error": null
+    },
+    {
+      "date": "2026-02-20",
+      "section": "DO3",
+      "success": true,
+      "filename": "2026-02-20_DO3.zip",
+      "size_bytes": 5246402,
+      "sha256": "b188eed29b687c8b75e4fdd80cde2d488d64ff7b265048afee1497736418f74e",
+      "download_time_ms": 3518,
+      "error": null
+    },
+    {
+      "date": "2026-02-20",
+      "section": "DO1",
+      "success": true,
+      "filename": "2026-02-20_DO1.zip",
+      "size_bytes": 5702019,
+      "sha256": "88bade5e3acaae85642746e0fb3f2cb956f1ea7b604631240dd4dd6d025f373d",
+      "download_time_ms": 6866,
+      "error": null
+    }
+  ]
+}

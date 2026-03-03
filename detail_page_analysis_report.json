@@ -1,0 +1,348 @@
+{
+  "summary": {
+    "test_date": "2025-02-27",
+    "test_section": "do1",
+    "total_articles_in_listing": 268,
+    "detail_pages_tested": 15,
+    "accessible": 15,
+    "errors": 0,
+    "with_full_text": 15,
+    "with_pdf_links": 0,
+    "with_xml_links": 0,
+    "avg_html_length": 89653.13333333333,
+    "avg_text_length": 6410.666666666667
+  },
+  "url_pattern": {
+    "base": "https://www.in.gov.br/web/dou/-/{urlTitle}",
+    "example": "https://www.in.gov.br/web/dou/-/portaria-n-1.014-de-25-de-fevereiro-de-2025-618232076"
+  },
+  "articles": [
+    {
+      "title": "ALVARÁ Nº 1.243, DE 25 DE FEVEREIRO DE 2025",
+      "url_title": "alvara-n-1.243-de-25-de-fevereiro-de-2025-615108537",
+      "content_preview": "ALVARÁ Nº 1.243, DE 25 DE FEVEREIRO DE 2025 O(A) COORDENADOR(A)-GERAL DE CONTROLE DE SERVIÇOS E PRODUTOS DA POLÍCIA FEDERAL, no uso das atribuições que lhe são conferidas pelo art. 20 da Lei 7.102/83,",
+      "pub_date": "27/02/2025",
+      "art_type": "Alvará",
+      "page": "105"
+    },
+    {
+      "title": "PORTARIA SERES/MEC Nº 86, DE 26 DE FEVEREIRO DE 2025",
+      "url_title": "portaria-seres/mec-n-86-de-26-de-fevereiro-de-2025-615110415",
+      "content_preview": "PORTARIA SERES/MEC Nº 86, DE 26 DE FEVEREIRO DE 2025 A SECRETÁRIA DE REGULAÇÃO E SUPERVISÃO DA EDUCAÇÃO SUPERIOR, no uso da atribuição que lhe confere o Decreto nº 11.691, de 5 de setembro de 2023, e ",
+      "pub_date": "27/02/2025",
+      "art_type": "Portaria",
+      "page": "80"
+    },
+    {
+      "title": "ALVARÁ Nº 1.286, DE 26 DE FEVEREIRO DE 2025",
+      "url_title": "alvara-n-1.286-de-26-de-fevereiro-de-2025-615110159",
+      "content_preview": "ALVARÁ Nº 1.286, DE 26 DE FEVEREIRO DE 2025 O(A) COORDENADOR(A)-GERAL DE CONTROLE DE SERVIÇOS E PRODUTOS DA POLÍCIA FEDERAL, no uso das atribuições que lhe são conferidas pelo art. 20 da Lei 7.102/83,",
+      "pub_date": "27/02/2025",
+      "art_type": "Alvará",
+      "page": "107"
+    },
+    {
+      "title": "RESOLUÇÃO CATI Nº 1.075, DE 24 DE FEVEREIRO DE 2025",
+      "url_title": "resolucao-cati-n-1.075-de-24-de-fevereiro-de-2025-615105980",
+      "content_preview": "RESOLUÇÃO CATI Nº 1.075, DE 24 DE FEVEREIRO DE 2025 Credenciamento do Centro Estadual de Educação Tecnológica Paula Souza (CPS), unidade Curso de Mestrado Profissional em Gestão e Tecnologia em Sistem",
+      "pub_date": "27/02/2025",
+      "art_type": "Resolução",
+      "page": "10"
+    },
+    {
+      "title": "RESOLUÇÃO-RE Nº 758, DE 26 DE FEVEREIRO DE 2025",
+      "url_title": "resolucao-re-n-758-de-26-de-fevereiro-de-2025-615110578",
+      "content_preview": "RESOLUÇÃO-RE Nº 758, DE 26 DE FEVEREIRO DE 2025 A GERENTE-GERAL DE PORTOS, AEROPORTOS, FRONTEIRAS E RECINTOS ALFANDEGADOS DA AGÊNCIA NACIONAL DE VIGILÂNCIA SANITÁRIA, no uso das atribuições que lhe co",
+      "pub_date": "27/02/2025",
+      "art_type": "Resolução",
+      "page": "175"
+    },
+    {
+      "title": "ATOS DE 24 DE FEVEREIRO DE 2025",
+      "url_title": "atos-de-24-de-fevereiro-de-2025-615105817",
+      "content_preview": "ATOS DE 24 DE FEVEREIRO DE 2025 Nº 2.470 - Expedir autorização a RAFAEL GERONIMO PEREIRA SANTOS, CPF nº ***.512.915-**, para explorar Serviços de Telecomunicações de Interesse Restrito, por prazo inde",
+      "pub_date": "27/02/2025",
+      "art_type": "Ato",
+      "page": "17"
+    },
+    {
+      "title": "PORTARIA Nº 16.466/SAS, DE 25 DE FEVEREIRO DE 2025",
+      "url_title": "portaria-n-16.466/sas-de-25-de-fevereiro-de-2025-615107971",
+      "content_preview": "PORTARIA Nº 16.466/SAS, DE 25 DE FEVEREIRO DE 2025 O SUPERINTENDENTE DE ACOMPANHAMENTO DE SERVIÇOS AÉREOS, no uso das atribuições que lhe confere o art. 32, inciso XX, do Regimento Interno, aprovado p",
+      "pub_date": "27/02/2025",
+      "art_type": "Portaria",
+      "page": "122"
+    },
+    {
+      "title": "PORTARIA SFA-RS/SE/MAPA Nº 43, DE 24 DE FEVEREIRO DE 2025",
+      "url_title": "portaria-sfa-rs/se/mapa-n-43-de-24-de-fevereiro-de-2025-615115133",
+      "content_preview": "PORTARIA SFA-RS/SE/MAPA Nº 43, DE 24 DE FEVEREIRO DE 2025 O SUPERINTENDENTE FEDERAL DE AGRICULTURA E PECUÁRIA NO ESTADO DO RIO GRANDE DO SUL, no uso das atribuições que lhe confere o art. 262 do Regim",
+      "pub_date": "27/02/2025",
+      "art_type": "Portaria",
+      "page": "2"
+    },
+    {
+      "title": "PORTARIA Nº 16.448/SIA, DE 21 DE FEVEREIRO DE 2025",
+      "url_title": "portaria-n-16.448/sia-de-21-de-fevereiro-de-2025-615115215",
+      "content_preview": "PORTARIA Nº 16.448/SIA, DE 21 DE FEVEREIRO DE 2025 O GERENTE DE CERTIFICAÇÃO E SEGURANÇA OPERACIONAL, no uso da atribuição que lhe confere o art. 4º, inciso III, da Portaria nº 10.700/SIA, de 9 de mar",
+      "pub_date": "27/02/2025",
+      "art_type": "Portaria",
+      "page": "122"
+    },
+    {
+      "title": "ATOS DE 26 DE FEVEREIRO DE 2025",
+      "url_title": "atos-de-26-de-fevereiro-de-2025-615115926",
+      "content_preview": "ATOS DE 26 DE FEVEREIRO DE 2025 Nº 2.608 Autoriza JRC DO BRASIL EMPREEND. ELETRONICOS LTDA, CNPJ nº 42.461.962/0001-98, a realizar operação temporária de equipamentos de radiocomunicação, na cidade de",
+      "pub_date": "27/02/2025",
+      "art_type": "Ato",
+      "page": "17"
+    }
+  ],
+  "detail_analyses": [
+    {
+      "url": "https://www.in.gov.br/web/dou/-/alvara-n-1.243-de-25-de-fevereiro-de-2025-615108537",
+      "url_title": "alvara-n-1.243-de-25-de-fevereiro-de-2025-615108537",
+      "status": 200,
+      "error": null,
+      "html_length": 109597,
+      "has_full_text": true,
+      "has_pdf_link": false,
+      "has_xml_link": false,
+      "text_length": 23224,
+      "metadata": {
+        "title": "ALVARÁ Nº 1.243, DE 25 DE FEVEREIRO DE 2025 - DOU - Imprensa Nacional",
+        "description": "Portal da Imprensa Nacional do Brasil. Diário Oficial da União."
+      },
+      "listing_content_length": 403
+    },
+    {
+      "url": "https://www.in.gov.br/web/dou/-/portaria-seres/mec-n-86-de-26-de-fevereiro-de-2025-615110415",
+      "url_title": "portaria-seres/mec-n-86-de-26-de-fevereiro-de-2025-615110415",
+      "status": 200,
+      "error": null,
+      "html_length": 112683,
+      "has_full_text": true,
+      "has_pdf_link": false,
+      "has_xml_link": false,
+      "text_length": 11967,
+      "metadata": {
+        "title": "PORTARIA SERES/MEC Nº 86, DE 26 DE FEVEREIRO DE 2025 - DOU - Imprensa Nacional",
+        "description": "Portal da Imprensa Nacional do Brasil. Diário Oficial da União."
+      },
+      "listing_content_length": 403
+    },
+    {
+      "url": "https://www.in.gov.br/web/dou/-/alvara-n-1.286-de-26-de-fevereiro-de-2025-615110159",
+      "url_title": "alvara-n-1.286-de-26-de-fevereiro-de-2025-615110159",
+      "status": 200,
+      "error": null,
+      "html_length": 96101,
+      "has_full_text": true,
+      "has_pdf_link": false,
+      "has_xml_link": false,
+      "text_length": 12252,
+      "metadata": {
+        "title": "ALVARÁ Nº 1.286, DE 26 DE FEVEREIRO DE 2025 - DOU - Imprensa Nacional",
+        "description": "Portal da Imprensa Nacional do Brasil. Diário Oficial da União."
+      },
+      "listing_content_length": 403
+    },
+    {
+      "url": "https://www.in.gov.br/web/dou/-/resolucao-cati-n-1.075-de-24-de-fevereiro-de-2025-615105980",
+      "url_title": "resolucao-cati-n-1.075-de-24-de-fevereiro-de-2025-615105980",
+      "status": 200,
+      "error": null,
+      "html_length": 86405,
+      "has_full_text": true,
+      "has_pdf_link": false,
+      "has_xml_link": false,
+      "text_length": 4704,
+      "metadata": {
+        "title": "RESOLUÇÃO CATI Nº 1.075, DE 24 DE FEVEREIRO DE 2025 - DOU - Imprensa Nacional",
+        "description": "Portal da Imprensa Nacional do Brasil. Diário Oficial da União."
+      },
+      "listing_content_length": 403
+    },
+    {
+      "url": "https://www.in.gov.br/web/dou/-/resolucao-re-n-758-de-26-de-fevereiro-de-2025-615110578",
+      "url_title": "resolucao-re-n-758-de-26-de-fevereiro-de-2025-615110578",
+      "status": 200,
+      "error": null,
+      "html_length": 84875,
+      "has_full_text": true,
+      "has_pdf_link": false,
+      "has_xml_link": false,
+      "text_length": 3678,
+      "metadata": {
+        "title": "RESOLUÇÃO-RE Nº 758, DE 26 DE FEVEREIRO DE 2025 - DOU - Imprensa Nacional",
+        "description": "Portal da Imprensa Nacional do Brasil. Diário Oficial da União."
+      },
+      "listing_content_length": 403
+    },
+    {
+      "url": "https://www.in.gov.br/web/dou/-/atos-de-24-de-fevereiro-de-2025-615105817",
+      "url_title": "atos-de-24-de-fevereiro-de-2025-615105817",
+      "status": 200,
+      "error": null,
+      "html_length": 84234,
+      "has_full_text": true,
+      "has_pdf_link": false,
+      "has_xml_link": false,
+      "text_length": 3511,
+      "metadata": {
+        "title": "ATOS DE 24 DE FEVEREIRO DE 2025 - DOU - Imprensa Nacional",
+        "description": "Portal da Imprensa Nacional do Brasil. Diário Oficial da União."
+      },
+      "listing_content_length": 403
+    },
+    {
+      "url": "https://www.in.gov.br/web/dou/-/portaria-n-16.466/sas-de-25-de-fevereiro-de-2025-615107971",
+      "url_title": "portaria-n-16.466/sas-de-25-de-fevereiro-de-2025-615107971",
+      "status": 200,
+      "error": null,
+      "html_length": 84553,
+      "has_full_text": true,
+      "has_pdf_link": false,
+      "has_xml_link": false,
+      "text_length": 3410,
+      "metadata": {
+        "title": "PORTARIA Nº 16.466/SAS, DE 25 DE FEVEREIRO DE 2025 - DOU - Imprensa Nacional",
+        "description": "Portal da Imprensa Nacional do Brasil. Diário Oficial da União."
+      },
+      "listing_content_length": 403
+    },
+    {
+      "url": "https://www.in.gov.br/web/dou/-/portaria-sfa-rs/se/mapa-n-43-de-24-de-fevereiro-de-2025-615115133",
+      "url_title": "portaria-sfa-rs/se/mapa-n-43-de-24-de-fevereiro-de-2025-615115133",
+      "status": 200,
+      "error": null,
+      "html_length": 86817,
+      "has_full_text": true,
+      "has_pdf_link": false,
+      "has_xml_link": false,
+      "text_length": 4792,
+      "metadata": {
+        "title": "PORTARIA SFA-RS/SE/MAPA Nº 43, DE 24 DE FEVEREIRO DE 2025 - DOU - Imprensa Nacional",
+        "description": "Portal da Imprensa Nacional do Brasil. Diário Oficial da União."
+      },
+      "listing_content_length": 403
+    },
+    {
+      "url": "https://www.in.gov.br/web/dou/-/portaria-n-16.448/sia-de-21-de-fevereiro-de-2025-615115215",
+      "url_title": "portaria-n-16.448/sia-de-21-de-fevereiro-de-2025-615115215",
+      "status": 200,
+      "error": null,
+      "html_length": 85749,
+      "has_full_text": true,
+      "has_pdf_link": false,
+      "has_xml_link": false,
+      "text_length": 4158,
+      "metadata": {
+        "title": "PORTARIA Nº 16.448/SIA, DE 21 DE FEVEREIRO DE 2025 - DOU - Imprensa Nacional",
+        "description": "Portal da Imprensa Nacional do Brasil. Diário Oficial da União."
+      },
+      "listing_content_length": 403
+    },
+    {
+      "url": "https://www.in.gov.br/web/dou/-/atos-de-26-de-fevereiro-de-2025-615115926",
+      "url_title": "atos-de-26-de-fevereiro-de-2025-615115926",
+      "status": 200,
+      "error": null,
+      "html_length": 84551,
+      "has_full_text": true,
+      "has_pdf_link": false,
+      "has_xml_link": false,
+      "text_length": 3764,
+      "metadata": {
+        "title": "ATOS DE 26 DE FEVEREIRO DE 2025 - DOU - Imprensa Nacional",
+        "description": "Portal da Imprensa Nacional do Brasil. Diário Oficial da União."
+      },
+      "listing_content_length": 403
+    },
+    {
+      "url": "https://www.in.gov.br/web/dou/-/despacho-sdl-anp-n-262-de-26-de-fevereiro-de-2025-615102721",
+      "url_title": "despacho-sdl-anp-n-262-de-26-de-fevereiro-de-2025-615102721",
+      "status": 200,
+      "error": null,
+      "html_length": 84394,
+      "has_full_text": true,
+      "has_pdf_link": false,
+      "has_xml_link": false,
+      "text_length": 3334,
+      "metadata": {
+        "title": "DESPACHO SDL-ANP Nº 262, DE 26 DE FEVEREIRO DE 2025 - DOU - Imprensa Nacional",
+        "description": "Portal da Imprensa Nacional do Brasil. Diário Oficial da União."
+      },
+      "listing_content_length": 403
+    },
+    {
+      "url": "https://www.in.gov.br/web/dou/-/resolucao-cati-n-1.074-de-24-de-fevereiro-de-2025-615103565",
+      "url_title": "resolucao-cati-n-1.074-de-24-de-fevereiro-de-2025-615103565",
+      "status": 200,
+      "error": null,
+      "html_length": 86381,
+      "has_full_text": true,
+      "has_pdf_link": false,
+      "has_xml_link": false,
+      "text_length": 4688,
+      "metadata": {
+        "title": "RESOLUÇÃO CATI Nº 1.074, DE 24 DE FEVEREIRO DE 2025 - DOU - Imprensa Nacional",
+        "description": "Portal da Imprensa Nacional do Brasil. Diário Oficial da União."
+      },
+      "listing_content_length": 403
+    },
+    {
+      "url": "https://www.in.gov.br/web/dou/-/despacho-sdl-anp-n-264-de-26-de-fevereiro-de-2025-615104104",
+      "url_title": "despacho-sdl-anp-n-264-de-26-de-fevereiro-de-2025-615104104",
+      "status": 200,
+      "error": null,
+      "html_length": 87028,
+      "has_full_text": true,
+      "has_pdf_link": false,
+      "has_xml_link": false,
+      "text_length": 3780,
+      "metadata": {
+        "title": "DESPACHO SDL-ANP Nº 264, DE 26 DE FEVEREIRO DE 2025 - DOU - Imprensa Nacional",
+        "description": "Portal da Imprensa Nacional do Brasil. Diário Oficial da União."
+      },
+      "listing_content_length": 403
+    },
+    {
+      "url": "https://www.in.gov.br/web/dou/-/despacho-de-26-de-fevereiro-de-2025-615103201",
+      "url_title": "despacho-de-26-de-fevereiro-de-2025-615103201",
+      "status": 200,
+      "error": null,
+      "html_length": 83720,
+      "has_full_text": true,
+      "has_pdf_link": false,
+      "has_xml_link": false,
+      "text_length": 2912,
+      "metadata": {
+        "title": "DESPACHO DE 26 DE FEVEREIRO DE 2025 - DOU - Imprensa Nacional",
+        "description": "Portal da Imprensa Nacional do Brasil. Diário Oficial da União."
+      },
+      "listing_content_length": 357
+    },
+    {
+      "url": "https://www.in.gov.br/web/dou/-/portaria-n-1.397-de-25-de-fevereiro-de-2025-615105021",
+      "url_title": "portaria-n-1.397-de-25-de-fevereiro-de-2025-615105021",
+      "status": 200,
+      "error": null,
+      "html_length": 87709,
+      "has_full_text": true,
+      "has_pdf_link": false,
+      "has_xml_link": false,
+      "text_length": 5986,
+      "metadata": {
+        "title": "PORTARIA Nº 1.397, DE 25 DE FEVEREIRO DE 2025 - DOU - Imprensa Nacional",
+        "description": "Portal da Imprensa Nacional do Brasil. Diário Oficial da União."
+      },
+      "listing_content_length": 403
+    }
+  ],
+  "recommendation": {
+    "worth_scraping": true,
+    "accessible_rate": 1.0,
+    "full_text_rate": 1.0
+  }
+}

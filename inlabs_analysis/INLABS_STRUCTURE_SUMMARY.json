@@ -1,0 +1,200 @@
+{
+  "report_metadata": {
+    "title": "INLabs ZIP File Structure Analysis for DOU Data",
+    "generated_at": "2026-03-02T21:15:00Z",
+    "source_url": "https://inlabs.in.gov.br/",
+    "analysis_version": "1.0"
+  },
+  "download_structure": {
+    "base_url": "https://inlabs.in.gov.br/index.php",
+    "url_pattern": "?p=YYYY-MM-DD&dl=YYYY-MM-DD-SECTION.zip",
+    "sections": [
+      {"code": "DO1", "name": "Seção 1", "description": "Poderes Executivo, Legislativo e Judiciário"},
+      {"code": "DO2", "name": "Seção 2", "description": "Particulares e avisos oficiais"},
+      {"code": "DO3", "name": "Seção 3", "description": "Licitações, contratos, pessoal"},
+      {"code": "DO1E", "name": "Seção 1 Extra", "description": "Edição extraordinária"},
+      {"code": "DO2E", "name": "Seção 2 Extra", "description": "Edição extraordinária"},
+      {"code": "DO3E", "name": "Seção 3 Extra", "description": "Edição extraordinária"}
+    ],
+    "authentication": {
+      "type": "session_cookie",
+      "login_url": "https://inlabs.in.gov.br/logar.php",
+      "required": true
+    }
+  },
+  "file_structure": {
+    "organization": "flat",
+    "file_types": {
+      "xml": {
+        "count": 4095,
+        "description": "Main document content",
+        "naming_patterns": {
+          "standard": {
+            "pattern": "XXX_YYYYMMDD_NNNNNNN.xml",
+            "example": "515_20260227_23615168.xml",
+            "count": 3994,
+            "percentage": 97.5
+          },
+          "multipart": {
+            "pattern": "XXX_YYYYMMDD_NNNNNNN-N.xml",
+            "example": "600_20260227_23639293-1.xml",
+            "count": 101,
+            "percentage": 2.5
+          }
+        },
+        "size_stats": {
+          "count": 4095,
+          "avg_bytes": 3254,
+          "avg_kb": 3.18,
+          "min_bytes": 1044,
+          "max_bytes": 279469,
+          "median_bytes": 1925,
+          "p95_bytes": 6789
+        }
+      },
+      "images": {
+        "count": 29,
+        "extensions": [".jpg"],
+        "description": "Associated images and photos",
+        "naming_pattern": "X_ORGNAME_DD_NNN.jpg",
+        "example": "1_MPESCA_27_001.jpg",
+        "size_stats": {
+          "count": 29,
+          "avg_bytes": 209009,
+          "avg_kb": 204.11,
+          "min_bytes": 29467,
+          "max_bytes": 791803,
+          "median_bytes": 143380
+        },
+        "organizations": ["MPESCA", "INED", "BCB"]
+      },
+      "pdf": {
+        "count": 0,
+        "present": false
+      },
+      "signatures": {
+        "count": 0,
+        "present": false,
+        "types_checked": [".p7s", ".sig", "PAdES", "CAdES"]
+      }
+    }
+  },
+  "xml_schema": {
+    "root_element": "xml",
+    "document_element": "article",
+    "structure": {
+      "xml": {
+        "children": ["article"],
+        "attributes": {}
+      },
+      "article": {
+        "children": ["body", "Midias"],
+        "required_attributes": [
+          "id", "name", "pubName", "artType", "pubDate", 
+          "artClass", "artCategory", "idMateria"
+        ],
+        "optional_attributes": [
+          "idOficio", "artSize", "artNotes", "numberPage", 
+          "pdfPage", "editionNumber", "highlightType",
+          "highlightPriority", "highlight", "highlightimage", "highlightimagename"
+        ]
+      },
+      "body": {
+        "children": ["Identifica", "Data", "Ementa", "Titulo", "SubTitulo", "Texto"],
+        "attributes": {}
+      },
+      "Identifica": {
+        "content": "CDATA",
+        "description": "Document title/identifier"
+      },
+      "Data": {
+        "content": "CDATA",
+        "description": "Document date (often empty)"
+      },
+      "Ementa": {
+        "content": "CDATA",
+        "description": "Summary/abstract (may be empty)"
+      },
+      "Titulo": {
+        "content": "CDATA",
+        "description": "Section title"
+      },
+      "SubTitulo": {
+        "content": "CDATA",
+        "description": "Subsection title (often empty)"
+      },
+      "Texto": {
+        "content": "CDATA (HTML)",
+        "description": "Main document content with HTML markup"
+      },
+      "Midias": {
+        "children": ["Midia"],
+        "description": "Media placeholders (empty elements)"
+      }
+    },
+    "html_in_texto": {
+      "elements": ["p"],
+      "classes": ["titulo", "identifica", "ementa", "assina", "cargo"]
+    }
+  },
+  "section_statistics": {
+    "DO1": {
+      "zip_count": 1,
+      "avg_zip_size_mb": 2.37,
+      "total_xml": 412,
+      "total_images": 6,
+      "xml_per_zip_avg": 412.0,
+      "images_per_zip_avg": 6.0,
+      "section_code": "515"
+    },
+    "DO2": {
+      "zip_count": 1,
+      "avg_zip_size_mb": 1.11,
+      "total_xml": 900,
+      "total_images": 0,
+      "xml_per_zip_avg": 900.0,
+      "images_per_zip_avg": 0.0,
+      "section_code": "529"
+    },
+    "DO3": {
+      "zip_count": 1,
+      "avg_zip_size_mb": 5.38,
+      "total_xml": 2777,
+      "total_images": 5,
+      "xml_per_zip_avg": 2777.0,
+      "images_per_zip_avg": 5.0,
+      "section_code": "530"
+    },
+    "DO1E": {
+      "zip_count": 2,
+      "avg_zip_size_mb": 1.40,
+      "total_xml": 6,
+      "total_images": 18,
+      "xml_per_zip_avg": 3.0,
+      "images_per_zip_avg": 9.0,
+      "section_code": "600"
+    }
+  },
+  "key_findings": {
+    "total_zips_analyzed": 5,
+    "total_xml_files": 4095,
+    "total_image_files": 29,
+    "pdf_signatures_present": false,
+    "digital_signatures_present": false,
+    "naming_consistency": "100%",
+    "schema_consistency": "high",
+    "image_referencing": "external_by_filename"
+  },
+  "processing_recommendations": {
+    "authentication": "Use session-based login with credentials",
+    "extraction": "Extract to flat directory structure",
+    "xml_parsing": "Use ElementTree with CDATA preservation",
+    "image_matching": "Match by filename convention, not internal references",
+    "document_id": "Use idMateria attribute as unique identifier",
+    "validation": [
+      "Verify XML well-formedness",
+      "Check required fields: idMateria, pubDate, Texto",
+      "Handle multi-part documents as single logical document"
+    ]
+  }
+}
