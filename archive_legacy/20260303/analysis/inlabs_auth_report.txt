@@ -1,0 +1,373 @@
+================================================================================
+INLABS AUTHENTICATION SYSTEM ANALYSIS REPORT
+================================================================================
+Generated: 2026-03-03T01:13:01.985097+00:00
+Target URL: https://inlabs.in.gov.br
+
+
+============================================================
+TEST 1: Login Page Analysis
+============================================================
+Timestamp: 2026-03-03T01:12:23.030915+00:00
+Success: True
+Status Code: 200
+Response Time: 754.28ms
+
+Notes:
+  • No CSRF tokens found in login form
+  • Login form found (action=logar.php)
+  • ✓ Email field detected
+  • ✓ Password field detected
+  • No hidden fields in login form
+  • JavaScript detected on page (may have client-side validation)
+  • All forms on page: ['registrar.php', 'logar.php', 'esqueci.php']
+
+Cookies:
+  PHPSESSID:
+    value: ii85dnhni8soaj46cche...
+    domain: inlabs.in.gov.br
+    path: /
+    expires: None
+    secure: False
+    httpOnly: False
+  TS016f630c:
+    value: 0123313e82f3787d55fc...
+    domain: inlabs.in.gov.br
+    path: /
+    expires: None
+    secure: False
+    httpOnly: False
+
+HTML Snippet:
+<!DOCTYPE html>
+<html>
+<head>
+<title>Imprensa Nacional - INLABS</title>
+
+	<link rel="stylesheet" href="css/bootstrap.min.css">
+	<script src="js/bootstrap.min.js"></script>
+	<link rel="icon" href="img/favicon.ico" type="image/x-icon" />
+	<link rel="shortcut icon" href="img/favicon.ico" type="image/x-icon" />
+	<meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, in...
+
+============================================================
+TEST 2: Authentication Flow
+============================================================
+Timestamp: 2026-03-03T01:12:24.188440+00:00
+Success: True
+Status Code: 200
+Response Time: 836.70ms
+
+Notes:
+  • Cookies after login: ['PHPSESSID', 'TS016f630c', 'inlabs_session_cookie']
+  • ✓ Found expected cookie: PHPSESSID
+  • ✓ Found expected cookie: inlabs_session_cookie
+  • ✓ Found expected cookie: TS016f630c
+  • Redirects: [302, 302] → 200
+  •   Redirect 1: https://inlabs.in.gov.br/logar.php
+  •   Redirect 2: https://inlabs.in.gov.br/index.php
+  • ✓ Login appears successful (logout link found)
+
+Cookies:
+  PHPSESSID:
+    value: ii85dnhni8soaj46cche...
+    domain: inlabs.in.gov.br
+    path: /
+    expires: None
+    secure: False
+    httpOnly: False
+  TS016f630c:
+    value: 0123313e825c2bc2084a...
+    domain: inlabs.in.gov.br
+    path: /
+    expires: None
+    secure: False
+    httpOnly: False
+  inlabs_session_cookie:
+    value: bc6b7ad7b0cd052da41e...
+    domain: inlabs.in.gov.br
+    path: /
+    expires: 1772502143
+    secure: False
+    httpOnly: False
+
+HTML Snippet:
+<!DOCTYPE html>
+<html>
+<head>
+<title>Imprensa Nacional - INLABS</title>
+
+	<link rel="stylesheet" href="css/bootstrap.min.css">
+	<script src="js/bootstrap.min.js"></script>
+	<link rel="icon" href="img/favicon.ico" type="image/x-icon" />
+	<link rel="shortcut icon" href="img/favicon.ico" type="image/x-icon" />
+	<meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, in...
+
+============================================================
+TEST 3: Session Persistence
+============================================================
+Timestamp: 2026-03-03T01:12:26.459162+00:00
+Success: True
+Status Code: 200
+
+Notes:
+  • Request 1: status=200, cookies=['PHPSESSID', 'TS016f630c', 'inlabs_session_cookie']
+  • Request 2: status=200, cookies=['PHPSESSID', 'TS016f630c', 'inlabs_session_cookie']
+  • Request 3: status=200, cookies=['PHPSESSID', 'TS016f630c', 'inlabs_session_cookie']
+  • ✓ Session persisted - still authenticated
+
+Cookies:
+  PHPSESSID:
+    value: ii85dnhni8soaj46cche...
+    domain: inlabs.in.gov.br
+    path: /
+    expires: None
+    secure: False
+    httpOnly: False
+  TS016f630c:
+    value: 0123313e825c2bc2084a...
+    domain: inlabs.in.gov.br
+    path: /
+    expires: None
+    secure: False
+    httpOnly: False
+  inlabs_session_cookie:
+    value: bc6b7ad7b0cd052da41e...
+    domain: inlabs.in.gov.br
+    path: /
+    expires: 1772502143
+    secure: False
+    httpOnly: False
+
+============================================================
+TEST 4: Cookie Properties
+============================================================
+Timestamp: 2026-03-03T01:12:26.459244+00:00
+Success: True
+
+Notes:
+  • 
+--- Cookie: PHPSESSID ---
+  •   Domain: inlabs.in.gov.br
+  •   Path: /
+  •   Secure: False
+  •   HttpOnly: False
+  •   Expires: None
+  •   Session cookie (no explicit expiration - browser session)
+  • 
+--- Cookie: TS016f630c ---
+  •   Domain: inlabs.in.gov.br
+  •   Path: /
+  •   Secure: False
+  •   HttpOnly: False
+  •   Expires: None
+  •   Session cookie (no explicit expiration - browser session)
+  • 
+--- Cookie: inlabs_session_cookie ---
+  •   Domain: inlabs.in.gov.br
+  •   Path: /
+  •   Secure: False
+  •   HttpOnly: False
+  •   Expires: 1772502143
+  •   Expires (human): 2026-03-03T01:42:23+00:00
+  •   Session lifetime: ~30.0 minutes
+
+Cookies:
+  PHPSESSID:
+    value: ii85dnhni8soaj46cche...
+    domain: inlabs.in.gov.br
+    path: /
+    expires: None
+    secure: False
+    httpOnly: False
+  TS016f630c:
+    value: 0123313e825c2bc2084a...
+    domain: inlabs.in.gov.br
+    path: /
+    expires: None
+    secure: False
+    httpOnly: False
+  inlabs_session_cookie:
+    value: bc6b7ad7b0cd052da41e...
+    domain: inlabs.in.gov.br
+    path: /
+    expires: 1772502143
+    secure: False
+    httpOnly: False
+
+============================================================
+TEST 5: Session Validity Duration
+============================================================
+Timestamp: 2026-03-03T01:12:56.818353+00:00
+Success: True
+Status Code: 200
+
+Notes:
+  • T+30s: status=200, authenticated=False
+  • ✗ Session expired or logged out after ~30 seconds
+
+Cookies:
+  PHPSESSID:
+    value: ii85dnhni8soaj46cche...
+    domain: inlabs.in.gov.br
+    path: /
+    expires: None
+    secure: False
+    httpOnly: False
+  TS016f630c:
+    value: 0123313e825c2bc2084a...
+    domain: inlabs.in.gov.br
+    path: /
+    expires: None
+    secure: False
+    httpOnly: False
+  inlabs_session_cookie:
+    value: bc6b7ad7b0cd052da41e...
+    domain: inlabs.in.gov.br
+    path: /
+    expires: 1772502143
+    secure: False
+    httpOnly: False
+
+============================================================
+TEST 6: Logout Behavior
+============================================================
+Timestamp: 2026-03-03T01:12:57.480610+00:00
+Success: True
+Status Code: 200
+Response Time: 327.12ms
+
+Notes:
+  • Cookies before logout: ['PHPSESSID', 'TS016f630c', 'inlabs_session_cookie']
+  • Logout URL status: 200
+  • Cookies after logout: ['PHPSESSID', 'TS016f630c', 'inlabs_session_cookie']
+  • No cookies were cleared (server-side session invalidation only)
+  • ✓ Redirected to login page after logout
+
+Cookies:
+  PHPSESSID:
+    value: ii85dnhni8soaj46cche...
+    domain: inlabs.in.gov.br
+    path: /
+    expires: None
+    secure: False
+    httpOnly: False
+  TS016f630c:
+    value: 0123313e825c2bc2084a...
+    domain: inlabs.in.gov.br
+    path: /
+    expires: None
+    secure: False
+    httpOnly: False
+  inlabs_session_cookie:
+    value: bc6b7ad7b0cd052da41e...
+    domain: inlabs.in.gov.br
+    path: /
+    expires: 1772502143
+    secure: False
+    httpOnly: False
+
+HTML Snippet:
+<!DOCTYPE html>
+<html>
+<head>
+<title>Imprensa Nacional - INLABS</title>
+
+	<link rel="stylesheet" href="css/bootstrap.min.css">
+	<script src="js/bootstrap.min.js"></script>
+	<link rel="icon" href="img/favicon.ico" type="image/x-icon" />
+	<link rel="shortcut icon" href="img/favicon.ico" type="image/x-icon" />
+	<meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, in...
+
+============================================================
+TEST 7: Rate Limiting Test
+============================================================
+Timestamp: 2026-03-03T01:13:00.755364+00:00
+Success: True
+Response Time: 82.41ms
+
+Notes:
+  • Attempt 1: status=502, time=403.4ms
+  • Attempt 2: status=502, time=84.7ms
+  • Attempt 3: status=502, time=116.8ms
+  • Attempt 4: status=502, time=82.4ms
+  • Attempt 5: status=502, time=82.4ms
+  • ✓ No obvious rate limiting detected in 5 attempts
+
+============================================================
+TEST 8: Fresh Session Login
+============================================================
+Timestamp: 2026-03-03T01:13:01.688946+00:00
+Success: True
+Status Code: 200
+Response Time: 928.54ms
+
+Notes:
+  • After GET /: cookies=['PHPSESSID', 'TS016f630c']
+  • After POST /logar.php: cookies=['PHPSESSID', 'TS016f630c']
+  • After GET /index.php: cookies=['PHPSESSID', 'TS016f630c']
+  • ? Authentication status unclear
+
+Cookies:
+  PHPSESSID:
+    value: 1m9p2e25rrf2d6u5ii25...
+    domain: inlabs.in.gov.br
+    path: /
+    expires: None
+    secure: False
+    httpOnly: False
+  TS016f630c:
+    value: 0123313e82f292d7921f...
+    domain: inlabs.in.gov.br
+    path: /
+    expires: None
+    secure: False
+    httpOnly: False
+
+============================================================
+TEST 9: Security Headers
+============================================================
+Timestamp: 2026-03-03T01:13:01.984977+00:00
+Success: True
+Status Code: 200
+Response Time: 295.71ms
+
+Notes:
+  • Security Headers:
+  •   ✗ Strict-Transport-Security (HSTS): NOT SET
+  •   ✗ X-Frame-Options (Clickjacking protection): NOT SET
+  •   ✗ X-Content-Type-Options (MIME sniffing protection): NOT SET
+  •   ✗ X-XSS-Protection (XSS filter): NOT SET
+  •   ✗ Content-Security-Policy (CSP): NOT SET
+  •   ✗ Referrer-Policy (Referrer policy): NOT SET
+  • 
+Cache Headers:
+  •   Cache-Control: no-store, no-cache, must-revalidate
+  •   Expires: Thu, 19 Nov 1981 08:52:00 GMT
+  •   Pragma: no-cache
+  •   ETag: NOT SET
+  • 
+Server: NOT DISCLOSED
+
+Cookies:
+  PHPSESSID:
+    value: 1m9p2e25rrf2d6u5ii25...
+    domain: inlabs.in.gov.br
+    path: /
+    expires: None
+    secure: False
+    httpOnly: False
+  TS016f630c:
+    value: 0123313e82f292d7921f...
+    domain: inlabs.in.gov.br
+    path: /
+    expires: None
+    secure: False
+    httpOnly: False
+
+================================================================================
+END OF REPORT
+================================================================================
