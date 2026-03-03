@@ -3,10 +3,18 @@
 Parses XML files extracted from DOU ZIP bundles into structured dataclasses.
 Handles encoding (UTF-8 BOM), CDATA sections, and edge cases.
 
+Sanitization:
+    A small fraction (~4%) of INLabs XMLs contain a production bug where the
+    ``name`` and ``artType`` article attributes include an unescaped closing
+    tag, e.g. ``name="RETIFICAÇÃO</Identifica>"``.  The sanitizer strips
+    these before ET.fromstring() is called, recovering the records that would
+    otherwise be lost to parse errors.
+
 Promoted from scripts/inlabs_parser.py during repository consolidation (2026-03-03).
 """
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
@@ -86,6 +94,34 @@ class XMLParseError(ValueError):
     """Raised when an XML file cannot be parsed or is structurally invalid."""
 
 
+# ---------------------------------------------------------------------------
+# XML sanitizer — fix known INLabs production bugs
+# ---------------------------------------------------------------------------
+
+# Pattern: leaked closing tags inside attribute values on the <article> line.
+# Example: name="RETIFICAÇÃO</Identifica>" → name="RETIFICAÇÃO"
+#          artType="DESPACHOS</Identifica>" → artType="DESPACHOS"
+# The INLabs system accidentally includes the closing tag from <Identifica>
+# content inside the name= and artType= attribute values.  This is the *only*
+# malformation pattern observed across 3.96M XMLs (200-ZIP sample, ~4% affected).
+_ATTR_LEAKED_TAG_RE = re.compile(r'</\w+>(?=")')
+
+
+def _sanitize_xml(content: str) -> tuple[str, bool]:
+    """Fix known INLabs XML malformations.
+
+    Returns (sanitized_content, was_modified).
+    """
+    # Fast path: only 4% of XMLs have this bug — skip the rest instantly
+    if "</Identifica>" not in content[:600]:
+        return content, False
+
+    # Replace leaked closing tags right before a closing quote in attribute values.
+    # This handles: name="RETIFICAÇÃO</Identifica>" → name="RETIFICAÇÃO"
+    sanitized = _ATTR_LEAKED_TAG_RE.sub("", content)
+    return sanitized, sanitized != content
+
+
 class INLabsXMLParser:
     """Parser for INLabs DOU XML files."""
 
@@ -103,9 +139,16 @@ class INLabsXMLParser:
         return self.parse_string(content)
 
     def parse_string(self, xml_content: str) -> DOUArticle:
-        """Parse raw XML string into a ``DOUArticle``."""
+        """Parse raw XML string into a ``DOUArticle``.
+
+        Applies sanitization to recover XMLs with known INLabs bugs
+        (e.g. leaked ``</Identifica>`` inside attribute values).
+        """
+        # Sanitize before parsing
+        content, was_sanitized = _sanitize_xml(xml_content)
+
         try:
-            root = ET.fromstring(xml_content)
+            root = ET.fromstring(content)
         except ET.ParseError as e:
             raise XMLParseError(f"Invalid XML: {e}") from e
 

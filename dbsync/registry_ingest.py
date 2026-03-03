@@ -458,17 +458,37 @@ def ingest_batch(
     cfg: IdentityConfig,
     listing_index: dict[tuple[str, str], str] | None = None,
 ) -> IngestResult:
-    """Ingest enriched documents into the registry.
+    """Ingest enriched documents from JSON files into the registry.
 
-    Each document is ingested in its own SERIALIZABLE transaction.
-    Classification is derived entirely from INSERT...ON CONFLICT...RETURNING.
+    Loads records from enriched JSON, computes hashes, and delegates
+    to ``ingest_records()`` for the actual DB ingestion.
 
     NOTE: This function does NOT seal the batch with a commitment.
     Use ingest_batch_sealed() for complete archival ingestion.
     """
     records = _load_ingest_records(enriched_dir, cfg, listing_index)
+    return ingest_records(dsn, records)
+
+
+def ingest_records(
+    dsn: str,
+    records: list[dict[str, Any]],
+) -> IngestResult:
+    """Ingest pre-computed records into the registry.
+
+    Each record must contain the fields expected by the _INGEST_CTE:
+      occurrence_hash, edition_id, publication_date, edition_number,
+      edition_section, listing_sha256, natural_key_hash, strategy,
+      content_hash, body_text_semantic, page_number, source_url, source_file
+
+    Each document is ingested in its own SERIALIZABLE transaction.
+    Classification is derived entirely from INSERT...ON CONFLICT...RETURNING.
+
+    NOTE: This function does NOT seal the batch with a commitment.
+    Use ingest_and_seal() for complete archival ingestion.
+    """
     result = IngestResult(total=len(records))
-    _log(f"ingest: loading {len(records)} records from {enriched_dir}")
+    _log(f"ingest: loading {len(records)} records")
 
     with psycopg.connect(dsn, autocommit=True) as conn:
         conn.execute("SET search_path = registry, public")
@@ -535,10 +555,25 @@ def ingest_batch_sealed(
     sources_yaml: Path | None = None,
     identity_yaml: Path | None = None,
 ) -> IngestResult:
-    """Ingest documents and seal with CRSS-1 commitment.
+    """Ingest enriched JSON documents and seal with CRSS-1 commitment.
+
+    Legacy entry point for the enriched-JSON pipeline.
+    Delegates to ``ingest_and_seal()`` after loading records.
+    """
+    records = _load_ingest_records(enriched_dir, cfg, listing_index)
+    return ingest_and_seal(dsn, records, sources_yaml, identity_yaml)
+
+
+def ingest_and_seal(
+    dsn: str,
+    records: list[dict[str, Any]],
+    sources_yaml: Path | None = None,
+    identity_yaml: Path | None = None,
+) -> IngestResult:
+    """Ingest pre-computed records and seal with CRSS-1 commitment.
 
     COMPLETE ARCHIVAL INGESTION:
-      1. Ingest all documents into registry.* tables
+      1. Ingest all records into registry.* tables
       2. Compute CRSS-1 commitment over ingested state
       3. Persist commitment to registry.commitments
       4. Return result with commitment_root set
@@ -550,7 +585,7 @@ def ingest_batch_sealed(
 
     This is the canonical entry point for archival ingestion.
     """
-    result = ingest_batch(dsn, enriched_dir, cfg, listing_index)
+    result = ingest_records(dsn, records)
 
     if result.errors:
         _log(f"ingest: {len(result.errors)} errors, skipping commitment seal")
