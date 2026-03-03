@@ -1,0 +1,20 @@
+{
+  "total_documents": 329,
+  "completeness_score": 0.9269,
+  "field_coverage": {
+    "type": "100.0%",
+    "number": "79.3%",
+    "year": "85.7%",
+    "body": "100.0%",
+    "authority": "0.0%"
+  },
+  "date_range": {
+    "start": null,
+    "end": null,
+    "total_dates": 1
+  },
+  "accuracy_indicators": {
+    "duplicates": 57,
+    "hash_conflicts": 0
+  }
+}

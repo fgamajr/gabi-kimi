@@ -1,0 +1,3047 @@
+{
+  "generated_at": "2026-03-02T21:39:51.509488",
+  "test_parameters": {
+    "start_year": 2000,
+    "end_year": 2025,
+    "sections_tested": [
+      "do1",
+      "do2",
+      "do3"
+    ],
+    "total_requests": 246
+  },
+  "section_boundaries": {
+    "do1": {
+      "first_available_date": "2013-01-02",
+      "first_available_year": 2013
+    },
+    "do2": {
+      "first_available_date": "2018-01-02",
+      "first_available_year": 2018
+    },
+    "do3": {
+      "first_available_date": "2018-09-18",
+      "first_available_year": 2018
+    }
+  },
+  "eras": [
+    {
+      "name": "No Content",
+      "years": [
+        2000,
+        2001,
+        2002,
+        2003,
+        2004,
+        2005,
+        2006,
+        2007,
+        2008,
+        2009,
+        2010,
+        2011,
+        2012
+      ],
+      "description": "No documents available in any section",
+      "do1_available": false,
+      "do2_available": false,
+      "do3_available": false
+    },
+    {
+      "name": "Partial/Sparse",
+      "years": [
+        2013,
+        2014,
+        2015,
+        2016,
+        2017
+      ],
+      "description": "DO1 has content, DO2/DO3 may be missing",
+      "do1_available": true,
+      "do2_available": "mixed",
+      "do3_available": "mixed"
+    },
+    {
+      "name": "Full Content",
+      "years": [
+        2018,
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "description": "All three sections have content",
+      "do1_available": true,
+      "do2_available": true,
+      "do3_available": true
+    }
+  ],
+  "era_statistics": {
+    "No Content": {
+      "years_count": 13,
+      "do1": {
+        "avg_docs_per_day": 0,
+        "min_docs": 0,
+        "max_docs": 0
+      },
+      "do2": {
+        "avg_docs_per_day": 0,
+        "min_docs": 0,
+        "max_docs": 0
+      },
+      "do3": {
+        "avg_docs_per_day": 0,
+        "min_docs": 0,
+        "max_docs": 0
+      }
+    },
+    "Partial/Sparse": {
+      "years_count": 5,
+      "do1": {
+        "avg_docs_per_day": 97,
+        "min_docs": 6,
+        "max_docs": 205
+      },
+      "do2": {
+        "avg_docs_per_day": 0,
+        "min_docs": 0,
+        "max_docs": 0
+      },
+      "do3": {
+        "avg_docs_per_day": 0,
+        "min_docs": 0,
+        "max_docs": 0
+      }
+    },
+    "Full Content": {
+      "years_count": 8,
+      "do1": {
+        "avg_docs_per_day": 304,
+        "min_docs": 235,
+        "max_docs": 419
+      },
+      "do2": {
+        "avg_docs_per_day": 776,
+        "min_docs": 534,
+        "max_docs": 1047
+      },
+      "do3": {
+        "avg_docs_per_day": 2517,
+        "min_docs": 2024,
+        "max_docs": 3361
+      }
+    }
+  },
+  "gaps": [],
+  "yearly_summaries": [
+    {
+      "year": 2000,
+      "do1": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do2": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do3": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      }
+    },
+    {
+      "year": 2001,
+      "do1": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do2": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do3": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      }
+    },
+    {
+      "year": 2002,
+      "do1": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do2": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do3": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      }
+    },
+    {
+      "year": 2003,
+      "do1": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do2": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do3": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      }
+    },
+    {
+      "year": 2004,
+      "do1": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do2": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do3": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      }
+    },
+    {
+      "year": 2005,
+      "do1": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do2": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do3": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      }
+    },
+    {
+      "year": 2006,
+      "do1": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do2": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do3": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      }
+    },
+    {
+      "year": 2007,
+      "do1": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do2": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do3": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      }
+    },
+    {
+      "year": 2008,
+      "do1": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do2": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do3": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      }
+    },
+    {
+      "year": 2009,
+      "do1": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do2": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do3": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      }
+    },
+    {
+      "year": 2010,
+      "do1": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do2": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do3": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      }
+    },
+    {
+      "year": 2011,
+      "do1": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do2": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do3": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      }
+    },
+    {
+      "year": 2012,
+      "do1": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do2": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do3": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      }
+    },
+    {
+      "year": 2013,
+      "do1": {
+        "available": true,
+        "first_date": "2013-01-02",
+        "avg_documents": 39
+      },
+      "do2": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do3": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      }
+    },
+    {
+      "year": 2014,
+      "do1": {
+        "available": true,
+        "first_date": "2014-01-02",
+        "avg_documents": 6
+      },
+      "do2": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do3": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      }
+    },
+    {
+      "year": 2015,
+      "do1": {
+        "available": true,
+        "first_date": "2015-01-02",
+        "avg_documents": 81
+      },
+      "do2": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do3": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      }
+    },
+    {
+      "year": 2016,
+      "do1": {
+        "available": true,
+        "first_date": "2016-05-03",
+        "avg_documents": 205
+      },
+      "do2": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do3": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      }
+    },
+    {
+      "year": 2017,
+      "do1": {
+        "available": true,
+        "first_date": "2017-01-02",
+        "avg_documents": 158
+      },
+      "do2": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      },
+      "do3": {
+        "available": false,
+        "first_date": null,
+        "avg_documents": 0
+      }
+    },
+    {
+      "year": 2018,
+      "do1": {
+        "available": true,
+        "first_date": "2018-01-02",
+        "avg_documents": 239
+      },
+      "do2": {
+        "available": true,
+        "first_date": "2018-01-02",
+        "avg_documents": 549
+      },
+      "do3": {
+        "available": true,
+        "first_date": "2018-09-18",
+        "avg_documents": 2185
+      }
+    },
+    {
+      "year": 2019,
+      "do1": {
+        "available": true,
+        "first_date": "2019-01-02",
+        "avg_documents": 246
+      },
+      "do2": {
+        "available": true,
+        "first_date": "2019-01-02",
+        "avg_documents": 1047
+      },
+      "do3": {
+        "available": true,
+        "first_date": "2019-01-02",
+        "avg_documents": 2056
+      }
+    },
+    {
+      "year": 2020,
+      "do1": {
+        "available": true,
+        "first_date": "2020-01-02",
+        "avg_documents": 235
+      },
+      "do2": {
+        "available": true,
+        "first_date": "2020-01-02",
+        "avg_documents": 534
+      },
+      "do3": {
+        "available": true,
+        "first_date": "2020-01-02",
+        "avg_documents": 2135
+      }
+    },
+    {
+      "year": 2021,
+      "do1": {
+        "available": true,
+        "first_date": "2021-07-01",
+        "avg_documents": 330
+      },
+      "do2": {
+        "available": true,
+        "first_date": "2021-07-01",
+        "avg_documents": 749
+      },
+      "do3": {
+        "available": true,
+        "first_date": "2021-07-01",
+        "avg_documents": 2984
+      }
+    },
+    {
+      "year": 2022,
+      "do1": {
+        "available": true,
+        "first_date": "2022-07-01",
+        "avg_documents": 383
+      },
+      "do2": {
+        "available": true,
+        "first_date": "2022-07-01",
+        "avg_documents": 945
+      },
+      "do3": {
+        "available": true,
+        "first_date": "2022-07-01",
+        "avg_documents": 3361
+      }
+    },
+    {
+      "year": 2023,
+      "do1": {
+        "available": true,
+        "first_date": "2023-01-02",
+        "avg_documents": 419
+      },
+      "do2": {
+        "available": true,
+        "first_date": "2023-01-02",
+        "avg_documents": 718
+      },
+      "do3": {
+        "available": true,
+        "first_date": "2023-01-02",
+        "avg_documents": 2770
+      }
+    },
+    {
+      "year": 2024,
+      "do1": {
+        "available": true,
+        "first_date": "2024-01-02",
+        "avg_documents": 300
+      },
+      "do2": {
+        "available": true,
+        "first_date": "2024-01-02",
+        "avg_documents": 861
+      },
+      "do3": {
+        "available": true,
+        "first_date": "2024-01-02",
+        "avg_documents": 2626
+      }
+    },
+    {
+      "year": 2025,
+      "do1": {
+        "available": true,
+        "first_date": "2025-01-02",
+        "avg_documents": 280
+      },
+      "do2": {
+        "available": true,
+        "first_date": "2025-01-02",
+        "avg_documents": 811
+      },
+      "do3": {
+        "available": true,
+        "first_date": "2025-01-02",
+        "avg_documents": 2024
+      }
+    }
+  ],
+  "detailed_results": [
+    {
+      "year": 2000,
+      "date": "2000-01-02",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2000,
+      "date": "2000-01-02",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2000,
+      "date": "2000-01-02",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2000,
+      "date": "2000-07-01",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2000,
+      "date": "2000-07-01",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2000,
+      "date": "2000-07-01",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2000,
+      "date": "2000-11-10",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2000,
+      "date": "2000-11-10",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2000,
+      "date": "2000-11-10",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2001,
+      "date": "2001-01-02",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2001,
+      "date": "2001-01-02",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2001,
+      "date": "2001-01-02",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2001,
+      "date": "2001-07-01",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2001,
+      "date": "2001-07-01",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2001,
+      "date": "2001-07-01",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2001,
+      "date": "2001-08-16",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2001,
+      "date": "2001-08-16",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2001,
+      "date": "2001-08-16",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2002,
+      "date": "2002-01-02",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2002,
+      "date": "2002-01-02",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2002,
+      "date": "2002-01-02",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2002,
+      "date": "2002-07-01",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2002,
+      "date": "2002-07-01",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2002,
+      "date": "2002-07-01",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2002,
+      "date": "2002-09-18",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2002,
+      "date": "2002-09-18",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2002,
+      "date": "2002-09-18",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2003,
+      "date": "2003-01-02",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2003,
+      "date": "2003-01-02",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2003,
+      "date": "2003-01-02",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2003,
+      "date": "2003-07-01",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2003,
+      "date": "2003-07-01",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2003,
+      "date": "2003-07-01",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2003,
+      "date": "2003-07-02",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2003,
+      "date": "2003-07-02",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2003,
+      "date": "2003-07-02",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2004,
+      "date": "2004-01-02",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2004,
+      "date": "2004-01-02",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2004,
+      "date": "2004-01-02",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2004,
+      "date": "2004-07-01",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2004,
+      "date": "2004-07-01",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2004,
+      "date": "2004-07-01",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2004,
+      "date": "2004-05-21",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2004,
+      "date": "2004-05-21",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2004,
+      "date": "2004-05-21",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2005,
+      "date": "2005-01-02",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2005,
+      "date": "2005-01-02",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2005,
+      "date": "2005-01-02",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2005,
+      "date": "2005-07-01",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2005,
+      "date": "2005-07-01",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2005,
+      "date": "2005-07-01",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2005,
+      "date": "2005-12-01",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2005,
+      "date": "2005-12-01",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2005,
+      "date": "2005-12-01",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2006,
+      "date": "2006-01-02",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2006,
+      "date": "2006-01-02",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2006,
+      "date": "2006-01-02",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2006,
+      "date": "2006-07-01",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2006,
+      "date": "2006-07-01",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2006,
+      "date": "2006-07-01",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2006,
+      "date": "2006-06-15",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2006,
+      "date": "2006-06-15",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2006,
+      "date": "2006-06-15",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2007,
+      "date": "2007-01-02",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2007,
+      "date": "2007-01-02",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2007,
+      "date": "2007-01-02",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2007,
+      "date": "2007-07-01",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2007,
+      "date": "2007-07-01",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2007,
+      "date": "2007-07-01",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2007,
+      "date": "2007-11-02",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2007,
+      "date": "2007-11-02",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2007,
+      "date": "2007-11-02",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2008,
+      "date": "2008-01-02",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2008,
+      "date": "2008-01-02",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2008,
+      "date": "2008-01-02",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2008,
+      "date": "2008-07-01",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2008,
+      "date": "2008-07-01",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2008,
+      "date": "2008-07-01",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2008,
+      "date": "2008-01-07",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2008,
+      "date": "2008-01-07",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2008,
+      "date": "2008-01-07",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2009,
+      "date": "2009-01-02",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2009,
+      "date": "2009-01-02",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2009,
+      "date": "2009-01-02",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2009,
+      "date": "2009-07-01",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2009,
+      "date": "2009-07-01",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2009,
+      "date": "2009-07-01",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2009,
+      "date": "2009-05-22",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2009,
+      "date": "2009-05-22",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2009,
+      "date": "2009-05-22",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2010,
+      "date": "2010-01-02",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2010,
+      "date": "2010-01-02",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2010,
+      "date": "2010-01-02",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2010,
+      "date": "2010-07-01",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2010,
+      "date": "2010-07-01",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2010,
+      "date": "2010-07-01",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2010,
+      "date": "2010-06-01",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2010,
+      "date": "2010-06-01",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2010,
+      "date": "2010-06-01",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2011,
+      "date": "2011-01-02",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2011,
+      "date": "2011-01-02",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2011,
+      "date": "2011-01-02",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2011,
+      "date": "2011-07-01",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2011,
+      "date": "2011-07-01",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2011,
+      "date": "2011-07-01",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2011,
+      "date": "2011-11-07",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2011,
+      "date": "2011-11-07",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2011,
+      "date": "2011-11-07",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2012,
+      "date": "2012-01-02",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2012,
+      "date": "2012-01-02",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2012,
+      "date": "2012-01-02",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2012,
+      "date": "2012-07-01",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2012,
+      "date": "2012-07-01",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2012,
+      "date": "2012-07-01",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2012,
+      "date": "2012-01-17",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2012,
+      "date": "2012-01-17",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2012,
+      "date": "2012-01-17",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2013,
+      "date": "2013-01-02",
+      "section": "do1",
+      "status": "available",
+      "document_count": 31,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA Nº 1.088, DE 28 DE DEZEMBRO DE 2012",
+        "RESOLUÇÃO NORMATIVA Nº 40, DE 27 DE DEZEMBRO DE 2012"
+      ]
+    },
+    {
+      "year": 2013,
+      "date": "2013-01-02",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2013,
+      "date": "2013-01-02",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2013,
+      "date": "2013-07-01",
+      "section": "do1",
+      "status": "available",
+      "document_count": 76,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "ATO DO PRESIDENTE DA MESA DO CONGRESSO NACIONAL Nº 41, DE 2013",
+        "ATO DECLARATÓRIO DO PRESIDENTE DA MESA DO CONGRESSO NACIONAL Nº 40, DE 2013"
+      ]
+    },
+    {
+      "year": 2013,
+      "date": "2013-07-01",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2013,
+      "date": "2013-07-01",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2013,
+      "date": "2013-10-29",
+      "section": "do1",
+      "status": "available",
+      "document_count": 11,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA Nº 229, DE 25 DE OUTUBRO DE 2013",
+        "PORTARIA Nº 233, DE 25 DE OUTUBRO DE 2013"
+      ]
+    },
+    {
+      "year": 2013,
+      "date": "2013-10-29",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2013,
+      "date": "2013-10-29",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2014,
+      "date": "2014-01-02",
+      "section": "do1",
+      "status": "available",
+      "document_count": 9,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA Nº 3.420, DE 27 DE DEZEMBRO DE 2013",
+        "PORTARIA INTERMINISTERIAL Nº 1.359, DE 30 DE DEZEMBRO DE 2013"
+      ]
+    },
+    {
+      "year": 2014,
+      "date": "2014-01-02",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2014,
+      "date": "2014-01-02",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2014,
+      "date": "2014-07-01",
+      "section": "do1",
+      "status": "available",
+      "document_count": 5,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "DECRETO Nº 8.279, DE 30 DE JUNHO DE 2014",
+        "MEDIDA PROVISÓRIA Nº 650, DE 30 DE JUNHO DE 2014"
+      ]
+    },
+    {
+      "year": 2014,
+      "date": "2014-07-01",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2014,
+      "date": "2014-07-01",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2014,
+      "date": "2014-03-17",
+      "section": "do1",
+      "status": "available",
+      "document_count": 5,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "RESOLUÇÃO Nº 19, DE 13 DE MARÇO DE 2014",
+        "INSTRUÇÃO NORMATIVA Nº 6, DE 14 DE MARÇO DE 2014"
+      ]
+    },
+    {
+      "year": 2014,
+      "date": "2014-03-17",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2014,
+      "date": "2014-03-17",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2015,
+      "date": "2015-01-02",
+      "section": "do1",
+      "status": "available",
+      "document_count": 158,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA Nº 1.527, DE 31 DE DEZEMBRO DE 2014",
+        "PORTARIA Nº 1.532, DE 31 DE DEZEMBRO DE 2014"
+      ]
+    },
+    {
+      "year": 2015,
+      "date": "2015-01-02",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2015,
+      "date": "2015-01-02",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2015,
+      "date": "2015-07-01",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2015,
+      "date": "2015-07-01",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2015,
+      "date": "2015-07-01",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2015,
+      "date": "2015-12-28",
+      "section": "do1",
+      "status": "available",
+      "document_count": 4,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA Nº 609-A, DE 17 DE DEZEMBRO DE 2015",
+        "PORTARIA Nº 3.442, DE 24 DE DEZEMBRO DE 2015"
+      ]
+    },
+    {
+      "year": 2015,
+      "date": "2015-12-28",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2015,
+      "date": "2015-12-28",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2016,
+      "date": "2016-01-02",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2016,
+      "date": "2016-01-02",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2016,
+      "date": "2016-01-02",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2016,
+      "date": "2016-07-01",
+      "section": "do1",
+      "status": "available",
+      "document_count": 221,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA Nº 276, DE 30 DE JUNHO DE 2016",
+        "PORTARIA Nº 277, DE 30 DE JUNHO DE 2016"
+      ]
+    },
+    {
+      "year": 2016,
+      "date": "2016-07-01",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2016,
+      "date": "2016-07-01",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2016,
+      "date": "2016-05-03",
+      "section": "do1",
+      "status": "available",
+      "document_count": 189,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA Nº 1.047, DE 2 DE MAIO DE 2016",
+        "EXTRATO DE PARECER TÉCNICO Nº 5.027/2016"
+      ]
+    },
+    {
+      "year": 2016,
+      "date": "2016-05-03",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2016,
+      "date": "2016-05-03",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2017,
+      "date": "2017-01-02",
+      "section": "do1",
+      "status": "available",
+      "document_count": 138,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA Nº 6.336, DE 30 DE DEZEMBRO DE 2016",
+        "PORTARIA Nº 6.347, DE 30 DE DEZEMBRO DE 2016"
+      ]
+    },
+    {
+      "year": 2017,
+      "date": "2017-01-02",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2017,
+      "date": "2017-01-02",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2017,
+      "date": "2017-07-01",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2017,
+      "date": "2017-07-01",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2017,
+      "date": "2017-07-01",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2017,
+      "date": "2017-07-13",
+      "section": "do1",
+      "status": "available",
+      "document_count": 179,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "ATO DECLARATÓRIO EXECUTIVO N° 80, DE 12 DE JULHO DE 2017",
+        "SOLUÇÃO DE CONSULTA Nº 4.018, DE 11 DE JULHO DE 2017"
+      ]
+    },
+    {
+      "year": 2017,
+      "date": "2017-07-13",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2017,
+      "date": "2017-07-13",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2018,
+      "date": "2018-01-02",
+      "section": "do1",
+      "status": "available",
+      "document_count": 261,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA Nº 5.460-SEI, DE 28 DE SETEMBRO DE 2017",
+        "PORTARIA SEI Nº 1.174, DE 27 DE DEZEMBRO DE 2017"
+      ]
+    },
+    {
+      "year": 2018,
+      "date": "2018-01-02",
+      "section": "do2",
+      "status": "available",
+      "document_count": 611,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA Nº 296, DE 1º DE DEZEMBRO DE 2017",
+        "PORTARIA Nº 2.185, DE 19 DE DEZEMBRO DE 2017"
+      ]
+    },
+    {
+      "year": 2018,
+      "date": "2018-01-02",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2018,
+      "date": "2018-07-01",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2018,
+      "date": "2018-07-01",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2018,
+      "date": "2018-07-01",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2018,
+      "date": "2018-09-18",
+      "section": "do1",
+      "status": "available",
+      "document_count": 217,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA Nº 255, DE 14 DE SETEMBRO DE 2018",
+        "RESOLUÇÃO Nº 6.356, DE 16 DE SETEMBRO DE 2018"
+      ]
+    },
+    {
+      "year": 2018,
+      "date": "2018-09-18",
+      "section": "do2",
+      "status": "available",
+      "document_count": 488,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA Nº 242, DE 12 DE SETEMBRO DE 2018",
+        "DESPACHOS de 14 DE SETEMBRO DE 2018"
+      ]
+    },
+    {
+      "year": 2018,
+      "date": "2018-09-18",
+      "section": "do3",
+      "status": "available",
+      "document_count": 2185,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "Aviso de Licitação Pregão Nº 117/2018",
+        "EDITAL Nº 1, DE 14 de setembro de 2018 ELIMINAÇÃO DE PROCESSOS ADMINISTRATIVOS E DOCUMENTOS ADMINIST"
+      ]
+    },
+    {
+      "year": 2019,
+      "date": "2019-01-02",
+      "section": "do1",
+      "status": "available",
+      "document_count": 82,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "DESPACHO Nº 70/2018",
+        "Despacho Nº 2.185-SEI, DE 7 DE DEZEMBRO DE 2018"
+      ]
+    },
+    {
+      "year": 2019,
+      "date": "2019-01-02",
+      "section": "do2",
+      "status": "available",
+      "document_count": 513,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA Nº 185, DE 12 DE NOVEMBRO DE 2018",
+        "PORTARIA Nº 161, DE 16 DE NOVEMBRO DE 2018"
+      ]
+    },
+    {
+      "year": 2019,
+      "date": "2019-01-02",
+      "section": "do3",
+      "status": "available",
+      "document_count": 1445,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "EXTRATO DE CONVÊNIO",
+        "EXTRATO DE CONVÊNIO"
+      ]
+    },
+    {
+      "year": 2019,
+      "date": "2019-07-01",
+      "section": "do1",
+      "status": "available",
+      "document_count": 285,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "DELIBERAÇÃO Nº 1, DE 4 DE MAIO DE 2019",
+        "ALVARÁ Nº 3.572, DE 14 DE JUNHO DE 2019"
+      ]
+    },
+    {
+      "year": 2019,
+      "date": "2019-07-01",
+      "section": "do2",
+      "status": "available",
+      "document_count": 1291,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA Nº 73, DE 24 DE JUNHO DE 2019",
+        "PORTARIA Nº 480, de 25 de junho de 2019"
+      ]
+    },
+    {
+      "year": 2019,
+      "date": "2019-07-01",
+      "section": "do3",
+      "status": "available",
+      "document_count": 2419,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "EDITAL Nº 387, de 28 de junho de 2019CONCURSO PÚBLICO PARA PROVIMENTO DE VAGAS EM CARGOS efetivos da",
+        "AVISO DE PENALIDADE"
+      ]
+    },
+    {
+      "year": 2019,
+      "date": "2019-04-01",
+      "section": "do1",
+      "status": "available",
+      "document_count": 372,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "ReTIFICAÇÃO",
+        "RESOLUÇÃO-RE nº 813, DE 28 DE MARÇO DE 2019(*)"
+      ]
+    },
+    {
+      "year": 2019,
+      "date": "2019-04-01",
+      "section": "do2",
+      "status": "available",
+      "document_count": 1339,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA Nº 150, de 27 de março de 2019",
+        "PORTARIA Nº 2.639, de 29 de março de 2019"
+      ]
+    },
+    {
+      "year": 2019,
+      "date": "2019-04-01",
+      "section": "do3",
+      "status": "available",
+      "document_count": 2304,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "AVISO de Registro de Preços",
+        "AVISO DE LICITAÇÃOTOMADA DE PREÇOS Nº 2/2019"
+      ]
+    },
+    {
+      "year": 2020,
+      "date": "2020-01-02",
+      "section": "do1",
+      "status": "available",
+      "document_count": 134,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "AUTORIZAÇÃO Nº 984, DE 31 DE DEZEMBRO DE 2020",
+        "PORTARIA  Nº 5.242, DE 31 DE DEZEMBRO DE 2019"
+      ]
+    },
+    {
+      "year": 2020,
+      "date": "2020-01-02",
+      "section": "do2",
+      "status": "available",
+      "document_count": 480,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA Nº 86,  DE 9 DE DEZEMBRO DE 2019",
+        "PORTARIA Nº 262,  DE 12 DE DEZEMBRO DE 2019"
+      ]
+    },
+    {
+      "year": 2020,
+      "date": "2020-01-02",
+      "section": "do3",
+      "status": "available",
+      "document_count": 1211,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "EXTRATO DE CONVÊNIO",
+        "EXTRATO DE CONVÊNIO"
+      ]
+    },
+    {
+      "year": 2020,
+      "date": "2020-07-01",
+      "section": "do1",
+      "status": "available",
+      "document_count": 255,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA Nº 261,  DE 29 DE JUNHO DE 2020",
+        "PORTARIA Nº 14.886, DE 30 DE JUNHO DE 2020"
+      ]
+    },
+    {
+      "year": 2020,
+      "date": "2020-07-01",
+      "section": "do2",
+      "status": "available",
+      "document_count": 670,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA Nº 1.008, DE 30 DE JUNHO DE 2020",
+        "ATO  Nº 64, de 12 de fevereiro de 2020"
+      ]
+    },
+    {
+      "year": 2020,
+      "date": "2020-07-01",
+      "section": "do3",
+      "status": "available",
+      "document_count": 2564,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "EDITAL DE NOTIFICAÇÃO",
+        "EXTRATO DE  CONTRATO"
+      ]
+    },
+    {
+      "year": 2020,
+      "date": "2020-08-21",
+      "section": "do1",
+      "status": "available",
+      "document_count": 318,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA Nº 2.235, DE 19 DE AGOSTO DE 2020",
+        "ATO DECLARATÓRIO EXECUTIVO Nº 43, DE 23 DE JULHO DE 2020"
+      ]
+    },
+    {
+      "year": 2020,
+      "date": "2020-08-21",
+      "section": "do2",
+      "status": "available",
+      "document_count": 454,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA Nº 17, de 21 de fevereiro de 2020",
+        "PORTARIA Nº 112-SAP.1.1/SSIP/9ª RM, DE 20 DE AGOSTO  DE 2020"
+      ]
+    },
+    {
+      "year": 2020,
+      "date": "2020-08-21",
+      "section": "do3",
+      "status": "available",
+      "document_count": 2630,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "AVISO de Inexigibilidade DE LICITAÇÃO",
+        "AVISO DE INEXIGIBILIDADE DE LICITAÇÃO"
+      ]
+    },
+    {
+      "year": 2021,
+      "date": "2021-01-02",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2021,
+      "date": "2021-01-02",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2021,
+      "date": "2021-01-02",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2021,
+      "date": "2021-07-01",
+      "section": "do1",
+      "status": "available",
+      "document_count": 281,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "RESOLUÇÃO NORMATIVA 50 - CONSUP/OSUPCOL/REI/IFPI, de 16 de junho de 2021",
+        "Despachos"
+      ]
+    },
+    {
+      "year": 2021,
+      "date": "2021-07-01",
+      "section": "do2",
+      "status": "available",
+      "document_count": 909,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA Nº 276, DE 28 DE JUNHO DE 2021",
+        "DESPACHO DO PRESIDENTE DA REPÚBLICA"
+      ]
+    },
+    {
+      "year": 2021,
+      "date": "2021-07-01",
+      "section": "do3",
+      "status": "available",
+      "document_count": 3044,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "EXTRATO DE TERMO ADITIVO",
+        "Extrato de Acordo de Cooperação Técnica e Financeira"
+      ]
+    },
+    {
+      "year": 2021,
+      "date": "2021-09-13",
+      "section": "do1",
+      "status": "available",
+      "document_count": 380,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA Nº 28, DE 2 DE SETEMBRO DE 2021",
+        "LEI Nº 14.203, DE 10 DE SETEMBRO DE 2021"
+      ]
+    },
+    {
+      "year": 2021,
+      "date": "2021-09-13",
+      "section": "do2",
+      "status": "available",
+      "document_count": 590,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA Nº 372, DE 9 DE SETEMBRO DE 2021",
+        "PORTARIA Nº 991, DE 10 DE SETEMBRO DE 2021"
+      ]
+    },
+    {
+      "year": 2021,
+      "date": "2021-09-13",
+      "section": "do3",
+      "status": "available",
+      "document_count": 2925,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "EXTRATO DE TERMO ADITIVO",
+        "RESULTADO DA CHAMADA PÚBLICA"
+      ]
+    },
+    {
+      "year": 2022,
+      "date": "2022-01-02",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2022,
+      "date": "2022-01-02",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2022,
+      "date": "2022-01-02",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2022,
+      "date": "2022-07-01",
+      "section": "do1",
+      "status": "available",
+      "document_count": 329,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "DECRETO LEGISLATIVO",
+        "DECRETO DE 30 DE JUNHO DE 2022"
+      ]
+    },
+    {
+      "year": 2022,
+      "date": "2022-07-01",
+      "section": "do2",
+      "status": "available",
+      "document_count": 1184,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA DE PESSOAL SE/MAPA Nº 1.266, DE 30 DE JUNHO DE 2022",
+        "PORTARIA DE PESSOAL SE/MAPA Nº 1.240, DE 30 DE JUNHO DE 2022"
+      ]
+    },
+    {
+      "year": 2022,
+      "date": "2022-07-01",
+      "section": "do3",
+      "status": "available",
+      "document_count": 3989,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "EXTRATO DE DISPENSA DE LICITAÇÃO Nº 4/2022 - UASG 110102",
+        "EXTRATO DE CONTRATO Nº 14/2022 - UASG 130017 - LFDA-PA/SDA/MAPA"
+      ]
+    },
+    {
+      "year": 2022,
+      "date": "2022-08-08",
+      "section": "do1",
+      "status": "available",
+      "document_count": 437,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "DECISÃO SUPAS Nº 734, DE 5 DE AGOSTO DE 2022",
+        "DECISÃO SUPAS Nº 739, DE 5 DE AGOSTO DE 2022"
+      ]
+    },
+    {
+      "year": 2022,
+      "date": "2022-08-08",
+      "section": "do2",
+      "status": "available",
+      "document_count": 706,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA Nº 9, DE 4 DE AGOSTO DE 2022",
+        "PORTARIA DE PESSOAL Nº 2.184, DE 4 DE AGOSTO DE 2022"
+      ]
+    },
+    {
+      "year": 2022,
+      "date": "2022-08-08",
+      "section": "do3",
+      "status": "available",
+      "document_count": 2734,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "AVISO DE HOMOLOGAÇÃO PREGÃO ELETRÔNICO Nº 17/2022",
+        "RESULTADOS DE JULGAMENTOs"
+      ]
+    },
+    {
+      "year": 2023,
+      "date": "2023-01-02",
+      "section": "do1",
+      "status": "available",
+      "document_count": 295,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "RESOLUÇÃO-RE Nº 4.317, DE 29 DE DEZEMBRO DE 2022",
+        "RESOLUÇÃO normativa ANS Nº 566, de 29 de dezembro de 2022"
+      ]
+    },
+    {
+      "year": 2023,
+      "date": "2023-01-02",
+      "section": "do2",
+      "status": "available",
+      "document_count": 774,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "Portarias de 29 de dezembro de 2022",
+        "PORTARIA Nº 7.581, DE 26 DE DEZEMBRO DE 2022"
+      ]
+    },
+    {
+      "year": 2023,
+      "date": "2023-01-02",
+      "section": "do3",
+      "status": "available",
+      "document_count": 1857,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "EXTRATO DO TERCEIRO TERMO ADITIVO AO CONTRATO Nº 5/2022",
+        "Aviso de Retificação"
+      ]
+    },
+    {
+      "year": 2023,
+      "date": "2023-07-01",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2023,
+      "date": "2023-07-01",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2023,
+      "date": "2023-07-01",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2023,
+      "date": "2023-12-26",
+      "section": "do1",
+      "status": "available",
+      "document_count": 543,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "ATO DECLARATÓRIO EXECUTIVO DIFIS/SRRF06ª/RFB Nº 195, DE 19 DE DEZEMBRO DE 2023",
+        "RESOLUÇÃO Nº 1.140, DE 23 DE NOVEMBRO DE 2023"
+      ]
+    },
+    {
+      "year": 2023,
+      "date": "2023-12-26",
+      "section": "do2",
+      "status": "available",
+      "document_count": 663,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA DE PESSOAL Nº 323, DE 21 DE DEZEMBRO DE 2023",
+        "PORTARIA DE PESSOAL SE/MS Nº 1.204, DE 21 DE DEZEMBRO DE 2023"
+      ]
+    },
+    {
+      "year": 2023,
+      "date": "2023-12-26",
+      "section": "do3",
+      "status": "available",
+      "document_count": 3683,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "EDITAL DE NOTIFICAÇÃO DE PENALIDADE GEAUT/SUDEG/ANTT Nº 8955/2023/WEB/EVASÃO DE BALANÇA",
+        "EXTRATO DE DISPENSA DE LICITAÇÃO Nº 84/2023 - UASG 153046"
+      ]
+    },
+    {
+      "year": 2024,
+      "date": "2024-01-02",
+      "section": "do1",
+      "status": "available",
+      "document_count": 288,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA MDS Nº 952, DE 29 DE DEZEMBRO DE 2023",
+        "LEI Nº 14.701, DE 20 DE OUTUBRO DE 2023 (*)"
+      ]
+    },
+    {
+      "year": 2024,
+      "date": "2024-01-02",
+      "section": "do2",
+      "status": "available",
+      "document_count": 790,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "ATO TRT7.GP Nº 368, DE 27 DE DEZEMBRO DE 2023",
+        "PORTARIA SGP/MPF Nº 675, DE 27 DE DEZEMBRO DE 2023"
+      ]
+    },
+    {
+      "year": 2024,
+      "date": "2024-01-02",
+      "section": "do3",
+      "status": "available",
+      "document_count": 2871,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "EXTRATO DE CONVÊNIO",
+        "EXTRATO DE APOSTILAMENTO Nº 1/2023 - UASG 155180"
+      ]
+    },
+    {
+      "year": 2024,
+      "date": "2024-07-01",
+      "section": "do1",
+      "status": "available",
+      "document_count": 400,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "CIRCULAR Nº 28, DE 28 DE JUNHO DE 2024",
+        "PORTARIA GM/MS Nº 4.642, DE 28 DE JUNHO DE 2024"
+      ]
+    },
+    {
+      "year": 2024,
+      "date": "2024-07-01",
+      "section": "do2",
+      "status": "available",
+      "document_count": 1158,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA IFFLU Nº 508, DE 26 DE JUNHO DE 2024",
+        "Portaria CGBEN/MGI nº 7.281, de 28 de Junho de 2024"
+      ]
+    },
+    {
+      "year": 2024,
+      "date": "2024-07-01",
+      "section": "do3",
+      "status": "available",
+      "document_count": 2769,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "AVISO DE CREDENCIAMENTO Nº 61/2024",
+        "EXTRATO DE TERMO ADITIVO"
+      ]
+    },
+    {
+      "year": 2024,
+      "date": "2024-01-24",
+      "section": "do1",
+      "status": "available",
+      "document_count": 214,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA GM/MS Nº 3.113, DE 22 DE JANEIRO DE 2024",
+        "Portaria Previc Nº 43, DE 17 DE janeiro DE 2024"
+      ]
+    },
+    {
+      "year": 2024,
+      "date": "2024-01-24",
+      "section": "do2",
+      "status": "available",
+      "document_count": 636,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA SG/MPF Nº 48, DE 19 DE JANEIRO DE 2024",
+        "PORTARIA Nº 16, de 12 de janeiro de 2024"
+      ]
+    },
+    {
+      "year": 2024,
+      "date": "2024-01-24",
+      "section": "do3",
+      "status": "available",
+      "document_count": 2239,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "AVISO DE ADJUDICAÇÃO CARTA-CONVITE Nº 4/2023",
+        "EXTRATO DE CONTRATO"
+      ]
+    },
+    {
+      "year": 2025,
+      "date": "2025-01-02",
+      "section": "do1",
+      "status": "available",
+      "document_count": 108,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "DECISÃO SUPAS Nº 2.996, DE 20 DE DEZEMBRO DE 2024",
+        "AUTORIZAÇÃO SDL-ANP Nº 841, DE 31 DE DEZEMBRO DE 2024"
+      ]
+    },
+    {
+      "year": 2025,
+      "date": "2025-01-02",
+      "section": "do2",
+      "status": "available",
+      "document_count": 502,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA MPS Nº 3.983, DE 31 DE DEZEMBRO DE 2024",
+        "ATOS De 18 DE DEZEMBRO DE 2024"
+      ]
+    },
+    {
+      "year": 2025,
+      "date": "2025-01-02",
+      "section": "do3",
+      "status": "available",
+      "document_count": 1164,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "AVISO DE LICITAÇÃO",
+        "Aviso de Licitação"
+      ]
+    },
+    {
+      "year": 2025,
+      "date": "2025-07-01",
+      "section": "do1",
+      "status": "available",
+      "document_count": 376,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA Nº 18, DE 30 JUNHO DE 2025",
+        "Despacho"
+      ]
+    },
+    {
+      "year": 2025,
+      "date": "2025-07-01",
+      "section": "do2",
+      "status": "available",
+      "document_count": 1062,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA Nº 121, DE 23 DE JUNHO DE 2025",
+        "PORTARIA Nº 322, de 27 DE junho de 2025"
+      ]
+    },
+    {
+      "year": 2025,
+      "date": "2025-07-01",
+      "section": "do3",
+      "status": "available",
+      "document_count": 2548,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "EXTRATOs de CONTRATos",
+        "AVISO DE LICITAÇÃO"
+      ]
+    },
+    {
+      "year": 2025,
+      "date": "2025-06-16",
+      "section": "do1",
+      "status": "available",
+      "document_count": 358,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "DECISÕES",
+        "PORTARIA MCOM Nº 18.190, DE 28 DE MAIO DE 2025"
+      ]
+    },
+    {
+      "year": 2025,
+      "date": "2025-06-16",
+      "section": "do2",
+      "status": "available",
+      "document_count": 871,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA CREF14/GO-TO Nº 314, de 13 de junho de 2025",
+        "EDITAL DE DE NOTIFICAÇÃO Nº 1, DE 13 DE JUNHO DE 2025"
+      ]
+    },
+    {
+      "year": 2025,
+      "date": "2025-06-16",
+      "section": "do3",
+      "status": "available",
+      "document_count": 2361,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "Edital",
+        "AVISO DE PENALIDADE"
+      ]
+    },
+    {
+      "year": 2013,
+      "date": "2013-01-01",
+      "section": "do1",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2013,
+      "date": "2013-01-02",
+      "section": "do1",
+      "status": "available",
+      "document_count": 31,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA Nº 1.088, DE 28 DE DEZEMBRO DE 2012",
+        "RESOLUÇÃO NORMATIVA Nº 40, DE 27 DE DEZEMBRO DE 2012"
+      ]
+    },
+    {
+      "year": 2018,
+      "date": "2018-01-01",
+      "section": "do2",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2018,
+      "date": "2018-01-02",
+      "section": "do2",
+      "status": "available",
+      "document_count": 611,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "PORTARIA Nº 296, DE 1º DE DEZEMBRO DE 2017",
+        "PORTARIA Nº 2.185, DE 19 DE DEZEMBRO DE 2017"
+      ]
+    },
+    {
+      "year": 2018,
+      "date": "2018-01-01",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2018,
+      "date": "2018-01-02",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2018,
+      "date": "2018-01-03",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2018,
+      "date": "2018-01-04",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2018,
+      "date": "2018-01-05",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2018,
+      "date": "2018-02-01",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2018,
+      "date": "2018-02-02",
+      "section": "do3",
+      "status": "empty",
+      "document_count": 0,
+      "has_embedded_json": true,
+      "sample_titles": []
+    },
+    {
+      "year": 2018,
+      "date": "2018-02-05",
+      "section": "do3",
+      "status": "available",
+      "document_count": 2259,
+      "has_embedded_json": true,
+      "sample_titles": [
+        "EXTRATO DE TERMO ADITIVO Nº 01.120.060/2014-C",
+        "EXTRATO DE TERMO ADITIVO AO TERMO DE PERMISSÃO DE USO Nº 120.40/15-B"
+      ]
+    }
+  ]
+}

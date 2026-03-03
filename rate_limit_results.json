@@ -1,0 +1,280 @@
+{
+  "0.5s delay (10 req)": [
+    {
+      "request_num": 1,
+      "delay_before": 0.5,
+      "status_code": 200,
+      "response_time_ms": 868.13,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    },
+    {
+      "request_num": 2,
+      "delay_before": 0.5,
+      "status_code": 200,
+      "response_time_ms": 10910.46,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    },
+    {
+      "request_num": 3,
+      "delay_before": 0.5,
+      "status_code": 200,
+      "response_time_ms": 1843.69,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    },
+    {
+      "request_num": 4,
+      "delay_before": 0.5,
+      "status_code": 200,
+      "response_time_ms": 1461.06,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    },
+    {
+      "request_num": 5,
+      "delay_before": 0.5,
+      "status_code": 200,
+      "response_time_ms": 1057.11,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    },
+    {
+      "request_num": 6,
+      "delay_before": 0.5,
+      "status_code": 200,
+      "response_time_ms": 476.74,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    },
+    {
+      "request_num": 7,
+      "delay_before": 0.5,
+      "status_code": 200,
+      "response_time_ms": 137.49,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    },
+    {
+      "request_num": 8,
+      "delay_before": 0.5,
+      "status_code": 200,
+      "response_time_ms": 625.96,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    },
+    {
+      "request_num": 9,
+      "delay_before": 0.5,
+      "status_code": 200,
+      "response_time_ms": 992.87,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    },
+    {
+      "request_num": 10,
+      "delay_before": 0.5,
+      "status_code": 200,
+      "response_time_ms": 535.67,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    }
+  ],
+  "1.0s delay (10 req)": [
+    {
+      "request_num": 1,
+      "delay_before": 1.0,
+      "status_code": 200,
+      "response_time_ms": 634.87,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    },
+    {
+      "request_num": 2,
+      "delay_before": 1.0,
+      "status_code": 200,
+      "response_time_ms": 598.42,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    },
+    {
+      "request_num": 3,
+      "delay_before": 1.0,
+      "status_code": 200,
+      "response_time_ms": 135.48,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    },
+    {
+      "request_num": 4,
+      "delay_before": 1.0,
+      "status_code": 200,
+      "response_time_ms": 161.07,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    },
+    {
+      "request_num": 5,
+      "delay_before": 1.0,
+      "status_code": 200,
+      "response_time_ms": 532.35,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    },
+    {
+      "request_num": 6,
+      "delay_before": 1.0,
+      "status_code": 200,
+      "response_time_ms": 151.81,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    },
+    {
+      "request_num": 7,
+      "delay_before": 1.0,
+      "status_code": 200,
+      "response_time_ms": 485.59,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    },
+    {
+      "request_num": 8,
+      "delay_before": 1.0,
+      "status_code": 200,
+      "response_time_ms": 148.21,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    },
+    {
+      "request_num": 9,
+      "delay_before": 1.0,
+      "status_code": 200,
+      "response_time_ms": 578.0,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    },
+    {
+      "request_num": 10,
+      "delay_before": 1.0,
+      "status_code": 200,
+      "response_time_ms": 160.91,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    }
+  ],
+  "2.0s delay (5 req)": [
+    {
+      "request_num": 1,
+      "delay_before": 2.0,
+      "status_code": 200,
+      "response_time_ms": 572.33,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    },
+    {
+      "request_num": 2,
+      "delay_before": 2.0,
+      "status_code": 200,
+      "response_time_ms": 572.42,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    },
+    {
+      "request_num": 3,
+      "delay_before": 2.0,
+      "status_code": 200,
+      "response_time_ms": 465.85,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    },
+    {
+      "request_num": 4,
+      "delay_before": 2.0,
+      "status_code": 200,
+      "response_time_ms": 636.35,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    },
+    {
+      "request_num": 5,
+      "delay_before": 2.0,
+      "status_code": 200,
+      "response_time_ms": 532.5,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    }
+  ],
+  "Burst (5 req, no delay)": [
+    {
+      "request_num": 1,
+      "delay_before": 0,
+      "status_code": 200,
+      "response_time_ms": 136.64,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    },
+    {
+      "request_num": 2,
+      "delay_before": 0,
+      "status_code": 200,
+      "response_time_ms": 151.19,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    },
+    {
+      "request_num": 3,
+      "delay_before": 0,
+      "status_code": 200,
+      "response_time_ms": 430.05,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    },
+    {
+      "request_num": 4,
+      "delay_before": 0,
+      "status_code": 200,
+      "response_time_ms": 425.45,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    },
+    {
+      "request_num": 5,
+      "delay_before": 0,
+      "status_code": 200,
+      "response_time_ms": 143.49,
+      "content_size": 478666,
+      "headers": {},
+      "error": null
+    }
+  ]
+}
