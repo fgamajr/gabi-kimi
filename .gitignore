@@ -1,207 +1,68 @@
 # =============================================================================
-# GABI - Gerador Automático de Boletins por Inteligência Artificial
-# Gitignore para Python/FastAPI
+# GABI – Python 3 bulk XML ingestion pipeline
 # =============================================================================
 
-# Python
+# Python bytecode
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
 
+# Virtual environments
+.venv/
+venv/
+
+# Environment / secrets
+.env
+.env.local
+!.env.example
+
+# AI agent state
 .agents/
 .antigravity/
 .claude/
+.qwen/
 swarm/
-.venv/
+archive_legacy/
 
-
-# Virtual environments
-.venv
-venv/
-ENV/
-env/
-.venv/
-env.bak/
-venv.bak/
-.env
-
-# IDEs
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-*.sublime-project
-*.sublime-workspace
-.DS_Store
 
-# Environment variables
-.env
-.env.local
-.env.*.local
-.env.development
-.env.test
-.env.production
-!.env.example
-.venv
-
-# Testing
+# Testing / type-checking
 .pytest_cache/
 .coverage
-.coverage.*
 htmlcov/
-.tox/
-.nox/
-.hypothesis/
-.pytest_cache/
-cover/
-*.cover
-*.py,cover
-
-# Type checking
 .mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Ruff
 .ruff_cache/
 
-# Database
+# Database files
 *.db
-*.sqlite
 *.sqlite3
 
 # Logs
 *.log
 logs/
-log/
 
-# Docker
-.dockerignore
+# Docker overrides
 docker-compose.override.yml
 
-# Kubernetes
-*.kubeconfig
-
-# Fly.io
-.fly/
-
-# Local data storage
+# Downloaded data (ZIPs, PDFs)
 data/
 !data/.gitkeep
-uploads/
-!uploads/.gitkeep
+
+# Backup / temp
+*.bak
+*.orig
 temp/
 tmp/
 
-# Downloaded files during development
-downloads/
-*.pdf
-*.csv
-*.xls
-*.xlsx
-*.doc
-*.docx
-
-# Except fixtures for tests
-!tests/fixtures/**/*.pdf
-!tests/fixtures/**/*.csv
-!tests/fixtures/**/*.html
-
-# Celery
-*.pid
-celerybeat-schedule
-celerybeat.pid
-
-# Redis
-dump.rdb
-
-# Elasticsearch
-*.es
-
-# Local configuration overrides
-config.local.yaml
-sources.local.yaml
-
-# Secrets
-secrets/
-*.key
-*.pem
-*.crt
-
-# macOS
+# macOS / Windows
 .DS_Store
-.AppleDouble
-.LSOverride
-
-# Windows
 Thumbs.db
-ehthumbs.db
-Desktop.ini
 
-# Backup files
-*.bak
-*.backup
-*~
-*.orig
-
-# .NET
-bin/
-obj/
-*.user
-*.suo
-.vs/
-*.DotSettings.user
-
-# Node (in case of mixed projects)
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Documentation builds
-docs/_build/
-site/
-
-# Profiling
-*.prof
-profile/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# pyenv
-.python-version
-
-# pipenv
-Pipfile.lock
-
-# poetry
-poetry.lock
-
-# pdm
-.pdm.toml
-.pdm-python
-.pdm-build/
-
-# ONNX model files
+# ONNX / ML models
 models/

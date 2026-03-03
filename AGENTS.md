@@ -2,44 +2,50 @@
 
 ## Project Overview
 
-GABI (Gerador Automatico de Boletins por Inteligencia Artificial) - a Python 3 web crawler and data extraction pipeline for Brazilian legal publications (primarily DOU - Diario Oficial da Uniao). The project includes a CRSS-1 commitment scheme for cryptographic audit trails.
+GABI (Gerador Automatico de Boletins por Inteligencia Artificial) - a Python 3 bulk XML ingestion pipeline for Brazilian legal publications (DOU - Diario Oficial da Uniao). The project downloads daily ZIP bundles from in.gov.br, parses structured XML, persists to PostgreSQL, and produces CRSS-1 cryptographic audit trails.
 
 ## Project Structure
 
-- **`crawler/`** - YAML-driven web crawler engine
-  - `engine.py` - Generic HTTP crawler with `RuntimeAdapter` protocol
-  - `dsl_schema.py`, `dsl_loader.py`, `dsl_validator.py` - DSL dataclasses and validation
-  - `frontier.py` - URL dedup + FIFO queue
-  - `memory_budget.py`, `memory_levels.py` - Memory governor
-  - `observability.py` - Logfmt structured logging via loguru
-- **`validation/`** - HTML extraction and validation
-  - `extractor.py` - `ExtractionHarness` for field extraction via CSS selectors
-  - `rules.py` - YAML extraction rules loader
-  - `corpus_sampler.py`, `reporter.py` - Sampling and report generation
-- **`dbsync/`** - Declarative PostgreSQL schema management
+- **`ingest/`** - Bulk XML ingestion pipeline
+  - `xml_parser.py` - Parse INLabs DOU XML into `DOUArticle` dataclasses
+  - `zip_downloader.py` - URL generation and download for daily ZIP bundles
+  - `normalizer.py` - Field normalization (XML → PG schema)
+- **`harvest/`** - Reusable utilities
+  - `date_selector.py` - Date range generation
+  - `model.py` - Core data model (`Article`, `NormativeAct`)
 - **`commitment/`** - CRSS-1 commitment scheme (Merkle trees, canonical serialization)
+  - `anchor.py`, `chain.py`, `crss1.py`, `tree.py`, `verify.py`
+- **`dbsync/`** - Declarative PostgreSQL schema management
+  - `schema_sync.py`, `registry_ingest.py`, `differ.py`, `planner.py`, etc.
+- **`validation/`** - Data quality and identity analysis
+  - `identity_analyzer.py` - Identity hashing and deduplication
+  - `semantic_resolver.py` - Semantic field resolution
+  - `completeness_validator.py` - Completeness checks
+  - `extractor.py`, `rules.py`, `reporter.py` - Extraction harness
+- **`utils/`** - Shared utilities
+  - `observability.py` - Logfmt structured logging via loguru
+  - `user_agent_rotator.py` - HTTP User-Agent rotation
 - **`infra/`** - Docker-based PostgreSQL appliance
-- **`examples/`** - YAML fixtures and configs
+- **`tests/`** - Test suite
+  - `test_commitment.py` - CRSS-1 pure function tests
+  - `test_seal_roundtrip.py` - End-to-end seal integration test
+  - `fixtures/xml_samples/` - Real DOU XML samples for testing
+- **`proofs/`** - CRSS-1 anchor chain and golden test vectors
+- **`governance/`** - Repository classification, dead code reports, refactor plans
+- **`archive_legacy/`** - Archived modules from pre-consolidation (crawler, HTML scraping, etc.)
 
 ## Build, Test, and Development Commands
 
 ### Running Tests
 ```bash
 # Run commitment scheme tests (pure functions, no DB)
-python3 test_commitment.py
+python3 tests/test_commitment.py
 
-# Run mock crawl
-python3 run_mock_crawl.py --config examples/mock_crawl.yaml
+# Parse XML fixtures
+python3 -c "from ingest.xml_parser import parse_directory; arts = parse_directory('tests/fixtures/xml_samples'); print(f'{len(arts)} articles parsed')"
 
-# Extraction harness without DB
-python3 extract_test.py --rules examples/sources_v3_model.yaml --html <input_dir> --out <report_dir>
-
-# Full historical validation
-python3 historical_validate.py full --rules examples/sources_v3_model.yaml
-
-# Single validation subcommand
-python3 historical_validate.py sample --dates 10 --max-articles 50
-python3 historical_validate.py extract --rules examples/sources_v3_model.yaml --html samples/
+# Compile-check all modules
+python3 -m py_compile ingest/xml_parser.py ingest/zip_downloader.py ingest/normalizer.py
 ```
 
 ### Infrastructure
@@ -69,7 +75,7 @@ from typing import Any, Protocol
 
 import yaml                             # Third-party
 
-from crawler.dsl_schema import CrawlSpec  # Local imports
+from ingest.xml_parser import DOUArticle  # Local imports
 ```
 - Group imports: stdlib, third-party, local (blank line between groups)
 - Use `from __future__ import annotations` at the top of every module
@@ -132,9 +138,8 @@ def _safe_load(self, runtime: RuntimeAdapter, url: str, run_id: str) -> Page | N
 ## Testing Guidelines
 
 - No pytest suite - testing is script/harness-driven
-- Tests should be runnable as standalone scripts: `python3 test_commitment.py`
-- For crawler changes, verify with `run_mock_crawl.py` and check output for `total_documents=N`
-- For extraction changes, run `extract_test.py` or `historical_validate.py`
+- Tests should be runnable as standalone scripts: `python3 tests/test_commitment.py`
+- For ingestion changes, verify XML parsing with fixture samples in `tests/fixtures/xml_samples/`
 - Include reproduction commands and expected output in PR descriptions
 
 ## Commit and Pull Request Guidelines

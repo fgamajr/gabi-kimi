@@ -28,7 +28,7 @@ from psycopg import IsolationLevel
 
 from commitment.anchor import compute_commitment
 from commitment.chain import chain_anchor
-from validation.identity_analyzer import (
+from ingest.identity_analyzer import (
     IdentityConfig,
     load_identity_config,
 )
