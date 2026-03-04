@@ -19,10 +19,12 @@ GABI (Gerador Automatico de Boletins por Inteligencia Artificial) - a Python 3 b
   - `identity_analyzer.py` - Identity hashing and deduplication
   - `catalog_scraper.py` - Scrape catalog page for per-month folderId registry
   - `discovery_probe.py` - URL pattern probing and tags API discovery
+  - `bm25_indexer.py` - BM25 index builder, refresher, and search CLI
 - **`commitment/`** - CRSS-1 commitment scheme (Merkle trees, canonical serialization)
   - `anchor.py`, `chain.py`, `crss1.py`, `tree.py`, `verify.py`
 - **`dbsync/`** - Declarative PostgreSQL schema management
   - `dou_schema.sql` - DOU publication schema: 7 tables + view + GIN FTS index
+  - `bm25_schema.sql` - Okapi BM25 search: term stats, corpus stats, search functions
   - `schema_sync.py`, `registry_ingest.py`, `differ.py`, `planner.py`, etc.
 - **`infra/`** - Docker-based PostgreSQL appliance
 - **`tests/`** - Test suite
@@ -121,6 +123,24 @@ python3 infra/infra_manager.py up        # Start PostgreSQL (port 5433)
 python3 infra/infra_manager.py status    # Check container/DB health
 python3 infra/infra_manager.py down      # Stop
 python3 infra/infra_manager.py reset_db  # Wipe DB (destructive)
+```
+
+### BM25 Search
+```bash
+# Full BM25 index build (DDL + word counts + materialized term stats)
+python3 -m ingest.bm25_indexer build
+
+# Incremental refresh after new ingestions
+python3 -m ingest.bm25_indexer refresh
+
+# Search (unfiltered)
+python3 -m ingest.bm25_indexer search "portaria ministério saúde"
+
+# Search with filters (date range, section, art type)
+python3 -m ingest.bm25_indexer search "licitação pregão" --date-from 2020-01-01 --section do3 -n 50
+
+# Show BM25 index statistics (vocabulary, corpus stats, top terms)
+python3 -m ingest.bm25_indexer stats
 ```
 
 ### Database Schema Sync
