@@ -21,7 +21,9 @@ venv/
 .agents/
 .antigravity/
 .claude/
-.qwen/
+.ollama_models/
+archive_legacy
+
 swarm/
 archive_legacy/
 
@@ -66,3 +68,5 @@ Thumbs.db
 
 # ONNX / ML models
 models/
+.qwen/
+nohup.out

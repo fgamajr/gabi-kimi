@@ -1,0 +1,14 @@
+[Unit]
+Description=GABI DOU Ingestion Pipeline Timer
+Requires=gabi-ingest.service
+
+[Timer]
+# Run daily at 2:00 AM
+OnCalendar=*-*-* 02:00:00
+# If the system was off at the scheduled time, run immediately on boot
+Persistent=true
+# Randomize start time slightly to avoid thundering herd
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
