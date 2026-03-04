@@ -55,6 +55,7 @@ docker-compose.override.yml
 # Downloaded data (ZIPs, PDFs)
 data/
 !data/.gitkeep
+!data/dou_catalog_registry.json
 
 # Backup / temp
 *.bak
