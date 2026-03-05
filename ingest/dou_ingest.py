@@ -41,14 +41,14 @@ from ingest.html_extractor import (
     strip_html,
 )
 from ingest.html_extractor import _extract_signatures_precise as extract_signatures
-from ingest.multipart_merger import MergedArticle, group_and_merge
+from ingest.multipart_merger import MergedArticle, group_and_merge, merge_page_fragments
 from ingest.normalizer import (
     _canonicalize_content,
     _compute_natural_key_hash,
     normalize_pub_date,
     normalize_section,
 )
-from ingest.xml_parser import DOUArticle, INLabsXMLParser
+from ingest.xml_parser import DOUArticle, INLabsXMLParser, is_index_document, split_blob_acts
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +113,28 @@ def _guess_media_type(ext: str) -> str:
     """Guess MIME type from file extension."""
     mt = mimetypes.guess_type(f"file{ext}")[0]
     return mt or "application/octet-stream"
+
+
+def _media_name_from_ref(raw: str) -> str:
+    """Normalize image reference to a stable media_name."""
+    if not raw:
+        return ""
+    token = raw.strip().rsplit("/", 1)[-1].strip()
+    return re.sub(r"\.[A-Za-z0-9]{2,5}$", "", token)
+
+
+def _resolve_external_media_url(src: str | None) -> str | None:
+    """Resolve relative /images URLs to absolute in.gov.br URLs."""
+    if not src:
+        return None
+    ref = src.strip()
+    if not ref:
+        return None
+    if ref.startswith("http://") or ref.startswith("https://"):
+        return ref
+    if ref.startswith("/"):
+        return f"https://www.in.gov.br{ref}"
+    return None
 
 
 def _log(msg: str) -> None:
@@ -195,6 +217,31 @@ class DOUIngestor:
 
         # --- Merge multi-parts ---
         merged_articles = group_and_merge(parsed)
+
+        # --- Merge page fragments (Bug 3) ---
+        merged_articles = merge_page_fragments(merged_articles)
+
+        # --- Filter index docs (Bug 1) and expand blob docs (Bug 2) ---
+        filtered: list[MergedArticle] = []
+        for ma in merged_articles:
+            if is_index_document(ma.article):
+                _log(f"  skipping index doc {ma.base_id_materia}")
+                continue
+            # Try splitting blob docs into individual acts
+            segments = split_blob_acts(ma.article, base_id_materia=ma.base_id_materia)
+            if len(segments) > 1:
+                _log(f"  split blob {ma.base_id_materia} → {len(segments)} acts")
+                for seg in segments:
+                    filtered.append(MergedArticle(
+                        article=seg,
+                        xml_paths=ma.xml_paths,
+                        is_multipart=ma.is_multipart,
+                        part_count=ma.part_count,
+                        base_id_materia=seg.id_materia,
+                    ))
+            else:
+                filtered.append(ma)
+        merged_articles = filtered
 
         # --- ZIP metadata ---
         zip_sha = _sha256_file(zip_path)
@@ -360,11 +407,14 @@ class DOUIngestor:
         # --- Insert media (images) ---
         image_refs = extract_images(article.texto)
         for img_ref in image_refs:
-            img_path = image_lookup.get(img_ref.name)
+            ref_name = _media_name_from_ref(img_ref.name)
+            if not ref_name:
+                continue
+            img_path = image_lookup.get(ref_name)
             if img_path is None:
                 # Try with common extensions
                 for ext in (".jpg", ".jpeg", ".png"):
-                    candidate = image_lookup.get(img_ref.name)
+                    candidate = image_lookup.get(ref_name)
                     if candidate:
                         img_path = candidate
                         break
@@ -375,11 +425,30 @@ class DOUIngestor:
                 cur.execute("""
                     INSERT INTO dou.document_media (
                         document_id, media_name, media_type, file_extension,
-                        data, size_bytes, sequence_in_document, source_filename
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        data, size_bytes, sequence_in_document, source_filename, external_url
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
-                    doc_id, img_ref.name, media_type, ext,
-                    data, len(data), img_ref.sequence, img_path.name,
+                    doc_id, ref_name, media_type, ext,
+                    data, len(data), img_ref.sequence, img_path.name, None,
+                ))
+                counts["media"] += 1
+                continue
+
+            # Legacy DOU years often reference dynamic /images URLs without zip binaries.
+            external_url = _resolve_external_media_url(img_ref.source)
+            if external_url:
+                src_name = (img_ref.source or "").strip().rsplit("/", 1)[-1]
+                ext_raw = Path(src_name).suffix.lower() if src_name else ""
+                ext = ext_raw if ext_raw in _IMAGE_EXTENSIONS else ""
+                media_type = _guess_media_type(ext) if ext else "application/octet-stream"
+                cur.execute("""
+                    INSERT INTO dou.document_media (
+                        document_id, media_name, media_type, file_extension,
+                        data, size_bytes, sequence_in_document, source_filename, external_url
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    doc_id, ref_name, media_type, ext or None,
+                    None, None, img_ref.sequence, src_name or img_ref.source, external_url,
                 ))
                 counts["media"] += 1
 

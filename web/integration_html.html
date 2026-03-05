@@ -1,0 +1,449 @@
+<!--
+  GABI Search - Integration HTML Helpers
+  PerformancePolisher Agent - WCAG 2.1 AA Components
+  @version 2.0.0
+  
+  Instruções: Copiar estes elementos para o body do web/index.html
+-->
+
+<!-- ============================================================================
+     SKIP LINK (Primeiro elemento do body)
+     ============================================================================ -->
+<a href="#main-content" class="skip-link">Pular para o conteúdo principal</a>
+
+
+<!-- ============================================================================
+     ARIA LIVE REGIONS (após o skip-link)
+     ============================================================================ -->
+<!-- Região para anúncios de status de busca -->
+<div id="search-announcer" 
+     class="sr-only" 
+     role="status" 
+     aria-live="polite" 
+     aria-atomic="true">
+</div>
+
+<!-- Região para anúncios de carregamento -->
+<div id="loading-announcer" 
+     class="sr-only" 
+     role="alert" 
+     aria-live="assertive" 
+     aria-atomic="true">
+</div>
+
+
+<!-- ============================================================================
+     THEME TOGGLE (inserir na .brand, ao lado da tag)
+     ============================================================================ -->
+<button type="button" 
+        class="theme-toggle" 
+        id="theme-toggle"
+        aria-label="Alternar entre tema claro e escuro"
+        title="Alternar tema (Ctrl/Cmd + Shift + L)"
+        onclick="window.GABI_UTILS?.ThemeManager?.toggle()">
+  <span class="theme-toggle-indicator" aria-hidden="true">
+    <span class="theme-icon-light">☀</span>
+    <span class="theme-icon-dark">☾</span>
+  </span>
+  <span class="theme-toggle-sr">Alternar tema</span>
+</button>
+
+
+<!-- ============================================================================
+     SEARCH BAR COM ARIA LABELS (melhorias no input existente)
+     ============================================================================ -->
+<div class="searchbox" role="search" aria-label="Busca no DOU">
+  <label for="q" class="sr-only">Termo de busca</label>
+  <input id="q" 
+         class="searchbar" 
+         type="search"
+         placeholder="Ex: portarias do ministério da saúde em 2002" 
+         autocomplete="off"
+         aria-autocomplete="list"
+         aria-controls="autocomplete"
+         aria-expanded="false"
+         aria-describedby="search-hint"
+         enterkeyhint="search" />
+  <button id="go" 
+          class="btn" 
+          type="submit"
+          aria-label="Buscar">
+    Buscar
+  </button>
+  
+  <!-- Dica de atalho de teclado -->
+  <span id="search-hint" class="sr-only">
+    Use Ctrl+K para focar a busca. Use as setas para navegar nas sugestões.
+  </span>
+  
+  <!-- Autocomplete com roles -->
+  <div id="autocomplete" 
+       class="autocomplete"
+       role="listbox"
+       aria-label="Sugestões de busca">
+  </div>
+</div>
+
+
+<!-- ============================================================================
+     FILTROS COM LABELS EXPLÍCITOS
+     ============================================================================ -->
+<aside class="panel" role="complementary" aria-label="Filtros de busca">
+  <h3 id="filters-heading">Filtros</h3>
+  
+  <div class="field">
+    <label for="section">Seção do DOU</label>
+    <select id="section" 
+            aria-describedby="section-help">
+      <option value="">Todas as seções</option>
+      <option value="do1">DO1 — Normativos</option>
+      <option value="do2">DO2 — Pessoal</option>
+      <option value="do3">DO3 — Licitações</option>
+    </select>
+    <span id="section-help" class="sr-only">
+      Selecione uma seção específica do Diário Oficial
+    </span>
+  </div>
+  
+  <div class="field">
+    <label for="type">Tipo de ato</label>
+    <select id="type" 
+            aria-describedby="type-help">
+      <option value="">Todos os tipos</option>
+    </select>
+    <span id="type-help" class="sr-only">
+      Filtrar por tipo de ato normativo
+    </span>
+  </div>
+  
+  <div class="field">
+    <fieldset>
+      <legend>Período de publicação</legend>
+      <div class="inline">
+        <div>
+          <label for="dfrom" class="sr-only">Data inicial</label>
+          <input id="dfrom" 
+                 type="date" 
+                 aria-label="Data inicial"
+                 placeholder="Data inicial" />
+        </div>
+        <div>
+          <label for="dto" class="sr-only">Data final</label>
+          <input id="dto" 
+                 type="date" 
+                 aria-label="Data final"
+                 placeholder="Data final" />
+        </div>
+      </div>
+    </fieldset>
+  </div>
+  
+  <div class="field">
+    <label for="sortLocal">Ordenar resultados</label>
+    <select id="sortLocal" aria-describedby="sort-help">
+      <option value="relevance">Relevância</option>
+      <option value="date_desc">Data (mais recente)</option>
+      <option value="date_asc">Data (mais antiga)</option>
+    </select>
+    <span id="sort-help" class="sr-only">
+      Escolha a ordem de exibição dos resultados
+    </span>
+  </div>
+</aside>
+
+
+<!-- ============================================================================
+     MAIN CONTENT AREA COM ID PARA SKIP LINK
+     ============================================================================ -->
+<main id="main-content" 
+      class="panel" 
+      role="main"
+      aria-label="Resultados da busca">
+  
+  <!-- Status de resultados -->
+  <div class="results-head">
+    <div id="meta" 
+         class="meta" 
+         role="status" 
+         aria-live="polite"
+         aria-atomic="true">
+      Pronto para buscar.
+    </div>
+    <div class="meta" id="backend"></div>
+  </div>
+  
+  <!-- Container de resultados -->
+  <div id="list" 
+       class="list" 
+       role="feed" 
+       aria-label="Lista de documentos"
+       aria-busy="false">
+  </div>
+  
+  <!-- Paginação -->
+  <nav class="pager" role="navigation" aria-label="Paginação de resultados">
+    <button id="prev" 
+            aria-label="Página anterior"
+            disabled>
+      ← Anterior
+    </button>
+    <button id="next" 
+            aria-label="Próxima página"
+            disabled>
+      Próxima →
+    </button>
+  </nav>
+  
+  <!-- Visualizador de documento -->
+  <section id="viewer" 
+           class="viewer"
+           role="article"
+           aria-label="Documento selecionado"
+           tabindex="-1">
+    
+    <!-- Toolbar do documento -->
+    <div class="doc-toolbar" role="toolbar" aria-label="Ações do documento">
+      <button type="button" 
+              class="doc-action"
+              onclick="window.GABI_UTILS?.copyToClipboard?.(document.getElementById('docTitle')?.textContent + ' - ' + window.location.href)"
+              aria-label="Copiar link do documento">
+        <span aria-hidden="true">🔗</span> Copiar link
+      </button>
+      <button type="button" 
+              class="doc-action"
+              onclick="window.printDocument?.()"
+              aria-label="Imprimir documento">
+        <span aria-hidden="true">🖨</span> Imprimir
+      </button>
+      <button type="button" 
+              class="doc-action"
+              onclick="window.GABI_UTILS?.shareDocument?.({title: document.getElementById('docTitle')?.textContent, url: window.location.href})"
+              aria-label="Compartilhar documento">
+        <span aria-hidden="true">↗</span> Compartilhar
+      </button>
+    </div>
+    
+    <h2 id="docTitle" class="doc-title"></h2>
+    <div id="docMeta" class="doc-meta"></div>
+    <div id="docBody" class="doc-body"></div>
+  </section>
+</main>
+
+
+<!-- ============================================================================
+     KEYBOARD SHORTCUTS HELP (modal opcional)
+     ============================================================================ -->
+<div id="shortcuts-help" 
+     class="shortcuts-modal" 
+     role="dialog" 
+     aria-modal="true"
+     aria-labelledby="shortcuts-title"
+     hidden>
+  <div class="shortcuts-content">
+    <h2 id="shortcuts-title">Atalhos de teclado</h2>
+    <button type="button" 
+            class="close-modal" 
+            aria-label="Fechar"
+            onclick="document.getElementById('shortcuts-help').hidden = true">
+      ×
+    </button>
+    
+    <dl class="shortcuts-list">
+      <dt><kbd>Ctrl</kbd> + <kbd>K</kbd></dt>
+      <dd>Focar campo de busca</dd>
+      
+      <dt><kbd>Esc</kbd></dt>
+      <dd>Fechar autocomplete / cancelar</dd>
+      
+      <dt><kbd>↑</kbd> <kbd>↓</kbd></dt>
+      <dd>Navegar nas sugestões</dd>
+      
+      <dt><kbd>Tab</kbd></dt>
+      <dd>Selecionar sugestão e buscar</dd>
+      
+      <dt><kbd>Enter</kbd></dt>
+      <dd>Buscar / Selecionar</dd>
+    </dl>
+  </div>
+</div>
+
+
+<!-- ============================================================================
+     FOOTER COM INFO ADICIONAL (opcional, após o wrap)
+     ============================================================================ -->
+<footer class="site-footer" role="contentinfo">
+  <p>
+    GABI Search • Diário Oficial da União • 
+    <button type="button" 
+            class="link-button"
+            onclick="document.getElementById('shortcuts-help').hidden = false">
+      Atalhos de teclado
+    </button>
+  </p>
+</footer>
+
+
+<!-- ============================================================================
+     CSS ADICIONAL INLINE PARA COMPONENTES DE ACESSIBILIDADE
+     (inserir no <style> existente ou no novo CSS)
+     ============================================================================ -->
+<style>
+  /* Toolbar do documento */
+  .doc-toolbar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+    flex-wrap: wrap;
+  }
+  
+  .doc-action {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 14px;
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  
+  .doc-action:hover,
+  .doc-action:focus-visible {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: #ffffff40;
+    transform: translateY(-1px);
+  }
+  
+  [data-theme="light"] .doc-action {
+    background: rgba(0, 0, 0, 0.04);
+  }
+  
+  [data-theme="light"] .doc-action:hover,
+  [data-theme="light"] .doc-action:focus-visible {
+    background: rgba(0, 0, 0, 0.08);
+  }
+  
+  /* Modal de atalhos */
+  .shortcuts-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 20px;
+  }
+  
+  .shortcuts-modal[hidden] {
+    display: none;
+  }
+  
+  .shortcuts-content {
+    background: var(--bg-soft);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 24px;
+    max-width: 400px;
+    width: 100%;
+    position: relative;
+  }
+  
+  .shortcuts-content h2 {
+    margin: 0 0 20px;
+    font-size: 20px;
+  }
+  
+  .close-modal {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 24px;
+    cursor: pointer;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    transition: all 0.2s;
+  }
+  
+  .close-modal:hover,
+  .close-modal:focus-visible {
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.1);
+  }
+  
+  .shortcuts-list {
+    margin: 0;
+  }
+  
+  .shortcuts-list dt {
+    margin-top: 12px;
+    font-weight: 600;
+  }
+  
+  .shortcuts-list dd {
+    margin: 4px 0 0;
+    color: var(--muted);
+  }
+  
+  .shortcuts-list kbd {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-family: monospace;
+    font-size: 13px;
+  }
+  
+  /* Footer */
+  .site-footer {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  
+  .link-button {
+    background: none;
+    border: none;
+    color: var(--accent);
+    cursor: pointer;
+    text-decoration: underline;
+    font-size: inherit;
+    padding: 0;
+  }
+  
+  .link-button:hover,
+  .link-button:focus-visible {
+    color: var(--accent-2);
+  }
+  
+  /* Fieldset styling */
+  fieldset {
+    border: none;
+    padding: 0;
+    margin: 0;
+  }
+  
+  legend {
+    font-size: 12px;
+    color: #b8c5de;
+    margin-bottom: 6px;
+    display: block;
+  }
+  
+  [data-theme="light"] legend {
+    color: #475569;
+  }
+</style>

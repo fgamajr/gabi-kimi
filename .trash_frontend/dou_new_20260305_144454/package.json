@@ -1,0 +1,35 @@
+{
+  "name": "dou_new",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.90.21",
+    "@tanstack/react-query-devtools": "^5.91.3",
+    "@tanstack/react-virtual": "^3.13.19",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.35.0",
+    "lucide-react": "^0.577.0",
+    "next": "14.2.35",
+    "react": "^18",
+    "react-dom": "^18",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "zustand": "^5.0.11"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.35",
+    "postcss": "^8",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5"
+  }
+}

@@ -3,6 +3,8 @@
 Endpoints:
   GET  /api/search?q=...&max=20&page=1&date_from=...&date_to=...&section=...&art_type=...
   GET  /api/suggest?q=...            (autocomplete from BM25 terms)
+  GET  /api/top-searches?n=10&period=day|week
+  GET  /api/search-examples?n=8
   GET  /api/document/{doc_id}        (full document by UUID)
   GET  /api/stats                    (database + BM25 statistics)
   GET  /api/types                    (distinct art_type values)
@@ -27,9 +29,18 @@ import psycopg2.extras
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+
+from mcp_server import (
+    SEARCH_CFG,
+    search_examples_payload,
+    search_payload,
+    stats_payload,
+    suggest_payload,
+    top_searches_payload,
+)
 
 load_dotenv()
 
@@ -49,7 +60,10 @@ DASHSCOPE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completi
 QWEN_API_KEY = os.getenv("QWEN_API_KEY", "")
 QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen-plus")
 
-WEB_DIR = Path(__file__).parent / "web"
+# Try new frontend first, fallback to old
+_NEW_WEB_DIR = Path(__file__).parent / "dou_new" / "dist"
+_OLD_WEB_DIR = Path(__file__).parent / "web"
+WEB_DIR = _NEW_WEB_DIR if _NEW_WEB_DIR.exists() else _OLD_WEB_DIR
 
 # ---------------------------------------------------------------------------
 # App
@@ -112,92 +126,20 @@ def api_search(
     art_type: str | None = None,
     issuing_organ: str | None = None,
 ):
-    """BM25 search with pagination and filters. q='*' = browse with filters only."""
-    # Normalize fancy/smart quotes to straight quotes for phrase search
-    q = q.replace("\u201c", '"').replace("\u201d", '"').replace("\u2018", "'").replace("\u2019", "'")
-    offset_results = max * page
-
-    conn = _conn()
+    """Search with backend adapter (pg/es). q='*' = browse with filters only."""
     try:
-        cur = conn.cursor()
-
-        # Smart detection: if query matches a known organ or type, auto-redirect
-        # to browse mode (instant btree filter instead of slow BM25 text search)
-        if q.strip() != '*' and not issuing_organ and not art_type:
-            cur.execute(
-                "SELECT cat, term FROM dou.suggest_cache "
-                "WHERE cat IN ('orgao','tipo') AND term = %s LIMIT 1",
-                (q.strip(),),
-            )
-            match = cur.fetchone()
-            if match:
-                cat, term = match
-                if cat == 'orgao':
-                    issuing_organ = term
-                    q = '*'
-                elif cat == 'tipo':
-                    art_type = term
-                    q = '*'
-
-        # Browse mode: q='*' means no text search, just filter
-        if q.strip() == '*':
-            where_parts = ["1=1"]
-            params_list: list = []
-            if date_from:
-                where_parts.append("e.publication_date >= %s::date")
-                params_list.append(date_from)
-            if date_to:
-                where_parts.append("e.publication_date <= %s::date")
-                params_list.append(date_to)
-            if section:
-                where_parts.append("e.section = %s")
-                params_list.append(section)
-            if art_type:
-                where_parts.append("d.art_type = %s")
-                params_list.append(art_type)
-            if issuing_organ:
-                where_parts.append("d.issuing_organ = %s")
-                params_list.append(issuing_organ)
-
-            sql = f"""
-                SELECT d.id AS doc_id, 0.0 AS score, d.identifica, d.ementa,
-                       d.art_type, e.publication_date AS pub_date,
-                       e.section AS edition_section,
-                       left(d.body_plain, 200) AS snippet
-                FROM dou.document d
-                JOIN dou.edition e ON e.id = d.edition_id
-                WHERE {' AND '.join(where_parts)}
-                ORDER BY e.publication_date DESC
-                LIMIT %s
-            """
-            params_list.append(offset_results)
-            cur.execute(sql, params_list)
-        else:
-            cur.execute(
-                "SELECT doc_id, score, identifica, ementa, art_type, "
-                "pub_date, edition_section, snippet "
-                "FROM dou.bm25_search_filtered(%s, %s, %s, %s, %s, %s, %s)",
-                (q, offset_results, date_from, date_to, section, art_type, issuing_organ),
-            )
-
-        all_rows = _rows(cur)
-        cur.close()
-    finally:
-        conn.close()
-
-    start = (page - 1) * max
-    page_rows = all_rows[start : start + max]
-
-    return {
-        "query": q,
-        "total": len(all_rows),
-        "page": page,
-        "page_size": max,
-        "results": [
-            {k: _ser(v) for k, v in r.items()}
-            for r in page_rows
-        ],
-    }
+        return search_payload(
+            query=q,
+            max_results=max,
+            page=page,
+            date_from=date_from,
+            date_to=date_to,
+            section=section,
+            art_type=art_type,
+            issuing_organ=issuing_organ,
+        )
+    except Exception as ex:
+        raise HTTPException(503, f"Search backend unavailable ({SEARCH_CFG.backend}): {type(ex).__name__}")
 
 
 # ---------------------------------------------------------------------------
@@ -206,34 +148,75 @@ def api_search(
 
 @app.get("/api/suggest")
 def api_suggest(q: str = Query(..., min_length=2)):
-    """Fast autocomplete from pre-aggregated suggest_cache (organs + types + titles)."""
-    conn = _conn(timeout_ms=5000)
     try:
-        cur = conn.cursor()
-        pattern = f"%{q}%"
+        return suggest_payload(query=q, limit=10)
+    except Exception as ex:
+        raise HTTPException(503, f"Suggest backend unavailable ({SEARCH_CFG.backend}): {type(ex).__name__}")
 
-        # Single query on materialized view (~61K rows — instant ILIKE)
-        cur.execute("""
-            SELECT cat, term, cnt
-            FROM dou.suggest_cache
-            WHERE term ILIKE %s
-            ORDER BY cnt DESC
-            LIMIT 10
-        """, (pattern,))
 
-        suggestions: list[dict] = []
+@app.get("/api/autocomplete")
+def api_autocomplete(
+    q: str = Query(..., min_length=1),
+    n: int = Query(10, ge=1, le=20),
+):
+    """Autocomplete for search textbox (ES/PG base + popularity blending)."""
+    try:
+        base = suggest_payload(query=q, limit=n)
+        rows = base.get("suggestions", [])
+        terms: list[str] = []
         seen: set[str] = set()
-        for cat, term, cnt in cur.fetchall():
-            key = term.strip().lower()
-            if key not in seen:
-                suggestions.append({"term": term.strip(), "doc_freq": cnt, "cat": cat})
+        for row in rows:
+            term = str(row.get("term", "")).strip()
+            key = term.casefold()
+            if not term or key in seen:
+                continue
+            seen.add(key)
+            terms.append(term)
+            if len(terms) >= n:
+                break
+
+        # If still short, use top queries as fallback filtered by prefix.
+        if len(terms) < n:
+            top = top_searches_payload(period="week", n=max(20, n * 3)).get("items", [])
+            qnorm = q.casefold().strip()
+            for row in top:
+                term = str(row.get("term", "")).strip()
+                key = term.casefold()
+                if not term or key in seen:
+                    continue
+                if qnorm and not key.startswith(qnorm):
+                    continue
                 seen.add(key)
+                terms.append(term)
+                if len(terms) >= n:
+                    break
 
-        cur.close()
-    finally:
-        conn.close()
+        return {
+            "prefix": q,
+            "items": terms,
+            "backend": SEARCH_CFG.backend,
+        }
+    except Exception as ex:
+        raise HTTPException(503, f"Autocomplete unavailable ({SEARCH_CFG.backend}): {type(ex).__name__}")
 
-    return {"prefix": q, "suggestions": suggestions}
+
+@app.get("/api/top-searches")
+def api_top_searches(
+    n: int = Query(10, ge=1, le=30),
+    period: str = Query("day", pattern="^(day|week)$"),
+):
+    try:
+        return top_searches_payload(period=period, n=n)
+    except Exception as ex:
+        raise HTTPException(503, f"Top searches unavailable: {type(ex).__name__}")
+
+
+@app.get("/api/search-examples")
+def api_search_examples(n: int = Query(8, ge=1, le=20)):
+    try:
+        return search_examples_payload(n=n)
+    except Exception as ex:
+        raise HTTPException(503, f"Search examples unavailable: {type(ex).__name__}")
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +234,8 @@ def api_document(doc_id: str):
                    d.art_category, d.identifica, d.ementa, d.titulo,
                    d.sub_titulo, d.body_plain, d.body_html,
                    d.document_number, d.document_year, d.issuing_organ,
-                   d.page_number, d.body_word_count,
+                   d.page_number,
+                   COALESCE(array_length(regexp_split_to_array(trim(d.body_plain), E'\\s+'), 1), 0) AS body_word_count,
                    e.publication_date, e.edition_number, e.section, e.is_extra
             FROM dou.document d
             JOIN dou.edition e ON e.id = d.edition_id
@@ -298,14 +282,16 @@ def api_document(doc_id: str):
         # Media list (names only, images served separately)
         cur.execute("""
             SELECT media_name, media_type, file_extension, size_bytes,
+                   source_filename, external_url,
                    sequence_in_document
             FROM dou.document_media WHERE document_id = %s::uuid
             ORDER BY sequence_in_document
         """, (doc_id,))
-        doc["media"] = [
-            {k: _ser(v) for k, v in r.items()}
-            for r in _rows(cur)
-        ]
+        media_rows = [{k: _ser(v) for k, v in r.items()} for r in _rows(cur)]
+        for item in media_rows:
+            media_name = str(item.get("media_name", "")).strip()
+            item["blob_url"] = f"/api/media/{doc_id}/{media_name}" if media_name else None
+        doc["media"] = media_rows
 
         cur.close()
     finally:
@@ -320,13 +306,12 @@ def api_document(doc_id: str):
 
 @app.get("/api/stats")
 def api_stats():
-    """BM25 + DB stats."""
+    """Search + DB stats."""
     conn = _conn()
     try:
         cur = conn.cursor()
-
-        cur.execute("SELECT * FROM dou.v_bm25_stats")
-        bm25 = dict(zip([d[0] for d in cur.description], cur.fetchone())) if cur.description else {}
+        payload = stats_payload()
+        search_stats = payload.get("search", {})
 
         cur.execute("SELECT pg_size_pretty(pg_database_size('gabi'))")
         db_size = cur.fetchone()[0]
@@ -348,11 +333,14 @@ def api_stats():
         conn.close()
 
     return {
+        "search_backend": SEARCH_CFG.backend,
         "db_size": db_size,
-        "total_docs": bm25.get("total_docs"),
-        "vocabulary_size": bm25.get("vocabulary_size"),
-        "avg_doc_length": bm25.get("avg_doc_length"),
-        "refreshed_at": str(bm25.get("refreshed_at", "")),
+        "total_docs": search_stats.get("total_docs"),
+        "vocabulary_size": search_stats.get("vocabulary_size"),
+        "avg_doc_length": search_stats.get("avg_doc_length"),
+        "refreshed_at": str(search_stats.get("refreshed_at", "")),
+        "search_index": search_stats.get("index"),
+        "cluster_status": search_stats.get("cluster_status"),
         "date_min": dmin.isoformat() if dmin else None,
         "date_max": dmax.isoformat() if dmax else None,
         "zip_count": zip_count,
@@ -818,21 +806,24 @@ async def api_chat(req: ChatRequest, request: Request):
 # API — Media (serve document images)
 # ---------------------------------------------------------------------------
 
-from fastapi.responses import Response
-
 
 @app.get("/api/media/{doc_id}/{media_name}")
 def api_media(doc_id: str, media_name: str):
-    """Serve a document image (JPEG/PNG) from bytea storage."""
+    """Serve media from bytea storage or redirect to legacy external URL."""
     conn = _conn(timeout_ms=10000)
     try:
         cur = conn.cursor()
         cur.execute("""
-            SELECT data, media_type
+            SELECT data, media_type, external_url
             FROM dou.document_media
-            WHERE document_id = %s::uuid AND media_name = %s
+            WHERE document_id = %s::uuid
+              AND (
+                    media_name = %s
+                 OR source_filename = %s
+                 OR media_name = regexp_replace(%s, E'\\.[^\\.]+$', '')
+              )
             LIMIT 1
-        """, (doc_id, media_name))
+        """, (doc_id, media_name, media_name, media_name))
         row = cur.fetchone()
         cur.close()
     finally:
@@ -841,7 +832,12 @@ def api_media(doc_id: str, media_name: str):
     if not row:
         raise HTTPException(404, "Imagem não encontrada")
 
-    data, media_type = row
+    data, media_type, external_url = row
+    if data is None:
+        if external_url:
+            return RedirectResponse(url=external_url, status_code=307)
+        raise HTTPException(404, "Imagem não disponível")
+
     return Response(
         content=bytes(data),
         media_type=media_type or "image/jpeg",
@@ -853,8 +849,15 @@ def api_media(doc_id: str, media_name: str):
 # Static files — serve frontend
 # ---------------------------------------------------------------------------
 
+# SPA fallback: serve index.html for non-API routes
 @app.get("/")
 def index():
+    return FileResponse(WEB_DIR / "index.html")
+
+
+@app.get("/doc/{path:path}")
+def doc_page(path: str):
+    """Serve SPA for document pages."""
     return FileResponse(WEB_DIR / "index.html")
 
 

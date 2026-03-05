@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ingest.xml_parser import DOUArticle
+from ingest.xml_parser import DOUArticle, is_page_fragment
 
 
 # ---------------------------------------------------------------------------
@@ -178,5 +178,71 @@ def group_and_merge(
         else:
             # Multi-part → merge
             result.append(_merge_articles(base_id, parts))
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Page-fragment merging (Bug 3: page-break continuations)
+# ---------------------------------------------------------------------------
+
+def merge_page_fragments(articles: list[MergedArticle]) -> list[MergedArticle]:
+    """Merge page-fragment documents into their preceding parent article.
+
+    INLabs' PDF-to-XML converter sometimes creates a new ``<article>``
+    element at a page break.  These fragments have garbage ``artType``
+    values and their content is a continuation of the previous article.
+
+    The merge appends the fragment's ``texto`` (HTML body) to the
+    preceding non-fragment article.  The fragment is then dropped.
+
+    Articles must be sortable by ``base_id_materia`` so that fragments
+    appear right after their parent in the sequence.
+    """
+    if not articles:
+        return articles
+
+    # Sort by base_id_materia to get page order
+    sorted_articles = sorted(articles, key=lambda ma: ma.base_id_materia)
+
+    result: list[MergedArticle] = []
+    merged_count = 0
+
+    for ma in sorted_articles:
+        if is_page_fragment(ma.article) and result:
+            # Merge into the preceding article
+            parent = result[-1]
+            parent_texto = (parent.article.texto or "").rstrip()
+            frag_texto = (ma.article.texto or "").strip()
+            if frag_texto:
+                merged_texto = parent_texto + "\n" + frag_texto
+
+                # Rebuild parent article with merged texto
+                pa = parent.article
+                merged_article = DOUArticle(
+                    id=pa.id, id_materia=pa.id_materia, id_oficio=pa.id_oficio,
+                    name=pa.name, pub_name=pa.pub_name, pub_date=pa.pub_date,
+                    edition_number=pa.edition_number, number_page=pa.number_page,
+                    pdf_page=pa.pdf_page, art_type=pa.art_type,
+                    art_category=pa.art_category, art_class=pa.art_class,
+                    art_size=pa.art_size, art_notes=pa.art_notes,
+                    highlight_type=pa.highlight_type,
+                    highlight_priority=pa.highlight_priority,
+                    highlight=pa.highlight, highlight_image=pa.highlight_image,
+                    highlight_image_name=pa.highlight_image_name,
+                    identifica=pa.identifica, data=pa.data, ementa=pa.ementa,
+                    titulo=pa.titulo, sub_titulo=pa.sub_titulo,
+                    texto=merged_texto,
+                )
+                result[-1] = MergedArticle(
+                    article=merged_article,
+                    xml_paths=parent.xml_paths + ma.xml_paths,
+                    is_multipart=parent.is_multipart,
+                    part_count=parent.part_count,
+                    base_id_materia=parent.base_id_materia,
+                )
+            merged_count += 1
+        else:
+            result.append(ma)
 
     return result
