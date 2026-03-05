@@ -1,0 +1,14 @@
+[Unit]
+Description=GABI DOU Daily Sync Timer
+Requires=gabi-sync@%i.service
+
+[Timer]
+# Run daily at 06:00 (DOU is usually published early morning)
+OnCalendar=*-*-* 06:00:00
+# Catch up if machine was off at scheduled time
+Persistent=true
+# Spread start time randomly within 15 min to avoid hammering INLabs
+RandomizedDelaySec=900
+
+[Install]
+WantedBy=timers.target
