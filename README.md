@@ -38,31 +38,40 @@ pip install fastapi uvicorn[standard] httpx psycopg2-binary python-dotenv pydant
 ### Subir o banco
 
 ```bash
-python3 infra/infra_manager.py up       # PostgreSQL 16 na porta 5433
-python3 infra/infra_manager.py status   # Verificar saúde
+python3 infra/infra_manager.py up       # PostgreSQL 16 (:5433) + Elasticsearch (:9200) + Redis (:6380)
+python3 infra/infra_manager.py status   # Verificar saúde dos serviços
 ```
 
 ### Criar schema
 
 ```bash
+# Pipeline temporal append-only (registry.*), usado por bulk/sync
+PGPASSWORD=gabi psql -h localhost -p 5433 -U gabi -d gabi -f dbsync/registry_schema.sql
+
+# Schema DOU relacional (dou.*), usado por ingest.dou_ingest
 PGPASSWORD=gabi psql -h localhost -p 5433 -U gabi -d gabi -f dbsync/dou_schema.sql
+
+# BM25 sobre dou.*
 PGPASSWORD=gabi psql -h localhost -p 5433 -U gabi -d gabi -f dbsync/bm25_schema.sql
 ```
 
 ### Ingestão
 
 ```bash
-# Sync completo (descobre novos ZIPs, baixa, ingere)
+# Sync completo (descobre novos ZIPs, baixa, ingere em registry.*)
 python3 -m ingest.sync_pipeline --refresh-catalog
 
-# Ou: últimos N dias (teste rápido)
+# Ou: últimos N dias (registry.*)
 python3 -m ingest.bulk_pipeline --days 30
 
-# Ou: período específico
+# Ou: período específico (registry.*)
 python3 -m ingest.bulk_pipeline --start 2024-01-01 --end 2024-12-31
 
 # Ou: parse-only (sem DB, só validação)
 python3 -m ingest.bulk_pipeline --days 7 --parse-only
+
+# Para preencher dou.* a partir de ZIPs já baixados:
+python3 -m ingest.dou_ingest --data-dir data/inlabs
 ```
 
 ### BM25 e Autocomplete
@@ -77,6 +86,19 @@ python3 -m ingest.bm25_indexer refresh
 # Refresh suggest cache (autocomplete)
 PGPASSWORD=gabi psql -h localhost -p 5433 -U gabi -d gabi \
   -c "REFRESH MATERIALIZED VIEW CONCURRENTLY dou.suggest_cache;"
+```
+
+### Elasticsearch (backfill + sync)
+
+```bash
+# Criar índice + backfill completo (a partir de dou.document)
+python3 -m ingest.es_indexer backfill --recreate-index
+
+# Sync incremental (somente documentos novos)
+python3 -m ingest.es_indexer sync
+
+# Estatísticas/paridade PG x ES
+python3 -m ingest.es_indexer stats
 ```
 
 ### Web Server
@@ -234,6 +256,14 @@ python3 -m ingest.bm25_indexer search "licitação pregão" \
 python3 -m ingest.bm25_indexer stats
 ```
 
+## Plano Elasticsearch
+
+Migração planejada e faseada para Elasticsearch (com rollback para PG BM25):
+
+- Ver plano: `CODEX-ELASTIC-PLAN.MD`
+- Estratégia: PostgreSQL continua como fonte canônica; Elasticsearch vira engine de busca
+- Rollback: `SEARCH_BACKEND=pg`
+
 ---
 
 ## Testes
@@ -271,6 +301,23 @@ PG_PASSWORD=gabi
 DASHSCOPE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions
 QWEN_API_KEY=sk-xxx
 QWEN_MODEL=qwen-plus
+
+# Search backend (migração para Elasticsearch)
+SEARCH_BACKEND=pg
+ES_URL=http://localhost:9200
+ES_INDEX=gabi_documents_v1
+ES_ALIAS=gabi_documents
+ES_USERNAME=
+ES_PASSWORD=
+ES_VERIFY_TLS=false
+
+# Redis (autocomplete cache + top searches)
+REDIS_URL=redis://localhost:6380/0
+REDIS_PREFIX=gabi
+SEARCH_ANALYTICS_ENABLED=true
+TOP_SEARCH_MIN_QUERY_LEN=3
+TOP_SEARCH_MAX_QUERY_LEN=120
+SUGGEST_CACHE_TTL_SEC=120
 ```
 
 ---
@@ -278,7 +325,7 @@ QWEN_MODEL=qwen-plus
 ## Infraestrutura
 
 ```bash
-python3 infra/infra_manager.py up        # Subir PostgreSQL (porta 5433)
+python3 infra/infra_manager.py up        # Subir PostgreSQL + Elasticsearch + Redis
 python3 infra/infra_manager.py status    # Verificar container e DB
 python3 infra/infra_manager.py down      # Parar
 python3 infra/infra_manager.py reset_db  # Wipe DB (destrutivo!)
@@ -332,7 +379,7 @@ O dump inclui schema, dados, indexes, views materializadas e funções BM25. Os 
 
 ## Roadmap
 
-- [ ] **Elasticsearch** — substituir BM25 caseiro por ES (melhor relevância, highlighting, aggregations)
+- [ ] **Elasticsearch** — executar `CODEX-ELASTIC-PLAN.MD` (fases 1-6)
 - [ ] **Deploy cloud** — Fly.io ou outro provider (PG + Web + ES)
 - [ ] **CRSS-1 sealing** — `--seal` no pipeline para audit trail criptográfico
 - [ ] **Frontend** — paginação infinita, dark mode, mobile responsive

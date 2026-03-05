@@ -359,9 +359,15 @@ cat data/dou_catalog_registry.json | jq '.folder_ids | keys[-5:]'
 
 - [ ] Multi-source ingestion (other official gazettes)
 - [ ] NLP enrichment (entity extraction, topic modeling)
-- [ ] Search index (Elasticsearch/Meilisearch)
+- [ ] Search index (Elasticsearch) — follow `CODEX-ELASTIC-PLAN.MD`
 - [ ] Data export (CSV, JSON, RDF)
 - [ ] Blockchain anchoring
+
+### Elasticsearch Migration Plan
+
+Execution plan for replacing BM25-based search with Elasticsearch is tracked in:
+
+- `CODEX-ELASTIC-PLAN.MD`
 
 ## Development
 

@@ -33,8 +33,9 @@ class Signature:
 
 @dataclass(slots=True)
 class ImageRef:
-    """An image reference extracted from ``<img name="...">``."""
-    name: str           # e.g. "1_MPESCA_27_001" (no extension)
+    """An image reference extracted from ``<img ...>`` tags."""
+    name: str           # e.g. "1_MPESCA_27_001" (usually no extension)
+    source: str | None  # original src/name payload from HTML tag
     sequence: int
 
 
@@ -70,7 +71,7 @@ class _SignatureImageParser(HTMLParser):
 
         self.raw_assina: list[str] = []
         self.raw_cargo: list[str] = []
-        self.images: list[str] = []
+        self.images: list[tuple[str, str | None]] = []
 
     # -- handlers --
 
@@ -79,8 +80,15 @@ class _SignatureImageParser(HTMLParser):
 
         if tag == "img":
             name = attr_dict.get("name", "")
+            src = attr_dict.get("src")
             if name:
-                self.images.append(name)
+                self.images.append((name.strip(), src.strip() if src else None))
+                return
+            if src:
+                src_clean = src.strip()
+                inferred = src_clean.rsplit("/", 1)[-1]
+                if inferred:
+                    self.images.append((inferred, src_clean))
             return
 
         if tag == "p":
@@ -163,19 +171,33 @@ def _extract_signatures_precise(html: str) -> list[Signature]:
     if not html:
         return []
 
-    # Find all <p class="assina">...</p> and <p class="cargo">...</p>
-    # in document order.
+    # Find all <p> tags whose class contains "assina" or "cargo".
+    # Handles both single/double quotes and extra CSS classes like "assina pdf-RIGHT".
     pattern = re.compile(
-        r'<p\s+class="(assina|cargo)"[^>]*>(.*?)</p>',
+        r"""<p\s+class=['"]([^'"]*\b(?:assina|cargo)\b[^'"]*)['"][^>]*>(.*?)</p>""",
         re.IGNORECASE | re.DOTALL,
     )
 
     events: list[tuple[str, str]] = []
     for m in pattern.finditer(html):
-        cls = m.group(1).lower()
-        text = re.sub(r'<[^>]+>', '', m.group(2)).strip()
-        if text:
-            events.append((cls, text))
+        cls_str = m.group(1).lower()
+        # Extract which type matched (assina or cargo) from the full class string
+        cls = "assina" if "assina" in cls_str else "cargo"
+        raw = m.group(2)
+        # Handle <br>-separated name/role in a single assina tag:
+        # <p class='assina'>NAME<br>Role</p> → assina=NAME + cargo=Role
+        if cls == "assina" and re.search(r'<br\s*/?\s*>', raw, re.IGNORECASE):
+            parts = re.split(r'<br\s*/?\s*>', raw, maxsplit=1)
+            name = re.sub(r'<[^>]+>', '', parts[0]).strip()
+            role = re.sub(r'<[^>]+>', '', parts[1]).strip() if len(parts) > 1 else ""
+            if name:
+                events.append(("assina", name))
+            if role:
+                events.append(("cargo", role))
+        else:
+            text = re.sub(r'<[^>]+>', '', raw).strip()
+            if text:
+                events.append((cls, text))
 
     signatures: list[Signature] = []
     seq = 0
@@ -204,7 +226,7 @@ def _extract_signatures_precise(html: str) -> list[Signature]:
 
 
 def extract_images(html: str) -> list[ImageRef]:
-    """Extract image references from ``<img name="...">`` tags."""
+    """Extract image references from ``<img ...>`` tags."""
     if not html:
         return []
 
@@ -212,8 +234,8 @@ def extract_images(html: str) -> list[ImageRef]:
     parser.feed(html)
 
     return [
-        ImageRef(name=name, sequence=i + 1)
-        for i, name in enumerate(parser.images)
+        ImageRef(name=name, source=src, sequence=i + 1)
+        for i, (name, src) in enumerate(parser.images)
     ]
 
 
@@ -451,11 +473,25 @@ def extract_issuing_organ(art_category: str) -> str:
     ``art_category`` is a slash-delimited organizational path, e.g.:
         "Ministério da Educação/Gabinete do Ministro"
     Returns the first segment: "Ministério da Educação".
+
+    Handles INLabs quirk where a comma precedes the slash, splitting one
+    organ name across segments, e.g.:
+        "Ministério da Agricultura,/Pecuária e Abastecimento/..."
+    → "Ministério da Agricultura, Pecuária e Abastecimento"
     """
     if not art_category:
         return ""
     parts = [p.strip() for p in art_category.split("/") if p.strip()]
-    return parts[0] if parts else ""
+    if not parts:
+        return ""
+    # Rejoin segments that were split by comma-slash
+    result = parts[0]
+    for i in range(1, len(parts)):
+        if result.endswith(","):
+            result += " " + parts[i]
+        else:
+            break
+    return result
 
 
 # ---------------------------------------------------------------------------

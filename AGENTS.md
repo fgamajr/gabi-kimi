@@ -1,197 +1,373 @@
-# Repository Guidelines
+# AGENTS.md — Guia para Agentes de Codificação
 
-## Project Overview
+> Arquivo de referência para agentes de IA que trabalham no projeto GABI.
+> Leia este arquivo completamente antes de fazer qualquer modificação no código.
 
-GABI (Gerador Automatico de Boletins por Inteligencia Artificial) - a Python 3 bulk XML ingestion pipeline for Brazilian legal publications (DOU - Diario Oficial da Uniao). The project downloads monthly ZIP bundles from in.gov.br, parses structured XML, persists to PostgreSQL, and produces CRSS-1 cryptographic audit trails.
+---
 
-## Project Structure
+## Visão Geral do Projeto
 
-- **`ingest/`** - Bulk XML ingestion pipeline
-  - `bulk_pipeline.py` - Main orchestrator CLI: download → parse → ingest → seal (also `--sync`)
-  - `sync_pipeline.py` - Incremental sync: catalog discovery → delta → download → ingest
-  - `dou_ingest.py` - DOU schema ingestor: ZIP → parse → NLP enrich → insert dou.* tables
-  - `html_extractor.py` - NLP extraction: signatures, images, norm refs, proc refs, doc numbers
-  - `multipart_merger.py` - Group and merge multi-part XML articles (e.g. _1, _2)
-  - `xml_parser.py` - Parse INLabs DOU XML into `DOUArticle` dataclasses (with XML sanitizer)
-  - `zip_downloader.py` - URL generation, HTTP download, tags API, ZIP extraction
-  - `normalizer.py` - DOUArticle → PG schema + registry ingest record bridge
-  - `date_selector.py` - Date range generation
-  - `identity_analyzer.py` - Identity hashing and deduplication
-  - `catalog_scraper.py` - Scrape catalog page for per-month folderId registry
-  - `discovery_probe.py` - URL pattern probing and tags API discovery
-  - `bm25_indexer.py` - BM25 index builder, refresher, and search CLI
-- **`commitment/`** - CRSS-1 commitment scheme (Merkle trees, canonical serialization)
-  - `anchor.py`, `chain.py`, `crss1.py`, `tree.py`, `verify.py`
-- **`dbsync/`** - Declarative PostgreSQL schema management
-  - `dou_schema.sql` - DOU publication schema: 7 tables + view + GIN FTS index
-  - `bm25_schema.sql` - Okapi BM25 search: term stats, corpus stats, search functions
-  - `schema_sync.py`, `registry_ingest.py`, `differ.py`, `planner.py`, etc.
-- **`infra/`** - Docker-based PostgreSQL appliance
-- **`tests/`** - Test suite
-  - `test_commitment.py` - CRSS-1 pure function tests
-  - `test_seal_roundtrip.py` - End-to-end seal integration test
-  - `test_bulk_pipeline.py` - Bulk pipeline unit tests (135 assertions)
-  - `test_dou_ingest.py` - DOU ingest pipeline tests (211 assertions)
-  - `fixtures/xml_samples/` - Real DOU XML samples for testing
-- **`data/`** - Data files and registries
-  - `dou_catalog_registry.json` - Month→folderId mapping (289 months, Jan 2002 → Jan 2026)
-  - `inlabs/` - Downloaded ZIP bundles + manifest
-  - `discovery/` - Discovery probe results and validation ZIPs
-- **`proofs/`** - CRSS-1 anchor chain and golden test vectors
-- **`governance/`** - Repository classification, dead code reports, refactor plans
-- **`archive_legacy/`** - Archived modules from pre-consolidation (crawler, HTML scraping, etc.)
+**GABI** (Gerador Automático de Boletins por Inteligência Artificial) é um pipeline de ingestão em massa de XMLs do **DOU (Diário Oficial da União)** brasileiro. O projeto baixa bundles ZIP mensais da Imprensa Nacional (in.gov.br), parseia XML estruturado, persiste em PostgreSQL com full-text search BM25 e serve via FastAPI + Alpine.js SPA.
 
-## Build, Test, and Development Commands
+| Aspecto | Detalhe |
+|---------|---------|
+| **Cobertura** | Jan/2002 → presente (289 meses, 851 ZIPs) |
+| **Stack** | Python 3.13, PostgreSQL 16, FastAPI, Alpine.js 3, Tailwind CSS |
+| **Busca** | BM25 two-pass (ts_rank → BM25 re-rank) + Elasticsearch (opcional) |
+| **Cache** | Redis (autocomplete + top searches) |
+| **Auditoria** | CRSS-1 Merkle tree commitment scheme |
+| **MCP** | Model Context Protocol server para integração com agentes |
 
-### Running Tests
-```bash
-# Run commitment scheme tests (pure functions, no DB)
-python3 tests/test_commitment.py
+---
 
-# Run bulk pipeline tests (parsing, normalization, extraction)
-python3 tests/test_bulk_pipeline.py
+## Estrutura do Projeto
 
-# Parse XML fixtures
-python3 -c "from ingest.xml_parser import parse_directory; arts = parse_directory('tests/fixtures/xml_samples'); print(f'{len(arts)} articles parsed')"
+```
+gabi-kimi/
+├── ingest/                    # Pipeline de ingestão de XML
+│   ├── bulk_pipeline.py       # Orquestrador principal CLI
+│   ├── sync_pipeline.py       # Sync incremental via catálogo
+│   ├── dou_ingest.py          # Ingestor para schema dou.*
+│   ├── xml_parser.py          # Parser XML INLabs → DOUArticle
+│   ├── zip_downloader.py      # Download HTTP + extração ZIP
+│   ├── html_extractor.py      # NLP: assinaturas, imagens, refs
+│   ├── multipart_merger.py    # Merge artigos multi-parte
+│   ├── normalizer.py          # DOUArticle → registro de ingestão
+│   ├── bm25_indexer.py        # Build/refresh BM25 + CLI search
+│   ├── catalog_scraper.py     # Scrape catálogo in.gov.br
+│   ├── identity_analyzer.py   # Identity hashing e deduplicação
+│   ├── es_indexer.py          # Elasticsearch backfill/sync
+│   └── date_selector.py       # Geração de ranges de datas
+│
+├── dbsync/                    # Gerenciamento declarativo de schema
+│   ├── dou_schema.sql         # Schema DOU: 7 tabelas + views
+│   ├── bm25_schema.sql        # Okapi BM25: term stats, corpus stats
+│   ├── registry_schema.sql    # Schema temporal append-only (registry.*)
+│   ├── schema_sync.py         # DDL diff/apply
+│   ├── differ.py              # Diff de schemas
+│   ├── planner.py             # Planejador de migrações
+│   └── registry_ingest.py     # Ingestão no registry
+│
+├── commitment/                # CRSS-1 commitment scheme
+│   ├── crss1.py               # Serialização canônica
+│   ├── tree.py                # Merkle tree
+│   ├── anchor.py              # Anchoring de cadeia
+│   ├── chain.py               # Gerenciamento de cadeia
+│   └── verify.py              # Verificação de provas
+│
+├── search/                    # Adapters de busca (pg/es)
+│   ├── adapters.py            # PGSearchAdapter, ESSearchAdapter
+│   └── redis_signals.py       # Redis para autocomplete/analytics
+│
+├── web/                       # Frontend SPA
+│   └── index.html             # Alpine.js 3 + Tailwind CSS
+│
+├── tests/                     # Suite de testes (script-based)
+│   ├── test_commitment.py     # Testes CRSS-1 (pure functions)
+│   ├── test_bulk_pipeline.py  # Testes do pipeline (135+ assertions)
+│   ├── test_dou_ingest.py     # Testes de ingestão (211+ assertions)
+│   ├── test_seal_roundtrip.py # Teste end-to-end de sealing
+│   └── fixtures/xml_samples/  # Amostras XML reais do DOU
+│
+├── infra/                     # Infraestrutura Docker
+│   ├── infra_manager.py       # CLI para gerenciar containers
+│   └── docker-compose.yml     # PG (5433) + ES (9200) + Redis (6380)
+│
+├── scripts/                   # Automação
+│   ├── daily_sync.sh          # Sync diário (cron/systemd)
+│   ├── gabi-sync@.service     # Systemd service template
+│   └── gabi-sync@.timer       # Systemd timer template
+│
+├── deploy/                    # Configurações de deploy
+│   ├── postgres/              # Fly.io PostgreSQL
+│   └── web/                   # Fly.io Web
+│
+├── data/                      # Dados (gitignored)
+│   ├── dou_catalog_registry.json  # Mapeamento mês→folderId
+│   └── inlabs/                # ZIPs baixados
+│
+├── proofs/                    # CRSS-1 anchor chain e vetores de teste
+├── config/                    # Configurações de pipeline
+├── governance/                # Classificação, dead code reports
+└── archive_legacy/            # Módulos arquivados
 
-# Compile-check all modules
-python3 -m py_compile ingest/xml_parser.py ingest/zip_downloader.py ingest/normalizer.py ingest/bulk_pipeline.py
+# Arquivos principais
+├── web_server.py              # FastAPI: search, suggest, chat, document
+├── mcp_server.py              # MCP server com 4 tools
+├── mcp_es_server.py           # MCP server para Elasticsearch
+├── commitment_cli.py          # CLI para commitment operations
+├── schema_sync.py             # Entry point para schema sync
+├── sources_v3.yaml            # Definição de entidades e relações
+├── requirements.txt           # Dependências Python
+└── .env.example               # Template de variáveis de ambiente
 ```
 
-### Bulk Ingestion Pipeline
+---
+
+## Stack Tecnológico
+
+### Backend
+- **Python 3.13+** — Linguagem principal
+- **FastAPI** — Web framework
+- **psycopg2/psycopg** — PostgreSQL driver
+- **httpx** — HTTP client async
+- **loguru** — Logging estruturado
+
+### Banco de Dados
+- **PostgreSQL 16** — Banco principal (porta 5433)
+- **Elasticsearch 8.15** — Engine de busca opcional
+- **Redis 7** — Cache e analytics (porta 6380)
+
+### Frontend
+- **Alpine.js 3** — Framework reativo leve
+- **Tailwind CSS** — Utility-first CSS
+
+### Infraestrutura
+- **Docker & Docker Compose** — Containers
+- **Fly.io** — Plataforma de deploy (configurada)
+
+---
+
+## Comandos de Build, Teste e Desenvolvimento
+
+### Setup Inicial
+
 ```bash
-# Download + parse last 7 days (no DB)
+# Clone e setup
+git clone git@github.com:fgamajr/gabi-kimi.git
+cd gabi-kimi
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# Configuração
+cp .env.example .env
+# Editar .env com credenciais
+
+# Subir infraestrutura
+python3 infra/infra_manager.py up       # PG + ES + Redis
+python3 infra/infra_manager.py status   # Verificar saúde
+```
+
+### Testes
+
+```bash
+# Testes CRSS-1 (pure functions, sem DB)
+python3 tests/test_commitment.py
+
+# Testes do bulk pipeline (parsing, normalização — 135+ assertions)
+python3 tests/test_bulk_pipeline.py
+
+# Testes de ingestão DOU (211+ assertions)
+python3 tests/test_dou_ingest.py
+
+# Teste end-to-end de sealing
+python3 tests/test_seal_roundtrip.py
+
+# Parse de fixtures XML
+python3 -c "from ingest.xml_parser import parse_directory; arts = parse_directory('tests/fixtures/xml_samples'); print(f'{len(arts)} artigos parseados')"
+
+# Compile-check de módulos
+python3 -m py_compile ingest/xml_parser.py ingest/dou_ingest.py web_server.py
+```
+
+### Pipeline de Ingestão
+
+```bash
+# Download + parse últimos 7 dias (sem DB)
 python3 -m ingest.bulk_pipeline --days 7 --parse-only
 
-# Download only
+# Download apenas
 python3 -m ingest.bulk_pipeline --days 7 --download-only
 
-# Full pipeline (download + parse + ingest)
+# Pipeline completo (download + parse + ingest)
 python3 -m ingest.bulk_pipeline --start 2026-02-20 --end 2026-02-27
 
-# Full pipeline with CRSS-1 sealing
+# Pipeline com CRSS-1 sealing
 python3 -m ingest.bulk_pipeline --start 2026-02-20 --end 2026-02-27 --seal
 
-# Ingest from already-downloaded ZIPs
+# Ingest de ZIPs já baixados
 python3 -m ingest.bulk_pipeline --start 2026-02-20 --end 2026-02-27 --skip-download
 ```
 
-### Incremental Sync Pipeline
+### Sync Incremental
+
 ```bash
-# Auto-sync: discover new ZIPs from catalog → download → ingest
+# Auto-sync completo (descobre → baixa → ingere)
 python3 -m ingest.sync_pipeline
 
-# Via bulk_pipeline CLI
+# Via bulk_pipeline
 python3 -m ingest.bulk_pipeline --sync
 
-# Dry-run: show what would be downloaded
+# Dry-run
 python3 -m ingest.sync_pipeline --dry-run
 
-# Refresh catalog from in.gov.br first, then sync
+# Refresh catálogo e sync
 python3 -m ingest.sync_pipeline --refresh-catalog
 
-# Sync specific month range
+# Sync range específico
 python3 -m ingest.sync_pipeline --start 2025-01 --end 2026-01
-
-# Limit ZIPs per run (for testing or rate limiting)
-python3 -m ingest.sync_pipeline --limit 20
 ```
 
-### DOU Schema Ingest (standalone)
+### Schema do Banco
+
 ```bash
-# Ingest all ZIPs in a directory into dou.* schema
-python3 -m ingest.dou_ingest --data-dir data/sample200/zips
+# Criar schemas
+PGPASSWORD=gabi psql -h localhost -p 5433 -U gabi -d gabi -f dbsync/registry_schema.sql
+PGPASSWORD=gabi psql -h localhost -p 5433 -U gabi -d gabi -f dbsync/dou_schema.sql
+PGPASSWORD=gabi psql -h localhost -p 5433 -U gabi -d gabi -f dbsync/bm25_schema.sql
 
-# Ingest with custom DSN and limit
-python3 -m ingest.dou_ingest --data-dir data/inlabs --dsn "host=... port=5433 ..." --limit 10
-```
-
-### Catalog Registry
-```bash
-# Scrape full catalog (289 months, Jan 2002 → Jan 2026)
-python3 -m ingest.catalog_scraper --start-year 2002 --end-year 2026
-
-# Scrape a specific year range
-python3 -m ingest.catalog_scraper --start-year 2020 --end-year 2026 --delay 0.4
-
-# Registry is saved to data/dou_catalog_registry.json
-```
-
-### Infrastructure
-```bash
-python3 infra/infra_manager.py up        # Start PostgreSQL (port 5433)
-python3 infra/infra_manager.py status    # Check container/DB health
-python3 infra/infra_manager.py down      # Stop
-python3 infra/infra_manager.py reset_db  # Wipe DB (destructive)
-```
-
-### BM25 Search
-```bash
-# Full BM25 index build (DDL + word counts + materialized term stats)
-python3 -m ingest.bm25_indexer build
-
-# Incremental refresh after new ingestions
-python3 -m ingest.bm25_indexer refresh
-
-# Search (unfiltered)
-python3 -m ingest.bm25_indexer search "portaria ministério saúde"
-
-# Search with filters (date range, section, art type)
-python3 -m ingest.bm25_indexer search "licitação pregão" --date-from 2020-01-01 --section do3 -n 50
-
-# Show BM25 index statistics (vocabulary, corpus stats, top terms)
-python3 -m ingest.bm25_indexer stats
-```
-
-### Database Schema Sync
-```bash
+# Schema sync declarativo
 python3 schema_sync.py plan --sources sources_v3.yaml
 python3 schema_sync.py apply --sources sources_v3.yaml
 python3 schema_sync.py verify --sources sources_v3.yaml
 ```
 
-## Code Style Guidelines
+### BM25 Search
+
+```bash
+# Build completo do índice
+python3 -m ingest.bm25_indexer build
+
+# Refresh incremental
+python3 -m ingest.bm25_indexer refresh
+
+# Busca CLI
+python3 -m ingest.bm25_indexer search "portaria ministério saúde"
+python3 -m ingest.bm25_indexer search "licitação pregão" --date-from 2020-01-01 --section do3 -n 50
+
+# Estatísticas
+python3 -m ingest.bm25_indexer stats
+```
+
+### Elasticsearch
+
+```bash
+# Backfill completo
+python3 -m ingest.es_indexer backfill --recreate-index
+
+# Sync incremental
+python3 -m ingest.es_indexer sync
+
+# Estatísticas
+python3 -m ingest.es_indexer stats
+```
+
+### Web Server
+
+```bash
+# Modo desenvolvimento
+python3 web_server.py              # porta 8000
+python3 web_server.py --port 3000  # porta custom
+
+# MCP Server
+python3 mcp_server.py              # stdio transport
+python3 mcp_server.py --transport sse --port 8765
+```
+
+### Automação (Daily Sync)
+
+```bash
+# Sync manual completo
+./scripts/daily_sync.sh
+
+# Dry-run
+./scripts/daily_sync.sh --dry-run
+
+# Sem refresh BM25
+./scripts/daily_sync.sh --no-bm25
+
+# Via cron (diário às 6h)
+crontab -e
+# 0 6 * * * /caminho/para/gabi-kimi/scripts/daily_sync.sh >> /tmp/gabi_cron.log 2>&1
+```
+
+---
+
+## Arquitetura do Banco de Dados
+
+### Schema `dou.*` (Documentos)
+
+| Tabela | Propósito |
+|--------|-----------|
+| `dou.source_zip` | Proveniência de cada ZIP baixado |
+| `dou.edition` | Edições do DOU (data, seção, número) |
+| `dou.document` | Documentos (atos normativos) com TSVector FTS |
+| `dou.document_media` | Imagens/mídias extraídas (bytea) |
+| `dou.document_signature` | Assinaturas extraídas do HTML |
+| `dou.normative_reference` | Referências normativas (leis, decretos) |
+| `dou.procedure_reference` | Referências processuais (SEI, etc) |
+
+**Views Materializadas:**
+- `dou.suggest_cache` — Autocomplete (órgãos, tipos, títulos)
+- `dou.bm25_term_stats` — Estatísticas de termos (IDF)
+- `dou.bm25_corpus_stats` — Estatísticas do corpus (N, avgdl)
+
+### Schema `registry.*` (Audit Trail Temporal)
+
+Tabelas append-only, imutáveis, com evidência ancorada:
+- `registry.editions` — Container temporal (edition_id = SHA256)
+- `registry.concepts` — Identidade de atos (natural_key_hash)
+- `registry.versions` — Snapshots de conteúdo
+- `registry.occurrences` — Ocorrências específicas
+- `registry.ingestion_log` — Trail de auditoria com decision_basis JSONB
+
+---
+
+## Diretrizes de Estilo de Código
 
 ### Imports
-```python
-from __future__ import annotations  # Always first
 
-from collections import deque           # Stdlib
+```python
+from __future__ import annotations  # Sempre primeiro
+
+from collections import deque       # Stdlib
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-import yaml                             # Third-party
+import yaml                         # Third-party
 
 from ingest.xml_parser import DOUArticle  # Local imports
 ```
-- Group imports: stdlib, third-party, local (blank line between groups)
-- Use `from __future__ import annotations` at the top of every module
-- Prefer explicit imports over `import *`
 
-### Formatting
-- 4-space indentation (no tabs)
-- Max line length: ~100 characters (flexible)
-- Blank lines between class methods, between top-level functions
-- No trailing whitespace
+- Agrupar: stdlib, third-party, local (linha em branco entre grupos)
+- Usar `from __future__ import annotations` no topo de todo módulo
+- Preferir imports explícitos sobre `import *`
+
+### Formatação
+
+- Indentação: 4 espaços (sem tabs)
+- Comprimento máximo: ~100 caracteres (flexível)
+- Linhas em branco entre métodos de classe, entre funções top-level
+- Sem trailing whitespace
 
 ### Type Hints
+
 ```python
 def load(self, url: str) -> Page:
 def extract(self, selector: str, attribute: str = "href") -> list[str]:
 def _safe_load(self, runtime: RuntimeAdapter, url: str, run_id: str) -> Page | None:
 ```
-- Use type hints for all function signatures
-- Use `| None` for optional returns (Python 3.10+ style)
-- Use `list[str]`, `dict[str, Any]` instead of `List`, `Dict`
 
-### Naming Conventions
-- `snake_case` for modules, functions, variables, CLI flags (`--max-articles`)
-- `PascalCase` for classes and exceptions
-- `UPPER_SNAKE_CASE` for constants and module-level globals
-- Prefix private methods with underscore: `_safe_load`, `_normalize_url`
-- Protocol classes: `RuntimeAdapter`, not `IRuntimeAdapter`
+- Usar type hints em todas as assinaturas de função
+- Usar `| None` para retornos opcionais (estilo Python 3.10+)
+- Usar `list[str]`, `dict[str, Any]` em vez de `List`, `Dict`
+
+### Convenções de Nomenclatura
+
+| Elemento | Convenção | Exemplo |
+|----------|-----------|---------|
+| Módulos | `snake_case` | `xml_parser.py` |
+| Funções | `snake_case` | `parse_directory()` |
+| Variáveis | `snake_case` | `article_count` |
+| Classes | `PascalCase` | `DOUArticle` |
+| Constantes | `UPPER_SNAKE_CASE` | `VALID_PUB_NAMES` |
+| Privados | prefixo `_` | `_safe_load()` |
+| Protocols | `PascalCase` (sem I) | `RuntimeAdapter` |
+| CLI flags | `snake_case` | `--max-articles` |
 
 ### Data Classes
+
 ```python
 @dataclass(slots=True)
 class Page:
@@ -200,10 +376,12 @@ class Page:
     html: str
     loaded_at_ms: int
 ```
-- Use `@dataclass(slots=True)` for data containers
-- Use `field(default_factory=list)` for mutable defaults
 
-### Error Handling
+- Usar `@dataclass(slots=True)` para containers de dados
+- Usar `field(default_factory=list)` para defaults mutáveis
+
+### Tratamento de Erros
+
 ```python
 def _safe_load(self, runtime: RuntimeAdapter, url: str, run_id: str) -> Page | None:
     try:
@@ -212,32 +390,102 @@ def _safe_load(self, runtime: RuntimeAdapter, url: str, run_id: str) -> Page | N
         self._log.error(run=run_id, stage="request", error_type=type(ex).__name__, error_message=str(ex))
         return None
 ```
-- Log errors with structured context via loguru
-- Use specific exception types when raising
-- Custom exceptions inherit from appropriate built-in: `class ApplyError(RuntimeError): pass`
 
-### Documentation
-- Module-level docstrings: `"""Module description."""`
-- Class-level docstrings for public classes
-- Inline comments sparingly; prefer self-documenting code
-- CLI help via argparse: `p.add_argument("--dates", help="Number of dates to sample")`
+- Logar erros com contexto estruturado via loguru
+- Usar tipos específicos de exceção ao levantar
+- Exceções customizadas herdam de built-ins apropriados
 
-## Testing Guidelines
+### Documentação
 
-- No pytest suite - testing is script/harness-driven
-- Tests should be runnable as standalone scripts: `python3 tests/test_commitment.py`
-- For ingestion changes, verify XML parsing with fixture samples in `tests/fixtures/xml_samples/`
-- Include reproduction commands and expected output in PR descriptions
+- Docstrings em nível de módulo: `"""Descrição do módulo."""`
+- Docstrings em nível de classe para classes públicas
+- Comentários inline com moderação; preferir código auto-documentado
+- CLI help via argparse: `p.add_argument("--dates", help="Número de datas")`
 
-## Commit and Pull Request Guidelines
+---
 
-- Short, imperative commit subjects: `Fix pipeline runtime bugs`, `Add CRSS-1 commitment scheme`
-- PRs must include: purpose, affected paths, commands run, before/after behavior
-- Link related issues; attach logs/screenshots for workflow changes
-- Run relevant test scripts before committing
+## Estratégia de Testes
 
-## Security and Configuration
+- **Sem pytest** — testes são scripts standalone executáveis
+- Testes devem ser executáveis: `python3 tests/test_commitment.py`
+- Para mudanças de ingestão, verificar parsing com fixtures em `tests/fixtures/xml_samples/`
+- Incluir comandos de reprodução e saída esperada em descrições de PR
 
-- Keep secrets in `.env` (copy from `.env.example`); never commit credentials
-- Validate destructive DB operations (`reset_db`, `recreate`) before running
-- Database runs on port 5433 (non-standard to avoid conflicts)
+---
+
+## Configuração e Segurança
+
+### Variáveis de Ambiente (`.env`)
+
+```bash
+# PostgreSQL (obrigatório)
+PG_HOST=localhost
+PG_PORT=5433
+PG_DB=gabi
+PG_USER=gabi
+PG_PASSWORD=gabi
+
+# Search backend selector: pg (default) ou es
+SEARCH_BACKEND=pg
+
+# Elasticsearch (opcional)
+ES_URL=http://localhost:9200
+ES_INDEX=gabi_documents_v1
+ES_ALIAS=gabi_documents
+
+# Redis (opcional)
+REDIS_URL=redis://localhost:6380/0
+REDIS_PREFIX=gabi
+SEARCH_ANALYTICS_ENABLED=true
+
+# Qwen API (opcional — chat funciona sem, com fallback)
+QWEN_API_KEY=sk-xxx
+QWEN_MODEL=qwen-plus
+```
+
+### Segurança
+
+- Manter secrets em `.env` (nunca commitar credenciais)
+- Validar operações destrutivas no DB (`reset_db`, `recreate`)
+- PostgreSQL roda na porta **5433** (não-padrão para evitar conflitos)
+- `.env` está no `.gitignore`; apenas `.env.example` deve ser commitado
+
+---
+
+## Convenções de Commit e PR
+
+### Commits
+
+- Assuntos curtos, imperativos: `Fix pipeline runtime bugs`, `Add CRSS-1 commitment scheme`
+
+### Pull Requests
+
+Devem incluir:
+- Propósito da mudança
+- Paths afetados
+- Comandos executados
+- Comportamento antes/depois
+- Link para issues relacionados
+- Logs/screenshots para mudanças de workflow
+
+---
+
+## Armadilhas Conhecidas
+
+1. **`data/` está no `.gitignore`** — ZIPs e catálogo não estão no git. Na máquina nova, baixe tudo via pipeline.
+2. **Porta 5433** — PG Docker usa 5433 (não 5432) para evitar conflito com instâncias locais.
+3. **`body_tsvector`** é populado no INSERT. Importar dump sem essa coluna quebra FTS.
+4. **`suggest_cache`** e **`bm25_corpus_stats`** são materialized views — precisam `REFRESH` após novas ingestões.
+5. **Smart quotes** — o web_server normaliza `""` → `""` para evitar 0 resultados.
+6. **Chat organ detection** usa `suggest_cache` — se a view estiver vazia, chat não encontra órgãos.
+
+---
+
+## Referências Rápidas
+
+- `README.md` — Visão geral do projeto e quickstart
+- `HANDOVER.md` — Estado atual do banco e métricas
+- `ARCHITECTURE_DIAGRAMS.md` — Diagramas de arquitetura
+- `CODEX-ELASTIC-PLAN.MD` — Plano de migração para Elasticsearch
+- `QWEN.md` — Documentação da integração Qwen
+- `QUICK_REFERENCE.md` — Referência rápida de comandos
