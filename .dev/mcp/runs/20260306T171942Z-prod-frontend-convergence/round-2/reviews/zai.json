@@ -1,0 +1,67 @@
+{
+  "agent": "zai",
+  "round": 2,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "Section 10.3 Document Detail / Timeline Screen",
+      "description": "Artifact is truncated mid-sentence: 'each TimelineItem showing timestamp (text-xs tertiary), event title (text'. Missing complete specifications for Document Screen, Action Sheet/Form screen, and any subsequent sections (accessibility compliance details, performance budgets, implementation checklist, etc.). Cannot approve incomplete spec.",
+      "suggested_fix": "Provide complete artifact with all sections. At minimum: complete 10.3, full 10.4 Action Sheet specification, section 11 Accessibility Compliance, section 12 Performance Budgets & Metrics, section 13 Migration Checklist."
+    },
+    {
+      "severity": "high",
+      "location": "Section 2 web_server.py catch-all route",
+      "description": "Path check logic is incorrect: `if path.startswith('api/')` checks without leading slash, but FastAPI's path parameter in `{path:path}` may or may not include it depending on route definition. The existing API routes are mounted at `/api/*` with leading slash. This will cause API routes to incorrectly fall through to SPA fallback or vice versa.",
+      "suggested_fix": "Use explicit route exclusion or check for both patterns: `if path.startswith('api/') or path.startswith('/api/')`. Better yet, mount static files and SPA fallback AFTER all API routes are registered, letting FastAPI's route matching handle precedence naturally."
+    },
+    {
+      "severity": "medium",
+      "location": "Section 3.1 Color Tokens - light theme text-tertiary",
+      "description": "Light theme `--color-text-tertiary: #AEAEB2` claims 2.3:1 contrast ratio and is marked 'decorative/disabled only'. However, if this token is used anywhere for readable content (even timestamps, labels), it fails WCAG AA. The spec later mentions TimelineItem uses 'text-xs tertiary' for timestamps — this would be inaccessible.",
+      "suggested_fix": "Either: (1) Increase light theme text-tertiary to minimum 3:1 for large text (e.g., #8E8E93), or (2) Add explicit constraint that text-tertiary is ONLY for truly decorative elements, disabled states, or placeholder text — never for informational content like timestamps. Create a separate `--color-text-muted` token at 4.5:1 for secondary information."
+    },
+    {
+      "severity": "medium",
+      "location": "Section 1 Build Pipeline",
+      "description": "No bundle size budgets defined. Without constraints, the production build could bloat significantly, especially with lazy loading boundaries that may still pull in large dependency trees. No mention of bundle analysis or size monitoring.",
+      "suggested_fix": "Add performance budgets: Initial bundle ≤100KB gzipped, lazy chunks ≤50KB each, total JS ≤200KB. Add `rollup-plugin-visualizer` or similar for bundle analysis. Fail CI build if budgets exceeded."
+    },
+    {
+      "severity": "medium",
+      "location": "Section 8 API Client",
+      "description": "No request timeout configuration. Fetch requests without timeout can hang indefinitely, degrading UX and potentially causing memory leaks if component unmounts while request is pending.",
+      "suggested_fix": "Add default timeout (e.g., 10s for search, 30s for document fetch) using AbortController with setTimeout. Make timeouts configurable per-endpoint."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "Section 4 Motion System",
+      "description": "Add `will-change: transform, opacity` to elements entering viewport via IntersectionObserver (lazy animations). This hints the compositor to promote the layer, reducing paint cost on first animation frame. Remove will-change after animation completes to free GPU memory."
+    },
+    {
+      "type": "improvement",
+      "location": "Section 5.3 Code-Split Boundaries",
+      "description": "Consider preloading lazy chunks on user interaction hints: prefetch SearchScreen when user focuses search input, prefetch DocumentScreen when hovering a search result. Use `<link rel=\"prefetch\">` or dynamic import() on hover/focus."
+    },
+    {
+      "type": "improvement",
+      "location": "Section 9 Responsive Layout",
+      "description": "Consider CSS Container Queries for component-level responsiveness (e.g., MetricsRail adapting based on its container width, not viewport). This improves reusability when components are placed in different layout contexts (sidebar vs main content)."
+    },
+    {
+      "type": "improvement",
+      "location": "Section 7 State Management",
+      "description": "Add explicit state shape TypeScript interfaces or JSDoc type annotations. Even without TypeScript, typed documentation prevents shape drift and improves maintainability. Current spec shows state shapes but no type contracts."
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 0,
+    "latency_tokens": 0,
+    "latency_ms": 47541,
+    "thinking_tokens": 798
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"zai\",\n  \"round\": 2,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 10.3 Document Detail / Timeline Screen\",\n      \"description\": \"Artifact is truncated mid-sentence: 'each TimelineItem showing timestamp (text-xs tertiary), event title (text'. Missing complete specifications for Document Screen, Action Sheet/Form screen, and any subsequent sections (accessibility compliance details, performance budgets, implementation checklist, etc.). Cannot approve incomplete spec.\",\n      \"suggested_fix\": \"Provide complete artifact with all sections. At minimum: complete 10.3, full 10.4 Action Sheet specification, section 11 Accessibility Compliance, section 12 Performance Budgets & Metrics, section 13 Migration Checklist.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 2 web_server.py catch-all route\",\n      \"description\": \"Path check logic is incorrect: `if path.startswith('api/')` checks without leading slash, but FastAPI's path parameter in `{path:path}` may or may not include it depending on route definition. The existing API routes are mounted at `/api/*` with leading slash. This will cause API routes to incorrectly fall through to SPA fallback or vice versa.\",\n      \"suggested_fix\": \"Use explicit route exclusion or check for both patterns: `if path.startswith('api/') or path.startswith('/api/')`. Better yet, mount static files and SPA fallback AFTER all API routes are registered, letting FastAPI's route matching handle precedence naturally.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Section 3.1 Color Tokens - light theme text-tertiary\",\n      \"description\": \"Light theme `--color-text-tertiary: #AEAEB2` claims 2.3:1 contrast ratio and is marked 'decorative/disabled only'. However, if this token is used anywhere for readable content (even timestamps, labels), it fails WCAG AA. The spec later mentions TimelineItem uses 'text-xs tertiary' for timestamps — this would be inaccessible.\",\n      \"suggested_fix\": \"Either: (1) Increase light theme text-tertiary to minimum 3:1 for large text (e.g., #8E8E93), or (2) Add explicit constraint that text-tertiary is ONLY for truly decorative elements, disabled states, or placeholder text — never for informational content like timestamps. Create a separate `--color-text-muted` token at 4.5:1 for secondary information.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Section 1 Build Pipeline\",\n      \"description\": \"No bundle size budgets defined. Without constraints, the production build could bloat significantly, especially with lazy loading boundaries that may still pull in large dependency trees. No mention of bundle analysis or size monitoring.\",\n      \"suggested_fix\": \"Add performance budgets: Initial bundle ≤100KB gzipped, lazy chunks ≤50KB each, total JS ≤200KB. Add `rollup-plugin-visualizer` or similar for bundle analysis. Fail CI build if budgets exceeded.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Section 8 API Client\",\n      \"description\": \"No request timeout configuration. Fetch requests without timeout can hang indefinitely, degrading UX and potentially causing memory leaks if component unmounts while request is pending.\",\n      \"suggested_fix\": \"Add default timeout (e.g., 10s for search, 30s for document fetch) using AbortController with setTimeout. Make timeouts configurable per-endpoint.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 4 Motion System\",\n      \"description\": \"Add `will-change: transform, opacity` to elements entering viewport via IntersectionObserver (lazy animations). This hints the compositor to promote the layer, reducing paint cost on first animation frame. Remove will-change after animation completes to free GPU memory.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 5.3 Code-Split Boundaries\",\n      \"description\": \"Consider preloading lazy chunks on user interaction hints: prefetch SearchScreen when user focuses search input, prefetch DocumentScreen when hovering a search result. Use `<link rel=\\\"prefetch\\\">` or dynamic import() on hover/focus.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 9 Responsive Layout\",\n      \"description\": \"Consider CSS Container Queries for component-level responsiveness (e.g., MetricsRail adapting based on its container width, not viewport). This improves reusability when components are placed in different layout contexts (sidebar vs main content).\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 7 State Management\",\n      \"description\": \"Add explicit state shape TypeScript interfaces or JSDoc type annotations. Even without TypeScript, typed documentation prevents shape drift and improves maintainability. Current spec shows state shapes but no type contracts.\"\n    }\n  ],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 0,\n    \"latency_tokens\": 0\n  }\n}\n```"
+}

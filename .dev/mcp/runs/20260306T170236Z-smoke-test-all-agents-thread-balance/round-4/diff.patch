@@ -1,0 +1,40 @@
+--- before
++++ after
+@@ -1,17 +1,16 @@
+ import threading
+-from typing import Optional
+ 
+ class BankAccount:
+     """Thread-safe bank account implementation with proper input validation."""
+     
+     def __init__(self, initial_balance: int = 0):
+         """Initialize account with optional starting balance."""
+-        if not isinstance(initial_balance, int):
++        if isinstance(initial_balance, bool) or not isinstance(initial_balance, int):
+             raise TypeError("Initial balance must be an integer")
+         if initial_balance < 0:
+             raise ValueError("Initial balance cannot be negative")
+         self._balance = initial_balance
+-        self._lock = threading.RLock()
++        self._lock = threading.Lock()
+ 
+     def deposit(self, amount: int) -> int:
+         """
+@@ -27,7 +26,7 @@
+             TypeError: If amount is not an integer
+             ValueError: If amount is not positive
+         """
+-        if not isinstance(amount, int):
++        if isinstance(amount, bool) or not isinstance(amount, int):
+             raise TypeError(f"Deposit amount must be int, got {type(amount).__name__}")
+         if amount <= 0:
+             raise ValueError("Deposit amount must be positive")
+@@ -49,7 +48,7 @@
+             TypeError: If amount is not an integer
+             ValueError: If amount is not positive or insufficient funds
+         """
+-        if not isinstance(amount, int):
++        if isinstance(amount, bool) or not isinstance(amount, int):
+             raise TypeError(f"Withdrawal amount must be int, got {type(amount).__name__}")
+         if amount <= 0:
+             raise ValueError("Withdrawal amount must be positive")

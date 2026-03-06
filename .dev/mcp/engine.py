@@ -177,6 +177,7 @@ class ConvergenceEngine:
         provider = self.config.providers[agent.provider]
         adapter = create_adapter(provider, agent)
         messages = build_orchestrator_messages(
+            agent=selection.orchestrator,
             user_prompt=user_prompt,
             artifact_kind=artifact_kind,
             round_number=round_number,

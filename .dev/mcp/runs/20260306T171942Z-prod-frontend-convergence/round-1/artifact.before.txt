@@ -1,0 +1,20 @@
+Production frontend implementation spec to be approved before code changes.
+
+Current repo state:
+- Frontend served from src/frontend/web via src/backend/apps/web_server.py
+- Existing frontend is static HTML/Alpine/Tailwind and needs replacement by a React-based production frontend
+- Existing backend endpoints must remain usable (/api/search, /api/suggest, /api/autocomplete, /api/top-searches, /api/search-examples, /api/document/{doc_id})
+
+Initial proposal:
+1. Build a React frontend as a static SPA under src/frontend/web with no bundler dependency, using React + ReactDOM from ESM/CDN and Babel standalone only for development-compatible JSX transpilation in-browser if necessary, or plain createElement if reviewers reject Babel. Prefer a minimal runtime footprint and preserve direct static serving from FastAPI.
+2. Keep web_server unchanged except for serving any additional static assets from src/frontend/web.
+3. Implement design tokens in tokens.css using CSS variables for dark/light themes, typography, spacing, motion, elevation, and status colors.
+4. Implement app shell with bottom tab bar, progressive dashboard cards, timeline detail view, reusable bottom sheet, and skeleton loaders.
+5. Keep navigation client-side inside the SPA, not server-side routing.
+6. Use optimistic microinteractions, swipe affordances on mobile list rows, pull-to-refresh where feasible without degrading desktop UX, and reduced-motion fallbacks.
+7. Structure frontend into these components: AppShell, TabBar, ScreenHeader, SearchComposer, StatusCard, MetricsRail, TimelineList, TimelineItem, BottomSheet, ActionSheetForm, SearchResultsPanel, DocumentPreviewPanel, SkeletonBlock, EmptyState.
+8. Data flow: Home screen loads stats/top searches/examples first, then search interactions call /api/autocomplete and /api/search; detail/timeline and preview use /api/document/{doc_id}. Search state and selected document live in a top-level app store via React hooks.
+9. Visual direction: dark-mode-first, low-chrome, information-dense, premium/confident, with typography hierarchy doing most of the work. Use brand accents sparingly, no decorative gradients that do not carry information.
+10. Performance guardrails: lazy render lower-priority panels, skeletons instead of spinners, transform/opacity-only motion, mobile-first layout, target perceived-first-paint under 1.5s on static load.
+11. Migration path: add new React entry HTML/CSS/JS assets alongside current files, switch index.html to new shell after approval, retain old files only until parity is verified.
+12. Acceptance criteria: all four agents approve IA, visual hierarchy, motion, accessibility, and performance, with concrete component/file plan suitable for implementation in this repo.

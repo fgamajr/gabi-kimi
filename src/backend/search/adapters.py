@@ -1,6 +1,7 @@
 """Search backend adapter layer (pg/es) with shared response normalization."""
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import date
 import os
@@ -367,6 +368,16 @@ def _rerank_terms(value: str) -> list[str]:
 def _semantic_query_hint(query: str) -> bool:
     raw_terms = set(_rerank_terms(query))
     return bool(raw_terms & _SEMANTIC_QUERY_HINTS) or len(raw_terms) >= 4
+
+
+def _is_hard_filter_query(
+    *,
+    section: str | None,
+    art_type: str | None,
+    issuing_organ: str | None,
+) -> bool:
+    active = sum(1 for value in (section, art_type, issuing_organ) if value)
+    return active >= 2
 
 
 def _lexical_query_clause(query: str) -> dict[str, Any]:
@@ -812,6 +823,34 @@ class HybridSearchAdapter(ESSearchAdapter):
         self._rerank_top_n = max(0, rerank_top_n)
         embed_cfg = _load_embed_config()
         self._embedder = _create_embedder(embed_cfg)
+        self._query_embed_cache_size = max(1, int(os.getenv("HYBRID_QUERY_EMBED_CACHE_SIZE", "512")))
+        self._query_embed_cache: OrderedDict[tuple[str, str], list[float]] = OrderedDict()
+
+    def _should_skip_vector(
+        self,
+        *,
+        query: str,
+        section: str | None,
+        art_type: str | None,
+        issuing_organ: str | None,
+    ) -> bool:
+        if _is_exact_phrase_query(query):
+            return True
+        if _is_hard_filter_query(section=section, art_type=art_type, issuing_organ=issuing_organ):
+            return True
+        return False
+
+    def _query_vector(self, query: str) -> list[float]:
+        cache_key = (_normalize_rerank_text(query), getattr(self._embedder, "__class__", type(self._embedder)).__name__)
+        cached = self._query_embed_cache.get(cache_key)
+        if cached is not None:
+            self._query_embed_cache.move_to_end(cache_key)
+            return cached
+        vector = self._embedder.embed_batch([query])[0]
+        self._query_embed_cache[cache_key] = vector
+        if len(self._query_embed_cache) > self._query_embed_cache_size:
+            self._query_embed_cache.popitem(last=False)
+        return vector
 
     def _lexical_candidates(
         self,
@@ -905,7 +944,7 @@ class HybridSearchAdapter(ESSearchAdapter):
         art_type: str | None,
         issuing_organ: str | None,
     ) -> list[dict[str, Any]]:
-        vector = self._embedder.embed_batch([query])[0]
+        vector = self._query_vector(query)
         knn: dict[str, Any] = {
             "field": "embedding",
             "query_vector": vector,
@@ -1163,15 +1202,22 @@ class HybridSearchAdapter(ESSearchAdapter):
             art_type=art_type,
             issuing_organ=issuing_organ,
         )
-        vector_rows = self._vector_candidates(
-            query=q,
-            size=merge_window,
-            date_from=date_from,
-            date_to=date_to,
+        vector_rows: list[dict[str, Any]] = []
+        if not self._should_skip_vector(
+            query=original_query,
             section=section,
             art_type=art_type,
             issuing_organ=issuing_organ,
-        )
+        ):
+            vector_rows = self._vector_candidates(
+                query=q,
+                size=merge_window,
+                date_from=date_from,
+                date_to=date_to,
+                section=section,
+                art_type=art_type,
+                issuing_organ=issuing_organ,
+            )
         merged = self._merge(
             query=q,
             lexical_rows=lexical_rows,

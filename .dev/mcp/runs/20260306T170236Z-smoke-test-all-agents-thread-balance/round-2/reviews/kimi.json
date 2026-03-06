@@ -1,0 +1,55 @@
+{
+  "agent": "kimi",
+  "round": 2,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "src/example.py:21",
+      "description": "Inconsistent return type: `withdraw` returns `None` on failure but `int` on success. This violates type safety and causes runtime `TypeError` when callers perform arithmetic on the result (e.g., `new_balance = withdraw(100) + 50` fails silently or crashes).",
+      "suggested_fix": "Return a boolean status flag or raise a specific exception (e.g., `ValueError('Insufficient funds')`) instead of None. Alternatively, return a tuple `(bool, int)` to indicate success and new balance."
+    },
+    {
+      "severity": "high",
+      "location": "src/example.py:5-20",
+      "description": "Missing input validation allows negative amounts. An attacker can call `deposit(-100)` to decrease the balance or `withdraw(-100)` to increase it without authorization, effectively breaking the accounting invariant.",
+      "suggested_fix": "Add validation at the top of both functions: `if amount < 0: raise ValueError('Amount must be non-negative')`."
+    },
+    {
+      "severity": "medium",
+      "location": "src/example.py:2-3",
+      "description": "Global mutable state prevents instantiation of multiple independent accounts and creates hidden coupling between components. This anti-pattern makes unit testing impossible without monkey-patching and causes race conditions in import-time initialization.",
+      "suggested_fix": "Encapsulate `balance` and `lock` in a class `BankAccount` with instance variables to allow proper isolation and testability."
+    },
+    {
+      "severity": "medium",
+      "location": "src/example.py:8-10,17-19",
+      "description": "Unnecessary read-modify-write verbosity. The manual `current = balance; current += amount; balance = current` pattern is error-prone (susceptible to lost updates if lock is accidentally omitted) and violates Pythonic simplicity. Direct `balance += amount` is atomic under the GIL and clearer.",
+      "suggested_fix": "Simplify to `balance += amount` and `balance -= amount` respectively."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "src/example.py:5,13",
+      "description": "Add type hints (`def deposit(amount: int) -> int:`) to enable static analysis and IDE autocomplete."
+    },
+    {
+      "type": "improvement",
+      "location": "src/example.py:5-21",
+      "description": "Add docstrings specifying thread-safety guarantees and exception behavior for public API documentation."
+    }
+  ],
+  "diffs": [
+    {
+      "file": "src/example.py",
+      "hunks": "@@ -1,21 +1,35 @@\n-import threading\n+import threading\n+from typing import Optional\n \n-balance = 0\n-lock = threading.Lock()\n+class BankAccount:\n+    def __init__(self, initial_balance: int = 0):\n+        self._balance = initial_balance\n+        self._lock = threading.Lock()\n \n-def deposit(amount):\n-    global balance\n-    with lock:\n-        current = balance\n-        current += amount\n-        balance = current\n-        return balance\n+    def deposit(self, amount: int) -> int:\n+        if amount < 0:\n+            raise ValueError(f\"Deposit amount must be non-negative, got {amount}\")\n+        with self._lock:\n+            self._balance += amount\n+            return self._balance\n \n-def withdraw(amount):\n-    global balance\n-    with lock:\n-        if balance >= amount:\n-            current = balance\n-            current -= amount\n-            balance = current\n-            return balance\n-        return None\n+    def withdraw(self, amount: int) -> int:\n+        if amount < 0:\n+            raise ValueError(f\"Withdrawal amount must be non-negative, got {amount}\")\n+        with self._lock:\n+            if self._balance < amount:\n+                raise ValueError(f\"Insufficient funds: balance {self._balance}, requested {amount}\")\n+            self._balance -= amount\n+            return self._balance\n+\n+    def get_balance(self) -> int:\n+        with self._lock:\n+            return self._balance\n+\n+# Backward compatibility shim (optional, remove if breaking changes allowed)\n+_default_account = BankAccount()\n+deposit = _default_account.deposit\n+withdraw = _default_account.withdraw\n"
+    }
+  ],
+  "meta": {
+    "tokens_used": 0,
+    "latency_ms": 0,
+    "thinking_tokens": 0
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"kimi\",\n  \"round\": 2,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/example.py:21\",\n      \"description\": \"Inconsistent return type: `withdraw` returns `None` on failure but `int` on success. This violates type safety and causes runtime `TypeError` when callers perform arithmetic on the result (e.g., `new_balance = withdraw(100) + 50` fails silently or crashes).\",\n      \"suggested_fix\": \"Return a boolean status flag or raise a specific exception (e.g., `ValueError('Insufficient funds')`) instead of None. Alternatively, return a tuple `(bool, int)` to indicate success and new balance.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/example.py:5-20\",\n      \"description\": \"Missing input validation allows negative amounts. An attacker can call `deposit(-100)` to decrease the balance or `withdraw(-100)` to increase it without authorization, effectively breaking the accounting invariant.\",\n      \"suggested_fix\": \"Add validation at the top of both functions: `if amount < 0: raise ValueError('Amount must be non-negative')`.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"src/example.py:2-3\",\n      \"description\": \"Global mutable state prevents instantiation of multiple independent accounts and creates hidden coupling between components. This anti-pattern makes unit testing impossible without monkey-patching and causes race conditions in import-time initialization.\",\n      \"suggested_fix\": \"Encapsulate `balance` and `lock` in a class `BankAccount` with instance variables to allow proper isolation and testability.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"src/example.py:8-10,17-19\",\n      \"description\": \"Unnecessary read-modify-write verbosity. The manual `current = balance; current += amount; balance = current` pattern is error-prone (susceptible to lost updates if lock is accidentally omitted) and violates Pythonic simplicity. Direct `balance += amount` is atomic under the GIL and clearer.\",\n      \"suggested_fix\": \"Simplify to `balance += amount` and `balance -= amount` respectively.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"src/example.py:5,13\",\n      \"description\": \"Add type hints (`def deposit(amount: int) -> int:`) to enable static analysis and IDE autocomplete.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"src/example.py:5-21\",\n      \"description\": \"Add docstrings specifying thread-safety guarantees and exception behavior for public API documentation.\"\n    }\n  ],\n  \"diffs\": [\n    {\n      \"file\": \"src/example.py\",\n      \"hunks\": \"@@ -1,21 +1,35 @@\\n-import threading\\n+import threading\\n+from typing import Optional\\n \\n-balance = 0\\n-lock = threading.Lock()\\n+class BankAccount:\\n+    def __init__(self, initial_balance: int = 0):\\n+        self._balance = initial_balance\\n+        self._lock = threading.Lock()\\n \\n-def deposit(amount):\\n-    global balance\\n-    with lock:\\n-        current = balance\\n-        current += amount\\n-        balance = current\\n-        return balance\\n+    def deposit(self, amount: int) -> int:\\n+        if amount < 0:\\n+            raise ValueError(f\\\"Deposit amount must be non-negative, got {amount}\\\")\\n+        with self._lock:\\n+            self._balance += amount\\n+            return self._balance\\n \\n-def withdraw(amount):\\n-    global balance\\n-    with lock:\\n-        if balance >= amount:\\n-            current = balance\\n-            current -= amount\\n-            balance = current\\n-            return balance\\n-        return None\\n+    def withdraw(self, amount: int) -> int:\\n+        if amount < 0:\\n+            raise ValueError(f\\\"Withdrawal amount must be non-negative, got {amount}\\\")\\n+        with self._lock:\\n+            if self._balance < amount:\\n+                raise ValueError(f\\\"Insufficient funds: balance {self._balance}, requested {amount}\\\")\\n+            self._balance -= amount\\n+            return self._balance\\n+\\n+    def get_balance(self) -> int:\\n+        with self._lock:\\n+            return self._balance\\n+\\n+# Backward compatibility shim (optional, remove if breaking changes allowed)\\n+_default_account = BankAccount()\\n+deposit = _default_account.deposit\\n+withdraw = _default_account.withdraw\\n\"\n    }\n  ],\n  \"meta\": {\n    \"tokens_used\": 0,\n    \"latency_ms\": 0,\n    \"thinking_tokens\": 0\n  }\n}\n```"
+}

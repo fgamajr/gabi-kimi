@@ -1,0 +1,62 @@
+{
+  "agent": "kimi",
+  "round": 1,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "Navigation section (point 3) and Detail/Timeline section (point 5)",
+      "description": "Conflicting Information Architecture: Timeline is listed as both a persistent bottom tab (top-level destination) and a Detail view screen (context-specific drill-down). This violates basic IA principles—tabs represent parallel destinations, not pages in a flow. If Timeline is a detail view for a selected document, it cannot also be a main tab without creating navigation paradoxes (e.g., which document loads when tapping the Timeline tab from Home?).",
+      "suggested_fix": "Remove Timeline from the tab bar. Reserve tabs for true peers: Home, Search, Library/History, Settings. Timeline remains a drill-down view accessed from Home or Search results. Replace the fourth tab with 'Activity' or 'Library' if a chronological collection view is needed as a primary destination."
+    },
+    {
+      "severity": "high",
+      "location": "Navigation section (point 3) and Screen definitions (point 6)",
+      "description": "Missing Navigation Paradigm for Drill-Down Views: The spec defines a tab bar for primary navigation but omits how users navigate back from Detail/Timeline or Action Sheet screens. Without explicit back affordances, stack management, or URL-based routing strategy, users relying on browser back may lose application state or encounter unexpected behaviors in this SPA architecture.",
+      "suggested_fix": "Define a stack-based navigation pattern with explicit back buttons/chevrons in top-left of Detail and Action screens. Implement History API routing with fallback (or hash-based) to support deep linking: / (Home), /doc/:id (Detail), /action/:type (Action Sheet). Ensure focus management announces route changes to screen readers."
+    },
+    {
+      "severity": "medium",
+      "location": "Navigation section (point 3) and Action sheet section (point 6)",
+      "description": "Bottom Congestion Ergonomics: Combining a persistent 4-tab bottom bar with bottom sheets for secondary actions creates 'thumb competition'—two layers of controls occupying the critical lower 200px of the viewport. This forces users to navigate around the tab bar to interact with sheet content, violating mobile ergonomic principles (thumb zone heatmaps show 25% of interactions occur in the bottom 72px).",
+      "suggested_fix": "Eliminate the 'Actions' tab if actions are primarily initiated via bottom sheets. Reserve the tab bar for 3 items maximum (Home, Search, Library). Move secondary actions to contextual inline buttons or top-right affordances. Bottom sheets should only be used for primary workflows (e.g., 'New Search'), not secondary options."
+    },
+    {
+      "severity": "medium",
+      "location": "Motion system (point 8)",
+      "description": "Playful Motion Vocabulary Conflicts with Brand Direction: The proposed animations ('breathe', 'sway', 'float') imply organic, decorative, playful characteristics. The convergence criteria explicitly mandate defaulting to 'premium/confident Nubank + Flighty over playful choices.' These motion descriptors suggest unnecessary chrome that distracts from data density and confidence.",
+      "suggested_fix": "Replace decorative motion names with functional, precise terminology: 'snap' (enter), 'glide' (transition), 'reveal' (expand). Use cubic-bezier(0.16, 1, 0.3, 1) for expo-out curves (Nubank-style) instead of ease/linear. Remove 'breathe' (infinite animation) as it creates visual noise; use static states with micro-interactions on interaction only."
+    },
+    {
+      "severity": "medium",
+      "location": "Technical stack and Migration path (points 1, 12)",
+      "description": "External CDN Dependency for Core Framework: Loading React 18 from CDN introduces a single point of failure for a production system served by web_server.py. If the CDN is unreachable or compromised, the application fails to hydrate, leaving users with a blank shell (no progressive enhancement fallback mentioned). This contradicts the 'production' requirement.",
+      "suggested_fix": "Self-host React and ReactDOM ES modules in src/frontend/web/vendor/ during the migration. Update import maps to reference local paths. This ensures the frontend remains functional as long as the backend (web_server.py) is operational, matching the reliability expectations of the existing Alpine implementation."
+    },
+    {
+      "severity": "medium",
+      "location": "Interaction patterns (point 9)",
+      "description": "Undiscoverable Interaction Patterns: Long-press quick actions and swipe affordances lack visual indicators. On mobile web, long-press triggers browser context menus (iOS Safari, Chrome Android), creating platform conflicts. Swipe without visible handles violates Nielsen's heuristic of 'recognition over recall.'",
+      "suggested_fix": "Add explicit 'more' buttons (•••) for quick actions instead of long-press. Use visible drag handles (≡) on timeline items to indicate swipeability. Alternatively, remove swipe gestures entirely in favor of tap-to-expand patterns which have higher discoverability."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "Accessibility section (point 10)",
+      "description": "Add requirement for 'skip to content' links and route announcement regions. Since this is an SPA without page reloads, implement a live region that announces view transitions (e.g., 'Navigated to Document Detail') for screen reader users."
+    },
+    {
+      "type": "improvement",
+      "location": "Home/Dashboard section (point 4)",
+      "description": "Define the 'Primary KPI rail' explicitly: limit to 3 metrics maximum to prevent cognitive overload. Specify that the 'live status card' updates via aria-live='polite' to prevent interrupting screen reader users with every data refresh."
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 0,
+    "latency_ms": 0,
+    "thinking_tokens": 0
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"kimi\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Navigation section (point 3) and Detail/Timeline section (point 5)\",\n      \"description\": \"Conflicting Information Architecture: Timeline is listed as both a persistent bottom tab (top-level destination) and a Detail view screen (context-specific drill-down). This violates basic IA principles—tabs represent parallel destinations, not pages in a flow. If Timeline is a detail view for a selected document, it cannot also be a main tab without creating navigation paradoxes (e.g., which document loads when tapping the Timeline tab from Home?).\",\n      \"suggested_fix\": \"Remove Timeline from the tab bar. Reserve tabs for true peers: Home, Search, Library/History, Settings. Timeline remains a drill-down view accessed from Home or Search results. Replace the fourth tab with 'Activity' or 'Library' if a chronological collection view is needed as a primary destination.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Navigation section (point 3) and Screen definitions (point 6)\",\n      \"description\": \"Missing Navigation Paradigm for Drill-Down Views: The spec defines a tab bar for primary navigation but omits how users navigate back from Detail/Timeline or Action Sheet screens. Without explicit back affordances, stack management, or URL-based routing strategy, users relying on browser back may lose application state or encounter unexpected behaviors in this SPA architecture.\",\n      \"suggested_fix\": \"Define a stack-based navigation pattern with explicit back buttons/chevrons in top-left of Detail and Action screens. Implement History API routing with fallback (or hash-based) to support deep linking: / (Home), /doc/:id (Detail), /action/:type (Action Sheet). Ensure focus management announces route changes to screen readers.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Navigation section (point 3) and Action sheet section (point 6)\",\n      \"description\": \"Bottom Congestion Ergonomics: Combining a persistent 4-tab bottom bar with bottom sheets for secondary actions creates 'thumb competition'—two layers of controls occupying the critical lower 200px of the viewport. This forces users to navigate around the tab bar to interact with sheet content, violating mobile ergonomic principles (thumb zone heatmaps show 25% of interactions occur in the bottom 72px).\",\n      \"suggested_fix\": \"Eliminate the 'Actions' tab if actions are primarily initiated via bottom sheets. Reserve the tab bar for 3 items maximum (Home, Search, Library). Move secondary actions to contextual inline buttons or top-right affordances. Bottom sheets should only be used for primary workflows (e.g., 'New Search'), not secondary options.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Motion system (point 8)\",\n      \"description\": \"Playful Motion Vocabulary Conflicts with Brand Direction: The proposed animations ('breathe', 'sway', 'float') imply organic, decorative, playful characteristics. The convergence criteria explicitly mandate defaulting to 'premium/confident Nubank + Flighty over playful choices.' These motion descriptors suggest unnecessary chrome that distracts from data density and confidence.\",\n      \"suggested_fix\": \"Replace decorative motion names with functional, precise terminology: 'snap' (enter), 'glide' (transition), 'reveal' (expand). Use cubic-bezier(0.16, 1, 0.3, 1) for expo-out curves (Nubank-style) instead of ease/linear. Remove 'breathe' (infinite animation) as it creates visual noise; use static states with micro-interactions on interaction only.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Technical stack and Migration path (points 1, 12)\",\n      \"description\": \"External CDN Dependency for Core Framework: Loading React 18 from CDN introduces a single point of failure for a production system served by web_server.py. If the CDN is unreachable or compromised, the application fails to hydrate, leaving users with a blank shell (no progressive enhancement fallback mentioned). This contradicts the 'production' requirement.\",\n      \"suggested_fix\": \"Self-host React and ReactDOM ES modules in src/frontend/web/vendor/ during the migration. Update import maps to reference local paths. This ensures the frontend remains functional as long as the backend (web_server.py) is operational, matching the reliability expectations of the existing Alpine implementation.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Interaction patterns (point 9)\",\n      \"description\": \"Undiscoverable Interaction Patterns: Long-press quick actions and swipe affordances lack visual indicators. On mobile web, long-press triggers browser context menus (iOS Safari, Chrome Android), creating platform conflicts. Swipe without visible handles violates Nielsen's heuristic of 'recognition over recall.'\",\n      \"suggested_fix\": \"Add explicit 'more' buttons (•••) for quick actions instead of long-press. Use visible drag handles (≡) on timeline items to indicate swipeability. Alternatively, remove swipe gestures entirely in favor of tap-to-expand patterns which have higher discoverability.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Accessibility section (point 10)\",\n      \"description\": \"Add requirement for 'skip to content' links and route announcement regions. Since this is an SPA without page reloads, implement a live region that announces view transitions (e.g., 'Navigated to Document Detail') for screen reader users.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Home/Dashboard section (point 4)\",\n      \"description\": \"Define the 'Primary KPI rail' explicitly: limit to 3 metrics maximum to prevent cognitive overload. Specify that the 'live status card' updates via aria-live='polite' to prevent interrupting screen reader users with every data refresh.\"\n    }\n  ],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 0,\n    \"latency_ms\": 0,\n    \"thinking_tokens\": 0\n  }\n}\n```"
+}

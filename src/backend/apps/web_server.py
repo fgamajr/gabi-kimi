@@ -30,7 +30,6 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from src.backend.apps.mcp_server import (
@@ -110,6 +109,15 @@ def _ser(v: Any) -> Any:
     if isinstance(v, date):
         return v.isoformat()
     return v
+
+
+def _resolve_local_media_path(local_path: str | None) -> Path | None:
+    if not local_path:
+        return None
+    candidate = Path(local_path)
+    if not candidate.is_absolute():
+        candidate = _ROOT_DIR / candidate
+    return candidate
 
 
 # ---------------------------------------------------------------------------
@@ -283,7 +291,10 @@ def api_document(doc_id: str):
         # Media list (names only, images served separately)
         cur.execute("""
             SELECT media_name, media_type, file_extension, size_bytes,
-                   source_filename, external_url,
+                   source_filename, external_url, original_url,
+                   availability_status, alt_text, context_hint, fallback_text,
+                   local_path, width_px, height_px, ingest_checked_at, retry_count,
+                   (data IS NOT NULL) AS has_binary,
                    sequence_in_document
             FROM dou.document_media WHERE document_id = %s::uuid
             ORDER BY sequence_in_document
@@ -291,8 +302,18 @@ def api_document(doc_id: str):
         media_rows = [{k: _ser(v) for k, v in r.items()} for r in _rows(cur)]
         for item in media_rows:
             media_name = str(item.get("media_name", "")).strip()
-            item["blob_url"] = f"/api/media/{doc_id}/{media_name}" if media_name else None
+            effective_status = item.get("availability_status") or "unknown"
+            if effective_status == "available" and not item.get("has_binary") and not item.get("local_path"):
+                effective_status = "unknown"
+            item["position_in_doc"] = item.get("sequence_in_document")
+            item["status"] = effective_status
+            item["blob_url"] = (
+                f"/api/media/{doc_id}/{media_name}"
+                if media_name and effective_status == "available"
+                else None
+            )
         doc["media"] = media_rows
+        doc["images"] = media_rows
 
         cur.close()
     finally:
@@ -810,12 +831,12 @@ async def api_chat(req: ChatRequest, request: Request):
 
 @app.get("/api/media/{doc_id}/{media_name}")
 def api_media(doc_id: str, media_name: str):
-    """Serve media from bytea storage or redirect to legacy external URL."""
+    """Serve media from bytea or local cache only."""
     conn = _conn(timeout_ms=10000)
     try:
         cur = conn.cursor()
         cur.execute("""
-            SELECT data, media_type, external_url
+            SELECT data, media_type, local_path, availability_status, ingest_checked_at
             FROM dou.document_media
             WHERE document_id = %s::uuid
               AND (
@@ -833,10 +854,17 @@ def api_media(doc_id: str, media_name: str):
     if not row:
         raise HTTPException(404, "Imagem não encontrada")
 
-    data, media_type, external_url = row
+    data, media_type, local_path, availability_status, ingest_checked_at = row
     if data is None:
-        if external_url:
-            return RedirectResponse(url=external_url, status_code=307)
+        resolved = _resolve_local_media_path(local_path)
+        if resolved and resolved.exists():
+            return FileResponse(
+                resolved,
+                media_type=media_type or "image/jpeg",
+                headers={"Cache-Control": "public, max-age=86400"},
+            )
+        if availability_status == "available" and ingest_checked_at is not None:
+            raise HTTPException(500, "Imagem classificada como disponível, mas cache local está ausente")
         raise HTTPException(404, "Imagem não disponível")
 
     return Response(
@@ -862,8 +890,12 @@ def doc_page(path: str):
     return FileResponse(WEB_DIR / "index.html")
 
 
-# Mount static AFTER API routes
-app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="static")
+@app.get("/dist/{path:path}")
+def dist_asset(path: str):
+    file_path = WEB_DIR / "dist" / path
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(404, "Asset não encontrado")
+    return FileResponse(file_path)
 
 # ---------------------------------------------------------------------------
 # Entrypoint

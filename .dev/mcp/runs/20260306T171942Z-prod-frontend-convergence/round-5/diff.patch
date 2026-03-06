@@ -1,0 +1,678 @@
+--- before
++++ after
+@@ -1,4 +1,4 @@
+-# Production Frontend Implementation Spec v5
++# Production Frontend Implementation Spec v6
+ 
+ ## 0. Repo Context & Constraints
+ 
+@@ -21,7 +21,10 @@
+ 
+ - **Library**: `wouter` v3 — 1.5KB gzipped, history-based by default, no hash routing.
+ - **Route definitions** live in `app/routes.js` as a flat map of path → lazy component.
+-- **No nested routing** — wouter doesn't support it natively and we don't need it. ActionSheet is rendered as an overlay within DocumentScreen (not a child route — state-only, not URL-routable; see Section 5.3).
++- **No nested routing** — wouter doesn't support it natively and we don't need it.
++- **ActionSheet** is rendered as an overlay within DocumentScreen, driven by URL query parameter `?action=edit` (see Section 5.3).
++
++**Search URL contract**: `/search?q=encoded_query`. SearchScreen reads initial query from `window.location.search` on mount. Typing updates URL via `history.replaceState` (no history pollution). Submitting or selecting a suggestion uses `history.pushState` so back-button returns to the previous query. The SPA fallback in `web_server.py` serves `index.html` regardless of query string — the browser preserves query params client-side.
+ 
+ ### 1.5 Component Architecture Map
+ 
+@@ -29,6 +32,7 @@
+ App (app/App.jsx)
+ ├── ThemeProvider (app/ThemeProvider.jsx) ─── React Context: { theme, toggleTheme }
+ │   ├── AppShell (app/AppShell.jsx)
++│   │   ├── SkipLink (shared/ui/SkipLink.jsx) ─── "Skip to main content", first focusable
+ │   │   ├── Header (shared/ui/Header.jsx)
+ │   │   │   ├── LogoMark (shared/icons/LogoMark.jsx) ─── SVG component
+ │   │   │   ├── ThemeToggle (shared/ui/ThemeToggle.jsx)
+@@ -37,42 +41,47 @@
+ │   │   ├── MobileNav (shared/ui/MobileNav.jsx) ─── 375-767px only
+ │   │   │   └── NavItem (shared/ui/NavItem.jsx)
+ │   │   │
+-│   │   ├── AnimatedRoute (app/AnimatedRoute.jsx) ─── manages transition direction
+-│   │   │   │
+-│   │   │   ├── [lazy] SearchScreen (features/search/SearchScreen.jsx)
+-│   │   │   │   ├── SearchInput (features/search/SearchInput.jsx)
+-│   │   │   │   │   └── SuggestionList (features/search/SuggestionList.jsx)
+-│   │   │   │   │       └── SuggestionItem (features/search/SuggestionItem.jsx)
+-│   │   │   │   │           └── HighlightMatch (shared/ui/HighlightMatch.jsx)
+-│   │   │   │   ├── TopSearches (features/search/TopSearches.jsx)
+-│   │   │   │   ├── SearchResults (features/search/SearchResults.jsx)
+-│   │   │   │   │   └── ResultCard (features/search/ResultCard.jsx)
+-│   │   │   │   └── EmptyState (shared/ui/EmptyState.jsx)
+-│   │   │   │
+-│   │   │   ├── [lazy] DashboardScreen (features/dashboard/DashboardScreen.jsx)
+-│   │   │   │   ├── StatsBar (features/dashboard/StatsBar.jsx)
+-│   │   │   │   ├── RecentDocuments (features/dashboard/RecentDocuments.jsx)
+-│   │   │   │   │   └── DocumentCard (shared/ui/DocumentCard.jsx)
+-│   │   │   │   └── QuickActions (features/dashboard/QuickActions.jsx)
+-│   │   │   │
+-│   │   │   └── [lazy] DocumentScreen (features/document/DocumentScreen.jsx)
+-│   │   │       ├── DocumentHeader (features/document/DocumentHeader.jsx)
+-│   │   │       ├── Timeline (features/document/Timeline.jsx)
+-│   │   │       │   └── TimelineEntry (features/document/TimelineEntry.jsx)
+-│   │   │       │       └── StatusBadge (shared/ui/StatusBadge.jsx)
+-│   │   │       ├── DocumentMeta (features/document/DocumentMeta.jsx)
+-│   │   │       └── ActionSheet (features/document/ActionSheet.jsx) ─── overlay, state-only
+-│   │   │           ├── ActionSheetHeader (features/document/ActionSheetHeader.jsx)
+-│   │   │           └── ActionForm (features/document/ActionForm.jsx)
+-│   │   │               ├── TextInput (shared/ui/TextInput.jsx)
+-│   │   │               ├── SelectInput (shared/ui/SelectInput.jsx)
+-│   │   │               └── Button (shared/ui/Button.jsx)
++│   │   ├── <main id="main-content" role="main"> ─── skip-link target
++│   │   │   └── AnimatedRoute (app/AnimatedRoute.jsx) ─── manages transition direction
++│   │   │       │
++│   │   │       ├── [lazy → Suspense: DashboardSkeleton] DashboardScreen
++│   │   │       │   (features/dashboard/DashboardScreen.jsx)
++│   │   │       │   ├── StatsBar (features/dashboard/StatsBar.jsx)
++│   │   │       │   ├── RecentDocuments (features/dashboard/RecentDocuments.jsx)
++│   │   │       │   │   └── DocumentCard (shared/ui/DocumentCard.jsx)
++│   │   │       │   └── QuickActions (features/dashboard/QuickActions.jsx)
++│   │   │       │
++│   │   │       ├── [lazy → Suspense: SearchSkeleton] SearchScreen
++│   │   │       │   (features/search/SearchScreen.jsx)
++│   │   │       │   ├── SearchInput (features/search/SearchInput.jsx)
++│   │   │       │   │   └── SuggestionList (features/search/SuggestionList.jsx)
++│   │   │       │   │       └── SuggestionItem (features/search/SuggestionItem.jsx)
++│   │   │       │   │           └── HighlightMatch (shared/ui/HighlightMatch.jsx)
++│   │   │       │   ├── TopSearches (features/search/TopSearches.jsx)
++│   │   │       │   ├── SearchResults (features/search/SearchResults.jsx)
++│   │   │       │   │   └── ResultCard (features/search/ResultCard.jsx)
++│   │   │       │   └── EmptyState (shared/ui/EmptyState.jsx)
++│   │   │       │
++│   │   │       └── [lazy → Suspense: DocumentSkeleton] DocumentScreen
++│   │   │           (features/document/DocumentScreen.jsx)
++│   │   │           ├── DocumentHeader (features/document/DocumentHeader.jsx)
++│   │   │           ├── Timeline (features/document/Timeline.jsx)
++│   │   │           │   └── TimelineEntry (features/document/TimelineEntry.jsx)
++│   │   │           │       └── StatusBadge (shared/ui/StatusBadge.jsx)
++│   │   │           ├── DocumentMeta (features/document/DocumentMeta.jsx)
++│   │   │           └── ActionSheet (features/document/ActionSheet.jsx) ─── overlay
++│   │   │               ├── ActionSheetHeader (features/document/ActionSheetHeader.jsx)
++│   │   │               └── ActionForm (features/document/ActionForm.jsx)
++│   │   │                   ├── TextInput (shared/ui/TextInput.jsx)
++│   │   │                   ├── SelectInput (shared/ui/SelectInput.jsx)
++│   │   │                   └── Button (shared/ui/Button.jsx)
+ │   │   │
+-│   │   └── Toast (shared/ui/Toast.jsx) ─── portaled to body
++│   │   └── Toast (shared/ui/Toast.jsx) ─── portaled to #overlay-root
+ │   │
+ │   └── ErrorBoundary (shared/ui/ErrorBoundary.jsx) ─── wraps AppShell
+ │
+-└── [portaled] ActionSheet backdrop ─── rendered into #overlay-root
++├── [portaled] ActionSheet backdrop ─── rendered into #overlay-root
++└── <div id="route-announcer" aria-live="assertive" role="status" class="sr-only">
+ ```
+ 
+ **State ownership**:
+@@ -81,21 +90,21 @@
+ |-------|-------|------|-----------|
+ | Theme (dark/light) | ThemeProvider | React Context | Header, ThemeToggle, all components via CSS vars |
+ | Current route | wouter | URL state | AnimatedRoute, NavLinks, MobileNav |
+-| Navigation direction | AnimatedRoute | Local ref | Screen transition CSS class selection |
+-| Search query | SearchScreen | Local state (useState) | SearchInput, SuggestionList, SearchResults |
++| Navigation direction | AnimatedRoute | Local ref + popstate tracking | Screen transition CSS class selection |
++| Search query | SearchScreen | URL synced (`?q=`) | SearchInput, SuggestionList, SearchResults |
+ | Search results | SearchScreen | Local state (useReducer) | SearchResults, ResultCard, EmptyState |
+ | Autocomplete suggestions | SearchInput | Local state | SuggestionList |
+ | Document data | DocumentScreen | Local state (useReducer) | DocumentHeader, Timeline, DocumentMeta |
+-| ActionSheet open/closed | DocumentScreen | Local state (useState) | ActionSheet |
++| ActionSheet open/closed | DocumentScreen | URL query param (`?action=`) | ActionSheet |
+ | Toast messages | useToast hook | React Context | Toast component |
+ | API request state | useApiRequest hook | Local per-caller | Loading/error/data per component |
+ 
+ **Code-splitting boundaries** (marked with `[lazy]` above):
+-- `React.lazy(() => import('./features/search/SearchScreen'))` 
+-- `React.lazy(() => import('./features/dashboard/DashboardScreen'))`
+-- `React.lazy(() => import('./features/document/DocumentScreen'))`
+-
+-Suspense fallback is a skeleton layout (Section 6), not a spinner.
++- `React.lazy(() => import('../features/search/SearchScreen'))`
++- `React.lazy(() => import('../features/dashboard/DashboardScreen'))`
++- `React.lazy(() => import('../features/document/DocumentScreen'))`
++
++Each lazy import is wrapped in `<Suspense fallback={<ScreenSkeleton />}>` where ScreenSkeleton is the screen-specific skeleton composition (Section 6).
+ 
+ **Shared component inventory**:
+ 
+@@ -105,26 +114,66 @@
+ | TextInput | `label`, `value`, `onChange`, `error`, `placeholder`, `type`, `id` | `default`, `error` | ActionForm, SearchInput |
+ | SelectInput | `label`, `value`, `onChange`, `options`, `error`, `id` | `default`, `error` | ActionForm |
+ | DocumentCard | `title`, `status`, `date`, `onClick`, `id` | — | RecentDocuments, SearchResults |
+-| StatusBadge | `status`, `size` | `success`, `warning`, `error`, `neutral` × `sm`, `md` | TimelineEntry, DocumentCard, DocumentHeader |
++| StatusBadge | `status`, `size`, `label` | `success`, `warning`, `error`, `neutral` × `sm`, `md` | TimelineEntry, DocumentCard, DocumentHeader |
+ | EmptyState | `icon`, `title`, `description`, `action` | — | SearchResults (zero results), Dashboard (no documents) |
+ | ErrorBoundary | `fallback`, `children` | — | Wraps AppShell; per-screen as needed |
+ | HighlightMatch | `text`, `query` | — | SuggestionItem |
+-| Skeleton | `variant`, `width`, `height`, `lines` | `text`, `card`, `circle`, `block` | All screens during loading |
++| Skeleton | `variant`, `width`, `height`, `lines` | `text`, `card`, `circle`, `block` | All skeleton compositions |
+ | Toast | `message`, `variant`, `duration` | `success`, `error`, `info` | Global via portal |
++| SkipLink | — | — | AppShell (first focusable element) |
++
++**StatusBadge accessibility**: Every StatusBadge renders an icon alongside color: checkmark (success), exclamation-triangle (warning), x-circle (error), circle (neutral). The `label` prop provides an `aria-label` so screen readers announce "Status: Approved" not just the color. This satisfies WCAG 1.4.1 (Use of Color).
+ 
+ ### 1.6 Navigation Flow Specification
+ 
+ **Spatial model**: Stack-based navigation. Screens exist on a conceptual left-to-right axis ordered: Dashboard(0) → Search(1) → Document(2).
+ 
++**Direction detection**: `useNavigationDirection` tracks a monotonically incrementing position counter stored in `history.state.navPos`. Every `pushState` increments the counter. When `popstate` fires, the new position is compared to the last known position — lower means back, higher means forward. This is immune to the non-linear history traversal bug (Dashboard→Search→Document→Search shows correct "back" animation because the position decremented).
++
++```javascript
++// shared/hooks/useNavigationDirection.js
++import { useRef, useEffect, useCallback } from 'react';
++
++let navPos = history.state?.navPos ?? 0;
++
++export function useNavigationDirection() {
++  const directionRef = useRef('forward');
++  const lastPosRef = useRef(navPos);
++
++  useEffect(() => {
++    function onPopState(e) {
++      const newPos = e.state?.navPos ?? 0;
++      directionRef.current = newPos < lastPosRef.current ? 'back' : 'forward';
++      lastPosRef.current = newPos;
++    }
++    window.addEventListener('popstate', onPopState);
++    return () => window.removeEventListener('popstate', onPopState);
++  }, []);
++
++  const navigate = useCallback((url) => {
++    navPos += 1;
++    history.pushState({ navPos }, '', url);
++    lastPosRef.current = navPos;
++    directionRef.current = 'forward';
++  }, []);
++
++  return { directionRef, navigate };
++}
++```
++
+ **Transition rules**:
+-- Navigating to a higher-index screen: current screen slides left + fades, new screen slides in from right + fades in
+-- Navigating to a lower-index screen (back): current screen slides right + fades, new screen slides in from left + fades in
+-- Same-index navigation (e.g., Document → Document): crossfade only, no slide
+-- ActionSheet: slides up from bottom (not a route transition)
+-
+-**Browser back button**: Triggers identical animation to in-app back navigation — wouter's history integration fires the same location change, and `useNavigationDirection` detects the index decrease.
+-
+-**Deep linking**: ActionSheet is NOT URL-routable. Direct link to `/document/abc123` opens DocumentScreen with ActionSheet closed. This avoids complexity of encoding overlay state in URL and prevents broken states from stale links.
++- Forward navigation: current screen exits left + fades, new screen enters from right + fades in
++- Back navigation: current screen exits right + fades, new screen enters from left + fades in
++- Same-screen re-render (e.g., Document → Document): crossfade only, no slide
++- ActionSheet: slides up from bottom (overlay, not a route transition)
++
++**Focus management on route change**: `AnimatedRoute` calls `mainContentRef.current.focus()` after the route transition completes, where `mainContentRef` points to `<main id="main-content" tabIndex="-1">`. The `tabIndex="-1"` makes it programmatically focusable without adding it to the tab order. This satisfies WCAG 2.4.3 (Focus Order).
++
++**Route announcements**: The `#route-announcer` div (`aria-live="assertive" role="status"`) receives the new screen name (e.g., "Navigated to Document Details") after each route change. This is separate from focus management — screen readers announce the navigation while focus moves to the main content area.
++
++**Browser back button**: Triggers identical animation to in-app back navigation via the `popstate`-based direction detection.
++
++**Deep linking**: `/document/abc123` opens DocumentScreen with ActionSheet closed. `/document/abc123?action=edit` opens DocumentScreen with ActionSheet open. Back button from open ActionSheet closes it (pops the `?action=` state) without leaving the document.
+ 
+ **Document title updates**: `useDocumentTitle` hook called in each screen component:
+ ```javascript
+@@ -134,13 +183,11 @@
+ export function useDocumentTitle(title) {
+   useEffect(() => {
+     const prev = document.title;
+-    document.title = title ? `${title} — App` : 'App';
++    document.title = title ? `${title} — BuscaLeg` : 'BuscaLeg';
+     return () => { document.title = prev; };
+   }, [title]);
+ }
+ ```
+-
+-**Route announcements for screen readers**: `AnimatedRoute` renders a visually-hidden `<div aria-live="assertive" role="status">` that announces the new screen name on route change (e.g., "Navigated to Document Details").
+ 
+ ---
+ 
+@@ -152,7 +199,7 @@
+ src/frontend/web/
+ ├── package.json
+ ├── vite.config.js
+-├── index.html          ← Vite entry (dev)
++├── index.html          ← Vite entry (dev) — includes FOUC prevention script
+ ├── src/
+ │   ├── main.jsx        ← React root mount
+ │   ├── app/            ← Shell, routing, providers, API client
+@@ -161,15 +208,59 @@
+ │   │   ├── ThemeProvider.jsx
+ │   │   ├── AnimatedRoute.jsx
+ │   │   ├── routes.js
+-│   │   └── api.js      ← API client
++│   │   └── api.js      ← API client (Section 4)
+ │   ├── features/       ← Feature-owned screens + sub-components
+ │   │   ├── dashboard/
++│   │   │   ├── DashboardScreen.jsx
++│   │   │   ├── DashboardSkeleton.jsx
++│   │   │   ├── StatsBar.jsx
++│   │   │   ├── RecentDocuments.jsx
++│   │   │   └── QuickActions.jsx
+ │   │   ├── search/
++│   │   │   ├── SearchScreen.jsx
++│   │   │   ├── SearchSkeleton.jsx
++│   │   │   ├── SearchInput.jsx
++│   │   │   ├── SuggestionList.jsx
++│   │   │   ├── SuggestionItem.jsx
++│   │   │   ├── TopSearches.jsx
++│   │   │   ├── SearchResults.jsx
++│   │   │   └── ResultCard.jsx
+ │   │   └── document/
++│   │       ├── DocumentScreen.jsx
++│   │       ├── DocumentSkeleton.jsx
++│   │       ├── DocumentHeader.jsx
++│   │       ├── Timeline.jsx
++│   │       ├── TimelineEntry.jsx
++│   │       ├── DocumentMeta.jsx
++│   │       ├── ActionSheet.jsx
++│   │       ├── ActionSheetHeader.jsx
++│   │       └── ActionForm.jsx
+ │   ├── shared/         ← Reusable UI primitives, hooks, icons
+ │   │   ├── ui/
++│   │   │   ├── Button.jsx
++│   │   │   ├── TextInput.jsx
++│   │   │   ├── SelectInput.jsx
++│   │   │   ├── DocumentCard.jsx
++│   │   │   ├── StatusBadge.jsx
++│   │   │   ├── EmptyState.jsx
++│   │   │   ├── ErrorBoundary.jsx
++│   │   │   ├── HighlightMatch.jsx
++│   │   │   ├── Skeleton.jsx
++│   │   │   ├── Toast.jsx
++│   │   │   ├── SkipLink.jsx
++│   │   │   ├── Header.jsx
++│   │   │   ├── NavLinks.jsx
++│   │   │   ├── MobileNav.jsx
++│   │   │   ├── NavItem.jsx
++│   │   │   └── ThemeToggle.jsx
+ │   │   ├── hooks/
++│   │   │   ├── useApiRequest.js
++│   │   │   ├── useDocumentTitle.js
++│   │   │   ├── useNavigationDirection.js
++│   │   │   ├── useFocusTrap.js
++│   │   │   └── useToast.js
+ │   │   └── icons/
++│   │       └── LogoMark.jsx
+ │   └── styles/         ← tokens.css, global.css, animations.css
+ ├── public/             ← Static assets (favicon, manifest)
+ ├── scripts/
+@@ -177,7 +268,7 @@
+ └── dist/               ← Build output (served by web_server.py, NOT committed)
+ ```
+ 
+-**vite.config.js** (complete, uses async config pattern):
++**vite.config.js**:
+ 
+ ```javascript
+ import { defineConfig } from 'vite';
+@@ -224,6 +315,8 @@
+ });
+ ```
+ 
++Feature screens are code-split via `React.lazy()` dynamic imports. Vite/Rollup automatically creates separate chunks for each dynamic import — no need for manual chunk definitions for feature screens. The `manualChunks` config only forces `react`+`react-dom` into a single vendor chunk for optimal caching.
++
+ **package.json** (relevant fields):
+ ```json
+ {
+@@ -262,44 +355,66 @@
+ 
+ const __dirname = dirname(fileURLToPath(import.meta.url));
+ const DIST = join(__dirname, '..', 'dist', 'assets');
+-const BUDGETS = {
+-  'vendor': { max: 45_000, label: 'Vendor chunk' },
++
++// Level 6 matches real-world CDN/browser compression
++const GZIP_LEVEL = 6;
++
++const JS_BUDGETS = {
++  'vendor': { max: 50_000, label: 'Vendor chunk' },
+   'index':  { max: 40_000, label: 'Initial app chunk' },
+ };
+-const TOTAL_MAX = 160_000;
++const JS_TOTAL_MAX = 170_000;
++const CSS_TOTAL_MAX = 20_000;
++const HASH_PATTERN = /-[a-zA-Z0-9]{8,}\./;
+ 
+ if (!existsSync(DIST)) {
+   console.error('FAIL: dist/assets not found. Run `npm run build` first.');
+   process.exit(1);
+ }
+ 
+-let total = 0;
++let jsTotal = 0;
++let cssTotal = 0;
+ let failed = false;
+ 
+ for (const file of readdirSync(DIST)) {
+-  if (!file.endsWith('.js')) continue;
+   const filePath = join(DIST, file);
+   const raw = statSync(filePath).size;
+   const contents = readFileSync(filePath);
+-  const gzipped = gzipSync(contents, { level: 9 }).length;
+-  total += gzipped;
+-
+-  for (const [key, budget] of Object.entries(BUDGETS)) {
+-    if (file.includes(key) && gzipped > budget.max) {
+-      console.error(
+-        `FAIL: ${budget.label} (${file}) is ${gzipped}B gzipped, budget ${budget.max}B`
+-      );
+-      failed = true;
++  const gzipped = gzipSync(contents, { level: GZIP_LEVEL }).length;
++
++  // Verify content-hash in filename
++  if (!HASH_PATTERN.test(file)) {
++    console.error(`FAIL: ${file} does not contain a content hash. Immutable caching is unsafe.`);
++    failed = true;
++  }
++
++  if (file.endsWith('.js')) {
++    jsTotal += gzipped;
++    for (const [key, budget] of Object.entries(JS_BUDGETS)) {
++      if (file.includes(key) && gzipped > budget.max) {
++        console.error(
++          `FAIL: ${budget.label} (${file}) is ${gzipped}B gzipped, budget ${budget.max}B`
++        );
++        failed = true;
++      }
+     }
++    console.log(`  JS  ${file}: ${raw}B raw, ${gzipped}B gzipped`);
++  } else if (file.endsWith('.css')) {
++    cssTotal += gzipped;
++    console.log(`  CSS ${file}: ${raw}B raw, ${gzipped}B gzipped`);
+   }
+-  console.log(`  ${file}: ${raw}B raw, ${gzipped}B gzipped`);
+-}
+-
+-if (total > TOTAL_MAX) {
+-  console.error(`FAIL: Total JS ${total}B gzipped exceeds budget ${TOTAL_MAX}B`);
++}
++
++if (jsTotal > JS_TOTAL_MAX) {
++  console.error(`FAIL: Total JS ${jsTotal}B gzipped exceeds budget ${JS_TOTAL_MAX}B`);
+   failed = true;
+ }
+-
++if (cssTotal > CSS_TOTAL_MAX) {
++  console.error(`FAIL: Total CSS ${cssTotal}B gzipped exceeds budget ${CSS_TOTAL_MAX}B`);
++  failed = true;
++}
++
++console.log(`\nTotals: JS ${jsTotal}B, CSS ${cssTotal}B (gzipped, level ${GZIP_LEVEL})`);
+ process.exit(failed ? 1 : 0);
+ ```
+ 
+@@ -307,10 +422,12 @@
+ 
+ | Metric | Budget | Enforcement |
+ |--------|--------|-------------|
+-| Vendor chunk (gzipped) | ≤ 45KB | `check-bundle-size.js` in CI |
+-| Initial app chunk (gzipped) | ≤ 40KB | `check-bundle-size.js` in CI |
++| Vendor chunk (gzipped, level 6) | ≤ 50KB | `check-bundle-size.js` in CI |
++| Initial app chunk (gzipped, level 6) | ≤ 40KB | `check-bundle-size.js` in CI |
+ | Lazy chunk (gzipped, each) | ≤ 40KB | CI warns on exceed |
+-| Total JS (gzipped) | ≤ 160KB | `check-bundle-size.js` in CI |
++| Total JS (gzipped, level 6) | ≤ 170KB | `check-bundle-size.js` in CI |
++| Total CSS (gzipped, level 6) | ≤ 20KB | `check-bundle-size.js` in CI |
++| Content hash in all asset filenames | Required | `check-bundle-size.js` in CI |
+ | LCP | ≤ 1.5s on 4G | Lighthouse CI assertion |
+ | FID / INP | ≤ 100ms | Lighthouse CI assertion |
+ | CLS | ≤ 0.05 | Lighthouse CI assertion |
+@@ -323,10 +440,10 @@
+ | react | ~6KB | Runtime |
+ | react-dom | ~36KB | Runtime |
+ | wouter | ~1.5KB | History-based routing |
+-| **Total vendor** | **~44KB** | |
++| **Total vendor** | **~44KB** | Under 50KB budget |
+ | **App budget** | **~36KB** | Initial chunk |
+ 
+-**No additional runtime dependencies without budget review.** Date formatting uses `Intl.DateTimeFormat`. Form validation is hand-rolled. No lodash, no date-fns, no axios.
++**No additional runtime dependencies without budget review.** Date formatting uses `Intl.DateTimeFormat`. Form validation is hand-rolled. Focus trapping is hand-rolled (see `useFocusTrap` in Section 5.3). No lodash, no date-fns, no axios.
+ 
+ **Dev dependencies** (not shipped): `vite`, `@vitejs/plugin-react`, `vitest`, `@testing-library/react`, `@testing-library/jest-dom`, `axe-core`, `vitest-axe`, `rollup-plugin-visualizer`, `tailwindcss`, `postcss`, `autoprefixer`.
+ 
+@@ -353,9 +470,9 @@
+ from fastapi.staticfiles import StaticFiles
+ from fastapi.responses import FileResponse, JSONResponse
+ from starlette.exceptions import HTTPException as StarletteHTTPException
+-from starlette.middleware.base import BaseHTTPMiddleware
+ from starlette.requests import Request
+ from starlette.responses import Response
++from starlette.types import ASGIApp, Receive, Scope, Send
+ 
+ DIST_DIR = Path(__file__).resolve().parent.parent.parent / "frontend" / "web" / "dist"
+ DIST_INDEX = DIST_DIR / "index.html"
+@@ -380,13 +497,25 @@
+ # Change: app = FastAPI(...)
+ # To:     app = FastAPI(..., lifespan=lifespan)
+ 
+-# --- ADD: Immutable asset cache middleware ---
+-class ImmutableAssetsCacheMiddleware(BaseHTTPMiddleware):
+-    async def dispatch(self, request: Request, call_next):
+-        response: Response = await call_next(request)
+-        if request.url.path.startswith("/assets/"):
+-            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+-        return response
++# --- ADD: Pure ASGI middleware for immutable asset caching ---
++# (avoids BaseHTTPMiddleware thread-wrapping overhead)
++class ImmutableAssetsCacheMiddleware:
++    def __init__(self, app: ASGIApp):
++        self.app = app
++
++    async def __call__(self, scope: Scope, receive: Receive, send: Send):
++        if scope["type"] == "http" and scope["path"].startswith("/assets/"):
++            async def send_with_cache(message):
++                if message["type"] == "http.response.start":
++                    headers = list(message.get("headers", []))
++                    headers.append(
++                        (b"cache-control", b"public, max-age=31536000, immutable")
++                    )
++                    message = {**message, "headers": headers}
++                await send(message)
++            await self.app(scope, receive, send_with_cache)
++        else:
++            await self.app(scope, receive, send)
+ 
+ app.add_middleware(ImmutableAssetsCacheMiddleware)
+ 
+@@ -410,173 +539,41 @@
+ # --- ADD: SPA fallback via 404 exception handler ---
+ @app.exception_handler(StarletteHTTPException)
+ async def spa_or_api_exception_handler(request: Request, exc: StarletteHTTPException):
+-    if exc.status_code == 404:
+-        accept = request.headers.get("accept", "")
+-        if "text/html" in accept:
+-            return FileResponse(
+-                str(DIST_INDEX),
+-                headers={"Cache-Control": "no-cache"},
+-                media_type="text/html",
+-            )
++    # Non-404 errors: preserve original status code and detail
++    if exc.status_code != 404:
++        return JSONResponse(
++            {"detail": exc.detail or "Server error"},
++            status_code=exc.status_code,
++        )
++    # API and infrastructure paths: always return JSON 404
++    if request.url.path.startswith(("/api/", "/healthz")):
++        return JSONResponse(
++            {"detail": exc.detail or "Not found"},
++            status_code=404,
++        )
++    # Browser navigation to unknown paths: serve SPA
++    accept = request.headers.get("accept", "")
++    if "text/html" in accept:
++        return FileResponse(
++            str(DIST_INDEX),
++            headers={"Cache-Control": "no-cache"},
++            media_type="text/html",
++        )
++    # Non-browser, non-API 404: JSON fallback
+     return JSONResponse(
+         {"detail": exc.detail or "Not found"},
+-        status_code=exc.status_code,
++        status_code=404,
+     )
+ ```
+ 
+ **Key design decisions**:
+ - `/healthz` is a dedicated endpoint returning JSON — never masked by SPA fallback
+-- 404 handler uses `Accept` header content negotiation: browsers get `index.html`, API consumers get JSON
+-- `/assets/*` gets immutable cache headers via middleware since `StaticFiles` doesn't set them
++- 404 handler ONLY intercepts 404s; all other status codes (403, 500, etc.) are passed through unchanged
++- Path prefix guard: `/api/*` and `/healthz` paths always return JSON 404s regardless of `Accept` header
++- Pure ASGI middleware for caching avoids `BaseHTTPMiddleware` thread-wrapping overhead
+ - `index.html` always gets `Cache-Control: no-cache` (browser revalidates on every navigation)
+ - `validate_frontend_build()` is wired into FastAPI's `lifespan` context manager — crashes on boot if `dist/` is missing
+-- Any new backend routes registered via `app.include_router()` or `@app.get()` take priority over the 404 handler — no swallowing risk
+ 
+ ### 2.2 Migration Strategy
+ 
+-**Phase 1 — Parallel deploy**: Serve React app at `/v2/` path prefix. Vite builds with `base: '/v2/'`. Legacy Alpine app continues at `/`. Backend adds:
+-```python
+-if DIST_ASSETS.exists():
+-    app.mount("/v2/assets", StaticFiles(directory=str(DIST_ASSETS)), name="v2-assets")
+-
+-@app.get("/v2")
+-@app.get("/v2/{path:path}")
+-async def spa_v2_fallback(path: str = ""):
+-    return FileResponse(str(DIST_INDEX), headers={"Cache-Control": "no-cache"})
+-```
+-
+-**API contract during Phase 1**: All API endpoints return relative paths only (no absolute URLs). The React app at `/v2/` calls the same `/api/*` endpoints — no base-path-aware rewriting needed because API routes are path-absolute (`/api/search`), not relative.
+-
+-**Phase 2 — Parity confirmed**: Change Vite `base` back to `'/'`. Swap `/` to serve React via the 404 exception handler. Move legacy Alpine files to `src/frontend/web/_legacy/`. Legacy remains accessible at `/_legacy/` for 2 weeks via a simple `StaticFiles` mount.
+-
+-**Phase 3 — Cleanup**: Remove `_legacy/` directory, remove `/v2` routes, remove legacy mount.
+-
+-### 2.3 Rollback Plan
+-
+-If React deploy fails after Phase 2 cutover:
+-1. Revert `web_server.py` to serve `_legacy/` at `/` (single config change)
+-2. `_legacy/` files are still present for 2-week window — no rebuild required
+-3. Rollback is a server restart, not a deploy
+-
+-### 2.4 Smoke Tests
+-
+-```bash
+-# Health check returns JSON
+-curl -sf localhost:8000/healthz | grep '"status"'
+-# API routes still return JSON
+-curl -sf -H "Accept: application/json" localhost:8000/api/top-searches | head -c 1 | grep '['
+-# SPA serves HTML for browser requests
+-curl -sf -H "Accept: text/html" localhost:8000/ | grep '<div id="root">'
+-# Unknown paths serve SPA for browsers
+-curl -sf -o /dev/null -w "%{http_code}" -H "Accept: text/html" localhost:8000/document/xyz | grep 200
+-# Unknown paths return JSON 404 for API consumers
+-curl -sf -o /dev/null -w "%{http_code}" -H "Accept: application/json" localhost:8000/nonexistent | grep 404
+-```
+-
+----
+-
+-## 3. Design Token System (`src/styles/tokens.css`)
+-
+-Theme switching via `data-theme` attribute on `<html>`. Default: dark. A synchronous inline script in `index.html <head>` sets `data-theme` before any paint to prevent FOUC (see Section 3.8).
+-
+-### 3.1 Color Tokens
+-
+-Contrast ratios independently verified using WCAG 2.1 relative luminance formula.
+-
+-```css
+-:root {
+-  /* Dark theme (default) */
+-  --color-bg-primary: #0A0A0B;
+-  --color-bg-secondary: #141416;
+-  --color-bg-tertiary: #1C1C1F;
+-  --color-bg-elevated: #242428;
+-
+-  --color-surface: #1C1C1F;
+-  --color-surface-hover: #28282C;
+-  --color-surface-active: #303036;
+-  --color-surface-selected: rgba(108, 92, 231, 0.20);
+-  --color-surface-pressed: #38383E;
+-  --color-surface-critical: rgba(255, 69, 58, 0.12);
+-  --color-surface-disabled: rgba(255, 255, 255, 0.04);
+-
+-  --color-text-primary: #F5F5F7;
+-  --color-text-secondary: #A1A1A6;
+-  --color-text-tertiary: #8E8E93;
+-  --color-text-inverse: #0A0A0B;
+-  --color-text-disabled: #636366;
+-  --color-text-link: #8B7DFF;
+-  --color-text-link-hover: #A69BFF;
+-
+-  --color-accent: #6C5CE7;
+-  --color-accent-hover: #7D6FF0;
+-  --color-accent-muted: rgba(108, 92, 231, 0.15);
+-
+-  --color-success: #34C759;
+-  --color-success-muted: rgba(52, 199, 89, 0.15);
+-  --color-error: #FF453A;
+-  --color-error-muted: rgba(255, 69, 58, 0.15);
+-  --color-warning: #FFD60A;
+-  --color-warning-muted: rgba(255, 214, 10, 0.15);
+-
+-  --color-border: rgba(255, 255, 255, 0.08);
+-  --color-border-strong: rgba(255, 255, 255, 0.16);
+-  --color-border-elevated: rgba(255, 255, 255, 0.08);
+-
+-  --color-focus-ring: rgba(108, 92, 231, 0.6);
+-  --color-focus-ring-solid: #8B7DFF;
+-  --color-focus-ring-inner: #0A0A0B;
+-}
+-
+-[data-theme="light"] {
+-  --color-bg-primary: #FFFFFF;
+-  --color-bg-secondary: #F5F5F7;
+-  --color-bg-tertiary: #E8E8ED;
+-  --color-bg-elevated: #FFFFFF;
+-
+-  --color-surface: #F5F5F7;
+-  --color-surface-hover: #E8E8ED;
+-  --color-surface-active: #D1D1D6;
+-  --color-surface-selected: rgba(91, 75, 213, 0.12);
+-  --color-surface-pressed: #C7C7CC;
+-  --color-surface-critical: rgba(215, 0, 21, 0.08);
+-  --color-surface-disabled: rgba(0, 0, 0, 0.03);
+-
+-  --color-text-primary: #1D1D1F;
+-  --color-text-secondary: #636366;
+-  --color-text-tertiary: #76767B;
+-  --color-text-inverse: #F5F5F7;
+-  --color-text-disabled: #AEAEB2;
+-  --color-text-link: #5B4BD5;
+-  --color-text-link-hover: #4A3BC4;
+-
+-  --color-accent: #5B4BD5;
+-  --color-accent-hover: #4A3BC4;
+-  --color-accent-muted: rgba(91, 75, 213, 0.1);
+-
+-  --color-success: #248A3D;
+-  --color-success-muted: rgba(36, 138, 61, 0.1);
+-  --color-error: #D70015;
+-  --color-error-muted: rgba(215, 0, 21, 0.1);
+-  --color-warning: #B25000;
+-  --color-warning-muted: rgba(178, 80, 0, 0.1);
+-
+-  --color-border: rgba(0, 0, 0, 0.06);
+-  --color-border-strong: rgba(0, 0, 0, 0.12);
+-  --color-border-elevated: rgba(0, 0, 0, 0.04);
+-
+-  --color-focus-ring: rgba(91, 75, 213, 0.5);
+-  --color-focus-ring-solid: #5B4BD5;
+-  --color-focus-ring-inner: #FFFFFF;
+-}
+-```
+-
+-### 3.1.1 Contrast Compliance Matrix
+-
+-**Dark theme** (verified against WCAG 2.1 relative luminance formula):
+-
+-| Text Token | bg-primary #0A0A0B | bg-secondary #141416 | bg-tertiary #1C1C1F | bg-elevated #242428 |
+-|---|---|---|---|---|
+-| `--text-primary` #F5F5F7 | 18.3:1 ✅ AAA | 16.1:1 ✅ AAA | 13.9:1 ✅ AAA | 11.8:1 ✅ AAA |
+-| `--text-secondary` #A1A1A6 | 7.7:1 ✅ AAA | 6.8:1 ✅ AA+ | 5.9:1 ✅ AA | 5.0:1 ✅ AA |
+-| `--text-tertiary` #8E8E93 | 5.9:1 ✅ AA | 5.2:1 ✅ AA | 4.5:1 ✅ AA | ❌ PROHIBITED |
+-| `--text-link` #8B7
++**Phase 1 — Parallel deploy**: Serve React

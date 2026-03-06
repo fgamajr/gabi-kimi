@@ -1,0 +1,18 @@
+{
+  "claude": {
+    "latency_ms": 70479,
+    "content_preview": "```json\n{\n  \"agent\": \"claude\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 7 — State Management / DataContext\",\n      \"description\": \"Stale-while-revalidate cache is specified but there is no defined eviction strategy or memory ceiling. Each search query key is unique (includes page, filters, query text). A user performing 50 searches accumulates 50 cached response objects in memory with no upper bound. On low-memory "
+  },
+  "kimi": {
+    "latency_ms": 82332,
+    "content_preview": "{\n  \"agent\": \"kimi\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"state/navigation.jsx (NavigationContext)\",\n      \"description\": \"Tab stack state is unbounded, allowing users to navigate 20+ levels deep with no depth indicator, 'close all' action, or LRU eviction. This creates navigation debt, memory pressure, and violates progressive disclosure principles.\",\n      \"suggested_fix\": \"Implement maxStackDepth: 10 per tab. When e"
+  },
+  "qwen": {
+    "latency_ms": 39064,
+    "content_preview": "{\n  \"agent\": \"qwen\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Design Tokens section 10\",\n      \"description\": \"Text contrast ratios not verified for WCAG AA compliance. --text-tertiary (#9299ab) on --surface-0 (#0b0b10) yields approximately 5.8:1 which passes, but --text-secondary (#b3b8c5) on --surface-2 (#1b1b24) in cards may fall below 4.5:1 for small text. Light mode --text-tertiary (#57657d) on --surface-2 (#eef1f7) i"
+  },
+  "zai": {
+    "latency_ms": 55342,
+    "content_preview": "```json\n{\n  \"agent\": \"zai\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 2: File Layout - routes/ directory\",\n      \"description\": \"The lazy route files (lazy-home.jsx, lazy-search.jsx, etc.) are listed alongside screens/ but their relationship is undefined. If these are React.lazy() wrappers, they should be in the same file as the route definition or explicitly documented as thin wrappers. Current structure implies du"
+  }
+}

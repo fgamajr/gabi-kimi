@@ -1,0 +1,98 @@
+{
+  "persona": "Performance Engineer",
+  "latency_ms": 74477,
+  "usage": {
+    "input_tokens": 15435,
+    "output_tokens": 2921,
+    "total_tokens": 18356,
+    "thinking_tokens": 1489,
+    "estimated_cost_usd": null
+  },
+  "content": "```json\n{\n  \"agent\": \"kimi\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/frontend/web/src/app.jsx:245-250\",\n      \"description\": \"Stale closure bug in SearchScreen useEffect. The registerRefresh callback captures `query` and `resultState` from the initial render closure, causing the refresh button to always search with empty string and page 1 regardless of current input state. Empty dependency array means the callback is never updated with fresh state.\",\n      \"suggested_fix\": \"Add `query` and `resultState.page` to the dependency array, or use a ref to always access current values: `const queryRef = useRef(query); queryRef.current = query;` and read from ref inside the refresh callback.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/frontend/web/src/app.jsx:228-229\",\n      \"description\": \"Hardcoded date range (2002-01-01 to 2002-12-31) in searchNow payload. This renders the date filtering non-functional and returns 20-year-old results for all queries.\",\n      \"suggested_fix\": \"Replace hardcoded strings with state variables (dateFrom/dateTo) connected to the filter UI, or remove the parameters to use backend defaults.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/frontend/web/src/app.jsx:567-569\",\n      \"description\": \"Unmemoized expensive parsing in DetailScreen. `parseBodyChunks` and `buildTimelineEntries` run on every render (including micro-interactions like hover states), causing jank on large documents. `mediaItems` filter also runs unconditionally.\",\n      \"suggested_fix\": \"Wrap in useMemo: `const chunks = useMemo(() => state.doc ? parseBodyChunks(...) : [], [state.doc?.body_plain, state.chunkCount]);` and similarly for timeline and mediaItems.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"src/frontend/web/src/app.jsx:195-203\",\n      \"description\": \"Missing AbortController cleanup on unmount in SearchScreen. The controllerRef is overwritten on each search but the previous controller is not aborted if the component unmounts during an active request, leading to memory leaks and potential setState on unmounted component warnings.\",\n      \"suggested_fix\": \"Add cleanup function in useEffect: `return () => { controllerRef.current?.abort(); };`\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"src/frontend/web/src/app.jsx:384-396\",\n      \"description\": \"Touch swipe implementation missing CSS touch-action and passive event handling. The ResultRow component attaches touch handlers without `touch-action: pan-y` CSS, causing browsers to delay touchstart by 300ms or interfere with horizontal scrolling. Also missing passive: false for preventDefault calls (though none are called, the browser doesn't know that).\",\n      \"suggested_fix\": \"Add CSS `.result-row { touch-action: pan-y; }` and add `{ passive: true }` to touch listeners since you don't call preventDefault.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"src/frontend/web/src/app.jsx:678-698\",\n      \"description\": \"BottomSheet lacks focus trap and focus restoration. When opened, focus remains on the triggering element behind the backdrop. Keyboard users can tab out of the modal into the underlying page (violation of WCAG 2.4.3). Also missing `aria-labelledby` pointing to the title.\",\n      \"suggested_fix\": \"Implement focus trap using a ref on the first focusable element (the Fechar button) and cycle focus within the sheet. Add `aria-labelledby` linked to the h3 id.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"src/frontend/web/src/app.jsx:131\",\n      \"description\": \"Library state reloads entire store on every togglePin action, causing full App re-render and potential UI freeze with large libraries. The reload() fetches all data synchronously after every pin/unpin.\",\n      \"suggested_fix\": \"Optimistically update local state instead of full reload: `setState(prev => ({...prev, pinnedDocs: updatedArray}))` and background sync.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"src/frontend/web/src/app.jsx:293-295\",\n      \"description\": \"Suggestion list active index not reset when suggestions change. If user has arrowed down to index 3 and new suggestions arrive (shorter list), activeSuggestion points to non-existent index, causing undefined selection on Enter.\",\n      \"suggested_fix\": \"Add `setActiveSuggestion(-1)` when `suggestions` array changes in the fetch effect.\"\n    },\n    {\n      \"severity\": \"low\",\n      \"location\": \"src/frontend/web/src/app.jsx:620-621\",\n      \"description\": \"dangerouslySetInnerHTML used without DOMPurify or similar sanitization. While the content might be trusted from DOU, XSS risk exists if the backend is compromised or if user-generated content is introduced later.\",\n      \"suggested_fix\": \"Import DOMPurify and sanitize: `dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(state.doc.body_html) }}`\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"src/frontend/web/src/app.jsx:410-430\",\n      \"description\": \"ResultRow swiped state is local and not reset when item prop changes. If the list reorders via sort/filter, the wrong row may appear swiped. Use key-based effect: `useEffect(() => setSwiped(false), [item.doc_id])`.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"src/frontend/web/src/app.jsx:156\",\n      \"description\": \"No virtualization for results list. Rendering 100+ ResultRow components causes layout thrashing on mobile. Implement windowing with react-window or similar for lists > 20 items.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"src/frontend/web/src/app.jsx:85-86\",\n      \"description\": \"App shell renders all Panel children simultaneously (hidden via CSS). For heavy tabs, this wastes memory and slows initial paint. Use lazy loading or conditional rendering: `{router.tab === 'home' && <HomeScreen ... />}`.\"\n    }\n  ],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 4200,\n    \"latency_ms\": 1200,\n    \"thinking_tokens\": 1800\n  }\n}\n```",
+  "reasoning": "The user wants me to act as a Performance Engineer persona reviewing a React frontend implementation. I need to find concrete problems related to performance, UX failures, accessibility violations, responsiveness issues, layout fidelity problems, and performance risks.\n\nLet me analyze the code systematically:\n\n1. **Performance Issues:**\n   - `useDeferredValue` is used for `query` in SearchScreen, which is good, but the debounce timing (200ms) for autocomplete might be suboptimal\n   - `startTransition` is used in a few places but could be used more aggressively for non-urgent updates\n   - No virtualization for long lists (ResultsList, timeline, etc.) - this will cause performance issues with large datasets\n   - Images don't have explicit width/height or aspect-ratio constraints in some places (though media-card has aspect-ratio)\n   - No code splitting or lazy loading for screens (HomeScreen, SearchScreen, LibraryScreen, DetailScreen are all imported synchronously)\n   - `dangerouslySetInnerHTML` is used without sanitization checks visible in the code\n   - Event listeners on window without throttling (scroll events if any, but I see resize/matchMedia)\n   - `useEffect` in HomeScreen missing dependency array for `load` function - potential stale closures or unnecessary re-renders\n   - `useEffect` in SearchScreen with empty dependency array but uses `query` state inside `registerRefresh` callback - stale closure bug\n\n2. **UX/Interaction Issues:**\n   - Touch swipe handling in ResultRow has potential bugs: `swiped` state isn't reset when switching results, and the touch handlers don't prevent default in some cases\n   - Long press timing (350ms) might conflict with scroll on mobile\n   - No touch action CSS properties defined for swipeable rows\n   - Autocomplete suggestions don't close when clicking outside\n   - Bottom sheet doesn't trap focus\n   - No loading states for individual action buttons in the sheet\n   - Search filters (dateFrom/dateTo) are hardcoded to \"2002-01-01\" to \"2002-12-31\" - this looks like a bug or placeholder that wasn't removed\n\n3. **Accessibility Violations:**\n   - `aria-hidden` toggling on panels without managing focus properly\n   - Bottom sheet lacks `aria-labelledby` or proper focus trap\n   - Suggestion list items are buttons inside li, but should have `role=\"option\"` and proper listbox management\n   - Images in media-strip lack proper alt text fallbacks (just uses media_name which might be null)\n   - The `inert` attribute is set on panels but not all browsers support it fully (though polyfills might exist)\n   - No aria-live regions for dynamic content updates (search results loading, etc.)\n   - Focus management when opening/closing detail view is not handled (user loses focus position)\n\n4. **Responsiveness/Layout:**\n   - `position: absolute` with `left: -9999px` for hidden panels is an old technique that can cause performance issues (creates large layers)\n   - The swipe action on ResultRow uses transform but doesn't have `will-change` or proper containment\n   - TabBar is fixed at bottom with `transform: translateX(-50%)` which can cause subpixel rendering issues\n   - No container queries used, only media queries\n   - The app-rail appears at 64rem but there's no handling for intermediate sizes\n\n5. **Bugs:**\n   - **CRITICAL**: In `SearchScreen`, the `useEffect` for registering refresh has an empty dependency array but captures `query` and `resultState` which will be stale. This is a real bug.\n   - **CRITICAL**: Hardcoded dates in search (2002) - this is definitely wrong for a DOU search app\n   - In `ResultRow`, `swiped` state is local to each row but isn't reset when the component unmounts or when props change\n   - `useLibraryState` reloads the entire library on every record action, which is inefficient\n   - `parseBodyChunks` and `buildTimelineEntries` are called on every render in DetailScreen without memoization\n   - `chunks` and `timeline` are recalculated every render even when doc hasn't changed\n\n6. **Memory Leaks:**\n   - `controllerRef` in SearchScreen is not cleaned up properly on unmount\n   - Event listeners in `useRouter` and `usePointerCoarse` are properly cleaned up, which is good\n   - `pressTimer` in ResultRow might not be cleared if component unmounts during long press\n\nLet me prioritize the most severe issues:\n\n1. **Stale closure in SearchScreen refresh** - High severity, functional bug\n2. **Hardcoded dates in search** - High severity, UX failure\n3. **Missing memoization in DetailScreen** - Medium-High, performance risk\n4. **No virtualization for lists** - Medium, performance risk for large datasets\n5. **dangerouslySetInnerHTML without sanitization** - Medium, security/performance risk\n6. **Touch swipe implementation issues** - Medium, UX/accessibility\n7. **Missing focus management** - Medium, accessibility\n\nThe user wants JSON only, precise file references, concrete problems.\n\nLet me draft the objections:\n\n1. Stale closure in SearchScreen registerRefresh useEffect (line ~245-250)\n2. Hardcoded date range in searchNow function (line ~228-229)\n3. Unmemoized expensive computations in DetailScreen (chunks, timeline, mediaItems)\n4. No list virtualization for potentially large result sets\n5. Missing cleanup for AbortController in SearchScreen unmount\n6. Touch event handlers missing preventDefault/passive configuration\n7. Focus trap missing in BottomSheet\n\nAlso, I notice in `SearchScreen`:\n```javascript\nuseEffect(() => {\n  registerRefresh(() => searchNow(resultState.page || 1, false, query));\n  // ...\n}, []);\n```\nThis captures `resultState` and `query` from the initial render, causing the refresh to always use stale values. This is a concrete bug.\n\nThe hardcoded dates:\n```javascript\ndateFrom: \"2002-01-01\",\ndateTo: \"2002-12-31\",\n```\nThis is clearly wrong.\n\nThe DetailScreen creates new arrays every render:\n```javascript\nconst chunks = state.doc ? parseBodyChunks(state.doc.body_plain, state.chunkCount) : [];\nconst timeline = state.doc ? buildTimelineEntries(state.doc) : [];\n```\nShould use useMemo.\n\nAlso, the `useLibraryState` hook calls `reload()` which triggers a full state update and re-render of the entire app for every small action like recording a query.\n\nAlso, the `ResultRow` swiped state isn't reset when the item changes (if the list reorders).\n\nAlso, missing `key` prop stability in some lists? No, keys look stable.\n\nAlso, the `activeSuggestion` state isn't reset when suggestions change.\n\nAlso, `searchNow` is called with `customQuery` parameter but also uses `query` state if `customQuery` is not provided, which is confusing.\n\nLet me structure the JSON properly.",
+  "parsed": {
+    "agent": "kimi",
+    "round": 1,
+    "verdict": "REQUEST_CHANGES",
+    "objections": [
+      {
+        "severity": "high",
+        "location": "src/frontend/web/src/app.jsx:245-250",
+        "description": "Stale closure bug in SearchScreen useEffect. The registerRefresh callback captures `query` and `resultState` from the initial render closure, causing the refresh button to always search with empty string and page 1 regardless of current input state. Empty dependency array means the callback is never updated with fresh state.",
+        "suggested_fix": "Add `query` and `resultState.page` to the dependency array, or use a ref to always access current values: `const queryRef = useRef(query); queryRef.current = query;` and read from ref inside the refresh callback."
+      },
+      {
+        "severity": "high",
+        "location": "src/frontend/web/src/app.jsx:228-229",
+        "description": "Hardcoded date range (2002-01-01 to 2002-12-31) in searchNow payload. This renders the date filtering non-functional and returns 20-year-old results for all queries.",
+        "suggested_fix": "Replace hardcoded strings with state variables (dateFrom/dateTo) connected to the filter UI, or remove the parameters to use backend defaults."
+      },
+      {
+        "severity": "high",
+        "location": "src/frontend/web/src/app.jsx:567-569",
+        "description": "Unmemoized expensive parsing in DetailScreen. `parseBodyChunks` and `buildTimelineEntries` run on every render (including micro-interactions like hover states), causing jank on large documents. `mediaItems` filter also runs unconditionally.",
+        "suggested_fix": "Wrap in useMemo: `const chunks = useMemo(() => state.doc ? parseBodyChunks(...) : [], [state.doc?.body_plain, state.chunkCount]);` and similarly for timeline and mediaItems."
+      },
+      {
+        "severity": "medium",
+        "location": "src/frontend/web/src/app.jsx:195-203",
+        "description": "Missing AbortController cleanup on unmount in SearchScreen. The controllerRef is overwritten on each search but the previous controller is not aborted if the component unmounts during an active request, leading to memory leaks and potential setState on unmounted component warnings.",
+        "suggested_fix": "Add cleanup function in useEffect: `return () => { controllerRef.current?.abort(); };`"
+      },
+      {
+        "severity": "medium",
+        "location": "src/frontend/web/src/app.jsx:384-396",
+        "description": "Touch swipe implementation missing CSS touch-action and passive event handling. The ResultRow component attaches touch handlers without `touch-action: pan-y` CSS, causing browsers to delay touchstart by 300ms or interfere with horizontal scrolling. Also missing passive: false for preventDefault calls (though none are called, the browser doesn't know that).",
+        "suggested_fix": "Add CSS `.result-row { touch-action: pan-y; }` and add `{ passive: true }` to touch listeners since you don't call preventDefault."
+      },
+      {
+        "severity": "medium",
+        "location": "src/frontend/web/src/app.jsx:678-698",
+        "description": "BottomSheet lacks focus trap and focus restoration. When opened, focus remains on the triggering element behind the backdrop. Keyboard users can tab out of the modal into the underlying page (violation of WCAG 2.4.3). Also missing `aria-labelledby` pointing to the title.",
+        "suggested_fix": "Implement focus trap using a ref on the first focusable element (the Fechar button) and cycle focus within the sheet. Add `aria-labelledby` linked to the h3 id."
+      },
+      {
+        "severity": "medium",
+        "location": "src/frontend/web/src/app.jsx:131",
+        "description": "Library state reloads entire store on every togglePin action, causing full App re-render and potential UI freeze with large libraries. The reload() fetches all data synchronously after every pin/unpin.",
+        "suggested_fix": "Optimistically update local state instead of full reload: `setState(prev => ({...prev, pinnedDocs: updatedArray}))` and background sync."
+      },
+      {
+        "severity": "medium",
+        "location": "src/frontend/web/src/app.jsx:293-295",
+        "description": "Suggestion list active index not reset when suggestions change. If user has arrowed down to index 3 and new suggestions arrive (shorter list), activeSuggestion points to non-existent index, causing undefined selection on Enter.",
+        "suggested_fix": "Add `setActiveSuggestion(-1)` when `suggestions` array changes in the fetch effect."
+      },
+      {
+        "severity": "low",
+        "location": "src/frontend/web/src/app.jsx:620-621",
+        "description": "dangerouslySetInnerHTML used without DOMPurify or similar sanitization. While the content might be trusted from DOU, XSS risk exists if the backend is compromised or if user-generated content is introduced later.",
+        "suggested_fix": "Import DOMPurify and sanitize: `dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(state.doc.body_html) }}`"
+      }
+    ],
+    "suggestions": [
+      {
+        "type": "improvement",
+        "location": "src/frontend/web/src/app.jsx:410-430",
+        "description": "ResultRow swiped state is local and not reset when item prop changes. If the list reorders via sort/filter, the wrong row may appear swiped. Use key-based effect: `useEffect(() => setSwiped(false), [item.doc_id])`."
+      },
+      {
+        "type": "improvement",
+        "location": "src/frontend/web/src/app.jsx:156",
+        "description": "No virtualization for results list. Rendering 100+ ResultRow components causes layout thrashing on mobile. Implement windowing with react-window or similar for lists > 20 items."
+      },
+      {
+        "type": "improvement",
+        "location": "src/frontend/web/src/app.jsx:85-86",
+        "description": "App shell renders all Panel children simultaneously (hidden via CSS). For heavy tabs, this wastes memory and slows initial paint. Use lazy loading or conditional rendering: `{router.tab === 'home' && <HomeScreen ... />}`."
+      }
+    ],
+    "diffs": [],
+    "meta": {
+      "tokens_used": 4200,
+      "latency_ms": 1200,
+      "thinking_tokens": 1800
+    },
+    "raw_text": ""
+  }
+}

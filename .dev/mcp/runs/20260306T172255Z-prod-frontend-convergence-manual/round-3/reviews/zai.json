@@ -1,0 +1,79 @@
+{
+  "agent": "zai",
+  "round": 3,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "Section 5 — api.js AbortController.timeout(8000)",
+      "description": "AbortController.timeout() is NOT supported in Safari 15 (your stated browser floor). It was added in Safari 16. This will throw a TypeError at runtime in your minimum supported Safari version.",
+      "suggested_fix": "Replace with manual timeout pattern: const controller = new AbortController(); const timeoutId = setTimeout(() => controller.abort(), 8000); fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timeoutId));"
+    },
+    {
+      "severity": "high",
+      "location": "tokens.css — missing responsive breakpoints",
+      "description": "Spec requires 'mobile-first responsive 375→768→1440' but tokens.css contains ZERO breakpoint custom properties or media query definitions. No --breakpoint-sm/md/lg tokens, no responsive utility classes documented. This is a fundamental gap.",
+      "suggested_fix": "Add breakpoint tokens: --bp-sm: 640px; --bp-md: 768px; --bp-lg: 1024px; --bp-xl: 1440px; Document the media query mixin pattern or Tailwind @apply strategy for responsive utilities."
+    },
+    {
+      "severity": "high",
+      "location": "Section 4/6 — React.memo without comparison functions",
+      "description": "Spec mandates React.memo on list items but objects with identical shape (Result, TimelineEntry) will trigger re-renders because shallow comparison fails on nested properties. Without custom comparison functions, memo is theatrical.",
+      "suggested_fix": "Either: (1) use useMemo on the parent's list array to maintain referential equality, or (2) provide comparison functions: React.memo(ResultCard, (prev, next) => prev.result.id === next.result.id && prev.result.timestamp === next.result.timestamp)"
+    },
+    {
+      "severity": "high",
+      "location": "ARTIFACT TRUNCATED — tokens.css cuts off mid-token",
+      "description": "The artifact ends at '--skeleton-base: #e4e4e7; /* surface' — incomplete. Cannot approve a spec that is literally cut off. Missing: complete light mode tokens, animation keyframes, motion utility classes, z-index application, focus states.",
+      "suggested_fix": "Resubmit complete artifact with all tokens.css content, animations.css definitions, and any remaining sections."
+    },
+    {
+      "severity": "medium",
+      "location": "Section 5 — API health check blocks entire app",
+      "description": "If fetchHealthCheck() fails on Shell mount, the entire app shows a full-screen error. This creates a single point of failure and poor UX for transient network issues. A single failed health check should not prevent cached/optimistic UI from rendering.",
+      "suggested_fix": "Health check should be non-blocking. Show the shell with cached content (if any), display a subtle offline indicator, and retry health check with exponential backoff. Only show full-screen error after 3 consecutive failures."
+    },
+    {
+      "severity": "medium",
+      "location": "Section 6 — Missing virtualization for 30-item paginated lists",
+      "description": "30 items on mobile (375px) with rich card components will cause layout thrashing and memory pressure. React reconciliation of 30 complex list items on each data fetch is expensive without virtualization.",
+      "suggested_fix": "Document v1 trade-off explicitly. If >20 items render on mobile, add a performance budget per list (e.g., max 15 visible DOM nodes, use CSS content-visibility: auto for off-screen items). Plan for react-window in v2."
+    },
+    {
+      "severity": "medium",
+      "location": "Section 3 — No scroll restoration on back navigation",
+      "description": "Hash-based routing with History API navigation stack has no scroll restoration strategy documented. User drills into detail from search results, scrolls, hits back — they lose scroll position. This is a core UX regression.",
+      "suggested_fix": "Add scroll restoration to navigation.jsx: store scrollY in session state keyed by route on PUSH, restore on BACK. Or use CSS scroll-snap on list containers to make restoration less critical."
+    },
+    {
+      "severity": "medium",
+      "location": "Section 1 — No Core Web Vitals targets",
+      "description": "Bundle budget exists but no LCP, FID, or CLS targets defined. A 60KB gzipped bundle can still produce terrible LCP if critical rendering path is blocked. Performance budget is incomplete without these.",
+      "suggested_fix": "Add targets: LCP < 2.5s, FID < 100ms, CLS < 0.1. Document that index.html must inline critical CSS for above-fold content, defer non-critical CSS, and that fonts must use font-display: swap to prevent FOIT."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "Section 2 — utils.js",
+      "description": "Add a requestIdleCallback polyfill or wrapper for non-critical work (analytics, prefetching) to avoid blocking main thread during interactions."
+    },
+    {
+      "type": "improvement",
+      "location": "Section 3 — Bottom sheet inert behavior",
+      "description": "The spec correctly adds inert to tab bar, but should also add aria-hidden='true' to the main content area behind the sheet to prevent screen readers from escaping the trap via landmarks."
+    },
+    {
+      "type": "improvement",
+      "location": "Section 6 — useFetch hook",
+      "description": "Document the exact TypeScript-like signature: useFetch<T>(fetchFn: (signal: AbortSignal) => Promise<T>, deps: any[]): { data: T | null, loading: boolean, error: ApiError | null, retry: () => void }. Type safety prevents runtime errors from API contract drift."
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 9838,
+    "latency_ms": 52247,
+    "thinking_tokens": 741
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"zai\",\n  \"round\": 3,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 5 — api.js AbortController.timeout(8000)\",\n      \"description\": \"AbortController.timeout() is NOT supported in Safari 15 (your stated browser floor). It was added in Safari 16. This will throw a TypeError at runtime in your minimum supported Safari version.\",\n      \"suggested_fix\": \"Replace with manual timeout pattern: const controller = new AbortController(); const timeoutId = setTimeout(() => controller.abort(), 8000); fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timeoutId));\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"tokens.css — missing responsive breakpoints\",\n      \"description\": \"Spec requires 'mobile-first responsive 375→768→1440' but tokens.css contains ZERO breakpoint custom properties or media query definitions. No --breakpoint-sm/md/lg tokens, no responsive utility classes documented. This is a fundamental gap.\",\n      \"suggested_fix\": \"Add breakpoint tokens: --bp-sm: 640px; --bp-md: 768px; --bp-lg: 1024px; --bp-xl: 1440px; Document the media query mixin pattern or Tailwind @apply strategy for responsive utilities.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 4/6 — React.memo without comparison functions\",\n      \"description\": \"Spec mandates React.memo on list items but objects with identical shape (Result, TimelineEntry) will trigger re-renders because shallow comparison fails on nested properties. Without custom comparison functions, memo is theatrical.\",\n      \"suggested_fix\": \"Either: (1) use useMemo on the parent's list array to maintain referential equality, or (2) provide comparison functions: React.memo(ResultCard, (prev, next) => prev.result.id === next.result.id && prev.result.timestamp === next.result.timestamp)\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"ARTIFACT TRUNCATED — tokens.css cuts off mid-token\",\n      \"description\": \"The artifact ends at '--skeleton-base: #e4e4e7; /* surface' — incomplete. Cannot approve a spec that is literally cut off. Missing: complete light mode tokens, animation keyframes, motion utility classes, z-index application, focus states.\",\n      \"suggested_fix\": \"Resubmit complete artifact with all tokens.css content, animations.css definitions, and any remaining sections.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Section 5 — API health check blocks entire app\",\n      \"description\": \"If fetchHealthCheck() fails on Shell mount, the entire app shows a full-screen error. This creates a single point of failure and poor UX for transient network issues. A single failed health check should not prevent cached/optimistic UI from rendering.\",\n      \"suggested_fix\": \"Health check should be non-blocking. Show the shell with cached content (if any), display a subtle offline indicator, and retry health check with exponential backoff. Only show full-screen error after 3 consecutive failures.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Section 6 — Missing virtualization for 30-item paginated lists\",\n      \"description\": \"30 items on mobile (375px) with rich card components will cause layout thrashing and memory pressure. React reconciliation of 30 complex list items on each data fetch is expensive without virtualization.\",\n      \"suggested_fix\": \"Document v1 trade-off explicitly. If >20 items render on mobile, add a performance budget per list (e.g., max 15 visible DOM nodes, use CSS content-visibility: auto for off-screen items). Plan for react-window in v2.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Section 3 — No scroll restoration on back navigation\",\n      \"description\": \"Hash-based routing with History API navigation stack has no scroll restoration strategy documented. User drills into detail from search results, scrolls, hits back — they lose scroll position. This is a core UX regression.\",\n      \"suggested_fix\": \"Add scroll restoration to navigation.jsx: store scrollY in session state keyed by route on PUSH, restore on BACK. Or use CSS scroll-snap on list containers to make restoration less critical.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Section 1 — No Core Web Vitals targets\",\n      \"description\": \"Bundle budget exists but no LCP, FID, or CLS targets defined. A 60KB gzipped bundle can still produce terrible LCP if critical rendering path is blocked. Performance budget is incomplete without these.\",\n      \"suggested_fix\": \"Add targets: LCP < 2.5s, FID < 100ms, CLS < 0.1. Document that index.html must inline critical CSS for above-fold content, defer non-critical CSS, and that fonts must use font-display: swap to prevent FOIT.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 2 — utils.js\",\n      \"description\": \"Add a requestIdleCallback polyfill or wrapper for non-critical work (analytics, prefetching) to avoid blocking main thread during interactions.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 3 — Bottom sheet inert behavior\",\n      \"description\": \"The spec correctly adds inert to tab bar, but should also add aria-hidden='true' to the main content area behind the sheet to prevent screen readers from escaping the trap via landmarks.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 6 — useFetch hook\",\n      \"description\": \"Document the exact TypeScript-like signature: useFetch<T>(fetchFn: (signal: AbortSignal) => Promise<T>, deps: any[]): { data: T | null, loading: boolean, error: ApiError | null, retry: () => void }. Type safety prevents runtime errors from API contract drift.\"\n    }\n  ],\n  \"diffs\": []\n}\n```"
+}

@@ -1,0 +1,484 @@
+Production Frontend Implementation Spec — v3 (Convergence Round 3)
+
+═══════════════════════════════════════════════════════════════
+0. PRE-MIGRATION AUDIT & BACKEND ENDPOINT MAPPING
+═══════════════════════════════════════════════════════════════
+
+Before any frontend code is written, execute this checklist:
+
+Step 1: Audit web_server.py routes.
+  - List every route handler in web_server.py.
+  - Map each existing endpoint to the api.js fetch function it will serve.
+  - If backend uses /api/v1/search, api.js calls /api/v1/search — the frontend adapts to the backend, never the reverse.
+  - Document the exact mapping in a ROUTES.md file at repo root.
+
+Step 2: Confirm static-file serving behavior.
+  - Verify web_server.py serves index.html for GET / with no path-based routing for sub-pages.
+  - Confirm it serves static assets from src/frontend/web/ (CSS, JS, fonts, images).
+  - If web_server.py has catch-all or path-based HTML serving, document it — this affects routing strategy.
+
+Step 3: Verify API health endpoint exists.
+  - If GET /api/health (or equivalent) exists, map it. If not, flag for backend team to add.
+  - api.js uses this on Shell mount to distinguish "backend unreachable" from "specific endpoint failed."
+
+Step 4: Runtime 404 detection.
+  - api.js must log a clear console.error with the endpoint path when it receives a 404.
+  - The error message must say: "Endpoint not found: GET /api/foo — verify backend route mapping in ROUTES.md"
+  - Do NOT silently collapse 404s into the generic error state.
+
+Migration sequence (big-bang replacement — no feature flags):
+  Step M1: Copy current index.html → _legacy/index-alpine.html (preservation, not coexistence).
+  Step M2: Create new index.html with React mount point, theme script, CSS links.
+  Step M3: Build React app → dist/. web_server.py serves new index.html at / unchanged.
+  Step M4: Smoke-test all API routes from new frontend against running backend.
+  Step M5: Remove _legacy/ after 2 weeks of production stability.
+  Rollback: revert index.html to _legacy/index-alpine.html. Zero backend changes required.
+
+═══════════════════════════════════════════════════════════════
+1. BUILD SYSTEM & MODULE STRATEGY
+═══════════════════════════════════════════════════════════════
+
+Build tool: esbuild (single dependency, zero-config).
+
+Decision: esbuild bundles React into the output. No vendor/ directory. No import maps.
+Rationale: import maps require Safari 16.4+ / Firefox 108+ minimum. Bundling React eliminates
+the compatibility risk entirely and simplifies the build to a single command. The bundle size
+difference is zero since React ends up in the output either way.
+
+Command:
+  esbuild src/frontend/web/src/main.jsx \
+    --bundle \
+    --format=esm \
+    --outdir=src/frontend/web/dist \
+    --minify \
+    --target=es2020 \
+    --metafile=meta.json
+
+No --splitting in v1 (splitting requires import maps for shared chunks in browsers;
+we just eliminated import maps). Single entry bundle. Code-split in v2 via dynamic import()
+if bundle exceeds budget.
+
+Bundle budget enforcement:
+  CI step parses meta.json, fails build if dist/main.js gzipped > 80KB.
+  Budget breakdown (estimated):
+    React 18 + ReactDOM:  ~42KB gzipped
+    App components:       ~15KB gzipped
+    Icons (tree-shaken):  ~3KB gzipped
+    CSS (tokens + anim):  ~4KB gzipped (loaded separately, not in JS budget)
+    Total JS:             ~60KB gzipped (20KB headroom to 80KB cap)
+
+Preact escape hatch: if bundle exceeds 80KB, switch via esbuild alias:
+  --alias:react=preact/compat --alias:react-dom=preact/compat
+  Preact compat is ~4KB vs React's 42KB. Document this as v1.1 option, not default.
+
+Source code lives in src/frontend/web/src/ (JSX, full React idioms).
+Built output lands in src/frontend/web/dist/ (static ES module, minified, tree-shaken).
+index.html references dist/main.js via <script type="module">.
+web_server.py serves src/frontend/web/ unchanged — only static file additions.
+
+Browser support floor: Chrome 89+, Safari 15+, Firefox 90+, Edge 89+.
+
+═══════════════════════════════════════════════════════════════
+2. FILE LAYOUT
+═══════════════════════════════════════════════════════════════
+
+src/frontend/web/
+├── index.html                          # Shell HTML, theme-init script, CSS links
+├── tokens.css                          # Design tokens (dark default + light override)
+├── animations.css                      # Keyframes + motion utility classes
+├── fonts/
+│   ├── inter-regular.woff2
+│   ├── inter-medium.woff2
+│   └── inter-semibold.woff2
+├── src/                                # SOURCE (JSX, authored code)
+│   ├── main.jsx                        # Entry: mounts <App/>
+│   ├── app.jsx                         # App root: ThemeProvider → Router → Shell
+│   ├── state/
+│   │   ├── theme.jsx                   # ThemeContext + useTheme hook
+│   │   ├── navigation.jsx              # RouterContext + useRoute, History API (hash)
+│   │   └── use-fetch.js               # useFetch hook: fetch-on-mount + AbortController
+│   ├── api.js                          # All fetch functions, AbortController, error handling
+│   ├── utils.js                        # cx() class merger, debounce, format helpers
+│   ├── icons/                          # One file per icon, Phosphor-style, 1.5px stroke
+│   │   ├── home.jsx
+│   │   ├── search.jsx
+│   │   ├── library.jsx
+│   │   ├── chevron-left.jsx
+│   │   ├── more-horizontal.jsx
+│   │   ├── status-dot.jsx
+│   │   ├── alert-circle.jsx
+│   │   └── index.js                    # Barrel re-export (tree-shaken by esbuild)
+│   ├── components/
+│   │   ├── shell.jsx                   # Main layout: header + content + tab bar
+│   │   ├── tab-bar.jsx                 # 3-tab bottom nav (WAI-ARIA tabs pattern)
+│   │   ├── bottom-sheet.jsx            # Draggable sheet w/ focus trap + portal
+│   │   ├── focus-trap.jsx              # Generic focus trap utility
+│   │   ├── portal.jsx                  # React portal to document.body
+│   │   ├── skeleton.jsx                # High-fidelity skeleton variants
+│   │   ├── status-card.jsx             # Live operational status
+│   │   ├── kpi-metric.jsx              # Single KPI display (React.memo)
+│   │   ├── timeline-item.jsx           # Single timeline row (React.memo)
+│   │   ├── result-card.jsx             # Single search result (React.memo)
+│   │   ├── history-entry.jsx           # Single history row (React.memo)
+│   │   ├── search-composer.jsx         # Search input + preset chips
+│   │   ├── empty-state.jsx             # Empty/zero-data illustration
+│   │   ├── error-state.jsx             # API failure w/ retry action
+│   │   ├── error-boundary.jsx          # React error boundary (catches render crashes)
+│   │   └── route-announcer.jsx         # aria-live region for SPA navigation
+│   └── screens/
+│       ├── home.jsx                    # Dashboard / Home tab (wrapped in ErrorBoundary)
+│       ├── search.jsx                  # Search tab (wrapped in ErrorBoundary)
+│       ├── library.jsx                 # Library/History tab (wrapped in ErrorBoundary)
+│       └── detail.jsx                  # Drill-down timeline view (wrapped in ErrorBoundary)
+├── dist/                               # BUILD OUTPUT (gitignored)
+│   └── main.js
+└── _legacy/                            # Quarantined old Alpine files (removed after 2 weeks)
+    └── index-alpine.html
+
+═══════════════════════════════════════════════════════════════
+3. NAVIGATION & INFORMATION ARCHITECTURE
+═══════════════════════════════════════════════════════════════
+
+Bottom tab bar: 3 tabs (Home, Search, Library).
+  - Tabs are parallel peer destinations. No drill-down views in tabs.
+  - Active tab: accent-colored icon fill + label text. Inactive: outline icon, --text-tertiary label.
+  - Tab active indicator: 3px bottom border with --accent-default on active tab.
+  - Tab bar receives `inert` attribute + `aria-hidden="true"` when bottom sheet is open.
+    CSS: `visibility: hidden` when inert (prevents screen reader and keyboard access).
+    Focus returns to the trigger element that opened the sheet on close.
+
+Drill-down views (Detail/Timeline): accessed from tapping items on Home or Search results.
+  - Back affordance: chevron-left button in top-left header area (44×44px tap target).
+  - Push onto a navigation stack managed by History API.
+
+Routing strategy: hash-based (#/) for zero-config static serving.
+  Confirmed: web_server.py is a static file server. It does NOT serve route-specific HTML.
+  Hash routing is an intentional v1 decision.
+  v2 escape hatch: migrate to History API pushState + web_server.py catch-all that serves
+  index.html for all non-API, non-static paths. Document in ARCHITECTURE.md.
+
+  Routes:
+    #/              → Home screen
+    #/search        → Search screen (reads ?q= param for preset-initiated searches)
+    #/library       → Library screen
+    #/doc/:id       → Detail/Timeline screen (drill-down, not a tab)
+
+  Base path variable: const BASE = '' (empty string). If app moves to /app/ subpath,
+  change to '/app' and all route matching prepends BASE. Defined once in navigation.jsx.
+
+  state/navigation.jsx exports:
+    RouterContext: { route: string, params: Record<string,string>, query: Record<string,string>, push(path), back() }
+    useRoute(): reads context
+    <Router>: listens to hashchange, parses path + query params, updates context, announces to route-announcer
+
+  Focus management on route change:
+    - Each screen's root container has tabindex="-1" (enables programmatic focus).
+    - On route change, focus moves to the screen container element.
+    - :focus-visible styles apply; :focus:not(:focus-visible) gets outline: none (no ugly ring on mouse click).
+    - RouteAnnouncer speaks "Navigated to {page name}" via aria-live="assertive".
+
+Search presets on Home: tapping a preset navigates to #/search?q={encodeURIComponent(preset.query)}.
+  SearchScreen reads ?q= from the hash query on mount and auto-executes the search.
+  The Search tab becomes visually active. The preset is a shortcut, not a duplicate search surface.
+
+Bottom sheet:
+  - Invoked from contextual buttons (not a tab destination).
+  - Opens over content with overlay (--surface-0 at 60% opacity).
+  - Drag handle: 32px wide, 4px tall, --surface-3 background, --radius-full, centered with var(--space-4) top margin.
+  - Dismiss: drag handle down past 20% of sheet height OR downward velocity > 0.5px/ms, Escape key, overlay tap.
+  - Focus trapped inside while open (FocusTrap component).
+  - On close: focus returns to the element that triggered the sheet.
+
+Quick actions on list items: explicit "⋯" (more) icon button (44×44px tap target). No long-press. No swipe gestures in v1.
+
+═══════════════════════════════════════════════════════════════
+4. COMPONENT ARCHITECTURE MAP
+═══════════════════════════════════════════════════════════════
+
+<App>
+├── <ThemeProvider value={{ theme, toggle }}>      // memoized context value
+│   ├── <Router>
+│   │   ├── <RouteAnnouncer />                     // aria-live="assertive", sr-only
+│   │   ├── <ErrorBoundary fallback={<ErrorState type="crash" />}>   // last-resort app-level
+│   │   │   ├── <Shell>
+│   │   │   │   ├── <header>                       // Sticky top bar, title + optional back button
+│   │   │   │   ├── <main role="main">             // Screen content swaps here
+│   │   │   │   │   ├── route #/ →
+│   │   │   │   │   │   <ErrorBoundary fallback={<ErrorState type="crash" />}>
+│   │   │   │   │   │   <HomeScreen tabindex="-1">
+│   │   │   │   │   │   ├── <KPIRail>
+│   │   │   │   │   │   │   └── <KPIMetric /> ×3 max       // React.memo
+│   │   │   │   │   │   ├── <StatusCard />                  // aria-live="polite", 30s polling
+│   │   │   │   │   │   ├── <SearchPresets onSelect={→ navigate to #/search?q=} />
+│   │   │   │   │   │   └── <RecentResults /> | <EmptyState /> | <ErrorState onRetry />
+│   │   │   │   │   │   </ErrorBoundary>
+│   │   │   │   │   │
+│   │   │   │   │   ├── route #/search →
+│   │   │   │   │   │   <ErrorBoundary>
+│   │   │   │   │   │   <SearchScreen tabindex="-1">
+│   │   │   │   │   │   ├── <SearchComposer />              // useCallback for debounced handler
+│   │   │   │   │   │   └── <ResultsList>                   // paginated, 30-item pages
+│   │   │   │   │   │       └── <ResultCard /> ×N           // React.memo
+│   │   │   │   │   │   </ResultsList> | <Skeleton /> | <ErrorState />
+│   │   │   │   │   │   </ErrorBoundary>
+│   │   │   │   │   │
+│   │   │   │   │   ├── route #/library →
+│   │   │   │   │   │   <ErrorBoundary>
+│   │   │   │   │   │   <LibraryScreen tabindex="-1">       // lazy-mounted on first activation
+│   │   │   │   │   │   └── <HistoryList>
+│   │   │   │   │   │       └── <HistoryEntry /> ×N         // React.memo
+│   │   │   │   │   │   </HistoryList> | <EmptyState />
+│   │   │   │   │   │   </ErrorBoundary>
+│   │   │   │   │   │
+│   │   │   │   │   └── route #/doc/:id →
+│   │   │   │   │       <ErrorBoundary>
+│   │   │   │   │       <DetailScreen tabindex="-1" id={params.id}>
+│   │   │   │   │       ├── <StickyHeader title status />
+│   │   │   │   │       ├── <Timeline>                      // paginated, 30-item pages
+│   │   │   │   │       │   └── <TimelineItem /> ×N         // React.memo
+│   │   │   │   │       └── <QuickActions onAction={→ opens BottomSheet} />
+│   │   │   │   │       </ErrorBoundary>
+│   │   │   │   │
+│   │   │   │   └── <TabBar />                              // WAI-ARIA tablist pattern, inert when sheet open
+│   │   │   │
+│   │   │   └── <Portal>
+│   │   │       └── <BottomSheet open onClose title>
+│   │   │           └── <FocusTrap> {children} </FocusTrap>
+│   │   │       </BottomSheet>
+│   │   │   </Portal>
+
+ErrorBoundary behavior:
+  - Catches React RENDER crashes only. API errors flow through component state → <ErrorState />.
+  - Per-screen boundaries isolate failures: a crash in SearchScreen does not take down Home.
+  - App-level boundary is the last resort — shows full-screen crash state with "Reload" button.
+
+═══════════════════════════════════════════════════════════════
+5. DATA TYPES & API CONTRACT
+═══════════════════════════════════════════════════════════════
+
+// api.js — all functions accept AbortSignal, return typed promises, throw on non-2xx
+
+type Metric = { id: string, label: string, value: string, trend: "up"|"down"|"flat", delta?: string }
+type Status = { state: "operational"|"degraded"|"down", message: string, lastUpdated: string /*ISO*/ }
+type Preset = { id: string, label: string, query: string, icon?: string }
+type Result = { id: string, title: string, snippet: string, timestamp: string, status: string }
+type HistoryEntry = { id: string, query: string, resultCount: number, timestamp: string }
+type TimelineEntry = { id: string, timestamp: string, label: string, state: "success"|"warning"|"error"|"info"|"pending", detail?: string }
+type Action = { id: string, label: string, icon: string, destructive?: boolean }
+
+// Endpoint mapping — ACTUAL paths determined by Section 0 audit.
+// These are DEFAULTS; api.js reads from a config object that the audit populates.
+fetchHealthCheck(signal?): Promise<{ok: boolean}>        // GET /api/health
+fetchMetrics(signal?): Promise<Metric[]>                 // GET /api/metrics
+fetchStatus(signal?): Promise<Status>                    // GET /api/status
+fetchPresets(signal?): Promise<Preset[]>                 // GET /api/presets
+searchDocuments(query, signal?): Promise<Result[]>       // GET /api/search?q=
+fetchHistory(signal?): Promise<HistoryEntry[]>           // GET /api/history
+fetchTimeline(docId, signal?): Promise<TimelineEntry[]>  // GET /api/docs/:id/timeline
+fetchActions(docId, signal?): Promise<Action[]>          // GET /api/docs/:id/actions
+executeAction(docId, actionId, signal?): Promise<void>   // POST /api/docs/:id/actions/:actionId
+
+Error handling:
+  class ApiError extends Error {
+    constructor(status, message, retryable, endpoint) { ... }
+  }
+  - All fetchers throw ApiError({ status, message, retryable, endpoint }) on failure.
+  - 8-second timeout via AbortController.timeout(8000) — on timeout, throw with retryable: true.
+  - On 404: console.error(`Endpoint not found: ${method} ${url} — verify backend route mapping in ROUTES.md`)
+  - AbortError handling: if error.name === 'AbortError', the caller returns silently without updating state.
+    This is critical for SearchComposer — cancelled requests must not trigger error states.
+  - Callers catch and render <ErrorState message onRetry /> (retryable) or <ErrorState message /> (non-retryable).
+
+Health check on Shell mount:
+  - Shell calls fetchHealthCheck() before firing screen-specific fetches.
+  - If health check fails: full-screen <ErrorState message="Cannot reach server" onRetry /> — no individual skeletons.
+  - If health check succeeds: proceed to screen-specific data loading.
+
+Autocomplete debounce: 200ms in SearchComposer. Previous in-flight request cancelled via AbortController before new request fires. AbortError is silently swallowed (see above).
+
+═══════════════════════════════════════════════════════════════
+6. STATE MANAGEMENT
+═══════════════════════════════════════════════════════════════
+
+Global state via React Context + hooks (no external dependencies):
+
+ThemeContext:
+  State: { mode: "dark"|"light" }
+  Actions: TOGGLE_THEME
+  Persistence: localStorage key "app-theme", fallback to prefers-color-scheme
+  Context value MUST be memoized: useMemo(() => ({ mode, toggle }), [mode])
+
+RouterContext:
+  State: { path: string, params: Record<string,string>, query: Record<string,string>, stack: string[] }
+  Actions: PUSH, BACK, REPLACE
+  Sync: hashchange listener in <Router> dispatches updates
+  Context value memoized on path + params + query.
+
+Data fetching — fetch-on-mount pattern (NO stale-while-revalidate in v1):
+  Custom hook: useFetch(fetchFn, deps)
+    - Calls fetchFn in useEffect with AbortController cleanup on unmount/dep change.
+    - Returns { data, loading, error, retry }.
+    - No cache. No deduplication. No stale reads. Simple, correct, zero race conditions.
+    - Each component owns its own fetch lifecycle.
+    - AbortError from cancelled requests is silently ignored (does not set error state).
+  Rationale: rolling custom SWR is the #1 source of subtle bugs in custom React data layers.
+  For v1, the simplicity of fetch-on-mount with proper cleanup is correct by default.
+  v2 consideration: adopt React Query or SWR if cross-screen cache sharing becomes necessary.
+
+Component-local state via useState/useReducer for:
+  - Search input value
+  - Bottom sheet open/closed
+  - Skeleton/loaded/error loading phases (driven by useFetch return values)
+  - Form field values in action sheets
+
+Memoization requirements (non-negotiable):
+  - React.memo on all list item components: KPIMetric, TimelineItem, ResultCard, HistoryEntry.
+  - useCallback on: SearchComposer's debounced onChange handler, TabBar's onNavigate, BottomSheet's onClose.
+  - useMemo on: ThemeContext value, RouterContext value, any derived/filtered lists passed as props.
+  - Context providers MUST memoize their value object to prevent consumer re-renders on unrelated parent state changes.
+
+Prop drilling banned past 2 levels. Use context or component composition (render props / children) instead.
+
+═══════════════════════════════════════════════════════════════
+7. DESIGN TOKEN SYSTEM (tokens.css)
+═══════════════════════════════════════════════════════════════
+
+/* ── Typography ── */
+Font stack: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif
+Font loading: Inter self-hosted as woff2 in src/frontend/web/fonts/inter-{regular,medium,semibold}.woff2
+  - <link rel="preload" as="font" type="font/woff2" crossorigin> in <head>
+  - font-display: swap
+
+:root {
+  /* ── Surfaces (dark default) ── */
+  --surface-0: #09090b;           /* App background — zinc-950 */
+  --surface-1: #18181b;           /* Card background — zinc-900 */
+  --surface-2: #27272a;           /* Elevated card / input — zinc-800 */
+  --surface-3: #3f3f46;           /* Hover / pressed — zinc-700 */
+
+  /* ── Text ── */
+  --text-primary: #fafafa;        /* zinc-50 */
+  --text-secondary: #a1a1aa;      /* zinc-400 */
+  --text-tertiary: #71717a;       /* zinc-500 — dark mode: 4.6:1 on surface-0 ✓ */
+  --text-inverse: #09090b;        /* For use on accent backgrounds */
+
+  /* ── Brand / Accent ── */
+  --accent-default: #a78bfa;      /* violet-400 — confident, premium */
+  --accent-hover: #c4b5fd;        /* violet-300 */
+  --accent-active: #8b5cf6;       /* violet-500 */
+  --accent-subtle: rgba(167, 139, 250, 0.12);
+
+  /* ── Status ── */
+  --status-success: #34d399;      /* emerald-400 */
+  --status-warning: #fbbf24;      /* amber-400 */
+  --status-error: #f87171;        /* red-400 */
+  --status-info: #60a5fa;         /* blue-400 */
+  --status-pending: #a1a1aa;      /* zinc-400 */
+
+  /* ── Borders ── */
+  --border-default: #27272a;      /* zinc-800 */
+  --border-subtle: #1e1e22;
+  --border-accent: var(--accent-default);
+
+  /* ── Skeleton ── */
+  --skeleton-base: var(--surface-1);
+  --skeleton-shine: var(--surface-2);
+
+  /* ── Spacing (4px base) ── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* ── Typography Scale ── */
+  --font-xs: 0.75rem;       /* 12px — line-height: 1rem */
+  --font-sm: 0.875rem;      /* 14px — line-height: 1.25rem */
+  --font-base: 1rem;        /* 16px — line-height: 1.5rem */
+  --font-lg: 1.125rem;      /* 18px — line-height: 1.75rem */
+  --font-xl: 1.25rem;       /* 20px — line-height: 1.75rem */
+  --font-2xl: 1.375rem;     /* 22px — line-height: 1.75rem — section headers */
+  --font-3xl: 1.5rem;       /* 24px — line-height: 2rem */
+  --font-4xl: 1.875rem;     /* 30px — line-height: 2.25rem — page titles mobile */
+  --font-5xl: 2.25rem;      /* 36px — line-height: 2.5rem — hero display on lg */
+
+  /* ── Fluid Typography ── */
+  --font-display: clamp(1.5rem, 1.2rem + 1vw, 1.875rem);   /* Page titles */
+  --font-body: clamp(0.875rem, 0.825rem + 0.25vw, 1rem);    /* Body text */
+
+  --lh-tight: 1.2;
+  --lh-snug: 1.25;
+  --lh-normal: 1.5;
+  --lh-relaxed: 1.625;
+
+  /* ── Semantic heading mapping ── */
+  /* h1: --font-display (page title)
+     h2: --font-3xl / --weight-semibold (section title)
+     h3: --font-2xl / --weight-medium (subsection)
+     h4: --font-lg / --weight-medium (card title)
+     h5: --font-base / --weight-semibold (label)
+     h6: --font-sm / --weight-semibold (overline) */
+
+  /* ── Font Weights ── */
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+
+  /* ── Radii ── */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+
+  /* ── Shadows (subtle, no heavy elevation) ── */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.5);
+  --shadow-sheet: 0 -4px 24px rgba(0,0,0,0.5);
+  --shadow-focus: 0 0 0 2px var(--surface-0), 0 0 0 4px var(--accent-default);
+
+  /* ── Z-index Layers ── */
+  --z-base: 0;
+  --z-sticky: 100;
+  --z-dropdown: 200;
+  --z-overlay: 300;
+  --z-sheet: 400;
+  --z-toast: 500;
+
+  /* ── Motion ── */
+  --ease-expo-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-snap-out: cubic-bezier(0.22, 1, 0.36, 1);    /* Confident snap, zero overshoot */
+  --ease-smooth: cubic-bezier(0.33, 1, 0.68, 1);
+  --ease-snap: cubic-bezier(0.2, 0, 0, 1);
+  --duration-instant: 100ms;
+  --duration-fast: 150ms;
+  --duration-normal: 300ms;
+  --duration-slow: 450ms;
+
+  /* ── Tab Bar ── */
+  --tab-active-border: 3px solid var(--accent-default);
+}
+
+[data-theme="light"] {
+  --surface-0: #ffffff;
+  --surface-1: #f4f4f5;           /* zinc-100 */
+  --surface-2: #e4e4e7;           /* zinc-200 */
+  --surface-3: #d4d4d8;           /* zinc-300 */
+  --text-primary: #09090b;
+  --text-secondary: #52525b;      /* zinc-600 */
+  --text-tertiary: #636370;       /* custom — 4.7:1 on white ✓ AA compliant */
+  --text-inverse: #fafafa;
+  --accent-default: #6d28d9;      /* violet-700 — 5.9:1 on white ✓ */
+  --accent-hover: #5b21b6;        /* violet-800 */
+  --accent-active: #7c3aed;       /* violet-600 */
+  --accent-subtle: rgba(109, 40, 217, 0.08);
+  --border-default: #e4e4e7;
+  --border-subtle: #f4f4f5;
+
+  /* ── Skeleton (higher contrast for light mode) ── */
+  --skeleton-base: #e4e4e7;       /* surface

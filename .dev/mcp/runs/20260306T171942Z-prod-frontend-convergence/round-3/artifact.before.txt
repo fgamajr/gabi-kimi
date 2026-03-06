@@ -1,0 +1,616 @@
+# Production Frontend Implementation Spec v3
+
+## 0. Repo Context & Constraints
+
+- **Current state**: Frontend served as static HTML/Alpine/Tailwind from `src/frontend/web/` via `src/backend/apps/web_server.py`
+- **Backend endpoints preserved**: `/api/search`, `/api/suggest`, `/api/autocomplete`, `/api/top-searches`, `/api/search-examples`, `/api/document/{doc_id}`
+- **Stack**: React 18 functional components/hooks, Tailwind CSS core utilities, pure CSS animations, SVG icons inlined as components, CSS custom properties
+- **Breakpoints**: 375px (mobile-first) → 768px (tablet) → 1440px (desktop)
+- **Aesthetic**: Premium/confident Nubank + Flighty. Dark-mode-first. No Material/Bootstrap/shadcn defaults, no decorative chrome, no spinners, no ease/linear timing.
+
+---
+
+## 1. Build Pipeline
+
+**Vite** with `@vitejs/plugin-react` for build-time JSX transpilation, tree-shaking, minification, code splitting, and content-hashed output.
+
+```
+src/frontend/web/
+├── package.json
+├── vite.config.js
+├── index.html          ← Vite entry (dev)
+├── src/
+│   ├── main.jsx        ← React root mount
+│   ├── app/            ← Shell, routing, providers, API client
+│   ├── features/       ← Feature-owned screens + sub-components
+│   ├── shared/         ← Reusable UI primitives, hooks, icons
+│   └── styles/         ← tokens.css, global.css, animations.css
+├── public/             ← Static assets (favicon, manifest)
+└── dist/               ← Build output (served by web_server.py)
+```
+
+**vite.config.js**:
+- `build.outDir`: `dist`
+- `build.assetsDir`: `assets`
+- `base`: `/` (set to `/v2/` during migration phase, revert to `/` after cutover)
+- Output: hashed JS chunks, hashed CSS, index.html
+- `rollup-plugin-visualizer` included for bundle analysis (html report, not shipped)
+
+**package.json scripts**:
+- `dev`: `vite` (local dev server with HMR, proxies `/api/*` to FastAPI)
+- `build`: `vite build` (outputs to `dist/`)
+- `build:analyze`: `ANALYZE=true vite build` (generates bundle report)
+- `preview`: `vite preview`
+
+No runtime transpilation. No CDN dependencies. All dependencies vendored into the bundle at build time.
+
+### 1.1 Performance Budgets
+
+| Metric | Budget | Enforcement |
+|--------|--------|-------------|
+| Initial bundle (gzipped) | ≤ 80KB | CI fails on exceed |
+| Lazy chunk (gzipped, each) | ≤ 40KB | CI warns on exceed |
+| Total JS (gzipped) | ≤ 160KB | CI fails on exceed |
+| LCP | ≤ 1.5s on 4G | Lighthouse CI assertion |
+| FID / INP | ≤ 100ms | Lighthouse CI assertion |
+| CLS | ≤ 0.05 | Lighthouse CI assertion |
+| TTI | ≤ 2.5s on 4G | Lighthouse CI assertion |
+
+Bundle budget enforced via `vite.config.js` `build.rollupOptions` warning hook + CI script that parses `dist/assets/*.js` file sizes.
+
+---
+
+## 2. web_server.py Changes
+
+Minimal, surgical changes to existing server. **Route registration order is critical**: all API routes first, then static mounts, then SPA catch-all last.
+
+### 2.1 Production Serving
+
+```python
+# 1. API routes registered FIRST (existing — no changes)
+# app.include_router(api_router, prefix="/api")
+
+# 2. Static assets mount SECOND (hashed filenames = immutable cache)
+app.mount(
+    "/assets",
+    StaticFiles(directory="src/frontend/web/dist/assets"),
+    name="assets"
+)
+
+# 3. SPA catch-all registered LAST
+@app.get("/{path:path}")
+async def spa_fallback(path: str):
+    # Safety: never serve HTML for API paths
+    if path.startswith("api/") or path.startswith("assets/"):
+        raise HTTPException(status_code=404)
+    return FileResponse(
+        "src/frontend/web/dist/index.html",
+        headers={"Cache-Control": "no-cache"}
+    )
+
+# Root handler (empty path doesn't match {path:path})
+@app.get("/")
+async def spa_root():
+    return FileResponse(
+        "src/frontend/web/dist/index.html",
+        headers={"Cache-Control": "no-cache"}
+    )
+```
+
+**Cache headers** (set via StaticFiles middleware or custom middleware):
+- `dist/assets/*` (hashed filenames): `Cache-Control: public, max-age=31536000, immutable`
+- `dist/index.html`: `Cache-Control: no-cache` (always revalidated)
+
+### 2.2 Migration Strategy
+
+**Phase 1 — Parallel deploy**: Serve React app at `/v2/` path prefix. Vite builds with `base: '/v2/'`. Legacy Alpine app continues at `/`. Backend adds:
+```python
+app.mount("/v2/assets", StaticFiles(directory="src/frontend/web/dist/assets"), name="v2-assets")
+
+@app.get("/v2/{path:path}")
+async def spa_v2_fallback(path: str):
+    return FileResponse("src/frontend/web/dist/index.html")
+```
+
+**Phase 2 — Parity confirmed**: Swap `/` to serve React (`base: '/'`), move legacy Alpine files to `src/frontend/web/_legacy/`. Legacy remains accessible at `/_legacy/` for 2 weeks.
+
+**Phase 3 — Cleanup**: Remove `_legacy/` directory, remove `/v2` routes, remove legacy mount.
+
+### 2.3 Rollback Plan
+
+If React deploy fails after Phase 2 cutover:
+1. Revert `web_server.py` to serve `_legacy/` at `/` (single config change)
+2. `_legacy/` files are still present for 2-week window — no rebuild required
+3. Rollback is a server restart, not a deploy
+
+### 2.4 Smoke Tests
+
+After any deploy phase, run:
+```bash
+# API routes still return JSON
+curl -s -o /dev/null -w "%{content_type}" localhost:8000/api/search?q=test | grep application/json
+# SPA serves HTML
+curl -s -o /dev/null -w "%{content_type}" localhost:8000/ | grep text/html
+# Assets serve with cache headers
+curl -sI localhost:8000/assets/main.abc123.js | grep "immutable"
+# Unknown paths serve SPA (not 404)
+curl -s -o /dev/null -w "%{http_code}" localhost:8000/document/xyz | grep 200
+```
+
+---
+
+## 3. Design Token System (`src/styles/tokens.css`)
+
+Theme switching via `data-theme` attribute on `<html>`. Default: dark. A synchronous inline script in `index.html <head>` sets `data-theme` before any paint to prevent FOUC (see Section 3.7).
+
+### 3.1 Color Tokens
+
+```css
+:root {
+  /* Dark theme (default) */
+  --color-bg-primary: #0A0A0B;
+  --color-bg-secondary: #141416;
+  --color-bg-tertiary: #1C1C1F;
+  --color-bg-elevated: #242428;
+
+  --color-surface: #1C1C1F;
+  --color-surface-hover: #28282C;
+  --color-surface-active: #303036;
+  --color-surface-critical: rgba(255, 69, 58, 0.12);
+
+  --color-text-primary: #F5F5F7;        /* 15.4:1 on bg-primary — AAA */
+  --color-text-secondary: #A1A1A6;      /* 7.2:1 on bg-primary — AAA */
+  --color-text-tertiary: #6E6E73;       /* 4.6:1 on bg-primary — AA normal text */
+  --color-text-inverse: #0A0A0B;
+
+  --color-accent: #6C5CE7;
+  --color-accent-hover: #7D6FF0;
+  --color-accent-muted: rgba(108, 92, 231, 0.15);
+
+  --color-success: #34C759;
+  --color-success-muted: rgba(52, 199, 89, 0.15);
+  --color-error: #FF453A;
+  --color-error-muted: rgba(255, 69, 58, 0.15);
+  --color-warning: #FFD60A;
+  --color-warning-muted: rgba(255, 214, 10, 0.15);
+
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-strong: rgba(255, 255, 255, 0.16);
+
+  --color-focus-ring: rgba(108, 92, 231, 0.6);
+  --color-focus-ring-solid: #8B7DFF;    /* 3.1:1+ on all dark surfaces */
+}
+
+[data-theme="light"] {
+  --color-bg-primary: #FFFFFF;
+  --color-bg-secondary: #F5F5F7;
+  --color-bg-tertiary: #E8E8ED;
+  --color-bg-elevated: #FFFFFF;
+
+  --color-surface: #F5F5F7;
+  --color-surface-hover: #E8E8ED;
+  --color-surface-active: #D1D1D6;
+  --color-surface-critical: rgba(215, 0, 21, 0.08);
+
+  --color-text-primary: #1D1D1F;        /* 18.1:1 on bg-primary — AAA */
+  --color-text-secondary: #636366;      /* 5.5:1 on bg-primary — AA all sizes */
+  --color-text-tertiary: #86868B;       /* 4.5:1 on bg-primary — AA normal text */
+  --color-text-inverse: #F5F5F7;
+
+  --color-accent: #5B4BD5;
+  --color-accent-hover: #4A3BC4;
+  --color-accent-muted: rgba(91, 75, 213, 0.1);
+
+  --color-success: #248A3D;
+  --color-success-muted: rgba(36, 138, 61, 0.1);
+  --color-error: #D70015;
+  --color-error-muted: rgba(215, 0, 21, 0.1);
+  --color-warning: #B25000;
+  --color-warning-muted: rgba(178, 80, 0, 0.1);
+
+  --color-border: rgba(0, 0, 0, 0.06);
+  --color-border-strong: rgba(0, 0, 0, 0.12);
+
+  --color-focus-ring: rgba(91, 75, 213, 0.5);
+  --color-focus-ring-solid: #5B4BD5;    /* 3.6:1+ on all light surfaces */
+}
+```
+
+**WCAG compliance rules (enforced in code review)**:
+- `--color-text-primary`: Any text, any size. ≥7:1 (AAA).
+- `--color-text-secondary`: Body text ≥14px. ≥4.5:1 (AA).
+- `--color-text-tertiary`: Body text ≥14px. ≥4.5:1 (AA). NOT used below 14px.
+- For disabled/placeholder content only: use `--color-text-tertiary` with `aria-hidden="true"` or on non-informational decorative elements.
+- Timestamps, metadata, and any readable content must use `--color-text-secondary` or higher.
+
+### 3.2 Typography Tokens
+
+System font stack. No web font loading = zero FOUT/FOIT.
+
+```css
+:root {
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: 'SF Mono', SFMono-Regular, ui-monospace, 'Cascadia Code', Menlo, monospace;
+
+  /* Type scale — 1rem = 16px */
+  --text-xs:   0.75rem;   /* 12px */  --leading-xs:   1rem;      /* 16px */
+  --text-sm:   0.875rem;  /* 14px */  --leading-sm:   1.25rem;   /* 20px */
+  --text-base: 1rem;      /* 16px */  --leading-base: 1.5rem;    /* 24px */
+  --text-lg:   1.25rem;   /* 20px */  --leading-lg:   1.75rem;   /* 28px */
+  --text-xl:   1.5rem;    /* 24px */  --leading-xl:   2rem;      /* 32px */
+  --text-2xl:  2rem;      /* 32px */  --leading-2xl:  2.5rem;    /* 40px */
+  --text-3xl:  2.5rem;    /* 40px */  --leading-3xl:  3rem;      /* 48px */
+
+  --font-normal: 400;
+  --font-medium: 500;
+  --font-semibold: 600;
+  --font-bold: 700;
+
+  --tracking-tight: -0.02em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.04em;
+}
+```
+
+### 3.3 Spacing Scale
+
+4px base unit, incremental scale:
+
+```css
+:root {
+  --space-0:  0;
+  --space-1:  0.25rem;   /* 4px */
+  --space-2:  0.5rem;    /* 8px */
+  --space-3:  0.75rem;   /* 12px */
+  --space-4:  1rem;      /* 16px */
+  --space-5:  1.25rem;   /* 20px */
+  --space-6:  1.5rem;    /* 24px */
+  --space-7:  1.75rem;   /* 28px */
+  --space-8:  2rem;      /* 32px */
+  --space-10: 2.5rem;    /* 40px */
+  --space-11: 2.75rem;   /* 44px — minimum touch target */
+  --space-12: 3rem;      /* 48px */
+  --space-16: 4rem;      /* 64px */
+  --space-20: 5rem;      /* 80px */
+
+  --touch-target-min: 2.75rem; /* 44px — WCAG 2.5.5 / 2.5.8 */
+}
+```
+
+**Spacing usage guidelines**:
+- **Padding** (internal spacing): Component content insets. Cards use `--space-4` to `--space-6`. Buttons use `--space-2` vertical, `--space-4` horizontal.
+- **Margin / gap** (external spacing): Space between siblings. List items use `--space-2` to `--space-3` gap. Sections use `--space-8` to `--space-12` gap.
+- **Page margins**: 375px: `--space-4`, 768px: `--space-6`, 1440px: `--space-8`.
+
+### 3.4 Elevation
+
+```css
+:root {
+  --elevation-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 0 1px rgba(0, 0, 0, 0.2);
+  --elevation-2: 0 4px 12px rgba(0, 0, 0, 0.4), 0 0 1px rgba(0, 0, 0, 0.2);
+  --elevation-3: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 1px rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="light"] {
+  --elevation-1: 0 1px 2px rgba(0, 0, 0, 0.06), 0 0 1px rgba(0, 0, 0, 0.04);
+  --elevation-2: 0 4px 12px rgba(0, 0, 0, 0.08), 0 0 1px rgba(0, 0, 0, 0.04);
+  --elevation-3: 0 12px 40px rgba(0, 0, 0, 0.12), 0 0 1px rgba(0, 0, 0, 0.04);
+}
+```
+
+### 3.5 Z-Index Scale
+
+```css
+:root {
+  --z-base: 0;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-overlay: 300;
+  --z-modal: 400;
+  --z-toast: 500;
+}
+```
+
+### 3.6 Radii & Borders
+
+```css
+:root {
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-full: 9999px;
+}
+```
+
+### 3.7 Theme FOUC Prevention
+
+Inline script in `index.html <head>`, executed synchronously before any paint:
+
+```html
+<script>
+  (function(){
+    var t = localStorage.getItem('theme');
+    if (!t) t = window.matchMedia('(prefers-color-scheme:light)').matches ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', t);
+    document.querySelector('meta[name="theme-color"]').content = t === 'dark' ? '#0A0A0B' : '#FFFFFF';
+  })();
+</script>
+<meta name="theme-color" content="#0A0A0B">
+```
+
+This script is <300 bytes minified. It runs before React hydration, eliminating theme flash entirely.
+
+---
+
+## 4. Motion System (`src/styles/animations.css`)
+
+**Non-negotiable rules**:
+- Only `transform` and `opacity` animated (compositor-only, no layout thrash)
+- No `ease` or `linear` timing — all custom cubic-bezier curves
+- All animations gated by `prefers-reduced-motion`
+- `will-change` applied only during animation, removed after completion via `animationend` listener
+
+### 4.1 Motion Tokens
+
+```css
+:root {
+  --duration-instant: 0ms;
+  --duration-fast: 120ms;
+  --duration-normal: 200ms;
+  --duration-slow: 350ms;
+  --duration-glacial: 500ms;
+
+  /* Deceleration — element entering/settling */
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  /* Acceleration — element exiting */
+  --ease-in: cubic-bezier(0.4, 0, 1, 0.8);
+  /* Standard — repositioning/morphing */
+  --ease-standard: cubic-bezier(0.2, 0, 0.2, 1);
+  /* Emphasis — springy/attention */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  --stagger-delay: 40ms;
+  --stagger-max: 400ms;  /* cap: stagger never exceeds this total */
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-normal: 0ms;
+    --duration-slow: 0ms;
+    --duration-glacial: 0ms;
+    --stagger-delay: 0ms;
+    --stagger-max: 0ms;
+  }
+}
+```
+
+### 4.2 Reduced Motion Behavior
+
+| Animation Category | Reduced Motion Behavior |
+|--------------------|------------------------|
+| Screen transitions (enter/exit) | Instant state change (0ms), no transform |
+| List stagger | Instant, all items appear simultaneously |
+| Card scale-in | Instant, appears at final scale |
+| Bottom sheet slide | Instant, appears at final position |
+| Focus ring | **Preserved** — visual feedback maintained, transition to 0ms |
+| Skeleton pulse | **Replaced** — static 0.5 opacity instead of pulsing |
+| Theme toggle | Instant — no cross-fade |
+
+### 4.3 Animation Patterns
+
+| Pattern | Duration | Easing | Properties |
+|---------|----------|--------|------------|
+| Screen enter (forward) | `--duration-slow` | `--ease-out` | opacity 0→1, translateX 16px→0 |
+| Screen enter (back) | `--duration-slow` | `--ease-out` | opacity 0→1, translateX -16px→0 |
+| Screen exit (forward) | `--duration-normal` | `--ease-in` | opacity 1→0, translateX 0→-8px |
+| Screen exit (back) | `--duration-normal` | `--ease-in` | opacity 1→0, translateX 0→8px |
+| Card appear | `--duration-normal` | `--ease-out` | opacity 0→1, scale 0.97→1 |
+| List item stagger | `--duration-normal` | `--ease-out` | opacity 0→1, translateY 6px→0, delay = min(index × `--stagger-delay`, `--stagger-max`) |
+| Bottom sheet enter | `--duration-slow` | `--ease-out` | translateY 100%→0 |
+| Bottom sheet exit | `--duration-normal` | `--ease-in` | translateY 0→100% |
+| Modal enter (desktop) | `--duration-slow` | `--ease-out` | opacity 0→1, scale 0.95→1 |
+| Modal exit (desktop) | `--duration-normal` | `--ease-in` | opacity 1→0, scale 1→0.97 |
+| Focus ring | `--duration-fast` | `--ease-out` | box-shadow scale (preserved in reduced motion) |
+| Skeleton pulse | `--duration-glacial` | `--ease-standard` | opacity 0.4→0.7 (infinite alternate) |
+
+### 4.4 CSS Classes
+
+```css
+.motion-fade-in {
+  animation: fadeIn var(--duration-slow) var(--ease-out) both;
+}
+.motion-slide-forward {
+  animation: slideForward var(--duration-slow) var(--ease-out) both;
+}
+.motion-slide-back {
+  animation: slideBack var(--duration-slow) var(--ease-out) both;
+}
+.motion-scale-in {
+  animation: scaleIn var(--duration-normal) var(--ease-out) both;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slideForward {
+  from { opacity: 0; transform: translateX(16px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes slideBack {
+  from { opacity: 0; transform: translateX(-16px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes skeletonPulse {
+  from { opacity: 0.4; }
+  to { opacity: 0.7; }
+}
+@keyframes slideUpSheet {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+```
+
+### 4.5 `useStaggerDelay` Hook
+
+```javascript
+/**
+ * Returns animationDelay in ms for staggered list animations.
+ * Caps total stagger at --stagger-max to prevent long cascades.
+ * @param {number} index - Item index in the list
+ * @param {number} [total] - Total number of items (for adaptive delay)
+ * @returns {string} CSS delay value, e.g. "80ms"
+ */
+function useStaggerDelay(index, total) {
+  const DELAY = 40;  // matches --stagger-delay
+  const MAX = 400;   // matches --stagger-max
+  const effectiveDelay = total && total > 0
+    ? Math.min(DELAY, MAX / total)
+    : DELAY;
+  return `${Math.min(index * effectiveDelay, MAX)}ms`;
+}
+```
+
+---
+
+## 5. Component Architecture
+
+### 5.1 Directory Structure
+
+```
+src/frontend/web/src/
+├── main.jsx
+├── app/
+│   ├── App.jsx                ← Root: providers + router
+│   ├── Router.jsx             ← wouter hash router integration
+│   ├── routes.js              ← Route map definition
+│   ├── api.js                 ← API client (single fetch abstraction)
+│   ├── providers/
+│   │   ├── ThemeProvider.jsx
+│   │   └── SearchProvider.jsx
+│   ├── ErrorBoundary.jsx
+│   └── logger.js              ← Structured error logging (console + future Sentry hook)
+├── features/
+│   ├── dashboard/
+│   │   ├── DashboardScreen.jsx
+│   │   ├── TopSearches.jsx
+│   │   ├── SearchExamples.jsx
+│   │   └── useDashboardData.js
+│   ├── search/
+│   │   ├── SearchScreen.jsx
+│   │   ├── SearchComposer.jsx
+│   │   ├── AutocompleteDropdown.jsx
+│   │   ├── SearchResultsList.jsx
+│   │   ├── SearchResultItem.jsx
+│   │   └── useSearch.js
+│   ├── document/
+│   │   ├── DocumentScreen.jsx
+│   │   ├── DocumentHeader.jsx
+│   │   ├── TimelineList.jsx
+│   │   ├── TimelineItem.jsx
+│   │   ├── TimelineEmptyState.jsx
+│   │   ├── DocumentMeta.jsx
+│   │   └── useDocument.js
+│   ├── actions/
+│   │   ├── ActionSheet.jsx     ← Responsive: BottomSheet on mobile, Modal on desktop
+│   │   ├── ActionForm.jsx
+│   │   └── useActionForm.js
+│   └── settings/
+│       ├── SettingsScreen.jsx
+│       └── useSettings.js
+├── shared/
+│   ├── ui/
+│   │   ├── BottomSheet.jsx
+│   │   ├── Modal.jsx
+│   │   ├── DataView.jsx        ← Generic 4-state renderer
+│   │   ├── ScreenHeader.jsx
+│   │   ├── ScreenSkeleton.jsx
+│   │   ├── SkipLink.jsx
+│   │   ├── TabBar.jsx
+│   │   ├── SideRail.jsx
+│   │   ├── SkeletonBlock.jsx
+│   │   ├── EmptyState.jsx
+│   │   ├── ErrorState.jsx
+│   │   ├── FocusTrap.jsx
+│   │   └── Toast.jsx
+│   ├── hooks/
+│   │   ├── useDebounce.js
+│   │   ├── useFocusManagement.js
+│   │   ├── useMediaQuery.js
+│   │   ├── useKeyboardShortcuts.js
+│   │   ├── useReducedMotion.js
+│   │   └── useStaggerDelay.js
+│   └── icons/
+│       ├── SearchIcon.jsx
+│       ├── HomeIcon.jsx
+│       ├── DocumentIcon.jsx
+│       ├── ChevronIcon.jsx
+│       ├── ThemeIcon.jsx
+│       ├── SettingsIcon.jsx
+│       └── index.js
+└── styles/
+    ├── tokens.css
+    ├── global.css
+    └── animations.css
+```
+
+### 5.2 Composition Hierarchy
+
+```
+<App>
+  <ThemeProvider>
+    <SearchProvider>
+      <ErrorBoundary fallback={<ErrorState />}>
+        <SkipLink targetId="main-content" />
+        <AppShell>
+          ├── <ScreenHeader />
+          ├── <main id="main-content">
+          │   <Router>
+          │     ├── "/" → <DashboardScreen />                    [main bundle]
+          │     │         ├── <SearchComposer />
+          │     │         ├── <TopSearches />
+          │     │         └── <SearchExamples />
+          │     │
+          │     ├── "/search" →                                  [lazy]
+          │     │   <Suspense fallback={<ScreenSkeleton variant="search" />}>
+          │     │     <SearchScreen />
+          │     │       ├── <SearchComposer />
+          │     │       ├── <AutocompleteDropdown />
+          │     │       └── <SearchResultsList>
+          │     │             └── <SearchResultItem />*
+          │     │   </Suspense>
+          │     │
+          │     ├── "/document/:id" →                            [lazy]
+          │     │   <Suspense fallback={<ScreenSkeleton variant="document" />}>
+          │     │     <DocumentScreen />
+          │     │       ├── <DocumentHeader />
+          │     │       ├── <DocumentMeta />
+          │     │       └── <TimelineList>
+          │     │             └── <TimelineItem />*
+          │     │   </Suspense>
+          │     │
+          │     ├── "/document/:id/action" →                     [lazy]
+          │     │   <Suspense fallback={<ScreenSkeleton variant="action" />}>
+          │     │     <ActionSheet />   ← BottomSheet (<768px) / Modal (≥768px)
+          │     │       └── <ActionForm />
+          │     │   </Suspense>
+          │     │
+          │     └── "/settings" →                                [lazy]
+          │         <Suspense fallback={<ScreenSkeleton variant="settings" />}>
+          │           <SettingsScreen />
+          │         </Suspense>
+          │   </Router>
+          │ </main>
+          ├── <TabBar />           (mobile: ≤768px)
+          └── <SideRail />         (desktop: >768px)
+        </AppShell>

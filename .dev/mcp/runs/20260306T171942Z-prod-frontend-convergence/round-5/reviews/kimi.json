@@ -1,0 +1,72 @@
+{
+  "agent": "kimi",
+  "round": 5,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "Section 2.1 Production Serving",
+      "description": "The SPA fallback exception handler catches all 404 errors including legitimate API 404s (e.g., `/api/document/{invalid_id}`). Relying on the Accept header for content negotiation is fragile—fetch requests typically send `Accept: */*` or include `text/html` with lower weight, causing API errors to return HTML instead of JSON. This breaks the API contract and prevents proper error handling in the frontend.",
+      "suggested_fix": "Check `request.url.path.startswith('/api')` before falling back to SPA HTML. API routes must return JSON 404s unconditionally, while non-API 404s serve index.html."
+    },
+    {
+      "severity": "high",
+      "location": "Section 1.6 Navigation Flow Specification",
+      "description": "No focus management strategy is defined for route transitions. The spec mentions aria-live announcements but fails to specify where focus moves after navigation (e.g., to H1, main landmark, or skip link). This violates WCAG 2.4.3 (Focus Order) and 2.4.7 (Focus Visible), leaving keyboard users stranded at the previous route's location or at the bottom of the DOM.",
+      "suggested_fix": "Specify that AnimatedRoute must programmatically focus either the page H1 (with `tabIndex=-1`) or a 'route container' region with `role='main'` on every route change, ensuring focus is visible and logical."
+    },
+    {
+      "severity": "high",
+      "location": "Section 3.1 Color Tokens / Contrast Compliance Matrix",
+      "description": "The contrast matrix explicitly marks `--text-tertiary` (#8E8E93) on `--bg-elevated` (#242428) as prohibited (❌) with a failing ratio (~4.35:1), yet the token system allows this combination. This creates an accessibility trap where developers can legally combine tokens that produce unreadable text in dark mode.",
+      "suggested_fix": "Restrict the semantic token pairing system so `text-tertiary` is forbidden on `bg-elevated` surfaces, or adjust `--bg-elevated` to #2C2C30 or darker to achieve 4.5:1 minimum contrast."
+    },
+    {
+      "severity": "high",
+      "location": "Section 1.5 Component Architecture Map / AnimatedRoute",
+      "description": "The navigation direction detection logic (comparing screen indices 0/1/2) fails for non-linear history traversal. When a user navigates Dashboard(0) → Search(1) → Document(2) → Search(1), the index decreases, triggering a 'back' slide animation even though the user is navigating forward to a previously visited page. This creates cognitive dissonance between the browser history and visual feedback.",
+      "suggested_fix": "Use the History API's `popstate` event to detect actual back/forward navigation direction, or maintain a history stack in sessionStorage to compare timestamps rather than static route indices."
+    },
+    {
+      "severity": "high",
+      "location": "Section 5.3 ActionSheet / DocumentScreen",
+      "description": "Making ActionSheet state-only (not URL-routable) violates the principle of least surprise for the browser back button. Users expect pressing back to dismiss an overlay/modal, not to navigate away from the Document entirely. This also prevents sharing direct links to specific action states (e.g., 'Edit document').",
+      "suggested_fix": "Implement ActionSheet as a URL query parameter (e.g., `/document/abc123?action=edit`) with `history.pushState` on open and `history.back()` on close, or handle `popstate` events to close the sheet when the user presses back."
+    },
+    {
+      "severity": "high",
+      "location": "Section 3.1 Color Tokens",
+      "description": "The artifact is truncated mid-token (`--color-text-link: #8B7`), making it impossible to verify WCAG compliance for light mode link colors or complete the design token review. This is a blocking issue for UX architecture sign-off.",
+      "suggested_fix": "Provide the complete tokens.css file including all light theme values and contrast calculations."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "Section 1.5 Component Architecture Map",
+      "description": "Add a 'Skip to main content' link as the first focusable element in AppShell, visible only on focus, to bypass repetitive navigation for keyboard users."
+    },
+    {
+      "type": "improvement",
+      "location": "Section 1.6 Navigation Flow Specification",
+      "description": "Specify `prefers-reduced-motion` handling: when the user has reduced motion enabled, disable slide animations and use instant crossfades or no animation at all."
+    },
+    {
+      "type": "improvement",
+      "location": "features/search/SearchScreen",
+      "description": "Clarify the debouncing strategy for SearchInput. Specify the delay (e.g., 150ms), cancellation behavior on unmount, and loading state transition timing to prevent race conditions."
+    },
+    {
+      "type": "improvement",
+      "location": "features/document/Timeline",
+      "description": "The Timeline component lacks UX specification. Define: (1) Is it vertical or horizontal? (2) Are entries expandable? (3) How does keyboard navigation work between timeline nodes? (4) What is the maximum height before scrolling occurs?"
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 0,
+    "latency_ms": 0,
+    "thinking_tokens": 0
+  },
+  "raw_text": "{\n  \"agent\": \"kimi\",\n  \"round\": 5,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 2.1 Production Serving\",\n      \"description\": \"The SPA fallback exception handler catches all 404 errors including legitimate API 404s (e.g., `/api/document/{invalid_id}`). Relying on the Accept header for content negotiation is fragile—fetch requests typically send `Accept: */*` or include `text/html` with lower weight, causing API errors to return HTML instead of JSON. This breaks the API contract and prevents proper error handling in the frontend.\",\n      \"suggested_fix\": \"Check `request.url.path.startswith('/api')` before falling back to SPA HTML. API routes must return JSON 404s unconditionally, while non-API 404s serve index.html.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 1.6 Navigation Flow Specification\",\n      \"description\": \"No focus management strategy is defined for route transitions. The spec mentions aria-live announcements but fails to specify where focus moves after navigation (e.g., to H1, main landmark, or skip link). This violates WCAG 2.4.3 (Focus Order) and 2.4.7 (Focus Visible), leaving keyboard users stranded at the previous route's location or at the bottom of the DOM.\",\n      \"suggested_fix\": \"Specify that AnimatedRoute must programmatically focus either the page H1 (with `tabIndex=-1`) or a 'route container' region with `role='main'` on every route change, ensuring focus is visible and logical.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 3.1 Color Tokens / Contrast Compliance Matrix\",\n      \"description\": \"The contrast matrix explicitly marks `--text-tertiary` (#8E8E93) on `--bg-elevated` (#242428) as prohibited (❌) with a failing ratio (~4.35:1), yet the token system allows this combination. This creates an accessibility trap where developers can legally combine tokens that produce unreadable text in dark mode.\",\n      \"suggested_fix\": \"Restrict the semantic token pairing system so `text-tertiary` is forbidden on `bg-elevated` surfaces, or adjust `--bg-elevated` to #2C2C30 or darker to achieve 4.5:1 minimum contrast.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 1.5 Component Architecture Map / AnimatedRoute\",\n      \"description\": \"The navigation direction detection logic (comparing screen indices 0/1/2) fails for non-linear history traversal. When a user navigates Dashboard(0) → Search(1) → Document(2) → Search(1), the index decreases, triggering a 'back' slide animation even though the user is navigating forward to a previously visited page. This creates cognitive dissonance between the browser history and visual feedback.\",\n      \"suggested_fix\": \"Use the History API's `popstate` event to detect actual back/forward navigation direction, or maintain a history stack in sessionStorage to compare timestamps rather than static route indices.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 5.3 ActionSheet / DocumentScreen\",\n      \"description\": \"Making ActionSheet state-only (not URL-routable) violates the principle of least surprise for the browser back button. Users expect pressing back to dismiss an overlay/modal, not to navigate away from the Document entirely. This also prevents sharing direct links to specific action states (e.g., 'Edit document').\",\n      \"suggested_fix\": \"Implement ActionSheet as a URL query parameter (e.g., `/document/abc123?action=edit`) with `history.pushState` on open and `history.back()` on close, or handle `popstate` events to close the sheet when the user presses back.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 3.1 Color Tokens\",\n      \"description\": \"The artifact is truncated mid-token (`--color-text-link: #8B7`), making it impossible to verify WCAG compliance for light mode link colors or complete the design token review. This is a blocking issue for UX architecture sign-off.\",\n      \"suggested_fix\": \"Provide the complete tokens.css file including all light theme values and contrast calculations.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 1.5 Component Architecture Map\",\n      \"description\": \"Add a 'Skip to main content' link as the first focusable element in AppShell, visible only on focus, to bypass repetitive navigation for keyboard users.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 1.6 Navigation Flow Specification\",\n      \"description\": \"Specify `prefers-reduced-motion` handling: when the user has reduced motion enabled, disable slide animations and use instant crossfades or no animation at all.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"features/search/SearchScreen\",\n      \"description\": \"Clarify the debouncing strategy for SearchInput. Specify the delay (e.g., 150ms), cancellation behavior on unmount, and loading state transition timing to prevent race conditions.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"features/document/Timeline\",\n      \"description\": \"The Timeline component lacks UX specification. Define: (1) Is it vertical or horizontal? (2) Are entries expandable? (3) How does keyboard navigation work between timeline nodes? (4) What is the maximum height before scrolling occurs?\"\n    }\n  ],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 0,\n    \"latency_ms\": 0,\n    \"thinking_tokens\": 0\n  }\n}"
+}

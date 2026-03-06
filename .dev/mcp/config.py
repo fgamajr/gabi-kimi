@@ -122,7 +122,9 @@ def config_summary(config: RuntimeConfig) -> dict[str, Any]:
                 "model": agent.model,
                 "key_env": agent.key_env,
                 "enable_thinking": agent.enable_thinking,
+                "max_response": agent.max_response,
                 "personas": agent.personas,
+                "output_config": agent.output_config,
             }
             for name, agent in config.agents.items()
         },

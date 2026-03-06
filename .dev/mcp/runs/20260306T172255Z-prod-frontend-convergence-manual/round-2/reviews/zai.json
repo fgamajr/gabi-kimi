@@ -1,0 +1,72 @@
+{
+  "agent": "zai",
+  "round": 2,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "critical",
+      "location": "Section 14 (Theme Switching & FOUC Prevention)",
+      "description": "Artifact is truncated mid-code-block. The critical-path theme script is incomplete, cutting off at 'if (!t) t = matchMedia...'. Cannot approve a spec that is literally unfinished.",
+      "suggested_fix": "Complete the FOUC prevention script with full localStorage read, prefers-color-scheme fallback, and document.documentElement.dataset.theme assignment before CSS loads."
+    },
+    {
+      "severity": "high",
+      "location": "Section 6 (State Management) + Section 11 (Screen Specifications)",
+      "description": "No memoization strategy specified. With timeline entries, search results, and history lists all rendering dynamically, the spec lacks React.memo, useMemo, or useCallback guidance. This will cause unnecessary re-renders on every parent state change.",
+      "suggested_fix": "Add explicit memoization requirements: TimelineItem, ResultCard, HistoryEntry must be React.memo with stable prop references. SearchComposer debounce handler needs useCallback. DataContext should memoize context value object to prevent consumer re-renders."
+    },
+    {
+      "severity": "high",
+      "location": "Section 11 (Detail Screen, Search Screen)",
+      "description": "No virtualization strategy for potentially long lists. Timeline and search results could contain 50+ items. Without virtualization, DOM node count and scroll performance degrade severely on mobile.",
+      "suggested_fix": "Either (a) specify windowing/virtualization for lists exceeding 20 items, or (b) add pagination with 'Load more' as explicit design decision with 30-item page cap. Document the trade-off."
+    },
+    {
+      "severity": "medium",
+      "location": "Section 13 (Performance Requirements)",
+      "description": "Bundle target of <60KB gzipped for React 18 + ReactDOM + app code is aggressive and unsubstantiated. React 18 + ReactDOM minified is ~42KB gzipped. That leaves 18KB for all app code, icons, and CSS. Feasible but needs validation.",
+      "suggested_fix": "Either relax target to 80KB with justification, or add concrete analysis: tree-shaken icon bundle size, CSS size after Tailwind purge, estimated component bundle. Provide budget breakdown by category."
+    },
+    {
+      "severity": "medium",
+      "location": "Section 5 (Data Types & API Contract)",
+      "description": "Race condition risk: SearchComposer cancels previous request on new keystroke, but the spec doesn't address what happens if the cancelled request's promise rejects after the new request resolves. Need explicit error handling pattern.",
+      "suggested_fix": "Add pattern: wrapped fetch with error type checking. If error.name === 'AbortError', return silently without updating state. Document that ApiError should differentiate abort from failure."
+    },
+    {
+      "severity": "low",
+      "location": "Section 4 (Component Architecture)",
+      "description": "Error boundary component mentioned but no fallback UI specification beyond '<ErrorState />'. Need clarity on whether ErrorBoundary catches API errors (no, those are handled in state) vs render errors (yes).",
+      "suggested_fix": "Clarify: ErrorBoundary wraps route-level screens, catches React render crashes only. API errors flow through state machine and render ErrorState within normal component tree."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "Section 9 (Motion System)",
+      "description": "Motion spec is solid — cubic-bezier curves, GPU-composited properties, reduced-motion support all correct. No changes needed."
+    },
+    {
+      "type": "improvement",
+      "location": "Section 7 (Design Tokens)",
+      "description": "Consider adding --font-display clamp() to tokens.css. Currently defined in Section 8 text but not in the actual token definitions block."
+    },
+    {
+      "type": "improvement",
+      "location": "Section 3 (Navigation)",
+      "description": "Hash-based routing is pragmatic for static serving, but consider adding a base path variable for future deployment flexibility (e.g., if app moves to /app/ subpath)."
+    }
+  ],
+  "diffs": [
+    {
+      "file": "tokens.css (Section 7)",
+      "hunks": "@@ --radius-full: 9999px; @@\n+  --font-display: clamp(1.5rem, 1.2rem + 1vw, 1.875rem);\n+  --font-body: clamp(0.875rem, 0.825rem + 0.25vw, 1rem);\n \n   /* ── Z-index Layers ── */"
+    }
+  ],
+  "meta": {
+    "tokens_used": 0,
+    "latency_ms": 0,
+    "thinking_tokens": 0
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"zai\",\n  \"round\": 2,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"critical\",\n      \"location\": \"Section 14 (Theme Switching & FOUC Prevention)\",\n      \"description\": \"Artifact is truncated mid-code-block. The critical-path theme script is incomplete, cutting off at 'if (!t) t = matchMedia...'. Cannot approve a spec that is literally unfinished.\",\n      \"suggested_fix\": \"Complete the FOUC prevention script with full localStorage read, prefers-color-scheme fallback, and document.documentElement.dataset.theme assignment before CSS loads.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 6 (State Management) + Section 11 (Screen Specifications)\",\n      \"description\": \"No memoization strategy specified. With timeline entries, search results, and history lists all rendering dynamically, the spec lacks React.memo, useMemo, or useCallback guidance. This will cause unnecessary re-renders on every parent state change.\",\n      \"suggested_fix\": \"Add explicit memoization requirements: TimelineItem, ResultCard, HistoryEntry must be React.memo with stable prop references. SearchComposer debounce handler needs useCallback. DataContext should memoize context value object to prevent consumer re-renders.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 11 (Detail Screen, Search Screen)\",\n      \"description\": \"No virtualization strategy for potentially long lists. Timeline and search results could contain 50+ items. Without virtualization, DOM node count and scroll performance degrade severely on mobile.\",\n      \"suggested_fix\": \"Either (a) specify windowing/virtualization for lists exceeding 20 items, or (b) add pagination with 'Load more' as explicit design decision with 30-item page cap. Document the trade-off.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Section 13 (Performance Requirements)\",\n      \"description\": \"Bundle target of <60KB gzipped for React 18 + ReactDOM + app code is aggressive and unsubstantiated. React 18 + ReactDOM minified is ~42KB gzipped. That leaves 18KB for all app code, icons, and CSS. Feasible but needs validation.\",\n      \"suggested_fix\": \"Either relax target to 80KB with justification, or add concrete analysis: tree-shaken icon bundle size, CSS size after Tailwind purge, estimated component bundle. Provide budget breakdown by category.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Section 5 (Data Types & API Contract)\",\n      \"description\": \"Race condition risk: SearchComposer cancels previous request on new keystroke, but the spec doesn't address what happens if the cancelled request's promise rejects after the new request resolves. Need explicit error handling pattern.\",\n      \"suggested_fix\": \"Add pattern: wrapped fetch with error type checking. If error.name === 'AbortError', return silently without updating state. Document that ApiError should differentiate abort from failure.\"\n    },\n    {\n      \"severity\": \"low\",\n      \"location\": \"Section 4 (Component Architecture)\",\n      \"description\": \"Error boundary component mentioned but no fallback UI specification beyond '<ErrorState />'. Need clarity on whether ErrorBoundary catches API errors (no, those are handled in state) vs render errors (yes).\",\n      \"suggested_fix\": \"Clarify: ErrorBoundary wraps route-level screens, catches React render crashes only. API errors flow through state machine and render ErrorState within normal component tree.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 9 (Motion System)\",\n      \"description\": \"Motion spec is solid — cubic-bezier curves, GPU-composited properties, reduced-motion support all correct. No changes needed.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 7 (Design Tokens)\",\n      \"description\": \"Consider adding --font-display clamp() to tokens.css. Currently defined in Section 8 text but not in the actual token definitions block.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 3 (Navigation)\",\n      \"description\": \"Hash-based routing is pragmatic for static serving, but consider adding a base path variable for future deployment flexibility (e.g., if app moves to /app/ subpath).\"\n    }\n  ],\n  \"diffs\": [\n    {\n      \"file\": \"tokens.css (Section 7)\",\n      \"hunks\": \"@@ --radius-full: 9999px; @@\\n+  --font-display: clamp(1.5rem, 1.2rem + 1vw, 1.875rem);\\n+  --font-body: clamp(0.875rem, 0.825rem + 0.25vw, 1rem);\\n \\n   /* ── Z-index Layers ── */\"\n    }\n  ],\n  \"meta\": {\n    \"tokens_used\": 0,\n    \"latency_ms\": 0,\n    \"thinking_tokens\": 0\n  }\n}\n```"
+}

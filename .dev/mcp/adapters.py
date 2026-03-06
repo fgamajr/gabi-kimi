@@ -235,6 +235,8 @@ class AnthropicAdapter(BaseAdapter):
             "messages": anthropic_messages,
             "max_tokens": self.agent.max_response or 4096,
         }
+        if self.agent.output_config:
+            kwargs["output_config"] = self.agent.output_config
         if enable_thinking:
             kwargs["thinking"] = {
                 "type": "enabled",
@@ -323,6 +325,8 @@ class AnthropicAdapter(BaseAdapter):
             "max_tokens": self.agent.max_response or 4096,
             "stream": stream,
         }
+        if self.agent.output_config:
+            payload["output_config"] = self.agent.output_config
         if enable_thinking:
             payload["thinking"] = {
                 "type": "enabled",

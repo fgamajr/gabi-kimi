@@ -1,0 +1,38 @@
+{
+  "agent": "qwen",
+  "round": 1,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "src/example.py:5-10",
+      "description": "Critical race condition: The read-modify-write sequence on global 'balance' in deposit() is not atomic. Concurrent threads will cause lost updates.",
+      "suggested_fix": "Introduce a threading.Lock and wrap the critical section in a 'with lock:' block."
+    },
+    {
+      "severity": "high",
+      "location": "src/example.py:12-18",
+      "description": "Critical race condition: The check-then-act pattern in withdraw() is not atomic. Balance can be checked by multiple threads before any update occurs, leading to overdrafts.",
+      "suggested_fix": "Include the condition check and the update within the same lock context."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "src/example.py:1-20",
+      "description": "Refactor global state into a class instance to encapsulate the lock and balance, improving testability and reducing global namespace pollution."
+    }
+  ],
+  "diffs": [
+    {
+      "file": "src/example.py",
+      "hunks": "@@ -1,18 +1,22 @@\n import threading\n \n balance = 0\n+lock = threading.Lock()\n \n def deposit(amount):\n     global balance\n-    current = balance\n-    current += amount\n-    balance = current\n+    with lock:\n+        current = balance\n+        current += amount\n+        balance = current\n     return balance\n \n def withdraw(amount):\n     global balance\n-    if balance >= amount:\n-        current = balance\n-        current -= amount\n-        balance = current\n+    with lock:\n+        if balance >= amount:\n+            current = balance\n+            current -= amount\n+            balance = current\n     return balance"
+    }
+  ],
+  "meta": {
+    "tokens_used": 185,
+    "latency_ms": 62,
+    "thinking_tokens": 512
+  },
+  "raw_text": "{\n  \"agent\": \"qwen\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/example.py:5-10\",\n      \"description\": \"Critical race condition: The read-modify-write sequence on global 'balance' in deposit() is not atomic. Concurrent threads will cause lost updates.\",\n      \"suggested_fix\": \"Introduce a threading.Lock and wrap the critical section in a 'with lock:' block.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/example.py:12-18\",\n      \"description\": \"Critical race condition: The check-then-act pattern in withdraw() is not atomic. Balance can be checked by multiple threads before any update occurs, leading to overdrafts.\",\n      \"suggested_fix\": \"Include the condition check and the update within the same lock context.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"src/example.py:1-20\",\n      \"description\": \"Refactor global state into a class instance to encapsulate the lock and balance, improving testability and reducing global namespace pollution.\"\n    }\n  ],\n  \"diffs\": [\n    {\n      \"file\": \"src/example.py\",\n      \"hunks\": \"@@ -1,18 +1,22 @@\\n import threading\\n \\n balance = 0\\n+lock = threading.Lock()\\n \\n def deposit(amount):\\n     global balance\\n-    current = balance\\n-    current += amount\\n-    balance = current\\n+    with lock:\\n+        current = balance\\n+        current += amount\\n+        balance = current\\n     return balance\\n \\n def withdraw(amount):\\n     global balance\\n-    if balance >= amount:\\n-        current = balance\\n-        current -= amount\\n-        balance = current\\n+    with lock:\\n+        if balance >= amount:\\n+            current = balance\\n+            current -= amount\\n+            balance = current\\n     return balance\"\n    }\n  ],\n  \"meta\": {\n    \"tokens_used\": 185,\n    \"latency_ms\": 62,\n    \"thinking_tokens\": 512\n  }\n}"
+}

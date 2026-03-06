@@ -1,0 +1,48 @@
+--- before
++++ after
+@@ -10,14 +10,25 @@
+         if initial_balance < 0:
+             raise ValueError("Initial balance cannot be negative")
+         self._balance = initial_balance
+-        self._lock = threading.Lock()
++        self._lock = threading.RLock()
++
++    def __getstate__(self):
++        """Exclude unpicklable lock during serialization."""
++        state = self.__dict__.copy()
++        del state['_lock']
++        return state
++
++    def __setstate__(self, state):
++        """Restore lock after deserialization."""
++        self.__dict__.update(state)
++        self._lock = threading.RLock()
+ 
+     def deposit(self, amount: int) -> int:
+         """
+         Deposit money into the account.
+         
+         Args:
+-            amount: Positive integer amount to deposit
++            amount: Positive integer amount to deposit (bool values explicitly rejected)
+             
+         Returns:
+             New balance after deposit
+@@ -39,7 +50,7 @@
+         Withdraw money from the account.
+         
+         Args:
+-            amount: Positive integer amount to withdraw
++            amount: Positive integer amount to withdraw (bool values explicitly rejected)
+             
+         Returns:
+             New balance after withdrawal
+@@ -54,7 +65,7 @@
+             raise ValueError("Withdrawal amount must be positive")
+         with self._lock:
+             if self._balance < amount:
+-                raise ValueError("Insufficient funds")
++                raise ValueError(f"Insufficient funds: requested {amount}, available {self._balance}")
+             self._balance -= amount
+             return self._balance
+ 

@@ -1,0 +1,67 @@
+{
+  "agent": "zai",
+  "round": 1,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "Implementation direction #1",
+      "description": "CDN-based React ES modules without a bundler violates production performance requirements. This creates: (1) multiple sequential network requests for each module dependency chain, (2) no tree-shaking or dead-code elimination, (3) no minification, (4) no code-splitting that actually reduces initial payload. For a 'premium' experience, we need either a proper build step (Vite/esbuild) or a significantly more detailed strategy for how module loading will be optimized.",
+      "suggested_fix": "Either add Vite/esbuild as a zero-config build step with output to src/frontend/web/dist/, OR provide explicit HTTP/2 push headers strategy, preload hints, and module graph analysis showing total request count under 10 for initial paint."
+    },
+    {
+      "severity": "high",
+      "location": "Implementation direction #8 (Motion)",
+      "description": "Spec prohibits 'ease/linear timing' but provides no actual timing curves. 'Spring-in, float, breathe, sway' are descriptive names without cubic-bezier values. This is insufficient for implementation—developers will default to guessing or use prohibited timing functions.",
+      "suggested_fix": "Define concrete timing functions: e.g., spring-out: cubic-bezier(0.34, 1.56, 0.64, 1), smooth-out: cubic-bezier(0.33, 1, 0.68, 1), etc. Provide at least 4 curves with their exact cubic-bezier values and recommended durations."
+    },
+    {
+      "severity": "high",
+      "location": "Acceptance criteria #13",
+      "description": "Spec asks reviewers to approve 'before coding' but the artifact IS the spec and it lacks the concrete component map, token map, and data flow details it claims to deliver. This is circular—approving would mean approving a promise to deliver specifications later.",
+      "suggested_fix": "Provide the actual component map showing hierarchy, props interfaces, and composition patterns; the actual token map with naming conventions and values; and the data flow diagram or state shape specification."
+    },
+    {
+      "severity": "medium",
+      "location": "Implementation direction #4 (Home/Dashboard)",
+      "description": "'Progressive cascade' loading mentioned without specifying loading priorities, request parallelization, or skeleton-to-content transition behavior. No skeleton component specifications (size, shape, animation).",
+      "suggested_fix": "Define: (1) explicit loading phases with priorities, (2) skeleton component variants (text, card, image), (3) content reveal animation (fade-in? stagger?), (4) maximum skeleton display duration before error state."
+    },
+    {
+      "severity": "medium",
+      "location": "Design tokens direction #7",
+      "description": "'Dark-first CSS variables' with 'light theme as override' is correct but no flash-of-wrong-theme prevention strategy. First paint may flash light theme before JS executes to detect preference. No persistence strategy (localStorage vs cookie) for theme choice.",
+      "suggested_fix": "Add critical-path theme detection script in <head> before React loads. Specify localStorage key naming and fallback behavior for private browsing modes."
+    },
+    {
+      "severity": "medium",
+      "location": "Technical stack specification",
+      "description": "Breakpoints 375/768/1440 mentioned but no implementation strategy. Are these Tailwind responsive prefixes? CSS custom properties? Container queries? Mixed approach? No fluid typography scale between breakpoints.",
+      "suggested_fix": "Specify: (1) breakpoint token names with exact values, (2) container query vs media query decision matrix, (3) fluid sizing formula (clamp calculations) for typography and spacing between breakpoints."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "File layout",
+      "description": "Add error-boundary.js component and loading-error-state.js component to handle React render errors and API failures gracefully at the shell level."
+    },
+    {
+      "type": "improvement",
+      "location": "Implementation direction #11 (Performance)",
+      "description": "Add specific debounce timing for autocomplete (150ms recommended) and request cancellation AbortController pattern in api.js specification."
+    },
+    {
+      "type": "improvement",
+      "location": "Component structure",
+      "description": "Add components/focus-trap.js and components/portal.js as utilities required for accessible bottom-sheet implementation per WCAG 2.1 focus management requirements."
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 0,
+    "latency_ms": 0,
+    "thinking_tokens": 0
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"zai\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Implementation direction #1\",\n      \"description\": \"CDN-based React ES modules without a bundler violates production performance requirements. This creates: (1) multiple sequential network requests for each module dependency chain, (2) no tree-shaking or dead-code elimination, (3) no minification, (4) no code-splitting that actually reduces initial payload. For a 'premium' experience, we need either a proper build step (Vite/esbuild) or a significantly more detailed strategy for how module loading will be optimized.\",\n      \"suggested_fix\": \"Either add Vite/esbuild as a zero-config build step with output to src/frontend/web/dist/, OR provide explicit HTTP/2 push headers strategy, preload hints, and module graph analysis showing total request count under 10 for initial paint.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Implementation direction #8 (Motion)\",\n      \"description\": \"Spec prohibits 'ease/linear timing' but provides no actual timing curves. 'Spring-in, float, breathe, sway' are descriptive names without cubic-bezier values. This is insufficient for implementation—developers will default to guessing or use prohibited timing functions.\",\n      \"suggested_fix\": \"Define concrete timing functions: e.g., spring-out: cubic-bezier(0.34, 1.56, 0.64, 1), smooth-out: cubic-bezier(0.33, 1, 0.68, 1), etc. Provide at least 4 curves with their exact cubic-bezier values and recommended durations.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Acceptance criteria #13\",\n      \"description\": \"Spec asks reviewers to approve 'before coding' but the artifact IS the spec and it lacks the concrete component map, token map, and data flow details it claims to deliver. This is circular—approving would mean approving a promise to deliver specifications later.\",\n      \"suggested_fix\": \"Provide the actual component map showing hierarchy, props interfaces, and composition patterns; the actual token map with naming conventions and values; and the data flow diagram or state shape specification.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Implementation direction #4 (Home/Dashboard)\",\n      \"description\": \"'Progressive cascade' loading mentioned without specifying loading priorities, request parallelization, or skeleton-to-content transition behavior. No skeleton component specifications (size, shape, animation).\",\n      \"suggested_fix\": \"Define: (1) explicit loading phases with priorities, (2) skeleton component variants (text, card, image), (3) content reveal animation (fade-in? stagger?), (4) maximum skeleton display duration before error state.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Design tokens direction #7\",\n      \"description\": \"'Dark-first CSS variables' with 'light theme as override' is correct but no flash-of-wrong-theme prevention strategy. First paint may flash light theme before JS executes to detect preference. No persistence strategy (localStorage vs cookie) for theme choice.\",\n      \"suggested_fix\": \"Add critical-path theme detection script in <head> before React loads. Specify localStorage key naming and fallback behavior for private browsing modes.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Technical stack specification\",\n      \"description\": \"Breakpoints 375/768/1440 mentioned but no implementation strategy. Are these Tailwind responsive prefixes? CSS custom properties? Container queries? Mixed approach? No fluid typography scale between breakpoints.\",\n      \"suggested_fix\": \"Specify: (1) breakpoint token names with exact values, (2) container query vs media query decision matrix, (3) fluid sizing formula (clamp calculations) for typography and spacing between breakpoints.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"File layout\",\n      \"description\": \"Add error-boundary.js component and loading-error-state.js component to handle React render errors and API failures gracefully at the shell level.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Implementation direction #11 (Performance)\",\n      \"description\": \"Add specific debounce timing for autocomplete (150ms recommended) and request cancellation AbortController pattern in api.js specification.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Component structure\",\n      \"description\": \"Add components/focus-trap.js and components/portal.js as utilities required for accessible bottom-sheet implementation per WCAG 2.1 focus management requirements.\"\n    }\n  ],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 0,\n    \"latency_ms\": 0,\n    \"thinking_tokens\": 0\n  }\n}\n```"
+}

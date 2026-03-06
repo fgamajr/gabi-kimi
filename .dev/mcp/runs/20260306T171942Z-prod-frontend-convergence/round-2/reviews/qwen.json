@@ -1,0 +1,89 @@
+{
+  "agent": "qwen",
+  "round": 2,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "src/styles/tokens.css:3.1 Color Tokens",
+      "description": "Light theme --color-text-tertiary (#AEAEB2) on --color-bg-primary (#FFFFFF) has 2.3:1 contrast ratio. Spec admits this is for decorative/disabled only but provides no enforcement mechanism. This will inevitably be misused for body text, creating WCAG AA violations.",
+      "suggested_fix": "Remove text-tertiary from light theme entirely or raise to minimum 4.5:1 contrast. Add CSS linting rule or design token validation that blocks tertiary color usage on text elements smaller than 18px."
+    },
+    {
+      "severity": "high",
+      "location": "src/styles/tokens.css:3.1 Color Tokens",
+      "description": "Focus ring --color-focus-ring uses rgba(108, 92, 231, 0.6) which may not achieve 3:1 contrast against all surface backgrounds, especially --color-bg-elevated (#242428) in dark mode. WCAG 2.4.7 requires visible focus indicators.",
+      "suggested_fix": "Define focus ring as solid 2px border with --color-accent instead of box-shadow with opacity. Add --color-focus-ring-solid: #6C5CE7 and ensure 3:1 minimum contrast against all possible backgrounds."
+    },
+    {
+      "severity": "high",
+      "location": "src/styles/tokens.css:3.2 Typography Tokens",
+      "description": "No minimum touch target size defined. Mobile navigation and interactive elements must be 44x44px minimum per WCAG 2.5.5. TabBar height is 56px but individual icon tap targets are unspecified.",
+      "suggested_fix": "Add --touch-target-min: 44px token and document requirement that all interactive elements meet this minimum. Add --space-11: 2.75rem (44px) to spacing scale for consistent touch target sizing."
+    },
+    {
+      "severity": "medium",
+      "location": "src/styles/animations.css:4.1 Motion Tokens",
+      "description": "prefers-reduced-motion sets durations to 0ms but doesn't specify fallback behavior. Some animations (screen transitions) need instant state changes, others (focus rings) should still provide visual feedback without animation.",
+      "suggested_fix": "Document which animations should become instant vs. which should maintain visual feedback. Add --motion-reduced: static token that components can check to determine appropriate fallback behavior."
+    },
+    {
+      "severity": "medium",
+      "location": "src/frontend/web/src/app/providers/ThemeProvider.jsx",
+      "description": "Theme switching reads localStorage first, then prefers-color-scheme, then defaults to dark. No mention of flash-of-unthemed-content (FOUC) prevention during initial page load before JS executes.",
+      "suggested_fix": "Add inline script in index.html <head> that sets data-theme attribute before React mounts. This script should be minimal (<1KB) and execute synchronously to prevent theme flash."
+    },
+    {
+      "severity": "medium",
+      "location": "src/styles/tokens.css:3.3 Spacing Scale",
+      "description": "Spacing scale jumps from --space-6 (24px) to --space-8 (32px), missing 28px option. Also no documentation on when to use margin vs. padding tokens, leading to inconsistent spacing patterns.",
+      "suggested_fix": "Add --space-7: 1.75rem (28px) for finer granularity. Add spacing usage guidelines document specifying margin patterns (external spacing) vs. padding patterns (internal spacing) for each component type."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "src/styles/tokens.css:3.1",
+      "description": "Add --color-surface-critical token for error states that needs higher contrast than standard surface colors. Current error-muted rgba values may not provide sufficient visual weight for critical error states."
+    },
+    {
+      "type": "improvement",
+      "location": "src/styles/animations.css:4.2",
+      "description": "Add --duration-instant: 0ms token explicitly for reduced-motion fallbacks rather than repurposing existing duration tokens. Makes intent clearer in component code."
+    },
+    {
+      "type": "improvement",
+      "location": "src/frontend/web/src/shared/ui/BottomSheet.jsx",
+      "description": "Specify that BottomSheet must implement focus trap with first/last element focus cycling. Current spec mentions FocusTrap component but doesn't detail the implementation requirements for modal dialogs."
+    },
+    {
+      "type": "improvement",
+      "location": "src/frontend/web/index.html",
+      "description": "Add <meta name=\"theme-color\" content=\"#0A0A0B\"> for dark mode browser chrome coloring on mobile. Should dynamically update when theme switches via JavaScript."
+    }
+  ],
+  "diffs": [
+    {
+      "file": "src/styles/tokens.css",
+      "hunks": "@@ -45,6 +45,8 @@\n   --space-5:  1.25rem;   /* 20px */\n   --space-6:  1.5rem;    /* 24px */\n+  --space-7:  1.75rem;   /* 28px */\n   --space-8:  2rem;      /* 32px */\n   --space-10: 2.5rem;    /* 40px */\n+  --space-11: 2.75rem;   /* 44px - minimum touch target */\n   --space-12: 3rem;      /* 48px */"
+    },
+    {
+      "file": "src/styles/tokens.css",
+      "hunks": "@@ -68,7 +70,8 @@\n   --color-border-strong: rgba(255, 255, 255, 0.16);\n \n-  --color-focus-ring: rgba(108, 92, 231, 0.6);\n+  --color-focus-ring: rgba(108, 92, 231, 0.6);\n+  --color-focus-ring-solid: #8B7DFF; /* 3:1+ contrast on all surfaces */\n }\n \n [data-theme=\"light\"] {"
+    },
+    {
+      "file": "src/styles/tokens.css",
+      "hunks": "@@ -85,7 +88,6 @@\n   --color-text-primary: #1D1D1F;\n   --color-text-secondary: #6E6E73;\n-  --color-text-tertiary: #AEAEB2;\n+  --color-text-tertiary: #86868B; /* Raised to 4.5:1 contrast minimum */\n   --color-text-inverse: #F5F5F7;"
+    },
+    {
+      "file": "src/styles/animations.css",
+      "hunks": "@@ -12,6 +12,7 @@\n   --duration-normal: 200ms;\n   --duration-slow: 350ms;\n   --duration-glacial: 500ms;\n+  --duration-instant: 0ms;\n \n   /* Deceleration — element entering/settling */"
+    }
+  ],
+  "meta": {
+    "tokens_used": 1847,
+    "latency_ms": 342,
+    "thinking_tokens": 0
+  },
+  "raw_text": "{\n  \"agent\": \"qwen\",\n  \"round\": 2,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/styles/tokens.css:3.1 Color Tokens\",\n      \"description\": \"Light theme --color-text-tertiary (#AEAEB2) on --color-bg-primary (#FFFFFF) has 2.3:1 contrast ratio. Spec admits this is for decorative/disabled only but provides no enforcement mechanism. This will inevitably be misused for body text, creating WCAG AA violations.\",\n      \"suggested_fix\": \"Remove text-tertiary from light theme entirely or raise to minimum 4.5:1 contrast. Add CSS linting rule or design token validation that blocks tertiary color usage on text elements smaller than 18px.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/styles/tokens.css:3.1 Color Tokens\",\n      \"description\": \"Focus ring --color-focus-ring uses rgba(108, 92, 231, 0.6) which may not achieve 3:1 contrast against all surface backgrounds, especially --color-bg-elevated (#242428) in dark mode. WCAG 2.4.7 requires visible focus indicators.\",\n      \"suggested_fix\": \"Define focus ring as solid 2px border with --color-accent instead of box-shadow with opacity. Add --color-focus-ring-solid: #6C5CE7 and ensure 3:1 minimum contrast against all possible backgrounds.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/styles/tokens.css:3.2 Typography Tokens\",\n      \"description\": \"No minimum touch target size defined. Mobile navigation and interactive elements must be 44x44px minimum per WCAG 2.5.5. TabBar height is 56px but individual icon tap targets are unspecified.\",\n      \"suggested_fix\": \"Add --touch-target-min: 44px token and document requirement that all interactive elements meet this minimum. Add --space-11: 2.75rem (44px) to spacing scale for consistent touch target sizing.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"src/styles/animations.css:4.1 Motion Tokens\",\n      \"description\": \"prefers-reduced-motion sets durations to 0ms but doesn't specify fallback behavior. Some animations (screen transitions) need instant state changes, others (focus rings) should still provide visual feedback without animation.\",\n      \"suggested_fix\": \"Document which animations should become instant vs. which should maintain visual feedback. Add --motion-reduced: static token that components can check to determine appropriate fallback behavior.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"src/frontend/web/src/app/providers/ThemeProvider.jsx\",\n      \"description\": \"Theme switching reads localStorage first, then prefers-color-scheme, then defaults to dark. No mention of flash-of-unthemed-content (FOUC) prevention during initial page load before JS executes.\",\n      \"suggested_fix\": \"Add inline script in index.html <head> that sets data-theme attribute before React mounts. This script should be minimal (<1KB) and execute synchronously to prevent theme flash.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"src/styles/tokens.css:3.3 Spacing Scale\",\n      \"description\": \"Spacing scale jumps from --space-6 (24px) to --space-8 (32px), missing 28px option. Also no documentation on when to use margin vs. padding tokens, leading to inconsistent spacing patterns.\",\n      \"suggested_fix\": \"Add --space-7: 1.75rem (28px) for finer granularity. Add spacing usage guidelines document specifying margin patterns (external spacing) vs. padding patterns (internal spacing) for each component type.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"src/styles/tokens.css:3.1\",\n      \"description\": \"Add --color-surface-critical token for error states that needs higher contrast than standard surface colors. Current error-muted rgba values may not provide sufficient visual weight for critical error states.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"src/styles/animations.css:4.2\",\n      \"description\": \"Add --duration-instant: 0ms token explicitly for reduced-motion fallbacks rather than repurposing existing duration tokens. Makes intent clearer in component code.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"src/frontend/web/src/shared/ui/BottomSheet.jsx\",\n      \"description\": \"Specify that BottomSheet must implement focus trap with first/last element focus cycling. Current spec mentions FocusTrap component but doesn't detail the implementation requirements for modal dialogs.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"src/frontend/web/index.html\",\n      \"description\": \"Add <meta name=\\\"theme-color\\\" content=\\\"#0A0A0B\\\"> for dark mode browser chrome coloring on mobile. Should dynamically update when theme switches via JavaScript.\"\n    }\n  ],\n  \"diffs\": [\n    {\n      \"file\": \"src/styles/tokens.css\",\n      \"hunks\": \"@@ -45,6 +45,8 @@\\n   --space-5:  1.25rem;   /* 20px */\\n   --space-6:  1.5rem;    /* 24px */\\n+  --space-7:  1.75rem;   /* 28px */\\n   --space-8:  2rem;      /* 32px */\\n   --space-10: 2.5rem;    /* 40px */\\n+  --space-11: 2.75rem;   /* 44px - minimum touch target */\\n   --space-12: 3rem;      /* 48px */\"\n    },\n    {\n      \"file\": \"src/styles/tokens.css\",\n      \"hunks\": \"@@ -68,7 +70,8 @@\\n   --color-border-strong: rgba(255, 255, 255, 0.16);\\n \\n-  --color-focus-ring: rgba(108, 92, 231, 0.6);\\n+  --color-focus-ring: rgba(108, 92, 231, 0.6);\\n+  --color-focus-ring-solid: #8B7DFF; /* 3:1+ contrast on all surfaces */\\n }\\n \\n [data-theme=\\\"light\\\"] {\"\n    },\n    {\n      \"file\": \"src/styles/tokens.css\",\n      \"hunks\": \"@@ -85,7 +88,6 @@\\n   --color-text-primary: #1D1D1F;\\n   --color-text-secondary: #6E6E73;\\n-  --color-text-tertiary: #AEAEB2;\\n+  --color-text-tertiary: #86868B; /* Raised to 4.5:1 contrast minimum */\\n   --color-text-inverse: #F5F5F7;\"\n    },\n    {\n      \"file\": \"src/styles/animations.css\",\n      \"hunks\": \"@@ -12,6 +12,7 @@\\n   --duration-normal: 200ms;\\n   --duration-slow: 350ms;\\n   --duration-glacial: 500ms;\\n+  --duration-instant: 0ms;\\n \\n   /* Deceleration — element entering/settling */\"\n    }\n  ],\n  \"meta\": {\n    \"tokens_used\": 1847,\n    \"latency_ms\": 342,\n    \"thinking_tokens\": 0\n  }\n}"
+}

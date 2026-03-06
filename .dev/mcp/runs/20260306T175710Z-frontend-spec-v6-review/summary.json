@@ -1,0 +1,18 @@
+{
+  "claude": {
+    "latency_ms": 67812,
+    "content_preview": "```json\n{\n  \"agent\": \"claude\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 10 — Design Tokens, light theme\",\n      \"description\": \"Light theme does not override --accent-default (#8b5cf6), --accent-hover, --accent-active, or --accent-subtle. Purple #8b5cf6 on white (#ffffff surface-1) yields a contrast ratio of ~4.6:1 for large text but only ~3.9:1 against --surface-2 (#eef1f7) and fails WCAG AA (4.5:1) for normal-wei"
+  },
+  "kimi": {
+    "latency_ms": 54377,
+    "content_preview": "```json\n{\n  \"agent\": \"kimi\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Navigation Model (section 3)\",\n      \"description\": \"Hash-based routing (#/doc/:id) breaks browser expectations, breaks deep-link preview in messaging apps (WhatsApp/Telegram show ugly URLs), and prevents proper scroll restoration on direct navigation. This contradicts Flighty/Nubank native-app URL parity standards.\",\n      \"suggested_fix\": \"Implement Hi"
+  },
+  "qwen": {
+    "latency_ms": 50942,
+    "content_preview": "{\n  \"agent\": \"qwen\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Design Tokens section 10 - color definitions\",\n      \"description\": \"Status colors lack proper light/dark mode parity. Dark mode uses bright saturated colors (#39d98a, #ff6b6b) while light mode uses muted darker versions (#1a8f55, #c53a3a). This creates inconsistent brand expression and the light mode error color #c53a3a on #f6f7fb fails WCAG AAA for normal text"
+  },
+  "zai": {
+    "latency_ms": 73175,
+    "content_preview": "```json\n{\n  \"agent\": \"zai\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 11 (Motion System)\",\n      \"description\": \"Motion timing functions are completely undefined. The spec prohibits linear/ease but provides no cubic-bezier curves for transitions. Implementers cannot proceed without defined timing functions for: enter/exit transitions, sheet slides, route changes, hover states, press states, skeleton shimmer, and foc"
+  }
+}

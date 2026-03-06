@@ -1,0 +1,18 @@
+{
+  "claude": {
+    "latency_ms": 70477,
+    "content_preview": "```json\n{\n  \"agent\": \"claude\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 7 — DataContext stale-while-revalidate\",\n      \"description\": \"The stale-while-revalidate cache described in DataContext has no mechanism for deduplicating in-flight requests. If two components both call for the same search key while the first fetch is still pending, you get two identical network requests. At scale this doubles traffic and caus"
+  },
+  "kimi": {
+    "latency_ms": 125966,
+    "content_preview": "{\n  \"agent\": \"kimi\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 3: Navigation Model - Detail route nesting\",\n      \"description\": \"Nesting detail routes under origin tabs (`#/home/doc/:id`, `#/search/doc/:id`, `#/library/doc/:id`) creates three distinct URLs for the same canonical document resource. This violates information architecture principles of resource identity, fragments analytics data, breaks social sharing"
+  },
+  "qwen": {
+    "latency_ms": 54779,
+    "content_preview": "{\n  \"agent\": \"qwen\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Design Tokens section 10\",\n      \"description\": \"Typography uses fixed px values without responsive scaling or user preference support. Font sizes like --font-xs-size: 12px violate WCAG minimum 14px for body text and don't respect browser zoom or accessibility text scaling beyond 200%.\",\n      \"suggested_fix\": \"Replace fixed px with rem units based on user's roo"
+  },
+  "zai": {
+    "latency_ms": 66160,
+    "content_preview": "```json\n{\n  \"agent\": \"zai\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 1 (Build System) - esbuild CSS extraction\",\n      \"description\": \"The esbuild command as written will not emit a separate CSS file. esbuild requires either `--loader:.css=css` combined with an explicit CSS entry point, or a plugin for CSS extraction. With the current command, importing CSS from JSX will either inline it as JS-injected styles or fa"
+  }
+}

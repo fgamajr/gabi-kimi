@@ -1,0 +1,29 @@
+Production frontend implementation spec to be approved before code changes.
+
+Repository constraints:
+- Serve from src/frontend/web through src/backend/apps/web_server.py
+- Preserve current backend endpoints and direct static serving
+- Replace current Alpine-based index with a React production shell after approval
+
+Implementation direction:
+1. Use React 18 functional components with hooks, loaded as production ES modules from CDN/import map, with no runtime JSX compiler and no bundler requirement. All app code lives in static JS modules under src/frontend/web/app/.
+2. File layout:
+   - src/frontend/web/index.html
+   - src/frontend/web/tokens.css
+   - src/frontend/web/app/main.js
+   - src/frontend/web/app/state.js
+   - src/frontend/web/app/api.js
+   - src/frontend/web/app/icons.js
+   - src/frontend/web/app/components/{shell,tabbar,bottom-sheet,skeleton,status-card,timeline-item,search-composer,empty-state}.js
+   - src/frontend/web/app/screens/{home,detail,action-sheet}.js
+3. Navigation: bottom tab bar with max 4 tabs (Home, Timeline, Search, Actions). Primary action always reachable in one tap; secondary actions live in bottom sheets only.
+4. Home/Dashboard: first paint shows header, primary KPI rail, live status card, and skeleton placeholders. Progressive cascade loads top searches, examples, recent results, and system health snippets.
+5. Detail/Timeline: chronological transaction-style timeline around the selected document/search journey, with color-coded operational states, sticky summary header, and contextual quick actions.
+6. Action sheet/Form: bottom-sheet flow for primary actions such as filtered search presets and document actions; no full-page simple forms.
+7. Design tokens: dark-first CSS variables for surfaces, text, accent, status, spacing, type scale, shadows, radii, motion curves, and z-index layers. Light theme is variable override only.
+8. Motion: transform/opacity-only classes for spring-in, float, breathe, sway, sheet-lift, badge-pulse; reduced-motion variants disable non-essential motion.
+9. Interaction patterns: swipe affordance on result/timeline items on touch devices, long-press quick actions, pull-to-refresh on data screens where supported, optimistic state updates for local UI actions.
+10. Accessibility: 44x44 minimum hit targets, WCAG AA contrast, semantic landmarks, focus-visible states, keyboard sheet dismissal/focus trap, reduced motion, aria-live for status updates.
+11. Performance: no spinners, skeleton-only loading, lazy mount lower-priority panes, request cancellation/debounce for autocomplete, split static JS modules by feature, avoid heavy runtime dependencies.
+12. Migration path: keep existing backend unchanged, add new static assets, switch index.html to React shell, retain legacy artifacts until parity check passes, then quarantine obsolete frontend files.
+13. Acceptance: concrete component map, token map, screen behaviors, data flow, and implementation file plan that all four reviewers approve before coding.

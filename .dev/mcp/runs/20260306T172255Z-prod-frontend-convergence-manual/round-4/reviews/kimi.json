@@ -1,0 +1,81 @@
+{
+  "agent": "kimi",
+  "round": 4,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "Section 3: Persistent Tab Panels",
+      "description": "Mounting all three tab screens simultaneously in DOM with display:none/inert creates a memory bomb on low-end mobile devices. If Home fetches 20 results, Search fetches 20, and Library fetches history, that's 3x JavaScript heap growth with retained component trees, event listeners, and image references. This violates mobile resource constraints and will cause tab crashes on devices with <4GB RAM.",
+      "suggested_fix": "Implement 'state lifting' pattern instead of DOM persistence. Unmount inactive tabs but preserve their scroll position and search query in a global navigation state store (useNavigationStore). Remount with restored state when tab becomes active. This maintains UX benefits without the memory overhead."
+    },
+    {
+      "severity": "high",
+      "location": "Section 3: Bottom Sheet / Section 4: Component Architecture",
+      "description": "Bottom Sheet specification lacks critical ARIA attributes for modal behavior. Missing role='dialog', aria-modal='true', and aria-labelledby pointing to the sheet title. The inert attribute on main content is insufficient for older screen readers that don't support inert.",
+      "suggested_fix": "Add role='dialog', aria-modal='true', and aria-labelledby={titleId} to the sheet container. Implement legacy fallback: when sheet opens, add aria-hidden='true' to all siblings of the portal root, not just main and tabbar, to ensure compatibility with VoiceOver iOS 14/15."
+    },
+    {
+      "severity": "high",
+      "location": "Section 3: Search Screen / Section 5: API",
+      "description": "iOS Safari input zoom prevention is completely absent. Search inputs using default 16px or smaller font-size will trigger automatic page zoom on focus, breaking the app-like experience and causing horizontal overflow. This is a critical mobile UX failure.",
+      "suggested_fix": "Mandate text-base (16px) minimum on all inputs, search fields, and textareas. Add to tokens.css: input, textarea, select { font-size: 1rem; } with @supports (-webkit-touch-callout: none) { font-size: 16px; } to specifically target iOS. Document that zoom prevention is non-negotiable for v1."
+    },
+    {
+      "severity": "medium",
+      "location": "Section 4: Route Announcer",
+      "description": "No debouncing or throttling specified for RouteAnnouncer. Rapid navigation (accidental double-tap, keyboard power user) will queue multiple aria-live announcements, creating screen reader spam and cognitive overload.",
+      "suggested_fix": "Implement a 150ms debounce in RouteAnnouncer. If navigation occurs again within 150ms, cancel the previous announcement. Use a single aria-live region with aria-atomic='true' and buffer the text update."
+    },
+    {
+      "severity": "medium",
+      "location": "Section 4: Status Card / Section 5: API",
+      "description": "'Visibility-aware polling' is mentioned but not defined. The spec lacks Page Visibility API integration (document.hidden/document.visibilityState) to pause the 30s polling when the tab is backgrounded, wasting battery and CPU.",
+      "suggested_fix": "Explicitly require: useEffect in StatusCard must listen for visibilitychange events. When document.hidden === true, clearInterval the polling timer. Resume polling immediately when visibility returns to visible, with an immediate fetch if elapsed > 30s."
+    },
+    {
+      "severity": "medium",
+      "location": "Section 2: index.html / Section 1: Build System",
+      "description": "No strategy specified to prevent Flash of Unstyled Content (FOUC) or theme flash on initial load. The inline theme script is mentioned but not its placement strategy or color-scheme meta tag usage.",
+      "suggested_fix": "Require blocking script in <head> BEFORE any CSS that reads localStorage theme preference and sets data-theme attribute on <html>. Add <meta name='color-scheme' content='dark light'> to prevent system-level dark mode flashes. Inline critical CSS must include the default dark theme variables to prevent paint without tokens."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "Section 3: Scroll Restoration",
+      "description": "Scroll position Map in memory is lost on hard refresh. Consider sessionStorage backup for scroll positions keyed by route path, restoring from storage on initial load if available, then clearing the storage key to prevent stale restoration on future visits."
+    },
+    {
+      "type": "improvement",
+      "location": "Section 3: Hash Query Parsing",
+      "description": "The manual hash parsing logic is fragile. If the URL contains multiple ? characters (though rare), the split('?', 2) works, but nested encoding might fail. Consider using URLSearchParams on the hash portion after extracting it, or document that hash fragments containing # are forbidden."
+    },
+    {
+      "type": "improvement",
+      "location": "Section 4: Error Boundaries",
+      "description": "Error boundaries catch render crashes but don't log to error reporting. Add componentDidCatch logging to a hypothetical error service or at minimum console.error with component stack to aid debugging in production."
+    },
+    {
+      "type": "improvement",
+      "location": "Section 5: API Timeout",
+      "description": "The manual AbortController timeout pattern is verbose. Consider extracting to a useApiHook that handles timeout, retry logic, and cleanup on unmount automatically, rather than repeating in every fetch function."
+    }
+  ],
+  "diffs": [
+    {
+      "file": "src/frontend/web/src/components/bottom-sheet.jsx",
+      "hunks": "@@ -10,7 +10,9 @@ export function BottomSheet({ open, onClose, title, children }) {\n   return (\n     <div \n       className=\"fixed inset-0 z-50\"\n+      role=\"dialog\"\n+      aria-modal=\"true\"\n+      aria-labelledby=\"sheet-title\"\n       onClick={onClose}\n     >\n       <div className=\"absolute inset-0 bg-surface-0/60\" />\n@@ -18,7 +20,7 @@ export function BottomSheet({ open, onClose, title, children }) {\n         className=\"absolute bottom-0 left-0 right-0 bg-surface-1 rounded-t-xl\"\n         onClick={e => e.stopPropagation()}\n       >\n-        <h2 className=\"text-lg font-medium\">{title}</h2>\n+        <h2 id=\"sheet-title\" className=\"text-lg font-medium\">{title}</h2>\n         {children}\n       </div>\n     </div>"
+    },
+    {
+      "file": "src/frontend/web/tokens.css",
+      "hunks": "@@ -1,5 +1,12 @@\n @import url('./fonts/inter.css');\n \n+/* iOS Zoom Prevention - Critical for mobile UX */\n+@supports (-webkit-touch-callout: none) {\n+  input, textarea, select {\n+    font-size: 16px !important;\n+  }\n+}\n+\n :root {\n   --font-sans: 'Inter', system-ui, sans-serif;\n   /* ... existing tokens ... */"
+    }
+  ],
+  "meta": {
+    "tokens_used": 2847,
+    "latency_ms": 1420,
+    "thinking_tokens": 890
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"kimi\",\n  \"round\": 4,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 3: Persistent Tab Panels\",\n      \"description\": \"Mounting all three tab screens simultaneously in DOM with display:none/inert creates a memory bomb on low-end mobile devices. If Home fetches 20 results, Search fetches 20, and Library fetches history, that's 3x JavaScript heap growth with retained component trees, event listeners, and image references. This violates mobile resource constraints and will cause tab crashes on devices with <4GB RAM.\",\n      \"suggested_fix\": \"Implement 'state lifting' pattern instead of DOM persistence. Unmount inactive tabs but preserve their scroll position and search query in a global navigation state store (useNavigationStore). Remount with restored state when tab becomes active. This maintains UX benefits without the memory overhead.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 3: Bottom Sheet / Section 4: Component Architecture\",\n      \"description\": \"Bottom Sheet specification lacks critical ARIA attributes for modal behavior. Missing role='dialog', aria-modal='true', and aria-labelledby pointing to the sheet title. The inert attribute on main content is insufficient for older screen readers that don't support inert.\",\n      \"suggested_fix\": \"Add role='dialog', aria-modal='true', and aria-labelledby={titleId} to the sheet container. Implement legacy fallback: when sheet opens, add aria-hidden='true' to all siblings of the portal root, not just main and tabbar, to ensure compatibility with VoiceOver iOS 14/15.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 3: Search Screen / Section 5: API\",\n      \"description\": \"iOS Safari input zoom prevention is completely absent. Search inputs using default 16px or smaller font-size will trigger automatic page zoom on focus, breaking the app-like experience and causing horizontal overflow. This is a critical mobile UX failure.\",\n      \"suggested_fix\": \"Mandate text-base (16px) minimum on all inputs, search fields, and textareas. Add to tokens.css: input, textarea, select { font-size: 1rem; } with @supports (-webkit-touch-callout: none) { font-size: 16px; } to specifically target iOS. Document that zoom prevention is non-negotiable for v1.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Section 4: Route Announcer\",\n      \"description\": \"No debouncing or throttling specified for RouteAnnouncer. Rapid navigation (accidental double-tap, keyboard power user) will queue multiple aria-live announcements, creating screen reader spam and cognitive overload.\",\n      \"suggested_fix\": \"Implement a 150ms debounce in RouteAnnouncer. If navigation occurs again within 150ms, cancel the previous announcement. Use a single aria-live region with aria-atomic='true' and buffer the text update.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Section 4: Status Card / Section 5: API\",\n      \"description\": \"'Visibility-aware polling' is mentioned but not defined. The spec lacks Page Visibility API integration (document.hidden/document.visibilityState) to pause the 30s polling when the tab is backgrounded, wasting battery and CPU.\",\n      \"suggested_fix\": \"Explicitly require: useEffect in StatusCard must listen for visibilitychange events. When document.hidden === true, clearInterval the polling timer. Resume polling immediately when visibility returns to visible, with an immediate fetch if elapsed > 30s.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Section 2: index.html / Section 1: Build System\",\n      \"description\": \"No strategy specified to prevent Flash of Unstyled Content (FOUC) or theme flash on initial load. The inline theme script is mentioned but not its placement strategy or color-scheme meta tag usage.\",\n      \"suggested_fix\": \"Require blocking script in <head> BEFORE any CSS that reads localStorage theme preference and sets data-theme attribute on <html>. Add <meta name='color-scheme' content='dark light'> to prevent system-level dark mode flashes. Inline critical CSS must include the default dark theme variables to prevent paint without tokens.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 3: Scroll Restoration\",\n      \"description\": \"Scroll position Map in memory is lost on hard refresh. Consider sessionStorage backup for scroll positions keyed by route path, restoring from storage on initial load if available, then clearing the storage key to prevent stale restoration on future visits.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 3: Hash Query Parsing\",\n      \"description\": \"The manual hash parsing logic is fragile. If the URL contains multiple ? characters (though rare), the split('?', 2) works, but nested encoding might fail. Consider using URLSearchParams on the hash portion after extracting it, or document that hash fragments containing # are forbidden.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 4: Error Boundaries\",\n      \"description\": \"Error boundaries catch render crashes but don't log to error reporting. Add componentDidCatch logging to a hypothetical error service or at minimum console.error with component stack to aid debugging in production.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 5: API Timeout\",\n      \"description\": \"The manual AbortController timeout pattern is verbose. Consider extracting to a useApiHook that handles timeout, retry logic, and cleanup on unmount automatically, rather than repeating in every fetch function.\"\n    }\n  ],\n  \"diffs\": [\n    {\n      \"file\": \"src/frontend/web/src/components/bottom-sheet.jsx\",\n      \"hunks\": \"@@ -10,7 +10,9 @@ export function BottomSheet({ open, onClose, title, children }) {\\n   return (\\n     <div \\n       className=\\\"fixed inset-0 z-50\\\"\\n+      role=\\\"dialog\\\"\\n+      aria-modal=\\\"true\\\"\\n+      aria-labelledby=\\\"sheet-title\\\"\\n       onClick={onClose}\\n     >\\n       <div className=\\\"absolute inset-0 bg-surface-0/60\\\" />\\n@@ -18,7 +20,7 @@ export function BottomSheet({ open, onClose, title, children }) {\\n         className=\\\"absolute bottom-0 left-0 right-0 bg-surface-1 rounded-t-xl\\\"\\n         onClick={e => e.stopPropagation()}\\n       >\\n-        <h2 className=\\\"text-lg font-medium\\\">{title}</h2>\\n+        <h2 id=\\\"sheet-title\\\" className=\\\"text-lg font-medium\\\">{title}</h2>\\n         {children}\\n       </div>\\n     </div>\"\n    },\n    {\n      \"file\": \"src/frontend/web/tokens.css\",\n      \"hunks\": \"@@ -1,5 +1,12 @@\\n @import url('./fonts/inter.css');\\n \\n+/* iOS Zoom Prevention - Critical for mobile UX */\\n+@supports (-webkit-touch-callout: none) {\\n+  input, textarea, select {\\n+    font-size: 16px !important;\\n+  }\\n+}\\n+\\n :root {\\n   --font-sans: 'Inter', system-ui, sans-serif;\\n   /* ... existing tokens ... */\"\n    }\n  ],\n  \"meta\": {\n    \"tokens_used\": 2847,\n    \"latency_ms\": 1420,\n    \"thinking_tokens\": 890\n  }\n}\n```"
+}

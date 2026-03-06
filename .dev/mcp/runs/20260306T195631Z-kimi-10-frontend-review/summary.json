@@ -1,0 +1,92 @@
+{
+  "UX Architect": {
+    "verdict": "REQUEST_CHANGES",
+    "latency_ms": 115281,
+    "objections": [
+      "XSS vulnerability: dangerouslySetInnerHTML injects unsanitized API response (body_html) directly into DOM. Malicious scripts in DOU documents will execute in user context.",
+      "Hardcoded date range restricts all search queries to year 2002 (dateFrom: '2002-01-01', dateTo: '2002-12-31'), rendering search functionally broken for current data.",
+      "Stale closure bug: registerRefresh captures initial empty query state in closure. When user clicks Refresh button after typing, it searches with stale empty query instead of current input value."
+    ]
+  },
+  "Visual Design Critic": {
+    "verdict": "REQUEST_CHANGES",
+    "latency_ms": 84292,
+    "objections": [
+      "ReferenceError: TABS array references HomeIcon, SearchIcon, LibraryIcon before they are defined (lines 724-740). Const declarations are not hoisted; this crashes the app on load.",
+      "Hardcoded date range (2002-01-01 to 2002-12-31) in search payload makes the application only return 22-year-old documents, rendering search non-functional for current data.",
+      "XSS vulnerability: dangerouslySetInnerHTML injects raw body_html without sanitization. Malicious documents can execute arbitrary JavaScript."
+    ]
+  },
+  "Mobile Interaction Reviewer": {
+    "verdict": "REQUEST_CHANGES",
+    "latency_ms": 148622,
+    "objections": [
+      "SearchScreen fetchSearch call contains hardcoded date range dateFrom: '2002-01-01' and dateTo: '2002-12-31', restricting all searches to year 2002 regardless of user intent.",
+      "ResultRow touch handlers update React state (setSwiped) on every touchmove event without throttling, causing excessive re-renders during swipe gestures. Additionally, pressTimer ref is not cleaned up on component unmount, causing memory leaks and potential setState on unmounted component.",
+      "BottomSheet component lacks focus trap and Escape key handler. Users can tab outside the modal and focus elements in the background, violating WCAG 2.4.3. No keyboard mechanism to close the sheet."
+    ]
+  },
+  "Accessibility Auditor": {
+    "verdict": "REQUEST_CHANGES",
+    "latency_ms": 188751,
+    "objections": [
+      "The 'Salvar' and 'Abrir' actions hidden behind the swipe gesture are exclusively accessible via touch events. Keyboard and screen reader users cannot trigger the swipe state (result-row--swiped) to reveal these buttons, nor can they focus the hidden buttons due to pointer-events: none and visual opacity: 0. This violates WCAG 2.1.1 Keyboard and 2.5.1 Pointer Gestures.",
+      "The filter dropdowns (<select>) for 'Todas as seções' and 'Todos os tipos' lack visible labels or aria-label attributes. Screen reader users cannot determine the purpose of these controls, violating WCAG 3.3.2 Labels or Instructions.",
+      "The modal bottom sheet does not trap focus. When open, users can tab to background elements (main content panels), violating WCAG 2.4.3 Focus Order. Additionally, there is no Escape key handler to close the sheet, violating WCAG 2.1.4 Character Key Shortcuts and 2.1.1 Keyboard."
+    ]
+  },
+  "Performance Engineer": {
+    "verdict": "REQUEST_CHANGES",
+    "latency_ms": 74477,
+    "objections": [
+      "Stale closure bug in SearchScreen useEffect. The registerRefresh callback captures `query` and `resultState` from the initial render closure, causing the refresh button to always search with empty string and page 1 regardless of current input state. Empty dependency array means the callback is never updated with fresh state.",
+      "Hardcoded date range (2002-01-01 to 2002-12-31) in searchNow payload. This renders the date filtering non-functional and returns 20-year-old results for all queries.",
+      "Unmemoized expensive parsing in DetailScreen. `parseBodyChunks` and `buildTimelineEntries` run on every render (including micro-interactions like hover states), causing jank on large documents. `mediaItems` filter also runs unconditionally."
+    ]
+  },
+  "Frontend Architecture Reviewer": {
+    "verdict": "REQUEST_CHANGES",
+    "latency_ms": 117346,
+    "objections": [
+      "Hardcoded date range '2002-01-01' to '2002-12-31' in search payload renders the search functionally useless for current data. All searches are artificially restricted to the year 2002.",
+      "XSS vulnerability: dangerouslySetInnerHTML is used to render doc.body_html without sanitization. If the backend is compromised or data is malformed, this executes arbitrary JavaScript in the user context.",
+      "Stale closure bug: registerRefresh captures query and resultState.page in its closure with empty dependency array []. When user clicks the header 'Atualizar' button, it searches with stale state values from initial mount, ignoring current query text and pagination."
+    ]
+  },
+  "Product Designer": {
+    "verdict": "REQUEST_CHANGES",
+    "latency_ms": 105105,
+    "objections": [
+      "Hardcoded date range (2002-01-01 to 2002-12-31) in search payload makes the search function only return documents from year 2002, rendering the application unusable for current DOU documents.",
+      "XSS vulnerability: dangerouslySetInnerHTML renders raw body_html from API without sanitization. Malicious documents containing <script> tags or event handlers will execute in user context.",
+      "BottomSheet component violates WCAG 2.1 modal dialog requirements: no focus trap, no Escape key handler, and focus does not move to the dialog when opened. Keyboard users cannot access actions or close the sheet."
+    ]
+  },
+  "Information Density Reviewer": {
+    "verdict": "REQUEST_CHANGES",
+    "latency_ms": 92414,
+    "objections": [
+      "Hardcoded date range locks all searches to year 2002 (dateFrom: '2002-01-01', dateTo: '2002-12-31'), rendering the search functionality useless for current documents.",
+      "Race condition in search pagination: `resultState.results` is accessed from closure stale state when appending, causing potential data loss or duplication if user rapidly clicks 'Carregar mais'.",
+      "BottomSheet component lacks focus trap. When opened, focus is not constrained to the sheet, allowing keyboard users to tab behind the modal backdrop."
+    ]
+  },
+  "Motion and Microinteraction Reviewer": {
+    "verdict": "REQUEST_CHANGES",
+    "latency_ms": 86407,
+    "objections": [
+      "BottomSheet component returns null immediately when `open` becomes false, causing the sheet to disappear instantly without exit animation. This violates motion principles and creates a jarring UX where the backdrop fades (if it existed) but the sheet vanishes.",
+      "ResultRow swipe gesture does not call `event.preventDefault()` when detecting horizontal movement (`Math.abs(delta) > 10`). This allows the page to scroll vertically while the user attempts to swipe a card horizontally, creating a conflicting interaction where both the card moves and the page scrolls.",
+      "Hardcoded date range '2002-01-01' to '2002-12-31' in SearchScreen search payload. This appears to be a debugging artifact that renders the search functionality non-functional for current documents, regardless of user input."
+    ]
+  },
+  "Publication Fidelity Reviewer": {
+    "verdict": "REQUEST_CHANGES",
+    "latency_ms": 118999,
+    "objections": [
+      "Search payload uses hardcoded date range (2002-01-01 to 2002-12-31). This renders the search function useless for retrieving current documents, regardless of user filters or intent.",
+      "Stale closure bug in SearchScreen useEffect: registerRefresh captures initial values of `resultState.page` and `query` (empty string) due to empty dependency array. Clicking 'Atualizar' in header always searches page 1 with empty query, ignoring current search context.",
+      "BottomSheet component has `role='dialog'` and `aria-modal='true'` but lacks focus trap implementation. Keyboard users can tab outside the modal to background elements while sheet is open, violating WCAG 2.4.3. Also missing `aria-labelledby` linking to title."
+    ]
+  }
+}

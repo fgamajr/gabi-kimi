@@ -37,6 +37,8 @@ class ImageRef:
     name: str           # e.g. "1_MPESCA_27_001" (usually no extension)
     source: str | None  # original src/name payload from HTML tag
     sequence: int
+    alt_text: str | None = None
+    context_snippet: str | None = None
 
 
 @dataclass(slots=True)
@@ -229,14 +231,43 @@ def extract_images(html: str) -> list[ImageRef]:
     """Extract image references from ``<img ...>`` tags."""
     if not html:
         return []
+    tag_re = re.compile(r"<img\b[^>]*>", re.IGNORECASE | re.DOTALL)
+    attr_re = re.compile(
+        r"""([A-Za-z_:][\w:.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))""",
+        re.DOTALL,
+    )
+    refs: list[ImageRef] = []
+    for i, match in enumerate(tag_re.finditer(html), 1):
+        tag = match.group(0)
+        attrs: dict[str, str] = {}
+        for attr_match in attr_re.finditer(tag):
+            key = attr_match.group(1).lower()
+            value = attr_match.group(2) or attr_match.group(3) or attr_match.group(4) or ""
+            attrs[key] = value.strip()
 
-    parser = _SignatureImageParser()
-    parser.feed(html)
+        source = attrs.get("src") or None
+        name = attrs.get("name", "").strip()
+        if not name and source:
+            name = source.rsplit("/", 1)[-1].strip()
+        if not name and not source:
+            continue
 
-    return [
-        ImageRef(name=name, source=src, sequence=i + 1)
-        for i, (name, src) in enumerate(parser.images)
-    ]
+        window_start = max(0, match.start() - 160)
+        window_end = min(len(html), match.end() + 160)
+        context_raw = html[window_start:window_end]
+        context_snippet = re.sub(r"<[^>]+>", " ", context_raw)
+        context_snippet = re.sub(r"\s+", " ", context_snippet).strip()
+
+        refs.append(
+            ImageRef(
+                name=name,
+                source=source,
+                sequence=i,
+                alt_text=attrs.get("alt") or None,
+                context_snippet=context_snippet or None,
+            )
+        )
+    return refs
 
 
 # ---------------------------------------------------------------------------

@@ -26,6 +26,7 @@ class AgentConfig:
     max_response: int | None = None
     personas: list[str] = field(default_factory=list)
     pricing: dict[str, float] = field(default_factory=dict)
+    output_config: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

@@ -1,0 +1,73 @@
+{
+  "agent": "kimi",
+  "round": 2,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "Section 10.1 (DashboardScreen) / Component Architecture",
+      "description": "MetricsRail component is specified in the Dashboard architecture but no corresponding backend endpoint exists to populate it. The current API surface only provides search, autocomplete, and document retrieval—no statistical metrics or analytics data. This creates an orphaned UI component with no data contract.",
+      "suggested_fix": "Either define a new `/api/stats` or `/api/metrics` endpoint in the backend specification, or remove MetricsRail from the v1 deliverables and add it to a post-MVP backlog. Do not ship UI components that cannot be populated."
+    },
+    {
+      "severity": "high",
+      "location": "Section 2 (Migration Path) vs Section 6.1 (Hash Router)",
+      "description": "Critical architectural conflict: The migration strategy proposes serving the new React app at `/v2` path prefix while the Router specification mandates hash-based routing (`/#/`). Hash routing keeps the browser path at `/` permanently, making `/v2` impossible to implement as a distinct path without serving separate HTML files. This breaks the proposed migration strategy.",
+      "suggested_fix": "Abandon hash routing. Use HTML5 History API (pushState) with the catch-all SPA fallback in web_server.py for the new React app. Serve legacy Alpine app at `/` and React app at `/v2` during migration by checking the path prefix in the catch-all handler, then redirect `/` to `/` (React) after parity."
+    },
+    {
+      "severity": "high",
+      "location": "Section 9.2 (Navigation) vs Section 6.1 (Route Map)",
+      "description": "The navigation specification references 4 tabs (Home, Search, Documents, Settings) but the route map only defines 3 screens plus an action sheet. There is no `/settings` route, no SettingsScreen component, and no specifications for settings functionality. The 'Documents' tab implies a list view, but only `/document/:id` (detail view) is defined.",
+      "suggested_fix": "Add explicit route definitions: `/settings` with SettingsScreen specifications, and either `/documents` for a list view or remove the 'Documents' tab from navigation. Ensure navigation tabs have 1:1 parity with routable screens."
+    },
+    {
+      "severity": "medium",
+      "location": "Section 10.4 (Action Sheet)",
+      "description": "Using a bottom sheet pattern (ActionSheet) on desktop breakpoints (1440px+) is a mobile-native anti-pattern. Desktop users expect modals, side panels, or inline forms, not bottom-anchored sheets that obscure content awkwardly on wide viewports.",
+      "suggested_fix": "Implement responsive behavior: <768px uses BottomSheet as specified, ≥768px transforms into a centered modal dialog or right-side panel (similar to Nubank's desktop transaction details). Define distinct desktop interaction patterns."
+    },
+    {
+      "severity": "medium",
+      "location": "Section 7.2 (SearchContext State Machine)",
+      "description": "The SearchContext state machine lacks explicit handling for request race conditions. If a user types 'abc' then 'abcd' rapidly, and the 'abc' autocomplete resolves after 'abcd', the UI will display stale 'abc' suggestions despite showing 'abcd' in the input. The AbortController is mentioned in API layer but not integrated into the state machine flow.",
+      "suggested_fix": "Add request versioning or explicit stale request rejection in the reducer. Document that every SET_QUERY action should cancel pending autocomplete requests and increment a requestId, with the reducer ignoring responses whose requestId doesn't match current."
+    },
+    {
+      "severity": "medium",
+      "location": "Section 5.2 (Composition Hierarchy)",
+      "description": "Focus management specification is insufficient for accessibility. While route change focuses the h1, there's no specification for: (1) Focus trapping within BottomSheet/ActionSheet (users must not tab into background), (2) Focus restoration on sheet close (return to triggering button), (3) Skip links for keyboard users to bypass navigation.",
+      "suggested_fix": "Add FocusTrap component implementation details using inert attribute or aria-hidden. Specify that closing ActionSheet restores focus to the triggering element (e.g., the action button in DocumentHeader). Add SkipLink component to jump to main content."
+    },
+    {
+      "severity": "low",
+      "location": "Section 10.3 (Document Screen)",
+      "description": "No empty state specified for TimelineList. If a document exists but has no timeline events (valid state for new documents), the UI will show a header and blank space without explanation.",
+      "suggested_fix": "Add TimelineEmptyState component: 'No activity yet' with appropriate icon and contextual help text explaining that activity will appear here when available."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "Section 6.1 (Router)",
+      "description": "Add route-level code splitting boundaries to the route map definition itself, specifying which routes are lazy-loaded vs bundled. This makes the performance architecture explicit."
+    },
+    {
+      "type": "improvement",
+      "location": "Section 9 (Responsive Layout)",
+      "description": "Define keyboard shortcut discoverability. The Cmd+K shortcut for search is mentioned but not how users learn it. Add a `?` shortcut to show a command palette or shortcuts modal, following Flighty's pattern."
+    },
+    {
+      "type": "improvement",
+      "location": "Section 4 (Motion System)",
+      "description": "Specify page transition directionality. When navigating from Dashboard to Document, the motion should suggest 'forward' (slide left), and 'back' (slide right) when returning. This reinforces the navigation mental model."
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 2450,
+    "latency_ms": 3200,
+    "thinking_tokens": 890
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"kimi\",\n  \"round\": 2,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 10.1 (DashboardScreen) / Component Architecture\",\n      \"description\": \"MetricsRail component is specified in the Dashboard architecture but no corresponding backend endpoint exists to populate it. The current API surface only provides search, autocomplete, and document retrieval—no statistical metrics or analytics data. This creates an orphaned UI component with no data contract.\",\n      \"suggested_fix\": \"Either define a new `/api/stats` or `/api/metrics` endpoint in the backend specification, or remove MetricsRail from the v1 deliverables and add it to a post-MVP backlog. Do not ship UI components that cannot be populated.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 2 (Migration Path) vs Section 6.1 (Hash Router)\",\n      \"description\": \"Critical architectural conflict: The migration strategy proposes serving the new React app at `/v2` path prefix while the Router specification mandates hash-based routing (`/#/`). Hash routing keeps the browser path at `/` permanently, making `/v2` impossible to implement as a distinct path without serving separate HTML files. This breaks the proposed migration strategy.\",\n      \"suggested_fix\": \"Abandon hash routing. Use HTML5 History API (pushState) with the catch-all SPA fallback in web_server.py for the new React app. Serve legacy Alpine app at `/` and React app at `/v2` during migration by checking the path prefix in the catch-all handler, then redirect `/` to `/` (React) after parity.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 9.2 (Navigation) vs Section 6.1 (Route Map)\",\n      \"description\": \"The navigation specification references 4 tabs (Home, Search, Documents, Settings) but the route map only defines 3 screens plus an action sheet. There is no `/settings` route, no SettingsScreen component, and no specifications for settings functionality. The 'Documents' tab implies a list view, but only `/document/:id` (detail view) is defined.\",\n      \"suggested_fix\": \"Add explicit route definitions: `/settings` with SettingsScreen specifications, and either `/documents` for a list view or remove the 'Documents' tab from navigation. Ensure navigation tabs have 1:1 parity with routable screens.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Section 10.4 (Action Sheet)\",\n      \"description\": \"Using a bottom sheet pattern (ActionSheet) on desktop breakpoints (1440px+) is a mobile-native anti-pattern. Desktop users expect modals, side panels, or inline forms, not bottom-anchored sheets that obscure content awkwardly on wide viewports.\",\n      \"suggested_fix\": \"Implement responsive behavior: <768px uses BottomSheet as specified, ≥768px transforms into a centered modal dialog or right-side panel (similar to Nubank's desktop transaction details). Define distinct desktop interaction patterns.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Section 7.2 (SearchContext State Machine)\",\n      \"description\": \"The SearchContext state machine lacks explicit handling for request race conditions. If a user types 'abc' then 'abcd' rapidly, and the 'abc' autocomplete resolves after 'abcd', the UI will display stale 'abc' suggestions despite showing 'abcd' in the input. The AbortController is mentioned in API layer but not integrated into the state machine flow.\",\n      \"suggested_fix\": \"Add request versioning or explicit stale request rejection in the reducer. Document that every SET_QUERY action should cancel pending autocomplete requests and increment a requestId, with the reducer ignoring responses whose requestId doesn't match current.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Section 5.2 (Composition Hierarchy)\",\n      \"description\": \"Focus management specification is insufficient for accessibility. While route change focuses the h1, there's no specification for: (1) Focus trapping within BottomSheet/ActionSheet (users must not tab into background), (2) Focus restoration on sheet close (return to triggering button), (3) Skip links for keyboard users to bypass navigation.\",\n      \"suggested_fix\": \"Add FocusTrap component implementation details using inert attribute or aria-hidden. Specify that closing ActionSheet restores focus to the triggering element (e.g., the action button in DocumentHeader). Add SkipLink component to jump to main content.\"\n    },\n    {\n      \"severity\": \"low\",\n      \"location\": \"Section 10.3 (Document Screen)\",\n      \"description\": \"No empty state specified for TimelineList. If a document exists but has no timeline events (valid state for new documents), the UI will show a header and blank space without explanation.\",\n      \"suggested_fix\": \"Add TimelineEmptyState component: 'No activity yet' with appropriate icon and contextual help text explaining that activity will appear here when available.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 6.1 (Router)\",\n      \"description\": \"Add route-level code splitting boundaries to the route map definition itself, specifying which routes are lazy-loaded vs bundled. This makes the performance architecture explicit.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 9 (Responsive Layout)\",\n      \"description\": \"Define keyboard shortcut discoverability. The Cmd+K shortcut for search is mentioned but not how users learn it. Add a `?` shortcut to show a command palette or shortcuts modal, following Flighty's pattern.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 4 (Motion System)\",\n      \"description\": \"Specify page transition directionality. When navigating from Dashboard to Document, the motion should suggest 'forward' (slide left), and 'back' (slide right) when returning. This reinforces the navigation mental model.\"\n    }\n  ],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 2450,\n    \"latency_ms\": 3200,\n    \"thinking_tokens\": 890\n  }\n}\n```"
+}

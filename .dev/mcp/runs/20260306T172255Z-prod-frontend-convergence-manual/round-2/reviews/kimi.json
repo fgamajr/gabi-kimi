@@ -1,0 +1,67 @@
+{
+  "agent": "kimi",
+  "round": 2,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "Section 14 (Theme Switching)",
+      "description": "Critical-path theme initialization script is truncated mid-expression. Cannot verify FOUC prevention logic, fallback chain for prefers-color-scheme, or data-theme attribute application. Without the complete script, SSR/SSG hydration mismatches and flash-of-unstyled-content are guaranteed.",
+      "suggested_fix": "Complete the script with explicit attribute setting and error handling: `document.documentElement.setAttribute('data-theme', t || 'dark');` wrapped in try-catch to survive CSP/localStorage restrictions."
+    },
+    {
+      "severity": "high",
+      "location": "Section 1 (Build System) & Section 2 (File Layout)",
+      "description": "Missing migration strategy from existing Alpine/Tailwind static implementation to React. The _legacy folder quarantine is mentioned but no cutover plan, URL routing conflict resolution, or rollback procedure is defined. Risk of total frontend outage during deployment.",
+      "suggested_fix": "Add migration phase: (1) Mount React root inside existing Alpine container with `display: contents` bridge, (2) Feature-flag routes to switch between Alpine and React shells, (3) Deprecate Alpine only after 100% traffic validation."
+    },
+    {
+      "severity": "medium",
+      "location": "Section 8 (Responsive Strategy)",
+      "description": "Breakpoint definitions conflict with Tailwind defaults. Spec claims 'sm: 375px (base)' but Tailwind's sm: is 640px. Using standard Tailwind prefixes (sm:, md:, lg:) with custom breakpoint values will cause layout collapse on devices between 375px and 639px.",
+      "suggested_fix": "Either provide explicit tailwind.config.js breakpoint overrides in the spec (screens: { sm: '375px', md: '768px', lg: '1440px' }) or adopt Tailwind's default scale and adjust component logic."
+    },
+    {
+      "severity": "medium",
+      "location": "Section 3 (Navigation) & Component Architecture (Bottom Sheet)",
+      "description": "Tab bar hiding mechanism is underspecified. 'Tab bar hidden when bottom sheet is open' lacks DOM behavior definition—removing from DOM breaks focus-return-to-trigger, while visibility:hidden leaks to screen readers. Also missing drag velocity thresholds for dismissal gesture.",
+      "suggested_fix": "Specify: Tab Bar receives `aria-hidden='true' inert` (or `tabindex='-1'` + CSS `visibility:hidden`) when sheet open. Add physics: dismiss threshold at 20% sheet height OR velocity > 0.5px/ms downward."
+    },
+    {
+      "severity": "medium",
+      "location": "Section 6 (State Management) - DataContext",
+      "description": "Conditional global state ('optional — only if cross-screen data sharing needed') creates architectural inconsistency. Teams will inconsistently implement caching, leading to cache duplication or stampede conditions. Stale-while-revalidate logic lacks request deduplication for simultaneous mount scenarios.",
+      "suggested_fix": "Mandate DataContext for all server state. Implement request deduplication via `pendingPromises` Map keyed by cache key to prevent thundering herd on 30s cache expiry."
+    },
+    {
+      "severity": "medium",
+      "location": "Section 3 (Navigation) - Router Focus Management",
+      "description": "Focus management on route change ('move focus to <main> heading (h1>) assumes h1 is programmatically focusable. Standard h1 elements are not focusable by default; calling .focus() will fail silently in some browsers without tabindex='-1'.",
+      "suggested_fix": "Specify that all screen containers must have `tabindex='-1'` and `outline: none` (or visible focus ring only on :focus-visible) to enable programmatic focus without introducing ugly focus rings on mouse navigation."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "Section 13 (Performance)",
+      "description": "Add explicit bundle budget enforcement: `esbuild --metafile` output should be parsed in CI to fail builds if entry chunk exceeds 60KB gzipped."
+    },
+    {
+      "type": "improvement",
+      "location": "Section 11 (Screen Specifications) - Home Screen",
+      "description": "Clarify skeleton-to-content transition: specify `aria-busy='true'` on container during skeleton phase and `aria-live='polite'` announcement 'Dashboard loaded' only if user is on screen > 3s (prevent noise on fast loads)."
+    }
+  ],
+  "diffs": [
+    {
+      "file": "src/frontend/web/index.html (Section 14 completion)",
+      "hunks": "@@ -10,7 +10,11 @@\n <script>\n   (function(){\n     var t = localStorage.getItem('app-theme');\n-    if (!t) t = matchMedia('(prefers-color-scheme:light)').matches ? 'light' :\n+    if (!t) t = matchMedia('(prefers-color-scheme:light)').matches ? 'light' : 'dark';\n+    try {\n+      document.documentElement.setAttribute('data-theme', t);\n+    } catch(e) {}\n+  })();\n </script>"
+    }
+  ],
+  "meta": {
+    "tokens_used": 1247,
+    "latency_ms": 890,
+    "thinking_tokens": 340
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"kimi\",\n  \"round\": 2,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 14 (Theme Switching)\",\n      \"description\": \"Critical-path theme initialization script is truncated mid-expression. Cannot verify FOUC prevention logic, fallback chain for prefers-color-scheme, or data-theme attribute application. Without the complete script, SSR/SSG hydration mismatches and flash-of-unstyled-content are guaranteed.\",\n      \"suggested_fix\": \"Complete the script with explicit attribute setting and error handling: `document.documentElement.setAttribute('data-theme', t || 'dark');` wrapped in try-catch to survive CSP/localStorage restrictions.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 1 (Build System) & Section 2 (File Layout)\",\n      \"description\": \"Missing migration strategy from existing Alpine/Tailwind static implementation to React. The _legacy folder quarantine is mentioned but no cutover plan, URL routing conflict resolution, or rollback procedure is defined. Risk of total frontend outage during deployment.\",\n      \"suggested_fix\": \"Add migration phase: (1) Mount React root inside existing Alpine container with `display: contents` bridge, (2) Feature-flag routes to switch between Alpine and React shells, (3) Deprecate Alpine only after 100% traffic validation.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Section 8 (Responsive Strategy)\",\n      \"description\": \"Breakpoint definitions conflict with Tailwind defaults. Spec claims 'sm: 375px (base)' but Tailwind's sm: is 640px. Using standard Tailwind prefixes (sm:, md:, lg:) with custom breakpoint values will cause layout collapse on devices between 375px and 639px.\",\n      \"suggested_fix\": \"Either provide explicit tailwind.config.js breakpoint overrides in the spec (screens: { sm: '375px', md: '768px', lg: '1440px' }) or adopt Tailwind's default scale and adjust component logic.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Section 3 (Navigation) & Component Architecture (Bottom Sheet)\",\n      \"description\": \"Tab bar hiding mechanism is underspecified. 'Tab bar hidden when bottom sheet is open' lacks DOM behavior definition—removing from DOM breaks focus-return-to-trigger, while visibility:hidden leaks to screen readers. Also missing drag velocity thresholds for dismissal gesture.\",\n      \"suggested_fix\": \"Specify: Tab Bar receives `aria-hidden='true' inert` (or `tabindex='-1'` + CSS `visibility:hidden`) when sheet open. Add physics: dismiss threshold at 20% sheet height OR velocity > 0.5px/ms downward.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Section 6 (State Management) - DataContext\",\n      \"description\": \"Conditional global state ('optional — only if cross-screen data sharing needed') creates architectural inconsistency. Teams will inconsistently implement caching, leading to cache duplication or stampede conditions. Stale-while-revalidate logic lacks request deduplication for simultaneous mount scenarios.\",\n      \"suggested_fix\": \"Mandate DataContext for all server state. Implement request deduplication via `pendingPromises` Map keyed by cache key to prevent thundering herd on 30s cache expiry.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Section 3 (Navigation) - Router Focus Management\",\n      \"description\": \"Focus management on route change ('move focus to <main> heading (h1>) assumes h1 is programmatically focusable. Standard h1 elements are not focusable by default; calling .focus() will fail silently in some browsers without tabindex='-1'.\",\n      \"suggested_fix\": \"Specify that all screen containers must have `tabindex='-1'` and `outline: none` (or visible focus ring only on :focus-visible) to enable programmatic focus without introducing ugly focus rings on mouse navigation.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 13 (Performance)\",\n      \"description\": \"Add explicit bundle budget enforcement: `esbuild --metafile` output should be parsed in CI to fail builds if entry chunk exceeds 60KB gzipped.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 11 (Screen Specifications) - Home Screen\",\n      \"description\": \"Clarify skeleton-to-content transition: specify `aria-busy='true'` on container during skeleton phase and `aria-live='polite'` announcement 'Dashboard loaded' only if user is on screen > 3s (prevent noise on fast loads).\"\n    }\n  ],\n  \"diffs\": [\n    {\n      \"file\": \"src/frontend/web/index.html (Section 14 completion)\",\n      \"hunks\": \"@@ -10,7 +10,11 @@\\n <script>\\n   (function(){\\n     var t = localStorage.getItem('app-theme');\\n-    if (!t) t = matchMedia('(prefers-color-scheme:light)').matches ? 'light' :\\n+    if (!t) t = matchMedia('(prefers-color-scheme:light)').matches ? 'light' : 'dark';\\n+    try {\\n+      document.documentElement.setAttribute('data-theme', t);\\n+    } catch(e) {}\\n+  })();\\n </script>\"\n    }\n  ],\n  \"meta\": {\n    \"tokens_used\": 1247,\n    \"latency_ms\": 890,\n    \"thinking_tokens\": 340\n  }\n}\n```"
+}

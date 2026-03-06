@@ -14,11 +14,13 @@ providers:
 agents:
   claude:
     provider: anthropic
-    model: claude-sonnet-4-20250514
+    model: claude-opus-4-6
     enable_thinking: false
     context_window: 200000
-    max_response: 8192
+    max_response: 8000
     personas: [general, security, architecture]
+    output_config:
+      effort: high
   kimi:
     provider: dashscope
     model: kimi-k2.5

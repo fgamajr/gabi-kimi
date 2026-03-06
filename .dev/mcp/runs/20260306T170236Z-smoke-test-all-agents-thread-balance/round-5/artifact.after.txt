@@ -1,0 +1,75 @@
+import threading
+
+class BankAccount:
+    """Thread-safe bank account implementation with proper input validation."""
+    
+    def __init__(self, initial_balance: int = 0):
+        """Initialize account with optional starting balance."""
+        if isinstance(initial_balance, bool) or not isinstance(initial_balance, int):
+            raise TypeError("Initial balance must be an integer")
+        if initial_balance < 0:
+            raise ValueError("Initial balance cannot be negative")
+        self._balance = initial_balance
+        self._lock = threading.RLock()
+
+    def __getstate__(self):
+        """Exclude unpicklable lock during serialization."""
+        state = self.__dict__.copy()
+        del state['_lock']
+        return state
+
+    def __setstate__(self, state):
+        """Restore lock after deserialization."""
+        self.__dict__.update(state)
+        self._lock = threading.RLock()
+
+    def deposit(self, amount: int) -> int:
+        """
+        Deposit money into the account.
+        
+        Args:
+            amount: Positive integer amount to deposit (bool values explicitly rejected)
+            
+        Returns:
+            New balance after deposit
+            
+        Raises:
+            TypeError: If amount is not an integer
+            ValueError: If amount is not positive
+        """
+        if isinstance(amount, bool) or not isinstance(amount, int):
+            raise TypeError(f"Deposit amount must be int, got {type(amount).__name__}")
+        if amount <= 0:
+            raise ValueError("Deposit amount must be positive")
+        with self._lock:
+            self._balance += amount
+            return self._balance
+
+    def withdraw(self, amount: int) -> int:
+        """
+        Withdraw money from the account.
+        
+        Args:
+            amount: Positive integer amount to withdraw (bool values explicitly rejected)
+            
+        Returns:
+            New balance after withdrawal
+            
+        Raises:
+            TypeError: If amount is not an integer
+            ValueError: If amount is not positive or insufficient funds
+        """
+        if isinstance(amount, bool) or not isinstance(amount, int):
+            raise TypeError(f"Withdrawal amount must be int, got {type(amount).__name__}")
+        if amount <= 0:
+            raise ValueError("Withdrawal amount must be positive")
+        with self._lock:
+            if self._balance < amount:
+                raise ValueError(f"Insufficient funds: requested {amount}, available {self._balance}")
+            self._balance -= amount
+            return self._balance
+
+    def get_balance(self) -> int:
+        """Get current account balance in thread-safe manner."""
+        with self._lock:
+            return self._balance
