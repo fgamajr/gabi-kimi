@@ -1,0 +1,31 @@
+# Fly.io — GABI PostgreSQL 16
+# Persistent database for DOU publications (3.8M+ docs)
+
+app = 'gabi-dou-db'
+primary_region = 'gru'
+
+[build]
+  dockerfile = 'ops/deploy/postgres/Dockerfile'
+
+[env]
+  POSTGRES_DB = 'gabi'
+  POSTGRES_USER = 'gabi'
+  PGDATA = '/var/lib/postgresql/data/pgdata'
+
+[mounts]
+  source = 'gabi_pgdata'
+  destination = '/var/lib/postgresql/data'
+
+[[services]]
+  internal_port = 5432
+  protocol = 'tcp'
+  auto_stop_machines = 'off'
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 5432
+
+[[vm]]
+  size = 'shared-cpu-4x'
+  memory = '1gb'

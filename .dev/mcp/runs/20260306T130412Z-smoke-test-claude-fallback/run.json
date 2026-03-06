@@ -1,0 +1,88 @@
+{
+  "run_id": "20260306T130412Z-smoke-test-claude-fallback",
+  "task": "Smoke test convergence loop on provided Python code and return structured rounds.",
+  "artifact_kind": "code",
+  "selected_agents": {
+    "orchestrator": "qwen",
+    "reviewers": [],
+    "personas": {},
+    "rationale": [
+      "reviewers overridden by caller",
+      "persona heuristic resolved to 'general'",
+      "default orchestrator selected as 'qwen'"
+    ]
+  },
+  "config": {
+    "config_path": "/home/parallels/dev/gabi-kimi/.dev/mcp/mcp-agents.yaml",
+    "providers": {
+      "dashscope": {
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "key_env": "DASHSCOPE_API_KEY",
+        "sdk": "openai-compatible",
+        "streaming": true
+      },
+      "anthropic": {
+        "base_url": "https://api.anthropic.com/v1",
+        "key_env": "ANTHROPIC_API_KEY",
+        "sdk": "anthropic",
+        "streaming": true
+      }
+    },
+    "agents": {
+      "claude": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-20250514",
+        "enable_thinking": false,
+        "personas": [
+          "general",
+          "security",
+          "architecture"
+        ]
+      },
+      "kimi": {
+        "provider": "dashscope",
+        "model": "kimi-k2.5",
+        "enable_thinking": true,
+        "personas": [
+          "general",
+          "security",
+          "code-review"
+        ]
+      },
+      "qwen": {
+        "provider": "dashscope",
+        "model": "qwen3-max",
+        "enable_thinking": true,
+        "personas": [
+          "general",
+          "data-integrity",
+          "architecture"
+        ]
+      },
+      "zai": {
+        "provider": "dashscope",
+        "model": "glm-5",
+        "enable_thinking": true,
+        "personas": [
+          "general",
+          "performance",
+          "code-review"
+        ]
+      }
+    },
+    "defaults": {
+      "max_rounds": 5,
+      "parallel": true,
+      "log_dir": ".dev/mcp/runs",
+      "convergence": {
+        "zero_diff": true,
+        "unanimous_approve": true
+      }
+    },
+    "available_agents": [
+      "kimi",
+      "qwen",
+      "zai"
+    ]
+  }
+}

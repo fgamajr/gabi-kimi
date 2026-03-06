@@ -1,0 +1,67 @@
+{
+  "agent": "kimi",
+  "round": 2,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "ENTRYPOINT SHIM MECHANISM",
+      "description": "Critical inconsistency: The shim example shows `from backend.web.main import main` but the package mapping table explicitly places `web/` in `src/frontend/web`, not `src/backend/web`. This will cause immediate ImportError when executed.",
+      "suggested_fix": "Correct the shim example to import from `frontend.web.main` instead of `backend.web.main`, or correct the package mapping table if web/ is actually intended for backend."
+    },
+    {
+      "severity": "high",
+      "location": "ENTRYPOINT HANDLING table (mcp_server.py, mcp_es_server.py)",
+      "description": "MCP servers are kept at root without any shim mechanism specified, yet they likely import from packages being moved (ingest, search, dbsync, etc.). When those packages move to src/backend/, the MCP servers will fail with ImportError. The table marks them 'MCP-Safe: Yes' but provides no import compatibility strategy.",
+      "suggested_fix": "Either add sys.path manipulation shims to the MCP servers (similar to web_server.py), or explicitly list their dependencies and ensure those packages stay at root until Phase 2 with atomic config updates."
+    },
+    {
+      "severity": "high",
+      "location": "MIGRATION ORDER steps 3-6",
+      "description": "The incremental migration strategy (moving one package at a time) will break inter-package imports. If src/backend/search/ (still at root) imports from src/backend/ingest/ (moved to src/backend/ingest/), the import will fail during the intermediate state. The plan assumes packages are independent, which is unlikely.",
+      "suggested_fix": "Either (a) migrate all backend packages atomically in a single commit/PR, or (b) implement temporary compatibility shims at the old package locations (e.g., keep src/backend/ingest/__init__.py at root that re-exports from backend.ingest) during the transition, or (c) audit and document that there are zero cross-imports between moving packages."
+    },
+    {
+      "severity": "medium",
+      "location": "IMPORT PATH STRATEGY ast-grep patterns",
+      "description": "The ast-grep patterns only handle `from src.backend.ingest.X` style imports, but miss `import ingest` and `from ingest import X` (direct module imports). Tests and entrypoints likely use these simpler import styles.",
+      "suggested_fix": "Add patterns for `^import ingest(\\.\\w+)?` and `^from ingest import`, and ensure the replacement handles both styles correctly (e.g., `import ingest` → `import backend.ingest as ingest` for compatibility, or full rewrite to `from backend import ingest`)."
+    },
+    {
+      "severity": "medium",
+      "location": "tests/ directory handling",
+      "description": "Tests staying at root with imports like `from ingest import x` or `import ingest` will break when packages move. The plan mentions 'Update imports' but doesn't specify the mechanism or timing relative to package moves.",
+      "suggested_fix": "Explicitly state that test imports must be rewritten using the same ast-grep/comby patterns as src code, and this must happen atomically with the package moves (or use the compatibility shim approach) to avoid breaking CI on intermediate commits."
+    },
+    {
+      "severity": "medium",
+      "location": "ENTRYPOINT SHIM MECHANISM (sys.path manipulation)",
+      "description": "Using sys.path.insert(0, ...) is fragile and can cause subtle import shadowing issues (e.g., if a user has a 'backend' package installed elsewhere). It also pollutes the import namespace for the entire process.",
+      "suggested_fix": "Consider using importlib.util.module_from_spec and spec_from_file_location to load the module without sys.path modification, or at minimum document that this is temporary and will be removed in Phase 2 when entrypoints move to src/."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "RISK REGISTER",
+      "description": "Add risk: 'Long-running feature branch divergence'. If Phase 1 takes multiple days with the incremental approach, main branch changes to unmoved packages will create complex merge conflicts during git mv operations."
+    },
+    {
+      "type": "improvement",
+      "location": "VALIDATION CHECKLIST",
+      "description": "Add check: 'Verify no dynamic imports broken' (scan for importlib, __import__, import_string usage that might bypass static analysis)."
+    },
+    {
+      "type": "improvement",
+      "location": "DEFERRAL DECISIONS",
+      "description": "Explicitly audit whether mcp_server.py and mcp_es_server.py have dependencies on infra/ or deploy/. If they do, those cannot be deferred to Phase 2 without breaking the MCP servers."
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 0,
+    "latency_ms": 0,
+    "thinking_tokens": 0
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"kimi\",\n  \"round\": 2,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"ENTRYPOINT SHIM MECHANISM\",\n      \"description\": \"Critical inconsistency: The shim example shows `from backend.web.main import main` but the package mapping table explicitly places `web/` in `src/frontend/web`, not `src/backend/web`. This will cause immediate ImportError when executed.\",\n      \"suggested_fix\": \"Correct the shim example to import from `frontend.web.main` instead of `backend.web.main`, or correct the package mapping table if web/ is actually intended for backend.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"ENTRYPOINT HANDLING table (mcp_server.py, mcp_es_server.py)\",\n      \"description\": \"MCP servers are kept at root without any shim mechanism specified, yet they likely import from packages being moved (ingest, search, dbsync, etc.). When those packages move to src/backend/, the MCP servers will fail with ImportError. The table marks them 'MCP-Safe: Yes' but provides no import compatibility strategy.\",\n      \"suggested_fix\": \"Either add sys.path manipulation shims to the MCP servers (similar to web_server.py), or explicitly list their dependencies and ensure those packages stay at root until Phase 2 with atomic config updates.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"MIGRATION ORDER steps 3-6\",\n      \"description\": \"The incremental migration strategy (moving one package at a time) will break inter-package imports. If src/backend/search/ (still at root) imports from src/backend/ingest/ (moved to src/backend/ingest/), the import will fail during the intermediate state. The plan assumes packages are independent, which is unlikely.\",\n      \"suggested_fix\": \"Either (a) migrate all backend packages atomically in a single commit/PR, or (b) implement temporary compatibility shims at the old package locations (e.g., keep src/backend/ingest/__init__.py at root that re-exports from backend.ingest) during the transition, or (c) audit and document that there are zero cross-imports between moving packages.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"IMPORT PATH STRATEGY ast-grep patterns\",\n      \"description\": \"The ast-grep patterns only handle `from src.backend.ingest.X` style imports, but miss `import ingest` and `from ingest import X` (direct module imports). Tests and entrypoints likely use these simpler import styles.\",\n      \"suggested_fix\": \"Add patterns for `^import ingest(\\\\.\\\\w+)?` and `^from ingest import`, and ensure the replacement handles both styles correctly (e.g., `import ingest` → `import backend.ingest as ingest` for compatibility, or full rewrite to `from backend import ingest`).\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"tests/ directory handling\",\n      \"description\": \"Tests staying at root with imports like `from ingest import x` or `import ingest` will break when packages move. The plan mentions 'Update imports' but doesn't specify the mechanism or timing relative to package moves.\",\n      \"suggested_fix\": \"Explicitly state that test imports must be rewritten using the same ast-grep/comby patterns as src code, and this must happen atomically with the package moves (or use the compatibility shim approach) to avoid breaking CI on intermediate commits.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"ENTRYPOINT SHIM MECHANISM (sys.path manipulation)\",\n      \"description\": \"Using sys.path.insert(0, ...) is fragile and can cause subtle import shadowing issues (e.g., if a user has a 'backend' package installed elsewhere). It also pollutes the import namespace for the entire process.\",\n      \"suggested_fix\": \"Consider using importlib.util.module_from_spec and spec_from_file_location to load the module without sys.path modification, or at minimum document that this is temporary and will be removed in Phase 2 when entrypoints move to src/.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"RISK REGISTER\",\n      \"description\": \"Add risk: 'Long-running feature branch divergence'. If Phase 1 takes multiple days with the incremental approach, main branch changes to unmoved packages will create complex merge conflicts during git mv operations.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"VALIDATION CHECKLIST\",\n      \"description\": \"Add check: 'Verify no dynamic imports broken' (scan for importlib, __import__, import_string usage that might bypass static analysis).\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"DEFERRAL DECISIONS\",\n      \"description\": \"Explicitly audit whether mcp_server.py and mcp_es_server.py have dependencies on infra/ or deploy/. If they do, those cannot be deferred to Phase 2 without breaking the MCP servers.\"\n    }\n  ],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 0,\n    \"latency_ms\": 0,\n    \"thinking_tokens\": 0\n  }\n}\n```"
+}

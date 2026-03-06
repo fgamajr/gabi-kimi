@@ -1,0 +1,160 @@
+Implementation Plan: Benchmark Normalization for PG/ES/Hybrid Comparison
+
+## 1. Problem Statement
+
+The current benchmark harness under-scores PostgreSQL (PG) because its result shape differs from Elasticsearch (ES) and hybrid retrieval. PG with tsvector returns lexical-only relevance while ES returns semantic (dense vector) results. Filter-aware checks operate on incompatible data structures, making apples-to-apples comparison requires careful normalization. This plan establishes fair comparison methodology before any ranking tuning.
+
+## 2. Common Intermediate Result Schema (IRS)
+
+All three backends transform results into a canonical schema:
+
+```
+Evidence {
+  query_id: string
+  doc_id: string
+  raw_score: float           // original backend score (may be null for PG tsvector)
+  normalized_score: float    // rank percentile [0, 1] within query result set
+  rank: int                  // 1-based position, deterministic tie-break by doc_id
+  payload: map[string]any
+  filters_applied: list[FilterPredicate]
+  source: "pg" | "es" | "hybrid"
+}
+```
+
+**Critical**: Score is stored as rank percentile, not min-max normalized value, to preserve relative ordering within each query while enabling cross-query comparison.
+
+**Tie-breaking**: All systems use secondary sort by `doc_id ASC` to ensure deterministic ordering when scores are equal.
+
+## 3. K-Retrieval and Filtering Pipeline (Clarified)
+
+### Pipeline Order (Two-Phase):
+1. **Retrieve**: Each system retrieves top `k * 2` candidates using its native ranking
+2. **Apply Pre-Filters**: Canonical filters applied to candidate set
+3. **Final Ranking**: Re-rank/fill to exactly k from filtered candidates
+
+If filtered candidates < k, return all available and document shortfall.
+
+### Multiple k-Value Reporting:
+Report metrics at k ∈ {10, 50, 100} to avoid masking ranking quality differences through artificial truncation.
+
+### Score Handling:
+- **PG tsvector**: Uses `ts_rank` for lexical relevance; store raw value, compute rank percentile for comparison
+- **ES BM25/kNN**: Uses native scoring; rank percentile computed within result set
+- **Hybrid**: Normalize each component (BM25, vector) separately using z-score → sigmoid before weighted combination
+
+## 4. Score Normalization Strategy
+
+Replace invalid min-max cross-system normalization with **rank-invariant metrics**:
+
+| Metric | Application |
+|--------|-------------|
+| nDCG@k | Primary ranking quality measure |
+| MAP@k | Average precision at k |
+| Kendall's Tau | Rank correlation between systems |
+| Precision@k | Set-based relevance (ignores order) |
+| Recall@k | Retrieval depth relative to known relevant docs |
+
+For set-based comparison without ranking: use **binary relevance** (1.0 relevant, 0.0) based on ground truth labels.
+
+**Per-query score transformation**: Compute rank percentile: `(rank - 1) / (total_results - 1)` for each query's result list.
+
+## 5. Semantic/Paraphrase Handling (Separated Tracks)
+
+**Option A (Recommended)**: Create two distinct benchmark tracks:
+
+| Track | PG Configuration | ES Configuration | Fair Comparison |
+|-------|------------------|------------------|-----------------|
+| **Text-Only** | tsvector + ts_rank | BM25 | Lexical vs lexical |
+| **Semantic** | pgvector HNSW | ES kNN | Vector vs vector |
+
+**Option B**: If pgvector unavailable, benchmark PG-tsvector vs ES-BM25 only. Document that paraphrase queries are excluded from PG baseline, but include them in ES results to expose the capability gap honestly.
+
+**Validation requirement** (if using pgvector): Before main benchmark, run recall sweep: find `ef_search` value achieving recall@100 ≥ 0.95 vs ES kNN on synthetic queries with known relevant docs.
+
+## 6. Filter Pipeline Normalization
+
+### Filter Predicate Canonicalization:
+- **Collation**: Unicode codepoint comparison (C locale)
+- **Case sensitivity**: Explicit `LOWER()` for case-insensitive string matches
+- **NULL semantics**: Treat NULL as missing (IS NULL / IS NOT NULL), not as matchable value
+- **Text analysis**: Normalize using same analyzer chain (English, ASCII folding)
+
+### Filter-Only Validation:
+Before ranking evaluation, run 20 filter-only queries. Acceptance: **filter result set cardinality parity within ±1%** across all systems.
+
+## 7. Query Translation Layer
+
+AST-based query normalization with validation:
+
+1. **Supported Query Types**:
+   - `BooleanQuery` (must, should, must_not)
+   - `PhraseQuery` (exact phrase with slop)
+   - `TermQuery` (keyword)
+
+2. **Translators**:
+   - To SQL: `websearch_to_tsquery('english', ...)` with fallback to `to_tsquery('english', ...)`
+   - To ES DSL: Build `bool.must`, `match`, `match_phrase`
+   - Pre-processing: Detect language, escape special characters, log translation failures
+
+3. **Validation**: Run synthetic query set with known Boolean algebra ground truth. Verify operator precedence equivalence (AND, OR, NOT).
+
+## 8. Hardware Isolation
+
+Containerize each backend with identical constraints:
+
+| Resource | Specification |
+|----------|---------------|
+| CPU | 2 vCPU |
+| Memory | 4GB RAM |
+| Storage | Identical SSD (e.g., AWS gp3 with provisioned IOPS) |
+| Dataset | Exactly 100k documents |
+| PG shared_buffers | 1GB (25% of RAM) |
+| PG work_mem | 64MB |
+| ES heap.size | 1GB |
+| ES indices.memory.index_buffer_size | 256MB |
+
+**Warm-up protocol**: Run 100 warm-up queries before measurement. Clear filesystem cache between runs if possible, or document cold-cache vs warm-cache separately.
+
+**Timeout handling**: Implement circuit-breaker with 30-second timeout per query. Document timeout as error, not partial result.
+
+## 9. Severity-Ranked Concerns
+
+| Severity | Concern | Mitigation |
+|----------|---------|------------|
+| **CRITICAL** | Score distribution incompatibility (ts_rank vs BM25) | Use rank-invariant metrics (nDCG, MAP), not score normalization |
+| **CRITICAL** | K-retrieval vs pre-filter contradiction | Clarify two-phase pipeline: retrieve k*2 → filter → fill to k |
+| **HIGH** | PG tsvector (lexical) vs ES kNN (semantic) different modalities | Separate benchmark tracks; do not mix in single comparison |
+| **HIGH** | Jaccard ≥ 0.5 threshold unrealistic | Remove Jaccard; use RBO or ground-truth nDCG agreement |
+| **HIGH** | Non-deterministic PG ordering | Add tie-break: `ORDER BY ts_rank DESC, doc_id ASC` |
+| **HIGH** | Hybrid score combination without normalization | Z-score each component → sigmoid before weighted sum |
+| **HIGH** | Filter result set divergence | Canonical filter predicates; acceptance criterion: ±1% cardinality |
+| **MEDIUM** | Query translation failures for non-English | Add fallback, log failures separately |
+| **MEDIUM** | Storage I/O confounding variable | Specify identical SSD storage |
+| **MEDIUM** | Recall@k = 1.0 unrealistic | Change to recall@k ≥ 0.95 with ±2 document tolerance |
+| **MEDIUM** | Statistical power undefined | Require n ≥ 30 queries; use Wilcoxon signed-rank test |
+
+## 10. Acceptance Criteria
+
+| Criterion | Threshold | Validation Method |
+|-----------|-----------|-------------------|
+| Filter cardinality parity | ±1% | Run 20 filter-only queries, compare doc counts |
+| Rank correlation (Kendall's Tau) | ≥ 0.3 | Compute on 10 neutral text-only queries |
+| nDCG@k gap | ≤ 0.15 | Compare PG vs ES at k=10,50,100 |
+| Latency p95 | ≤ 500ms | Per-query latency on benchmark hardware |
+| Schema contract | 0 violations | IRS validation tests |
+| Query translation success | ≥ 95% | Run 100 synthetic queries, measure translation rate |
+| Result stability | CV < 10% | Run benchmark 3 times, verify latency variance |
+| Recall@100 (pgvector vs ES) | ≥ 0.95 | Validation sweep before main benchmark |
+| Multiple k-values | k ∈ {10,50,100} | Report all three in results |
+
+## 11. Implementation Roadmap
+
+1. **Phase 1**: Define IRS schema, implement result adapters with tie-breaking
+2. **Phase 2**: Implement two-phase k-retrieval pipeline (retrieve k*2 → filter → fill)
+3. **Phase 3**: Build filter predicate canonicalization and filter-only validation
+4. **Phase 4**: Implement query translation layer with validation suite
+5. **Phase 5**: Separate benchmark tracks (text-only vs semantic); if pgvector used, validate recall parity
+6. **Phase 6**: Add warm-up protocol and timeout handling
+7. **Phase 7**: Run full benchmark at k=10,50,100; compute rank-invariant metrics
+8. **Phase 8**: Validate stability (3 runs, CV < 10%)
+9. **Phase 9**: Document baseline metrics before any ranking tuning

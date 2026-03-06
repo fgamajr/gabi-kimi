@@ -1,0 +1,14 @@
+{
+  "agent": "minimax",
+  "round": 1,
+  "verdict": "APPROVE",
+  "objections": [],
+  "suggestions": [],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 0,
+    "latency_ms": 0,
+    "thinking_tokens": 0
+  },
+  "raw_text": "{\"agent\":\"minimax\",\"round\":1,\"verdict\":\"APPROVE\",\"objections\":[],\"suggestions\":[],\"diffs\":[],\"meta\":{\"tokens_used\":0,\"latency_ms\":0,\"thinking_tokens\":0}}"
+}

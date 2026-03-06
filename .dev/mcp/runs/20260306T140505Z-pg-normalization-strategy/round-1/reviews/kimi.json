@@ -1,0 +1,56 @@
+{
+  "agent": "kimi",
+  "round": 1,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "plan:result-shape-normalization",
+      "description": "No strategy to normalize cardinality and ranking between ES (inherent BM25 scoring, dynamic top-k) and PG (set-based results, unordered unless explicitly sorted). Without forcing identical LIMITs and score normalization (or binarization), 'filter-aware checks' will measure different result distributions. PG may return 10k rows for a broad query while ES returns 10 scored hits, breaking precision/recall denominators.",
+      "suggested_fix": "Implement a retrieval adapter layer that enforces strict k-retrieval parity: (1) All systems must return exactly k=100 candidates (or configurable) before filtering, (2) PG queries must use ORDER BY ts_rank DESC (or vector distance) LIMIT k, (3) ES must use size=k with track_total_hits=false for consistency, (4) Normalize scores to [0,1] via min-max per query or drop scores for set-based evaluation."
+    },
+    {
+      "severity": "high",
+      "location": "plan:filtered-search-semantics",
+      "description": "Missing normalization of filter application timing. ES supports 'filter' context (no scoring impact) vs 'must' (scoring impact) vs 'post_filter' (aggregation isolation). PG applies WHERE before ranking. For hybrid retrieval, filters may apply to vector vs BM25 components differently. Current plan risks comparing 'pre-filtered recall' (PG) against 'post-filtered ranking' (ES/hybrid).",
+      "suggested_fix": "Define a canonical filter pipeline: (1) All filters must be applied as pre-filters (restricting the candidate set before retrieval), (2) Implement query builders that translate the same JSON filter predicate to both ES 'filter' context and SQL WHERE clause, (3) Document that post-filtering (e.g., ES post_filter) is disabled for this benchmark to ensure consistent recall calculation."
+    },
+    {
+      "severity": "high",
+      "location": "plan:semantic-paraphrase-handling",
+      "description": "Fundamental capability gap unaddressed: Standard PG (tsvector) lacks semantic/embedding retrieval required for paraphrase cases, while ES/hybrid likely uses dense vectors. Comparing PG text search against semantic retrieval is benchmarking different capabilities, not equivalent retrieval paths. If PG uses pgvector, the plan must specify vector index type (IVFFlat vs HNSW) and distance metric to match ES ann.",
+      "suggested_fix": "Clarify PG configuration: If using pgvector, specify index (HNSW with ef_search=100) and operator (<-> for L2 or <=> for cosine) to match ES kNN search parameters. If using tsvector only, acknowledge this is a 'text vs semantic' comparison, not normalized retrieval. Propose either (a) disabling paraphrase cases for PG, or (b) adding pgvector with strict latency-equivalent index tuning."
+    },
+    {
+      "severity": "medium",
+      "location": "plan:acceptance-criteria",
+      "description": "Absence of quantitative acceptance criteria. 'Fair' is undefined. No threshold for result overlap (e.g., Jaccard index between PG and ES top-10 should be >0.6 for identical queries) or latency normalization (PG sequential scans vs ES index).",
+      "suggested_fix": "Add explicit acceptance criteria: (1) Result set overlap: For 10 neutral queries, Jaccard similarity of top-10 IDs between any two systems must be ≥0.5 (sanity check for semantic equivalence), (2) Latency cap: 95th percentile latency per query ≤500ms for all systems on benchmark hardware, (3) Filter recall parity: On 20 synthetic filter-only queries, recall@k must be 1.0 for all systems (validate filter logic equivalence)."
+    },
+    {
+      "severity": "medium",
+      "location": "plan:query-translation",
+      "description": "No mechanism to ensure query logic equivalence between SQL (PG) and Query DSL (ES). Simple keyword queries differ in behavior (TSQUERY vs match/match_phrase), and boolean logic (AND/OR) has different operator precedence and stopword handling.",
+      "suggested_fix": "Implement a query normalization AST: (1) Define canonical query objects (BooleanQuery, PhraseQuery, TermQuery), (2) Build translators to SQL (using websearch_to_tsquery or plainto_tsquery with custom config) and ES DSL (match, match_phrase, bool.must), (3) Validate equivalence using a synthetic query set where ground truth is known."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "plan:benchmark-harness",
+      "description": "Add a 'retrieval shim' abstraction that intercepts results from all three backends and converts them to a canonical Evidence object (doc_id, score, metadata) before evaluation. This ensures the downstream 'filter-aware checks' operate on identical data structures, not backend-specific response shapes."
+    },
+    {
+      "type": "improvement",
+      "location": "plan:isolation",
+      "description": "Containerize each backend with identical CPU/memory constraints (e.g., 2 vCPU, 4GB RAM) and dataset size (exactly 100k documents). PG shared_buffers and ES heap.size must be tuned to equivalent ratios (e.g., 25% of available RAM) to prevent hardware bias."
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 0,
+    "latency_ms": 0,
+    "thinking_tokens": 0
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"kimi\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"plan:result-shape-normalization\",\n      \"description\": \"No strategy to normalize cardinality and ranking between ES (inherent BM25 scoring, dynamic top-k) and PG (set-based results, unordered unless explicitly sorted). Without forcing identical LIMITs and score normalization (or binarization), 'filter-aware checks' will measure different result distributions. PG may return 10k rows for a broad query while ES returns 10 scored hits, breaking precision/recall denominators.\",\n      \"suggested_fix\": \"Implement a retrieval adapter layer that enforces strict k-retrieval parity: (1) All systems must return exactly k=100 candidates (or configurable) before filtering, (2) PG queries must use ORDER BY ts_rank DESC (or vector distance) LIMIT k, (3) ES must use size=k with track_total_hits=false for consistency, (4) Normalize scores to [0,1] via min-max per query or drop scores for set-based evaluation.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"plan:filtered-search-semantics\",\n      \"description\": \"Missing normalization of filter application timing. ES supports 'filter' context (no scoring impact) vs 'must' (scoring impact) vs 'post_filter' (aggregation isolation). PG applies WHERE before ranking. For hybrid retrieval, filters may apply to vector vs BM25 components differently. Current plan risks comparing 'pre-filtered recall' (PG) against 'post-filtered ranking' (ES/hybrid).\",\n      \"suggested_fix\": \"Define a canonical filter pipeline: (1) All filters must be applied as pre-filters (restricting the candidate set before retrieval), (2) Implement query builders that translate the same JSON filter predicate to both ES 'filter' context and SQL WHERE clause, (3) Document that post-filtering (e.g., ES post_filter) is disabled for this benchmark to ensure consistent recall calculation.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"plan:semantic-paraphrase-handling\",\n      \"description\": \"Fundamental capability gap unaddressed: Standard PG (tsvector) lacks semantic/embedding retrieval required for paraphrase cases, while ES/hybrid likely uses dense vectors. Comparing PG text search against semantic retrieval is benchmarking different capabilities, not equivalent retrieval paths. If PG uses pgvector, the plan must specify vector index type (IVFFlat vs HNSW) and distance metric to match ES ann.\",\n      \"suggested_fix\": \"Clarify PG configuration: If using pgvector, specify index (HNSW with ef_search=100) and operator (<-> for L2 or <=> for cosine) to match ES kNN search parameters. If using tsvector only, acknowledge this is a 'text vs semantic' comparison, not normalized retrieval. Propose either (a) disabling paraphrase cases for PG, or (b) adding pgvector with strict latency-equivalent index tuning.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"plan:acceptance-criteria\",\n      \"description\": \"Absence of quantitative acceptance criteria. 'Fair' is undefined. No threshold for result overlap (e.g., Jaccard index between PG and ES top-10 should be >0.6 for identical queries) or latency normalization (PG sequential scans vs ES index).\",\n      \"suggested_fix\": \"Add explicit acceptance criteria: (1) Result set overlap: For 10 neutral queries, Jaccard similarity of top-10 IDs between any two systems must be ≥0.5 (sanity check for semantic equivalence), (2) Latency cap: 95th percentile latency per query ≤500ms for all systems on benchmark hardware, (3) Filter recall parity: On 20 synthetic filter-only queries, recall@k must be 1.0 for all systems (validate filter logic equivalence).\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"plan:query-translation\",\n      \"description\": \"No mechanism to ensure query logic equivalence between SQL (PG) and Query DSL (ES). Simple keyword queries differ in behavior (TSQUERY vs match/match_phrase), and boolean logic (AND/OR) has different operator precedence and stopword handling.\",\n      \"suggested_fix\": \"Implement a query normalization AST: (1) Define canonical query objects (BooleanQuery, PhraseQuery, TermQuery), (2) Build translators to SQL (using websearch_to_tsquery or plainto_tsquery with custom config) and ES DSL (match, match_phrase, bool.must), (3) Validate equivalence using a synthetic query set where ground truth is known.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"plan:benchmark-harness\",\n      \"description\": \"Add a 'retrieval shim' abstraction that intercepts results from all three backends and converts them to a canonical Evidence object (doc_id, score, metadata) before evaluation. This ensures the downstream 'filter-aware checks' operate on identical data structures, not backend-specific response shapes.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"plan:isolation\",\n      \"description\": \"Containerize each backend with identical CPU/memory constraints (e.g., 2 vCPU, 4GB RAM) and dataset size (exactly 100k documents). PG shared_buffers and ES heap.size must be tuned to equivalent ratios (e.g., 25% of available RAM) to prevent hardware bias.\"\n    }\n  ],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 0,\n    \"latency_ms\": 0,\n    \"thinking_tokens\": 0\n  }\n}\n```"
+}

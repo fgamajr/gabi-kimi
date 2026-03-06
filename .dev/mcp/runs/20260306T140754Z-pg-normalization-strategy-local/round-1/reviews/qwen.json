@@ -1,0 +1,54 @@
+{
+  "agent": "qwen",
+  "round": 1,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "docs/benchmark_normalization_plan.md:1-5",
+      "description": "Artifact is a vague direction statement, not the requested concrete implementation plan. It fails to specify how hydration occurs or what the canonical shape is.",
+      "suggested_fix": "Replace with a step-by-step technical specification including schema definitions and pipeline logic."
+    },
+    {
+      "severity": "high",
+      "location": "docs/benchmark_normalization_plan.md:6-10",
+      "description": "Missing acceptance criteria. There is no way to verify the normalization is fair or complete without defined success metrics.",
+      "suggested_fix": "Add explicit acceptance criteria such as '100% field coverage for grader requirements' and 'zero latency regression >5ms'."
+    },
+    {
+      "severity": "medium",
+      "location": "docs/benchmark_normalization_plan.md:12-15",
+      "description": "No analysis of data leakage risk. Hydrating missing fields post-retrieval risks introducing ground truth into the scoring path if not sourced strictly from the retrieved document store.",
+      "suggested_fix": "Explicitly document the data source for hydration (e.g., secondary fetch by ID) to ensure no oracle leakage."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "docs/benchmark_normalization_plan.md:20",
+      "description": "Define the CanonicalDocument schema explicitly with required fields: id, issuing_organ, body_plain, score, metadata."
+    },
+    {
+      "type": "improvement",
+      "location": "src/benchmark/hydration.py",
+      "description": "Implement a HydrationService that fetches missing fields by document ID from the source of truth before passing to the grader."
+    },
+    {
+      "type": "improvement",
+      "location": "tests/test_hydration.py",
+      "description": "Add tests verifying that hydrated fields match source storage exactly to prevent transformation errors."
+    }
+  ],
+  "diffs": [
+    {
+      "file": "docs/benchmark_normalization_plan.md",
+      "hunks": "@@ -0,0 +1,30 @@\n+# Benchmark Normalization Plan\n+\n+## Canonical Schema\n+{\n+  \"id\": \"str\",\n+  \"issuing_organ\": \"str\",\n+  \"body_plain\": \"str\",\n+  \"score\": \"float\"\n+}\n+\n+## Hydration Logic\n+1. Retrieve results from PG/ES/Hybrid.\n+2. Extract IDs.\n+3. Bulk fetch missing fields from primary storage.\n+4. Merge into Canonical Schema.\n+5. Pass to grader.\n+\n+## Acceptance Criteria\n+- [ ] All graders receive non-null issuing_organ and body_plain.\n+- [ ] Hydration latency < 10ms p95.\n+- [ ] No ground truth leakage in hydration step."
+    }
+  ],
+  "meta": {
+    "tokens_used": 350,
+    "latency_ms": 120,
+    "thinking_tokens": 200
+  },
+  "raw_text": "{\n  \"agent\": \"qwen\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"docs/benchmark_normalization_plan.md:1-5\",\n      \"description\": \"Artifact is a vague direction statement, not the requested concrete implementation plan. It fails to specify how hydration occurs or what the canonical shape is.\",\n      \"suggested_fix\": \"Replace with a step-by-step technical specification including schema definitions and pipeline logic.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"docs/benchmark_normalization_plan.md:6-10\",\n      \"description\": \"Missing acceptance criteria. There is no way to verify the normalization is fair or complete without defined success metrics.\",\n      \"suggested_fix\": \"Add explicit acceptance criteria such as '100% field coverage for grader requirements' and 'zero latency regression >5ms'.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"docs/benchmark_normalization_plan.md:12-15\",\n      \"description\": \"No analysis of data leakage risk. Hydrating missing fields post-retrieval risks introducing ground truth into the scoring path if not sourced strictly from the retrieved document store.\",\n      \"suggested_fix\": \"Explicitly document the data source for hydration (e.g., secondary fetch by ID) to ensure no oracle leakage.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"docs/benchmark_normalization_plan.md:20\",\n      \"description\": \"Define the CanonicalDocument schema explicitly with required fields: id, issuing_organ, body_plain, score, metadata.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"src/benchmark/hydration.py\",\n      \"description\": \"Implement a HydrationService that fetches missing fields by document ID from the source of truth before passing to the grader.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"tests/test_hydration.py\",\n      \"description\": \"Add tests verifying that hydrated fields match source storage exactly to prevent transformation errors.\"\n    }\n  ],\n  \"diffs\": [\n    {\n      \"file\": \"docs/benchmark_normalization_plan.md\",\n      \"hunks\": \"@@ -0,0 +1,30 @@\\n+# Benchmark Normalization Plan\\n+\\n+## Canonical Schema\\n+{\\n+  \\\"id\\\": \\\"str\\\",\\n+  \\\"issuing_organ\\\": \\\"str\\\",\\n+  \\\"body_plain\\\": \\\"str\\\",\\n+  \\\"score\\\": \\\"float\\\"\\n+}\\n+\\n+## Hydration Logic\\n+1. Retrieve results from PG/ES/Hybrid.\\n+2. Extract IDs.\\n+3. Bulk fetch missing fields from primary storage.\\n+4. Merge into Canonical Schema.\\n+5. Pass to grader.\\n+\\n+## Acceptance Criteria\\n+- [ ] All graders receive non-null issuing_organ and body_plain.\\n+- [ ] Hydration latency < 10ms p95.\\n+- [ ] No ground truth leakage in hydration step.\"\n    }\n  ],\n  \"meta\": {\n    \"tokens_used\": 350,\n    \"latency_ms\": 120,\n    \"thinking_tokens\": 200\n  }\n}"
+}

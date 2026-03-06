@@ -1,0 +1,33 @@
+{
+  "agent": "qwen",
+  "round": 1,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "artifact:known_caveat",
+      "description": "The recommendation proceeds with tuning (Option 2) while explicitly acknowledging the benchmark grader is likely broken for PG result shapes. If the grader penalizes PG shapes, it may also penalize Hybrid results that share structural similarities in semantic_paraphrase cases, rendering the P@1 0.3750 metric unreliable for tuning.",
+      "suggested_fix": "Validate the grader logic against PG result shapes before committing engineering time to tuning based on potentially noisy metrics. Option 1 is a prerequisite for decision quality."
+    },
+    {
+      "severity": "medium",
+      "location": "artifact:candidate_recommendation",
+      "description": "Dismissing PG normalization as 'benchmark hygiene' ignores the risk that PG is actually a viable superior backend being suppressed by grading errors. This creates technical debt and potential architecture blind spots.",
+      "suggested_fix": "Re-evaluate Option 1 as a high-priority infrastructure fix rather than low-priority hygiene, as it validates the foundation of all subsequent tuning."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "artifact:candidate_recommendation",
+      "description": "Add a conditional gate: if PG normalization reveals a grading bias >10% on Hybrid scores, pause Option 2 and fix the grader first."
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 0,
+    "latency_ms": 0,
+    "thinking_tokens": 0
+  },
+  "raw_text": "{\n  \"agent\": \"qwen\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"artifact:known_caveat\",\n      \"description\": \"The recommendation proceeds with tuning (Option 2) while explicitly acknowledging the benchmark grader is likely broken for PG result shapes. If the grader penalizes PG shapes, it may also penalize Hybrid results that share structural similarities in semantic_paraphrase cases, rendering the P@1 0.3750 metric unreliable for tuning.\",\n      \"suggested_fix\": \"Validate the grader logic against PG result shapes before committing engineering time to tuning based on potentially noisy metrics. Option 1 is a prerequisite for decision quality.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"artifact:candidate_recommendation\",\n      \"description\": \"Dismissing PG normalization as 'benchmark hygiene' ignores the risk that PG is actually a viable superior backend being suppressed by grading errors. This creates technical debt and potential architecture blind spots.\",\n      \"suggested_fix\": \"Re-evaluate Option 1 as a high-priority infrastructure fix rather than low-priority hygiene, as it validates the foundation of all subsequent tuning.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"artifact:candidate_recommendation\",\n      \"description\": \"Add a conditional gate: if PG normalization reveals a grading bias >10% on Hybrid scores, pause Option 2 and fix the grader first.\"\n    }\n  ],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 0,\n    \"latency_ms\": 0,\n    \"thinking_tokens\": 0\n  }\n}"
+}

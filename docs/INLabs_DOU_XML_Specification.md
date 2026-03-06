@@ -1,4 +1,9 @@
+> Last verified: 2026-03-06
+
 # INLabs DOU XML Format Technical Specification
+
+Documento de referencia tecnica. Ele continua util para entender o formato XML observado pelos parsers em
+[src/backend/ingest/xml_parser.py](../src/backend/ingest/xml_parser.py), mas nao substitui os runbooks operacionais.
 
 ## Document Version
 - **Version**: 1.0

@@ -1,0 +1,61 @@
+{
+  "agent": "minimax",
+  "round": 1,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "Overall proposal",
+      "description": "The proposal fails to specify which existing package directories (src/backend/ingest/, src/backend/search/, src/backend/dbsync/, src/backend/commitment/, web/) should migrate to src/backend vs src/frontend. Without explicit mapping, implementers will make inconsistent decisions causing import breakage and merge conflicts.",
+      "suggested_fix": "Add explicit table mapping each package: ingest→src/backend/ingest, search→src/backend/search, dbsync→src/backend/dbsync, commitment→src/backend/commitment, web→src/frontend/web. Document rationale for each placement."
+    },
+    {
+      "severity": "high",
+      "location": "Entry point shims",
+      "description": "The proposal states 'keep root entrypoint shims' but doesn't specify HOW they will work. Will they use relative imports, sys.path manipulation, or lazy imports? Ambiguity here will break MCP integrations which invoke these scripts directly.",
+      "suggested_fix": "Provide concrete shim implementation for at least one entry point (e.g., web_server.py) showing the import pattern, PATH setup, or wrapper code that maintains backward compatibility."
+    },
+    {
+      "severity": "high",
+      "location": "MCP integration validation",
+      "description": "Proposal defers MCP validation to 'after path updates' but doesn't define acceptance criteria or pre-validation checks. MCP servers (mcp_server.py, mcp_es_server.py) depend on specific import paths that will break when packages move.",
+      "suggested_fix": "Define pre-migration validation: list all MCP server entry points, document their current import chains, specify how shims will maintain those chains, and define test cases to run post-migration."
+    },
+    {
+      "severity": "high",
+      "location": "Package discovery and dependencies",
+      "description": "No mention of updating pyproject.toml, setup.py, or __init__.py files to reflect the new src/ layout. Python packaging tools need explicit configuration to discover packages under src/.",
+      "suggested_fix": "Document required changes to pyproject.toml: add src/backend and src/frontend as package roots, update module mappings, and ensure editable installs work with the new layout."
+    },
+    {
+      "severity": "medium",
+      "location": "tests/ directory handling",
+      "description": "Proposal ignores tests/ directory. Tests likely import from the package directories being moved. Without a plan, tests will break immediately.",
+      "suggested_fix": "Specify whether tests/ stays at root (with updated import paths) or moves to src/backend/tests and src/frontend/tests. Include migration of test imports."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "Risk enumeration",
+      "description": "Add explicit risk register: (1) ImportError cascade during transition, (2) CI/CD pipeline breakage from path changes, (3) IDE autocomplete failures, (4) Third-party tool breakage (linters, formatters) expecting old layout."
+    },
+    {
+      "type": "improvement",
+      "location": "Migration order",
+      "description": "Specify the exact sequence: (1) Create src/backend and src/frontend empty dirs with __init__.py, (2) Move one package, update one shim, validate, (3) Repeat. Don't suggest moving everything at once."
+    },
+    {
+      "type": "improvement",
+      "location": "Rollback plan",
+      "description": "Include explicit rollback procedure if Phase 1 causes unacceptable breakage (e.g., git revert command, restoration of imports)."
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 0,
+    "latency_ms": 0,
+    "thinking_tokens": 0
+  },
+  "raw_text": "{\"agent\":\"minimax\",\"round\":1,\"verdict\":\"REQUEST_CHANGES\",\"objections\":[{\"severity\":\"high\",\"location\":\"Overall proposal\",\"description\":\"The proposal fails to specify which existing package directories (src/backend/ingest/, src/backend/search/, src/backend/dbsync/, src/backend/commitment/, web/) should migrate to src/backend vs src/frontend. Without explicit mapping, implementers will make inconsistent decisions causing import breakage and merge conflicts.\",\"suggested_fix\":\"Add explicit table mapping each package: ingest→src/backend/ingest, search→src/backend/search, dbsync→src/backend/dbsync, commitment→src/backend/commitment, web→src/frontend/web. Document rationale for each placement.\"},{\"severity\":\"high\",\"location\":\"Entry point shims\",\"description\":\"The proposal states 'keep root entrypoint shims' but doesn't specify HOW they will work. Will they use relative imports, sys.path manipulation, or lazy imports? Ambiguity here will break MCP integrations which invoke these scripts directly.\",\"suggested_fix\":\"Provide concrete shim implementation for at least one entry point (e.g., web_server.py) showing the import pattern, PATH setup, or wrapper code that maintains backward compatibility.\"},{\"severity\":\"high\",\"location\":\"MCP integration validation\",\"description\":\"Proposal defers MCP validation to 'after path updates' but doesn't define acceptance criteria or pre-validation checks. MCP servers (mcp_server.py, mcp_es_server.py) depend on specific import paths that will break when packages move.\",\"suggested_fix\":\"Define pre-migration validation: list all MCP server entry points, document their current import chains, specify how shims will maintain those chains, and define test cases to run post-migration.\"},{\"severity\":\"high\",\"location\":\"Package discovery and dependencies\",\"description\":\"No mention of updating pyproject.toml, setup.py, or __init__.py files to reflect the new src/ layout. Python packaging tools need explicit configuration to discover packages under src/.\",\"suggested_fix\":\"Document required changes to pyproject.toml: add src/backend and src/frontend as package roots, update module mappings, and ensure editable installs work with the new layout.\"},{\"severity\":\"medium\",\"location\":\"tests/ directory handling\",\"description\":\"Proposal ignores tests/ directory. Tests likely import from the package directories being moved. Without a plan, tests will break immediately.\",\"suggested_fix\":\"Specify whether tests/ stays at root (with updated import paths) or moves to src/backend/tests and src/frontend/tests. Include migration of test imports.\"}],\"suggestions\":[{\"type\":\"improvement\",\"location\":\"Risk enumeration\",\"description\":\"Add explicit risk register: (1) ImportError cascade during transition, (2) CI/CD pipeline breakage from path changes, (3) IDE autocomplete failures, (4) Third-party tool breakage (linters, formatters) expecting old layout.\"},{\"type\":\"improvement\",\"location\":\"Migration order\",\"description\":\"Specify the exact sequence: (1) Create src/backend and src/frontend empty dirs with __init__.py, (2) Move one package, update one shim, validate, (3) Repeat. Don't suggest moving everything at once.\"},{\"type\":\"improvement\",\"location\":\"Rollback plan\",\"description\":\"Include explicit rollback procedure if Phase 1 causes unacceptable breakage (e.g., git revert command, restoration of imports).\"}],\"diffs\":[],\"meta\":{\"tokens_used\":0,\"latency_ms\":0,\"thinking_tokens\":0}}"
+}

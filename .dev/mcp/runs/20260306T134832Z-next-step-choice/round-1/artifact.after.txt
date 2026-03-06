@@ -1,0 +1,27 @@
+Current benchmark summary:
+- 100 cases
+- hybrid: P@1 0.8000, P@3 0.7967, Hits@10 0.9400, MRR 0.8475
+- es: P@1 0.3800, P@3 0.3767, Hits@10 0.4900, MRR 0.4174
+- pg: P@1 0.0200, P@3 0.0200, Hits@10 0.0200, MRR 0.0200
+Strong hybrid categories:
+- organ_type_filters: perfect
+- broad_filter: perfect
+- procurement_do3: very strong
+- person_exact_phrase: very strong
+Weakest hybrid category:
+- semantic_paraphrase: P@1 0.3750, Hits@10 0.8125
+Known caveat:
+- pg is likely under-scored by the current grader because its result shape is poorer for some filter-aware checks. Therefore hybrid > es looks reliable, but pg gap may be exaggerated.
+
+Critical uncertainty analysis:
+The PG 2% score across all metrics is suspiciously uniform. This pattern indicates systematic measurement failure (grader shape/parsing issues) rather than actual 2% retrieval quality. The caveat states pg is "likely under-scored" — meaning PG's true P@1 could plausibly range from 0.02 (broken) to 0.38+ (competitive with ES). This is a 20x uncertainty window that fundamentally invalidates any tuning decision made without resolving it. The semantic_paraphrase category at 37.5% P@1 (81.25% Hits@10) shows relevant docs ARE being retrieved — this is a ranking problem, not a retrieval failure. Meanwhile PG at 2% (unknown true value) represents either a broken infrastructure component or a mismeasured but potentially competitive retrieval path.
+
+Candidate recommendation:
+Option 1 is the better next step because it is a prerequisite for any valid engineering decision. Without normalizing PG, we cannot determine whether hybrid tuning (Option 2) is worthwhile or whether it is optimizing weighting between a working ES system and a broken PG system (garbage-in-garbage-out). Normalizing PG benchmark path reveals true performance and determines the actual signal-to-noise ratio in the hybrid ensemble.
+
+Decision tree after Option 1:
+- If PG normalizes to P@1 > 0.20: PG contributes meaningful signal. Proceed to Option 2 with valid ground truth.
+- If PG normalizes to P@1 < 0.10: PG infrastructure is broken. Abort Option 2 and fix PG retrieval (index population, embedding pipeline, connection pooling) before any hybrid tuning.
+- If PG normalizes to P@1 between 0.10-0.20: PG contributes marginal signal. Consider PG+ES ensemble architecture before hybrid weight tuning.
+
+This approach is the shortest path to decision quality because it eliminates the highest-variance unknown before committing engineering resources to potentially wasted hybrid tuning work.

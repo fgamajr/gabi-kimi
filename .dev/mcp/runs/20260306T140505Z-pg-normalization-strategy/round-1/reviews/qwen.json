@@ -1,0 +1,49 @@
+{
+  "agent": "qwen",
+  "round": 1,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "artifact:plan.md:1-3",
+      "description": "Artifact is a goal statement, not a concrete implementation plan. It lacks specific steps for result-shape normalization (e.g., schema mapping, field alignment).",
+      "suggested_fix": "Define a common intermediate result schema (IRS) and detail the transformation pipeline for PG results to match IRS."
+    },
+    {
+      "severity": "high",
+      "location": "artifact:plan.md:1-3",
+      "description": "Missing acceptance criteria. There is no way to verify fairness before ranking tuning.",
+      "suggested_fix": "Add quantitative acceptance criteria (e.g., filter predicate success rate > 99%, result shape parity check)."
+    },
+    {
+      "severity": "medium",
+      "location": "artifact:plan.md:1-3",
+      "description": "No severity-ranked concerns provided as requested by the user task.",
+      "suggested_fix": "Include a section listing technical risks ranked by impact on benchmark validity."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "artifact:plan.md:1",
+      "description": "Implement a filter translation layer to convert ES DSL filters to PG SQL WHERE clauses for equivalent evaluation."
+    },
+    {
+      "type": "improvement",
+      "location": "artifact:plan.md:1",
+      "description": "Define a normalization script that strips engine-specific metadata before scoring to ensure only content relevance is measured."
+    }
+  ],
+  "diffs": [
+    {
+      "file": "artifact:plan.md",
+      "hunks": "@@ -1,3 +1,15 @@\n-Normalize the benchmark so PG, ES, and hybrid are graded on comparable evidence, especially for filtered searches and semantic-paraphrase cases. Focus on query/result-shape normalization, not on changing search relevance yet.\n+## Implementation Plan: Benchmark Normalization\n+\n+### 1. Common Result Schema\n+- Define IRS (Intermediate Result Schema) with fields: {id, score, payload, filters_applied}.\n+- Map PG JSONB -> IRS.\n+- Map ES Hit -> IRS.\n+\n+### 2. Filter Parity\n+- Translate ES query filters to PG SQL WHERE clauses.\n+- Verify filter selectivity matches within 5% tolerance.\n+\n+### 3. Acceptance Criteria\n+- Filter application success rate: 100%.\n+- Result shape parity: Validated via schema contract tests.\n+- Concerns ranked: 1. Schema drift (High), 2. Filter translation errors (High)."
+    }
+  ],
+  "meta": {
+    "tokens_used": 350,
+    "latency_ms": 120,
+    "thinking_tokens": 150
+  },
+  "raw_text": "{\n  \"agent\": \"qwen\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"artifact:plan.md:1-3\",\n      \"description\": \"Artifact is a goal statement, not a concrete implementation plan. It lacks specific steps for result-shape normalization (e.g., schema mapping, field alignment).\",\n      \"suggested_fix\": \"Define a common intermediate result schema (IRS) and detail the transformation pipeline for PG results to match IRS.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"artifact:plan.md:1-3\",\n      \"description\": \"Missing acceptance criteria. There is no way to verify fairness before ranking tuning.\",\n      \"suggested_fix\": \"Add quantitative acceptance criteria (e.g., filter predicate success rate > 99%, result shape parity check).\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"artifact:plan.md:1-3\",\n      \"description\": \"No severity-ranked concerns provided as requested by the user task.\",\n      \"suggested_fix\": \"Include a section listing technical risks ranked by impact on benchmark validity.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"artifact:plan.md:1\",\n      \"description\": \"Implement a filter translation layer to convert ES DSL filters to PG SQL WHERE clauses for equivalent evaluation.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"artifact:plan.md:1\",\n      \"description\": \"Define a normalization script that strips engine-specific metadata before scoring to ensure only content relevance is measured.\"\n    }\n  ],\n  \"diffs\": [\n    {\n      \"file\": \"artifact:plan.md\",\n      \"hunks\": \"@@ -1,3 +1,15 @@\\n-Normalize the benchmark so PG, ES, and hybrid are graded on comparable evidence, especially for filtered searches and semantic-paraphrase cases. Focus on query/result-shape normalization, not on changing search relevance yet.\\n+## Implementation Plan: Benchmark Normalization\\n+\\n+### 1. Common Result Schema\\n+- Define IRS (Intermediate Result Schema) with fields: {id, score, payload, filters_applied}.\\n+- Map PG JSONB -> IRS.\\n+- Map ES Hit -> IRS.\\n+\\n+### 2. Filter Parity\\n+- Translate ES query filters to PG SQL WHERE clauses.\\n+- Verify filter selectivity matches within 5% tolerance.\\n+\\n+### 3. Acceptance Criteria\\n+- Filter application success rate: 100%.\\n+- Result shape parity: Validated via schema contract tests.\\n+- Concerns ranked: 1. Schema drift (High), 2. Filter translation errors (High).\"\n    }\n  ],\n  \"meta\": {\n    \"tokens_used\": 350,\n    \"latency_ms\": 120,\n    \"thinking_tokens\": 150\n  }\n}"
+}

@@ -1,0 +1,57 @@
+providers:
+  dashscope:
+    base_url: "https://coding-intl.dashscope.aliyuncs.com/v1"
+    key_env: DASHSCOPE_API_KEY
+    sdk: openai-compatible
+    streaming: true
+    thinking_param: extra_body
+  anthropic:
+    base_url: "https://api.anthropic.com/v1"
+    key_env: ANTHROPIC_API_KEY
+    sdk: anthropic
+    streaming: true
+
+agents:
+  claude:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+    enable_thinking: false
+    context_window: 200000
+    max_response: 8192
+    personas: [general, security, architecture]
+  kimi:
+    provider: dashscope
+    model: kimi-k2.5
+    enable_thinking: true
+    context_window: 262144
+    max_response: 32768
+    personas: [general, security, code-review]
+  qwen:
+    provider: dashscope
+    model: qwen3.5-plus
+    enable_thinking: true
+    context_window: 131072
+    max_response: 8192
+    personas: [general, data-integrity, architecture]
+  zai:
+    provider: dashscope
+    model: glm-5
+    enable_thinking: true
+    context_window: 202752
+    max_response: 16384
+    personas: [general, performance, code-review]
+  minimax:
+    provider: dashscope
+    model: MiniMax-M2.5
+    enable_thinking: true
+    context_window: 131072
+    max_response: 16384
+    personas: [general, performance, architecture]
+
+defaults:
+  max_rounds: 5
+  parallel: true
+  log_dir: .dev/mcp/runs
+  convergence:
+    zero_diff: true
+    unanimous_approve: true

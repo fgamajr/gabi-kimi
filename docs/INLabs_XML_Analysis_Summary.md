@@ -1,4 +1,9 @@
+> Last verified: 2026-03-06
+
 # INLabs DOU XML Analysis Summary
+
+Resumo tecnico baseado em amostras. Mantido como material de apoio para parser e validacao, nao como
+especificacao normativa do projeto.
 
 ## Executive Summary
 

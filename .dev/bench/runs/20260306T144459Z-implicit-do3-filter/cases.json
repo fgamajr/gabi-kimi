@@ -1,0 +1,418 @@
+[
+  {
+    "id": "proc-01",
+    "category": "procurement_do3",
+    "query": "compra pública por meio eletrônico",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-02",
+    "category": "procurement_do3",
+    "query": "pregão eletrônico 2002 do3",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-03",
+    "category": "procurement_do3",
+    "query": "avisos de licitação eletrônica",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-04",
+    "category": "procurement_do3",
+    "query": "contratação pública eletrônica",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-05",
+    "category": "procurement_do3",
+    "query": "pregão e aviso de licitação do3",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-06",
+    "category": "procurement_do3",
+    "query": "aquisição pública por pregão eletrônico",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-07",
+    "category": "procurement_do3",
+    "query": "compra governamental eletrônica",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-08",
+    "category": "procurement_do3",
+    "query": "licitacao por meio eletronico",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-09",
+    "category": "procurement_do3",
+    "query": "pregões eletrônicos e avisos de licitação",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-10",
+    "category": "procurement_do3",
+    "query": "procedimentos de compra pública eletrônica",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-11",
+    "category": "procurement_do3",
+    "query": "licitações eletrônicas em 2002",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-12",
+    "category": "procurement_do3",
+    "query": "processos de compra pública no do3",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-13",
+    "category": "procurement_do3",
+    "query": "documentos sobre pregão eletrônico",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-14",
+    "category": "procurement_do3",
+    "query": "compra pública eletrônica no diário oficial",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-15",
+    "category": "procurement_do3",
+    "query": "pregão do3 2002",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-16",
+    "category": "procurement_do3",
+    "query": "aviso de licitação do3 2002",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  }
+]

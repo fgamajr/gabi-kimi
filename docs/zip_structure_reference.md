@@ -1,4 +1,8 @@
+> Last verified: 2026-03-06
+
 # INLabs ZIP File Structure Analysis Report
+
+Referencia tecnica de analise de ZIPs. O downloader ativo esta em [src/backend/ingest/zip_downloader.py](../src/backend/ingest/zip_downloader.py).
 
 **Analysis Date:** 2026-03-02  
 **Analyst:** Automated Analysis System  

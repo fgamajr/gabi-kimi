@@ -1,0 +1,66 @@
+{
+  "agent": "qwen",
+  "round": 2,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "Section 2: Canonical SearchResult Schema Contract",
+      "description": "Schema allows null values but grader uses issuing_organ and body_plain for hard_match and body_hits calculations. If PG returns 80% nulls while ES returns 10% nulls for the same field, benchmark remains biased. Null frequency parity is not addressed.",
+      "suggested_fix": "Add null frequency analysis requirement: measure % null per field per backend across 100 test cases. If disparity > 10%, either fix data source or modify grader to exclude null-heavy fields from scoring."
+    },
+    {
+      "severity": "high",
+      "location": "Section 3.2: Validation Layer",
+      "description": "validate_results() checks schema conformance but not data quality parity. A backend could pass validation while returning 90% null values for body_plain, still disadvantaging it in body_hits scoring.",
+      "suggested_fix": "Extend validator to compute and log null_frequency per field per backend. Add assertion: null_frequency disparity between backends must be < 10% or require grader adjustment."
+    },
+    {
+      "severity": "medium",
+      "location": "Section 3.3: Performance Impact Assessment",
+      "description": "15% latency threshold is arbitrary with no baseline. No methodology for capturing pre-fix performance metrics to compare against post-fix.",
+      "suggested_fix": "Add baseline capture step: run 100 queries on current PG adapter, record p50/p95/p99 latency before any changes. Use this as comparison baseline."
+    },
+    {
+      "severity": "medium",
+      "location": "Section 5: Acceptance Criteria",
+      "description": "Criterion 1 requires identical field keys but doesn't require grader modification to handle null values fairly. Grader may penalize null as 'no match' which biases against PG if PG has legitimately more nulls in source data.",
+      "suggested_fix": "Add acceptance criterion: grader null-handling behavior documented and tested. Either grader excludes null fields from scoring or null is explicitly treated as 'unknown' not 'no match'."
+    },
+    {
+      "severity": "low",
+      "location": "Section 7: Exit Criteria",
+      "description": "No rollback plan if adapter changes break production search. Benchmark fix should not introduce production regression.",
+      "suggested_fix": "Add exit criterion: production smoke tests pass with new adapter SQL. Rollback procedure documented in docs/rollback_pg_adapter.md."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "Section 1: Root Cause Analysis",
+      "description": "Add data source audit: verify if issuing_organ and body_plain are actually populated in PG source table for the 100 DOU cases, not just schema existence."
+    },
+    {
+      "type": "improvement",
+      "location": "Section 6: Testing Strategy",
+      "description": "Add test for null distribution parity: test_null_frequency_parity() comparing % null per field across PG, ES, and Hybrid backends."
+    },
+    {
+      "type": "improvement",
+      "location": "Section 3.1: PGSearchAdapter Fix",
+      "description": "Replace pseudocode SQL with actual parameterized query using the project's ORM or query builder to prevent SQL injection and ensure consistency."
+    }
+  ],
+  "diffs": [
+    {
+      "file": "src/benchmark/schema_validator.py",
+      "hunks": "@@ -15,6 +15,18 @@ def validate_results(results: list[dict], backend: str) -> None:\n+def compute_null_frequency(results: list[dict], field: str) -> float:\n+    \"\"\"Compute % of results where field is null or missing.\"\"\"\n+    if not results:\n+        return 0.0\n+    null_count = sum(1 for r in results if r.get(field) is None)\n+    return null_count / len(results)\n+\n+def assert_null_parity(backends_null_freq: dict[str, dict[str, float]], threshold: float = 0.10) -> None:\n+    \"\"\"Assert null frequency disparity between backends is within threshold.\"\"\"\n+    for field in backends_null_freq['pg'].keys():\n+        frequencies = [backends_null_freq[b].get(field, 0) for b in backends_null_freq]\n+        if max(frequencies) - min(frequencies) > threshold:\n+            raise BenchmarkError(f\"Null frequency disparity for {field} exceeds {threshold}\")"
+    }
+  ],
+  "meta": {
+    "tokens_used": 847,
+    "latency_ms": 312,
+    "thinking_tokens": 1200
+  },
+  "raw_text": "{\n  \"agent\": \"qwen\",\n  \"round\": 2,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 2: Canonical SearchResult Schema Contract\",\n      \"description\": \"Schema allows null values but grader uses issuing_organ and body_plain for hard_match and body_hits calculations. If PG returns 80% nulls while ES returns 10% nulls for the same field, benchmark remains biased. Null frequency parity is not addressed.\",\n      \"suggested_fix\": \"Add null frequency analysis requirement: measure % null per field per backend across 100 test cases. If disparity > 10%, either fix data source or modify grader to exclude null-heavy fields from scoring.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 3.2: Validation Layer\",\n      \"description\": \"validate_results() checks schema conformance but not data quality parity. A backend could pass validation while returning 90% null values for body_plain, still disadvantaging it in body_hits scoring.\",\n      \"suggested_fix\": \"Extend validator to compute and log null_frequency per field per backend. Add assertion: null_frequency disparity between backends must be < 10% or require grader adjustment.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Section 3.3: Performance Impact Assessment\",\n      \"description\": \"15% latency threshold is arbitrary with no baseline. No methodology for capturing pre-fix performance metrics to compare against post-fix.\",\n      \"suggested_fix\": \"Add baseline capture step: run 100 queries on current PG adapter, record p50/p95/p99 latency before any changes. Use this as comparison baseline.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Section 5: Acceptance Criteria\",\n      \"description\": \"Criterion 1 requires identical field keys but doesn't require grader modification to handle null values fairly. Grader may penalize null as 'no match' which biases against PG if PG has legitimately more nulls in source data.\",\n      \"suggested_fix\": \"Add acceptance criterion: grader null-handling behavior documented and tested. Either grader excludes null fields from scoring or null is explicitly treated as 'unknown' not 'no match'.\"\n    },\n    {\n      \"severity\": \"low\",\n      \"location\": \"Section 7: Exit Criteria\",\n      \"description\": \"No rollback plan if adapter changes break production search. Benchmark fix should not introduce production regression.\",\n      \"suggested_fix\": \"Add exit criterion: production smoke tests pass with new adapter SQL. Rollback procedure documented in docs/rollback_pg_adapter.md.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 1: Root Cause Analysis\",\n      \"description\": \"Add data source audit: verify if issuing_organ and body_plain are actually populated in PG source table for the 100 DOU cases, not just schema existence.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 6: Testing Strategy\",\n      \"description\": \"Add test for null distribution parity: test_null_frequency_parity() comparing % null per field across PG, ES, and Hybrid backends.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 3.1: PGSearchAdapter Fix\",\n      \"description\": \"Replace pseudocode SQL with actual parameterized query using the project's ORM or query builder to prevent SQL injection and ensure consistency.\"\n    }\n  ],\n  \"diffs\": [\n    {\n      \"file\": \"src/benchmark/schema_validator.py\",\n      \"hunks\": \"@@ -15,6 +15,18 @@ def validate_results(results: list[dict], backend: str) -> None:\\n+def compute_null_frequency(results: list[dict], field: str) -> float:\\n+    \\\"\\\"\\\"Compute % of results where field is null or missing.\\\"\\\"\\\"\\n+    if not results:\\n+        return 0.0\\n+    null_count = sum(1 for r in results if r.get(field) is None)\\n+    return null_count / len(results)\\n+\\n+def assert_null_parity(backends_null_freq: dict[str, dict[str, float]], threshold: float = 0.10) -> None:\\n+    \\\"\\\"\\\"Assert null frequency disparity between backends is within threshold.\\\"\\\"\\\"\\n+    for field in backends_null_freq['pg'].keys():\\n+        frequencies = [backends_null_freq[b].get(field, 0) for b in backends_null_freq]\\n+        if max(frequencies) - min(frequencies) > threshold:\\n+            raise BenchmarkError(f\\\"Null frequency disparity for {field} exceeds {threshold}\\\")\"\n    }\n  ],\n  \"meta\": {\n    \"tokens_used\": 847,\n    \"latency_ms\": 312,\n    \"thinking_tokens\": 1200\n  }\n}"
+}

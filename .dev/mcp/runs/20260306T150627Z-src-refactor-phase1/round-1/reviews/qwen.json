@@ -1,0 +1,61 @@
+{
+  "agent": "qwen",
+  "round": 1,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "artifact:proposed direction",
+      "description": "No explicit mapping of which packages (src/backend/ingest/, src/backend/search/, src/backend/dbsync/, src/backend/commitment/, web/) go to src/backend vs src/frontend. This ambiguity creates migration risk and inconsistent decisions across the team.",
+      "suggested_fix": "Provide explicit keep-vs-move table: e.g., src/backend/ingest/src/backend/search/src/backend/dbsync/commitment → src/backend, web/ → split or src/frontend, infra/deploy → defer as stated."
+    },
+    {
+      "severity": "high",
+      "location": "artifact:root entrypoint shims",
+      "description": "Entrypoint shims are mentioned but no mechanism specified. Without sys.path manipulation or wrapper scripts, imports like 'from ingest import X' will break when moved to src/backend/ingest.",
+      "suggested_fix": "Specify shim strategy: either (a) thin wrappers that adjust sys.path before importing, or (b) update all five entrypoints to use new import paths with backward-compatible aliases."
+    },
+    {
+      "severity": "medium",
+      "location": "artifact:validate MCP/config/docs after path updates",
+      "description": "MCP servers (mcp_server.py, mcp_es_server.py) are user-facing integrations. 'Validate after' is insufficient—MCP path configurations may be hardcoded in external client configs that cannot be updated atomically.",
+      "suggested_fix": "Add MCP compatibility layer: keep original module paths working via importlib redirection or namespace packages until external configs can be migrated."
+    },
+    {
+      "severity": "medium",
+      "location": "artifact:tests/ directory",
+      "description": "No mention of test configuration updates. Moving to src/ layout requires pytest path adjustments (testpaths, pythonpath) and may break test imports.",
+      "suggested_fix": "Explicitly add pyproject.toml or pytest.ini updates to include src/ in pythonpath, and verify test discovery works before merging."
+    },
+    {
+      "severity": "low",
+      "location": "artifact:defer infra/deploy renames",
+      "description": "infra/ and deploy/ staying at root while code moves to src/ creates inconsistent layout. Some ops/scripts/ may depend on these paths.",
+      "suggested_fix": "Audit ops/scripts/ for dependencies on infra/deploy paths before Phase 1 completes to avoid hidden breakage in Phase 2."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "artifact:proposed direction",
+      "description": "Add rollback plan: document how to revert if MCP integrations break in production, including git tag before refactor and feature flag approach for gradual migration."
+    },
+    {
+      "type": "improvement",
+      "location": "artifact:src/backend and src/frontend",
+      "description": "Add __init__.py files with explicit __all__ exports to maintain backward-compatible imports during transition period."
+    },
+    {
+      "type": "improvement",
+      "location": "artifact:validation checklist",
+      "description": "Expand validation to include: (1) all five entrypoints execute without import errors, (2) MCP servers register tools correctly, (3) CI/CD pipelines pass with new paths, (4) documented runbooks updated."
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 0,
+    "latency_ms": 0,
+    "thinking_tokens": 0
+  },
+  "raw_text": "{\n  \"agent\": \"qwen\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"artifact:proposed direction\",\n      \"description\": \"No explicit mapping of which packages (src/backend/ingest/, src/backend/search/, src/backend/dbsync/, src/backend/commitment/, web/) go to src/backend vs src/frontend. This ambiguity creates migration risk and inconsistent decisions across the team.\",\n      \"suggested_fix\": \"Provide explicit keep-vs-move table: e.g., src/backend/ingest/src/backend/search/src/backend/dbsync/commitment → src/backend, web/ → split or src/frontend, infra/deploy → defer as stated.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"artifact:root entrypoint shims\",\n      \"description\": \"Entrypoint shims are mentioned but no mechanism specified. Without sys.path manipulation or wrapper scripts, imports like 'from ingest import X' will break when moved to src/backend/ingest.\",\n      \"suggested_fix\": \"Specify shim strategy: either (a) thin wrappers that adjust sys.path before importing, or (b) update all five entrypoints to use new import paths with backward-compatible aliases.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"artifact:validate MCP/config/docs after path updates\",\n      \"description\": \"MCP servers (mcp_server.py, mcp_es_server.py) are user-facing integrations. 'Validate after' is insufficient—MCP path configurations may be hardcoded in external client configs that cannot be updated atomically.\",\n      \"suggested_fix\": \"Add MCP compatibility layer: keep original module paths working via importlib redirection or namespace packages until external configs can be migrated.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"artifact:tests/ directory\",\n      \"description\": \"No mention of test configuration updates. Moving to src/ layout requires pytest path adjustments (testpaths, pythonpath) and may break test imports.\",\n      \"suggested_fix\": \"Explicitly add pyproject.toml or pytest.ini updates to include src/ in pythonpath, and verify test discovery works before merging.\"\n    },\n    {\n      \"severity\": \"low\",\n      \"location\": \"artifact:defer infra/deploy renames\",\n      \"description\": \"infra/ and deploy/ staying at root while code moves to src/ creates inconsistent layout. Some ops/scripts/ may depend on these paths.\",\n      \"suggested_fix\": \"Audit ops/scripts/ for dependencies on infra/deploy paths before Phase 1 completes to avoid hidden breakage in Phase 2.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"artifact:proposed direction\",\n      \"description\": \"Add rollback plan: document how to revert if MCP integrations break in production, including git tag before refactor and feature flag approach for gradual migration.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"artifact:src/backend and src/frontend\",\n      \"description\": \"Add __init__.py files with explicit __all__ exports to maintain backward-compatible imports during transition period.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"artifact:validation checklist\",\n      \"description\": \"Expand validation to include: (1) all five entrypoints execute without import errors, (2) MCP servers register tools correctly, (3) CI/CD pipelines pass with new paths, (4) documented runbooks updated.\"\n    }\n  ],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 0,\n    \"latency_ms\": 0,\n    \"thinking_tokens\": 0\n  }\n}"
+}

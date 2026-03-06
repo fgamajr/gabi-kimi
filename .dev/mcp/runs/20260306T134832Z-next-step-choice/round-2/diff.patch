@@ -1,0 +1,39 @@
+--- before
++++ after
+@@ -3,25 +3,25 @@
+ - hybrid: P@1 0.8000, P@3 0.7967, Hits@10 0.9400, MRR 0.8475
+ - es: P@1 0.3800, P@3 0.3767, Hits@10 0.4900, MRR 0.4174
+ - pg: P@1 0.0200, P@3 0.0200, Hits@10 0.0200, MRR 0.0200
++
+ Strong hybrid categories:
+ - organ_type_filters: perfect
+ - broad_filter: perfect
+ - procurement_do3: very strong
+ - person_exact_phrase: very strong
++
+ Weakest hybrid category:
+ - semantic_paraphrase: P@1 0.3750, Hits@10 0.8125
+-Known caveat:
+-- pg is likely under-scored by the current grader because its result shape is poorer for some filter-aware checks. Therefore hybrid > es looks reliable, but pg gap may be exaggerated.
+ 
+-Critical uncertainty analysis:
+-The PG 2% score across all metrics is suspiciously uniform. This pattern indicates systematic measurement failure (grader shape/parsing issues) rather than actual 2% retrieval quality. The caveat states pg is "likely under-scored" — meaning PG's true P@1 could plausibly range from 0.02 (broken) to 0.38+ (competitive with ES). This is a 20x uncertainty window that fundamentally invalidates any tuning decision made without resolving it. The semantic_paraphrase category at 37.5% P@1 (81.25% Hits@10) shows relevant docs ARE being retrieved — this is a ranking problem, not a retrieval failure. Meanwhile PG at 2% (unknown true value) represents either a broken infrastructure component or a mismeasured but potentially competitive retrieval path.
++Critical analysis:
++The semantic_paraphrase category exhibits a clear retrieval-vs-ranking failure pattern: 81.25% Hits@10 confirms relevant documents are being retrieved, but only 37.5% rank at position 1. This is a ranking problem perfectly suited for hybrid weight tuning — the docs exist, we need to surface them higher. The opportunity is quantifiable: improving P@1 from 0.375 toward 0.8125 represents potential 2x+ gain in this category.
+ 
+-Candidate recommendation:
+-Option 1 is the better next step because it is a prerequisite for any valid engineering decision. Without normalizing PG, we cannot determine whether hybrid tuning (Option 2) is worthwhile or whether it is optimizing weighting between a working ES system and a broken PG system (garbage-in-garbage-out). Normalizing PG benchmark path reveals true performance and determines the actual signal-to-noise ratio in the hybrid ensemble.
++The PG 2% score is either infrastructure failure (connection, empty index, auth) or measurement error. In either case, this does not block hybrid tuning: if PG is broken, the hybrid system runs on ES alone; if PG is mismeasured, the hybrid system already extracts whatever signal exists. PG status is orthogonal to fixing semantic_paraphrase ranking.
+ 
+-Decision tree after Option 1:
+-- If PG normalizes to P@1 > 0.20: PG contributes meaningful signal. Proceed to Option 2 with valid ground truth.
+-- If PG normalizes to P@1 < 0.10: PG infrastructure is broken. Abort Option 2 and fix PG retrieval (index population, embedding pipeline, connection pooling) before any hybrid tuning.
+-- If PG normalizes to P@1 between 0.10-0.20: PG contributes marginal signal. Consider PG+ES ensemble architecture before hybrid weight tuning.
++Opportunity cost comparison:
++- Option 2 (inspect ~12 semantic_paraphrase failures, adjust hybrid weights): estimated 2-4 hours, direct P@1 improvement on live production system, low risk, clear ROI
++- Option 1 (normalize PG benchmark): uncertain timeline (grader refactoring, parsing fixes, re-runs), no direct user impact, may reveal PG is broken anyway
+ 
+-This approach is the shortest path to decision quality because it eliminates the highest-variance unknown before committing engineering resources to potentially wasted hybrid tuning work.
++Parallel track: Run a quick PG health check (index size, latency probe, sample query) in background while executing Option 2. This satisfies the diagnostic need without blocking product improvement.
++
++Decision: Option 2 is the best engineering move right now because it yields immediate product relevance improvement through direct hybrid ranking tuning on the weakest category, with quantifiable upside and known implementation effort. The PG measurement question can proceed asynchronously without blocking.

@@ -1,0 +1,64 @@
+{
+  "agent": "kimi",
+  "round": 3,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "ENTRYPOINT SHIM MECHANISM (all five entrypoints)",
+      "description": "The shims assume specific submodule paths (e.g., frontend.web.main, backend.search.mcp, backend.dbsync.sync) that are not verified to exist in the current codebase. If the current entrypoints contain module-level initialization code (logging config, env var setup, signal handlers) not encapsulated in these assumed main() functions, the shims will silently discard that logic or fail with ImportError. The plan lacks a pre-migration audit to confirm these target modules exist and contain the expected entry points.",
+      "suggested_fix": "Add blocking validation gate: 'Verify target module structure' - confirm that frontend.web.main, backend.search.mcp, backend.search.mcp_es, backend.dbsync.sync, and backend.commitment.cli exist and expose callable main functions. Extract any module-level logic from current entrypoints into these target modules before shim replacement."
+    },
+    {
+      "severity": "high",
+      "location": "EXPLICIT PACKAGE MAPPING (infra/ deferral) and ENTRYPOINT SHIM MECHANISM",
+      "description": "Deferring infra/ to Phase 2 while moving backend packages to src/ creates a cross-tree import breakage. If any backend code (invoked via the shims) imports from infra/, the import will fail because the shims only add src/ to sys.path, not the repo root. When MCP clients invoke servers via absolute path (e.g., /repo/mcp_server.py), the working directory may not be the repo root, and Python's sys.path will not include the repo root by default, making infra/ unresolvable. The risk register understates this as 'Medium' when it is 'Critical' for MCP functionality.",
+      "suggested_fix": "Modify all shims to explicitly add both src/ and the repo root to sys.path to support deferred packages: `for p in [str(_src), str(_root)]: sys.path.insert(0, p) if p not in sys.path`. Upgrade risk severity to Critical in the register. Make the infra/ dependency audit a blocking gate (fail Phase 1 if any backend package imports infra/)."
+    },
+    {
+      "severity": "high",
+      "location": "IMPORT PATH STRATEGY - Automated refactoring tool patterns",
+      "description": "The provided regex patterns are insufficient for Python import syntax. They fail to handle: (1) multi-level imports like `from src.backend.ingest.subpackage.module import name`, (2) relative parent imports `from ..ingest import ...`, (3) aliased imports `import ingest as ing`, (4) star imports `from ingest import *`, (5) string-based dynamic imports. Applying these patterns will result in syntax errors or missed imports that break the codebase.",
+      "suggested_fix": "Replace regex-based refactoring with AST-based tools like `libcst`, `rope`, or `ast-grep` with Python grammar support. Add gate: 'Run pyflakes on all modified files to catch unresolved imports before commit'."
+    },
+    {
+      "severity": "medium",
+      "location": "EXPLICIT PACKAGE MAPPING (Keep-vs-Move Table)",
+      "description": "The `ops/scripts/` directory is listed in active packages but completely omitted from the migration plan. If ops/scripts/ contains utilities that import from both backend packages and deferred infra/, they will fail after the migration due to the split path structure (src/ vs root).",
+      "suggested_fix": "Add ops/scripts/ to the mapping table with explicit decision: move to src/ops/scripts/ (if backend-related) or keep at root (if deployment-related). Audit ops/scripts/ imports against infra/ and backend/ before Phase 1."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "VALIDATION GATES",
+      "description": "Add gate: 'Test entrypoints from arbitrary working directory' - simulate MCP client invocation with `cd /tmp && python /absolute/path/to/mcp_server.py` to verify sys.path manipulation works correctly when CWD is not repo root."
+    },
+    {
+      "type": "improvement",
+      "location": "VALIDATION GATES",
+      "description": "Add gate: 'Check for __pycache__ conflicts' - ensure all __pycache__ directories are cleared before git mv to prevent Python from using stale bytecode with old import paths after the move."
+    },
+    {
+      "type": "improvement",
+      "location": "ENTRYPOINT HANDLING",
+      "description": "Add diagnostic logging to shims: wrap imports in try/except blocks that print sys.path and module name to stderr on failure, simplifying debugging in MCP environments where logs are the only feedback mechanism."
+    }
+  ],
+  "diffs": [
+    {
+      "file": "web_server.py (improved shim template)",
+      "hunks": "@@ -1,12 +1,21 @@\n #!/usr/bin/env python3\n import sys\n-import os\n from pathlib import Path\n \n-_root = Path(__file__).parent\n+_root = Path(__file__).parent.resolve()\n _src = _root / \"src\"\n-if str(_src) not in sys.path:\n-    sys.path.insert(0, str(_src))\n \n-from frontend.web.main import main as _main\n+# Support both src/ packages and root-level deferred packages (infra/, deploy/)\n+for p in [str(_src), str(_root)]:\n+    if p not in sys.path:\n+        sys.path.insert(0, p)\n \n-if __name__ == \"__main__\":\n-    _main()\n+try:\n+    from frontend.web.main import main as _main\n+except ImportError as e:\n+    import sys\n+    print(f\"FATAL: Cannot import frontend.web.main: {e}\", file=sys.stderr)\n+    print(f\"Script dir: {_root}, sys.path: {sys.path}\", file=sys.stderr)\n+    sys.exit(1)\n+\n+if __name__ == \"__main__\":\n+    _main()"
+    },
+    {
+      "file": "RISK REGISTER (infra/deploy cross-tree dependencies row)",
+      "hunks": "@@ -1,3 +1,3 @@\n-| infra/deploy cross-tree dependencies | Medium | Audit imports before Phase 1, fail if dependencies exist |\n+| infra/deploy cross-tree dependencies | Critical | Block Phase 1 if any backend/MCP code imports infra/; update shims to include root in sys.path; move infra/ to src/backend/infra immediately if dependencies found |"
+    }
+  ],
+  "meta": {
+    "tokens_used": 0,
+    "latency_ms": 0,
+    "thinking_tokens": 0
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"kimi\",\n  \"round\": 3,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"ENTRYPOINT SHIM MECHANISM (all five entrypoints)\",\n      \"description\": \"The shims assume specific submodule paths (e.g., frontend.web.main, backend.search.mcp, backend.dbsync.sync) that are not verified to exist in the current codebase. If the current entrypoints contain module-level initialization code (logging config, env var setup, signal handlers) not encapsulated in these assumed main() functions, the shims will silently discard that logic or fail with ImportError. The plan lacks a pre-migration audit to confirm these target modules exist and contain the expected entry points.\",\n      \"suggested_fix\": \"Add blocking validation gate: 'Verify target module structure' - confirm that frontend.web.main, backend.search.mcp, backend.search.mcp_es, backend.dbsync.sync, and backend.commitment.cli exist and expose callable main functions. Extract any module-level logic from current entrypoints into these target modules before shim replacement.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"EXPLICIT PACKAGE MAPPING (infra/ deferral) and ENTRYPOINT SHIM MECHANISM\",\n      \"description\": \"Deferring infra/ to Phase 2 while moving backend packages to src/ creates a cross-tree import breakage. If any backend code (invoked via the shims) imports from infra/, the import will fail because the shims only add src/ to sys.path, not the repo root. When MCP clients invoke servers via absolute path (e.g., /repo/mcp_server.py), the working directory may not be the repo root, and Python's sys.path will not include the repo root by default, making infra/ unresolvable. The risk register understates this as 'Medium' when it is 'Critical' for MCP functionality.\",\n      \"suggested_fix\": \"Modify all shims to explicitly add both src/ and the repo root to sys.path to support deferred packages: `for p in [str(_src), str(_root)]: sys.path.insert(0, p) if p not in sys.path`. Upgrade risk severity to Critical in the register. Make the infra/ dependency audit a blocking gate (fail Phase 1 if any backend package imports infra/).\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"IMPORT PATH STRATEGY - Automated refactoring tool patterns\",\n      \"description\": \"The provided regex patterns are insufficient for Python import syntax. They fail to handle: (1) multi-level imports like `from src.backend.ingest.subpackage.module import name`, (2) relative parent imports `from ..ingest import ...`, (3) aliased imports `import ingest as ing`, (4) star imports `from ingest import *`, (5) string-based dynamic imports. Applying these patterns will result in syntax errors or missed imports that break the codebase.\",\n      \"suggested_fix\": \"Replace regex-based refactoring with AST-based tools like `libcst`, `rope`, or `ast-grep` with Python grammar support. Add gate: 'Run pyflakes on all modified files to catch unresolved imports before commit'.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"EXPLICIT PACKAGE MAPPING (Keep-vs-Move Table)\",\n      \"description\": \"The `ops/scripts/` directory is listed in active packages but completely omitted from the migration plan. If ops/scripts/ contains utilities that import from both backend packages and deferred infra/, they will fail after the migration due to the split path structure (src/ vs root).\",\n      \"suggested_fix\": \"Add ops/scripts/ to the mapping table with explicit decision: move to src/ops/scripts/ (if backend-related) or keep at root (if deployment-related). Audit ops/scripts/ imports against infra/ and backend/ before Phase 1.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"VALIDATION GATES\",\n      \"description\": \"Add gate: 'Test entrypoints from arbitrary working directory' - simulate MCP client invocation with `cd /tmp && python /absolute/path/to/mcp_server.py` to verify sys.path manipulation works correctly when CWD is not repo root.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"VALIDATION GATES\",\n      \"description\": \"Add gate: 'Check for __pycache__ conflicts' - ensure all __pycache__ directories are cleared before git mv to prevent Python from using stale bytecode with old import paths after the move.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"ENTRYPOINT HANDLING\",\n      \"description\": \"Add diagnostic logging to shims: wrap imports in try/except blocks that print sys.path and module name to stderr on failure, simplifying debugging in MCP environments where logs are the only feedback mechanism.\"\n    }\n  ],\n  \"diffs\": [\n    {\n      \"file\": \"web_server.py (improved shim template)\",\n      \"hunks\": \"@@ -1,12 +1,21 @@\\n #!/usr/bin/env python3\\n import sys\\n-import os\\n from pathlib import Path\\n \\n-_root = Path(__file__).parent\\n+_root = Path(__file__).parent.resolve()\\n _src = _root / \\\"src\\\"\\n-if str(_src) not in sys.path:\\n-    sys.path.insert(0, str(_src))\\n \\n-from frontend.web.main import main as _main\\n+# Support both src/ packages and root-level deferred packages (infra/, deploy/)\\n+for p in [str(_src), str(_root)]:\\n+    if p not in sys.path:\\n+        sys.path.insert(0, p)\\n \\n-if __name__ == \\\"__main__\\\":\\n-    _main()\\n+try:\\n+    from frontend.web.main import main as _main\\n+except ImportError as e:\\n+    import sys\\n+    print(f\\\"FATAL: Cannot import frontend.web.main: {e}\\\", file=sys.stderr)\\n+    print(f\\\"Script dir: {_root}, sys.path: {sys.path}\\\", file=sys.stderr)\\n+    sys.exit(1)\\n+\\n+if __name__ == \\\"__main__\\\":\\n+    _main()\"\n    },\n    {\n      \"file\": \"RISK REGISTER (infra/deploy cross-tree dependencies row)\",\n      \"hunks\": \"@@ -1,3 +1,3 @@\\n-| infra/deploy cross-tree dependencies | Medium | Audit imports before Phase 1, fail if dependencies exist |\\n+| infra/deploy cross-tree dependencies | Critical | Block Phase 1 if any backend/MCP code imports infra/; update shims to include root in sys.path; move infra/ to src/backend/infra immediately if dependencies found |\"\n    }\n  ],\n  \"meta\": {\n    \"tokens_used\": 0,\n    \"latency_ms\": 0,\n    \"thinking_tokens\": 0\n  }\n}\n```"
+}

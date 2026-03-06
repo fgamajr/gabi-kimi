@@ -1,0 +1,21 @@
+{
+  "agent": "claude",
+  "round": 1,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "artifact:1",
+      "description": "Need stronger naming",
+      "suggested_fix": "rename x to total"
+    }
+  ],
+  "suggestions": [],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 12,
+    "latency_ms": 0,
+    "thinking_tokens": 0
+  },
+  "raw_text": "{\"verdict\": \"REQUEST_CHANGES\", \"objections\": [{\"severity\": \"high\", \"location\": \"artifact:1\", \"description\": \"Need stronger naming\", \"suggested_fix\": \"rename x to total\"}], \"suggestions\": [], \"diffs\": [], \"meta\": {}}"
+}

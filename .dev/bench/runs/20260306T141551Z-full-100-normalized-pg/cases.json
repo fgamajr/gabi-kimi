@@ -1,0 +1,2146 @@
+[
+  {
+    "id": "bolsa-01",
+    "category": "bolsa_alimentacao",
+    "query": "bolsa alimentação ministério da saúde",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-02",
+    "category": "bolsa_alimentacao",
+    "query": "bolsa-alimentação ministério da saúde",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-03",
+    "category": "bolsa_alimentacao",
+    "query": "municípios qualificados bolsa alimentação",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-04",
+    "category": "bolsa_alimentacao",
+    "query": "atos sobre municípios qualificados no bolsa alimentação",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-05",
+    "category": "bolsa_alimentacao",
+    "query": "programa bolsa alimentação saúde 2002",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-06",
+    "category": "bolsa_alimentacao",
+    "query": "portarias sobre bolsa alimentação em 2002",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-07",
+    "category": "bolsa_alimentacao",
+    "query": "qualificação de municípios bolsa alimentação",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-08",
+    "category": "bolsa_alimentacao",
+    "query": "municípios integrar programa bolsa alimentação",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-09",
+    "category": "bolsa_alimentacao",
+    "query": "portaria ministério da saúde bolsa alimentação",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-10",
+    "category": "bolsa_alimentacao",
+    "query": "documentos sobre bolsa-alimentação e municípios",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-11",
+    "category": "bolsa_alimentacao",
+    "query": "municípios qualificados para o programa bolsa alimentação",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-12",
+    "category": "bolsa_alimentacao",
+    "query": "atos de qualificação de municípios bolsa alimentação",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-13",
+    "category": "bolsa_alimentacao",
+    "query": "programa bolsa-alimentação ministério da saúde 2002",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-14",
+    "category": "bolsa_alimentacao",
+    "query": "bolsa alimentação municípios portaria 2002",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-15",
+    "category": "bolsa_alimentacao",
+    "query": "quais portarias qualificam municípios no programa bolsa alimentação",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-16",
+    "category": "bolsa_alimentacao",
+    "query": "qualifica municípios para integrar o programa bolsa-alimentação",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "proc-01",
+    "category": "procurement_do3",
+    "query": "compra pública por meio eletrônico",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-02",
+    "category": "procurement_do3",
+    "query": "pregão eletrônico 2002 do3",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-03",
+    "category": "procurement_do3",
+    "query": "avisos de licitação eletrônica",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-04",
+    "category": "procurement_do3",
+    "query": "contratação pública eletrônica",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-05",
+    "category": "procurement_do3",
+    "query": "pregão e aviso de licitação do3",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-06",
+    "category": "procurement_do3",
+    "query": "aquisição pública por pregão eletrônico",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-07",
+    "category": "procurement_do3",
+    "query": "compra governamental eletrônica",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-08",
+    "category": "procurement_do3",
+    "query": "licitacao por meio eletronico",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-09",
+    "category": "procurement_do3",
+    "query": "pregões eletrônicos e avisos de licitação",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-10",
+    "category": "procurement_do3",
+    "query": "procedimentos de compra pública eletrônica",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-11",
+    "category": "procurement_do3",
+    "query": "licitações eletrônicas em 2002",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-12",
+    "category": "procurement_do3",
+    "query": "processos de compra pública no do3",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-13",
+    "category": "procurement_do3",
+    "query": "documentos sobre pregão eletrônico",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-14",
+    "category": "procurement_do3",
+    "query": "compra pública eletrônica no diário oficial",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-15",
+    "category": "procurement_do3",
+    "query": "pregão do3 2002",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "proc-16",
+    "category": "procurement_do3",
+    "query": "aviso de licitação do3 2002",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "PREGÃO",
+        "AVISO DE LICITAÇÃO"
+      ],
+      "body_contains": [
+        "pregão",
+        "pregão eletrônico",
+        "licitação",
+        "aviso de licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target procurement-style documents in DO3; semantic retrieval should help on paraphrases."
+    }
+  },
+  {
+    "id": "orgtype-01",
+    "category": "organ_type_filters",
+    "query": "portaria ministério da saúde 2002",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "art_type": "portaria",
+      "issuing_organ": "Ministério da Saúde"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "ministério da saúde",
+        "portaria"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Hard filter case; top results should respect exact organ/type constraints."
+    }
+  },
+  {
+    "id": "orgtype-02",
+    "category": "organ_type_filters",
+    "query": "atos do ministério da saúde tipo portaria",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "art_type": "portaria",
+      "issuing_organ": "Ministério da Saúde"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "ministério da saúde",
+        "portaria"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Hard filter case; top results should respect exact organ/type constraints."
+    }
+  },
+  {
+    "id": "orgtype-03",
+    "category": "organ_type_filters",
+    "query": "portarias emitidas pelo ministério da saúde",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "art_type": "portaria",
+      "issuing_organ": "Ministério da Saúde"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "ministério da saúde",
+        "portaria"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Hard filter case; top results should respect exact organ/type constraints."
+    }
+  },
+  {
+    "id": "orgtype-04",
+    "category": "organ_type_filters",
+    "query": "publicações do ministério da saúde em portaria",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "art_type": "portaria",
+      "issuing_organ": "Ministério da Saúde"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "ministério da saúde",
+        "portaria"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Hard filter case; top results should respect exact organ/type constraints."
+    }
+  },
+  {
+    "id": "orgtype-05",
+    "category": "organ_type_filters",
+    "query": "portarias do ministério da justiça em outubro de 2002",
+    "filters": {
+      "date_from": "2002-10-01",
+      "date_to": "2002-10-31",
+      "art_type": "portaria",
+      "issuing_organ": "Ministério da Justiça"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "ministério da justiça",
+        "portaria"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Hard filter case; top results should respect exact organ/type constraints."
+    }
+  },
+  {
+    "id": "orgtype-06",
+    "category": "organ_type_filters",
+    "query": "ministério da justiça outubro 2002 portaria",
+    "filters": {
+      "date_from": "2002-10-01",
+      "date_to": "2002-10-31",
+      "art_type": "portaria",
+      "issuing_organ": "Ministério da Justiça"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "ministério da justiça",
+        "portaria"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Hard filter case; top results should respect exact organ/type constraints."
+    }
+  },
+  {
+    "id": "orgtype-07",
+    "category": "organ_type_filters",
+    "query": "atos do ministério da justiça tipo portaria em outubro",
+    "filters": {
+      "date_from": "2002-10-01",
+      "date_to": "2002-10-31",
+      "art_type": "portaria",
+      "issuing_organ": "Ministério da Justiça"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "ministério da justiça",
+        "portaria"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Hard filter case; top results should respect exact organ/type constraints."
+    }
+  },
+  {
+    "id": "orgtype-08",
+    "category": "organ_type_filters",
+    "query": "portaria ministério da justiça outubro 2002",
+    "filters": {
+      "date_from": "2002-10-01",
+      "date_to": "2002-10-31",
+      "art_type": "portaria",
+      "issuing_organ": "Ministério da Justiça"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "ministério da justiça",
+        "portaria"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Hard filter case; top results should respect exact organ/type constraints."
+    }
+  },
+  {
+    "id": "orgtype-09",
+    "category": "organ_type_filters",
+    "query": "atos do ministério da fazenda agosto 2002",
+    "filters": {
+      "date_from": "2002-08-01",
+      "date_to": "2002-08-31",
+      "art_type": "ato",
+      "issuing_organ": "Ministério da Fazenda"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "ministério da fazenda",
+        "ato"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Hard filter case; top results should respect exact organ/type constraints."
+    }
+  },
+  {
+    "id": "orgtype-10",
+    "category": "organ_type_filters",
+    "query": "ato ministério da fazenda agosto de 2002",
+    "filters": {
+      "date_from": "2002-08-01",
+      "date_to": "2002-08-31",
+      "art_type": "ato",
+      "issuing_organ": "Ministério da Fazenda"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "ministério da fazenda",
+        "ato"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Hard filter case; top results should respect exact organ/type constraints."
+    }
+  },
+  {
+    "id": "orgtype-11",
+    "category": "organ_type_filters",
+    "query": "publicações do ministério da fazenda tipo ato",
+    "filters": {
+      "date_from": "2002-08-01",
+      "date_to": "2002-08-31",
+      "art_type": "ato",
+      "issuing_organ": "Ministério da Fazenda"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "ministério da fazenda",
+        "ato"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Hard filter case; top results should respect exact organ/type constraints."
+    }
+  },
+  {
+    "id": "orgtype-12",
+    "category": "organ_type_filters",
+    "query": "atos fazenda agosto 2002",
+    "filters": {
+      "date_from": "2002-08-01",
+      "date_to": "2002-08-31",
+      "art_type": "ato",
+      "issuing_organ": "Ministério da Fazenda"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "ministério da fazenda",
+        "ato"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Hard filter case; top results should respect exact organ/type constraints."
+    }
+  },
+  {
+    "id": "orgtype-13",
+    "category": "organ_type_filters",
+    "query": "portarias do ministério da educação em 2002",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "art_type": "portaria",
+      "issuing_organ": "Ministério da Educação"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "ministério da educação",
+        "portaria"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Hard filter case; top results should respect exact organ/type constraints."
+    }
+  },
+  {
+    "id": "orgtype-14",
+    "category": "organ_type_filters",
+    "query": "atos do ministério da educação portaria",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "art_type": "portaria",
+      "issuing_organ": "Ministério da Educação"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "ministério da educação",
+        "portaria"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Hard filter case; top results should respect exact organ/type constraints."
+    }
+  },
+  {
+    "id": "orgtype-15",
+    "category": "organ_type_filters",
+    "query": "portaria mec 2002",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "art_type": "portaria",
+      "issuing_organ": "Ministério da Educação"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "ministério da educação",
+        "portaria"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Hard filter case; top results should respect exact organ/type constraints."
+    }
+  },
+  {
+    "id": "orgtype-16",
+    "category": "organ_type_filters",
+    "query": "documentos do ministério da educação tipo portaria",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "art_type": "portaria",
+      "issuing_organ": "Ministério da Educação"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "ministério da educação",
+        "portaria"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Hard filter case; top results should respect exact organ/type constraints."
+    }
+  },
+  {
+    "id": "person-01",
+    "category": "person_exact_phrase",
+    "query": "\"Fernando Lima Gama\"",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "ANEXO CONCURSO PÚBLICO PARA ANALISTA DE FINANCAS E CONTROLE - AFC"
+      ],
+      "body_contains": [],
+      "exact_phrase": "Fernando Lima Gama",
+      "expected_min_results": 1,
+      "notes": "Exact phrase should isolate the known 2002 occurrence."
+    }
+  },
+  {
+    "id": "person-02",
+    "category": "person_exact_phrase",
+    "query": "Fernando Lima Gama",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "Fernando Lima Gama"
+      ],
+      "exact_phrase": "Fernando Lima Gama",
+      "expected_min_results": 1,
+      "notes": ""
+    }
+  },
+  {
+    "id": "person-03",
+    "category": "person_exact_phrase",
+    "query": "\"Fernando Henrique Cardoso\"",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "Fernando Henrique Cardoso"
+      ],
+      "exact_phrase": "Fernando Henrique Cardoso",
+      "expected_min_results": 1,
+      "notes": ""
+    }
+  },
+  {
+    "id": "person-04",
+    "category": "person_exact_phrase",
+    "query": "Fernando Henrique Cardoso",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "Fernando Henrique Cardoso"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": ""
+    }
+  },
+  {
+    "id": "person-05",
+    "category": "person_exact_phrase",
+    "query": "\"Luiz Inácio Lula da Silva\"",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "Lula",
+        "Luiz Inácio Lula da Silva"
+      ],
+      "exact_phrase": "Luiz Inácio Lula da Silva",
+      "expected_min_results": 1,
+      "notes": ""
+    }
+  },
+  {
+    "id": "person-06",
+    "category": "person_exact_phrase",
+    "query": "\"José Serra\"",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "José Serra"
+      ],
+      "exact_phrase": "José Serra",
+      "expected_min_results": 1,
+      "notes": ""
+    }
+  },
+  {
+    "id": "person-07",
+    "category": "person_exact_phrase",
+    "query": "\"Roseana Sarney\"",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "Roseana Sarney"
+      ],
+      "exact_phrase": "Roseana Sarney",
+      "expected_min_results": 1,
+      "notes": ""
+    }
+  },
+  {
+    "id": "person-08",
+    "category": "person_exact_phrase",
+    "query": "\"Ciro Gomes\"",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "Ciro Gomes"
+      ],
+      "exact_phrase": "Ciro Gomes",
+      "expected_min_results": 1,
+      "notes": ""
+    }
+  },
+  {
+    "id": "person-09",
+    "category": "person_exact_phrase",
+    "query": "\"Geraldo Alckmin\"",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "Geraldo Alckmin"
+      ],
+      "exact_phrase": "Geraldo Alckmin",
+      "expected_min_results": 1,
+      "notes": ""
+    }
+  },
+  {
+    "id": "person-10",
+    "category": "person_exact_phrase",
+    "query": "\"Anthony Garotinho\"",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "Anthony Garotinho"
+      ],
+      "exact_phrase": "Anthony Garotinho",
+      "expected_min_results": 1,
+      "notes": ""
+    }
+  },
+  {
+    "id": "person-11",
+    "category": "person_exact_phrase",
+    "query": "\"Marina Silva\"",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "Marina Silva"
+      ],
+      "exact_phrase": "Marina Silva",
+      "expected_min_results": 1,
+      "notes": ""
+    }
+  },
+  {
+    "id": "person-12",
+    "category": "person_exact_phrase",
+    "query": "\"José Dirceu\"",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "José Dirceu"
+      ],
+      "exact_phrase": "José Dirceu",
+      "expected_min_results": 1,
+      "notes": ""
+    }
+  },
+  {
+    "id": "concept-01",
+    "category": "legal_concepts",
+    "query": "atos sobre naturalização publicados em 2002",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "naturalização",
+        "naturalizacao"
+      ],
+      "body_contains": [
+        "naturalização"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": ""
+    }
+  },
+  {
+    "id": "concept-02",
+    "category": "legal_concepts",
+    "query": "documentos sobre naturalização em 2002",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "naturalização",
+        "naturalizacao"
+      ],
+      "body_contains": [
+        "naturalização"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": ""
+    }
+  },
+  {
+    "id": "concept-03",
+    "category": "legal_concepts",
+    "query": "publicações sobre naturalização",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "naturalização",
+        "naturalizacao"
+      ],
+      "body_contains": [
+        "naturalização"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": ""
+    }
+  },
+  {
+    "id": "concept-04",
+    "category": "legal_concepts",
+    "query": "atos sobre utilidade pública federal em 2002",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "utilidade pública federal",
+        "utilidade publica federal"
+      ],
+      "body_contains": [
+        "utilidade pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": ""
+    }
+  },
+  {
+    "id": "concept-05",
+    "category": "legal_concepts",
+    "query": "publicações sobre utilidade pública federal",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "utilidade pública federal",
+        "utilidade publica federal"
+      ],
+      "body_contains": [
+        "utilidade pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": ""
+    }
+  },
+  {
+    "id": "concept-06",
+    "category": "legal_concepts",
+    "query": "anvisa medicamentos 2002",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "ANVISA",
+        "medicamentos"
+      ],
+      "body_contains": [
+        "ANVISA",
+        "medicamento"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": ""
+    }
+  },
+  {
+    "id": "concept-07",
+    "category": "legal_concepts",
+    "query": "publicações sobre anvisa e medicamentos",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "ANVISA",
+        "medicamentos"
+      ],
+      "body_contains": [
+        "ANVISA",
+        "medicamento"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": ""
+    }
+  },
+  {
+    "id": "concept-08",
+    "category": "legal_concepts",
+    "query": "decretos presidenciais de agosto de 2002 sobre delegação ou posse presidencial",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "decreto",
+        "presidencial",
+        "delegação",
+        "posse"
+      ],
+      "body_contains": [
+        "decreto"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": ""
+    }
+  },
+  {
+    "id": "concept-09",
+    "category": "legal_concepts",
+    "query": "delegação presidencial agosto 2002",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "decreto",
+        "presidencial",
+        "delegação",
+        "posse"
+      ],
+      "body_contains": [
+        "decreto"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": ""
+    }
+  },
+  {
+    "id": "concept-10",
+    "category": "legal_concepts",
+    "query": "posse presidencial decreto 2002",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "decreto",
+        "presidencial",
+        "delegação",
+        "posse"
+      ],
+      "body_contains": [
+        "decreto"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": ""
+    }
+  },
+  {
+    "id": "concept-11",
+    "category": "legal_concepts",
+    "query": "atos federais sobre utilidade pública",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "utilidade pública federal",
+        "utilidade publica federal"
+      ],
+      "body_contains": [
+        "utilidade pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": ""
+    }
+  },
+  {
+    "id": "concept-12",
+    "category": "legal_concepts",
+    "query": "documentos sobre naturalizacao",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "naturalização",
+        "naturalizacao"
+      ],
+      "body_contains": [
+        "naturalização"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": ""
+    }
+  },
+  {
+    "id": "sem-01",
+    "category": "semantic_paraphrase",
+    "query": "quais atos qualificam municípios no programa bolsa alimentação",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "bolsa-alimentação",
+        "qualifica municípios"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Paraphrase-heavy semantic recall case."
+    }
+  },
+  {
+    "id": "sem-02",
+    "category": "semantic_paraphrase",
+    "query": "quais documentos tratam de compra pública por meio eletrônico",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "pregão",
+        "licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Paraphrase-heavy semantic recall case."
+    }
+  },
+  {
+    "id": "sem-03",
+    "category": "semantic_paraphrase",
+    "query": "atos sobre municípios habilitados para bolsa alimentação",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "bolsa-alimentação",
+        "qualifica municípios"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Paraphrase-heavy semantic recall case."
+    }
+  },
+  {
+    "id": "sem-04",
+    "category": "semantic_paraphrase",
+    "query": "documentos de aquisição pública eletrônica",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "decreto",
+        "posse",
+        "delegação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Paraphrase-heavy semantic recall case."
+    }
+  },
+  {
+    "id": "sem-05",
+    "category": "semantic_paraphrase",
+    "query": "quais publicações falam de pregão eletrônico",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "pregão",
+        "licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Paraphrase-heavy semantic recall case."
+    }
+  },
+  {
+    "id": "sem-06",
+    "category": "semantic_paraphrase",
+    "query": "atos de qualificação municipal em programa alimentar",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "bolsa-alimentação",
+        "qualifica municípios"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Paraphrase-heavy semantic recall case."
+    }
+  },
+  {
+    "id": "sem-07",
+    "category": "semantic_paraphrase",
+    "query": "publicações sobre contratação pública digital",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "decreto",
+        "posse",
+        "delegação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Paraphrase-heavy semantic recall case."
+    }
+  },
+  {
+    "id": "sem-08",
+    "category": "semantic_paraphrase",
+    "query": "portarias que habilitam municípios para programa alimentar",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "bolsa-alimentação",
+        "qualifica municípios"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Paraphrase-heavy semantic recall case."
+    }
+  },
+  {
+    "id": "sem-09",
+    "category": "semantic_paraphrase",
+    "query": "compra governamental feita por pregão eletrônico",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "pregão",
+        "licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Paraphrase-heavy semantic recall case."
+    }
+  },
+  {
+    "id": "sem-10",
+    "category": "semantic_paraphrase",
+    "query": "atos referentes a licitação eletrônica",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "pregão",
+        "licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Paraphrase-heavy semantic recall case."
+    }
+  },
+  {
+    "id": "sem-11",
+    "category": "semantic_paraphrase",
+    "query": "quais textos tratam de anvisa e medicamentos",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "ANVISA",
+        "medicamento"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Paraphrase-heavy semantic recall case."
+    }
+  },
+  {
+    "id": "sem-12",
+    "category": "semantic_paraphrase",
+    "query": "quais documentos falam de utilidade pública federal",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "utilidade pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Paraphrase-heavy semantic recall case."
+    }
+  },
+  {
+    "id": "sem-13",
+    "category": "semantic_paraphrase",
+    "query": "textos sobre naturalização em 2002",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "naturalização"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Paraphrase-heavy semantic recall case."
+    }
+  },
+  {
+    "id": "sem-14",
+    "category": "semantic_paraphrase",
+    "query": "atos relacionados a posse presidencial",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "decreto",
+        "posse",
+        "delegação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Paraphrase-heavy semantic recall case."
+    }
+  },
+  {
+    "id": "sem-15",
+    "category": "semantic_paraphrase",
+    "query": "portarias do ministério da saúde sobre bolsa alimentação",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "bolsa-alimentação",
+        "qualifica municípios"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Paraphrase-heavy semantic recall case."
+    }
+  },
+  {
+    "id": "sem-16",
+    "category": "semantic_paraphrase",
+    "query": "documentos de compra pública no do3",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "pregão",
+        "licitação",
+        "compra pública"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Paraphrase-heavy semantic recall case."
+    }
+  },
+  {
+    "id": "broad-01-1",
+    "category": "broad_filter",
+    "query": "licitação",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "licitação",
+        "aviso",
+        "pregão"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Broad filter sanity case; checks stable retrieval under common operator queries."
+    }
+  },
+  {
+    "id": "broad-01-2",
+    "category": "broad_filter",
+    "query": "licitação 2002",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "licitação",
+        "aviso",
+        "pregão"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Broad filter sanity case; checks stable retrieval under common operator queries."
+    }
+  },
+  {
+    "id": "broad-01-3",
+    "category": "broad_filter",
+    "query": "licitação diário oficial",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "licitação",
+        "aviso",
+        "pregão"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Broad filter sanity case; checks stable retrieval under common operator queries."
+    }
+  },
+  {
+    "id": "broad-02-1",
+    "category": "broad_filter",
+    "query": "aviso licitação",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "aviso",
+        "licitação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Broad filter sanity case; checks stable retrieval under common operator queries."
+    }
+  },
+  {
+    "id": "broad-02-2",
+    "category": "broad_filter",
+    "query": "aviso licitação 2002",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "aviso",
+        "licitação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Broad filter sanity case; checks stable retrieval under common operator queries."
+    }
+  },
+  {
+    "id": "broad-02-3",
+    "category": "broad_filter",
+    "query": "aviso licitação diário oficial",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "aviso",
+        "licitação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Broad filter sanity case; checks stable retrieval under common operator queries."
+    }
+  },
+  {
+    "id": "broad-03-1",
+    "category": "broad_filter",
+    "query": "pregão",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "pregão"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Broad filter sanity case; checks stable retrieval under common operator queries."
+    }
+  },
+  {
+    "id": "broad-03-2",
+    "category": "broad_filter",
+    "query": "pregão 2002",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "pregão"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Broad filter sanity case; checks stable retrieval under common operator queries."
+    }
+  },
+  {
+    "id": "broad-03-3",
+    "category": "broad_filter",
+    "query": "pregão diário oficial",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "section": "do3"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "pregão"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Broad filter sanity case; checks stable retrieval under common operator queries."
+    }
+  },
+  {
+    "id": "broad-04-1",
+    "category": "broad_filter",
+    "query": "portaria saúde",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "art_type": "portaria"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "portaria",
+        "saúde"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Broad filter sanity case; checks stable retrieval under common operator queries."
+    }
+  },
+  {
+    "id": "broad-04-2",
+    "category": "broad_filter",
+    "query": "portaria saúde 2002",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "art_type": "portaria"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "portaria",
+        "saúde"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Broad filter sanity case; checks stable retrieval under common operator queries."
+    }
+  },
+  {
+    "id": "broad-04-3",
+    "category": "broad_filter",
+    "query": "portaria saúde diário oficial",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31",
+      "art_type": "portaria"
+    },
+    "relevance_hints": {
+      "title_contains": [],
+      "body_contains": [
+        "portaria",
+        "saúde"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Broad filter sanity case; checks stable retrieval under common operator queries."
+    }
+  }
+]

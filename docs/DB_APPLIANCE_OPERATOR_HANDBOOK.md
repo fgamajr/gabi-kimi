@@ -1,4 +1,9 @@
+> Last verified: 2026-03-06
+
 # Local Database Appliance Operator Handbook
+
+Este guia cobre a infraestrutura local real do projeto: PostgreSQL, Elasticsearch e Redis via
+[ops/local/docker-compose.yml](../ops/local/docker-compose.yml), gerenciados por [ops/local/infra_manager.py](../ops/local/infra_manager.py).
 
 ## 1) Prerequisites
 
@@ -39,8 +44,8 @@ On a fresh environment or after full infra destruction.
 
 ### Commands
 ```bash
-python3 infra/infra_manager.py up
-python3 infra/infra_manager.py status
+python3 ops/local/infra_manager.py up
+python3 ops/local/infra_manager.py status
 docker exec gabi-postgres-appliance pg_isready -U gabi -d gabi
 docker exec -e PGPASSWORD=gabi gabi-postgres-appliance \
   psql -U gabi -d gabi -c "SELECT current_database(), current_user;"
@@ -48,7 +53,7 @@ docker exec -e PGPASSWORD=gabi gabi-postgres-appliance \
 
 ### Expected result
 - `up` returns `ok: true`.
-- `status` shows container exists and running.
+- `status` shows PostgreSQL, Elasticsearch and Redis healthy.
 - `pg_isready` reports accepting connections.
 - SQL query returns `gabi` / `gabi`.
 
@@ -67,12 +72,14 @@ At the beginning of a dev/test session.
 
 ### Commands
 ```bash
-python3 infra/infra_manager.py up
-python3 infra/infra_manager.py status
+python3 ops/local/infra_manager.py up
+python3 ops/local/infra_manager.py status
 ```
 
 ### Expected result
-- Container is running on port `5433`.
+- PostgreSQL is running on port `5433`.
+- Elasticsearch is running on port `9200`.
+- Redis is running on port `6380`.
 - Existing data remains intact.
 
 ### Safety warning
@@ -90,8 +97,8 @@ When ending work or freeing machine resources.
 
 ### Commands
 ```bash
-python3 infra/infra_manager.py down
-python3 infra/infra_manager.py status
+python3 ops/local/infra_manager.py down
+python3 ops/local/infra_manager.py status
 ```
 
 ### Expected result
@@ -113,8 +120,8 @@ Default development workflow between runs/tests.
 
 ### Commands
 ```bash
-python3 infra/infra_manager.py reset_db
-python3 infra/infra_manager.py status
+python3 ops/local/infra_manager.py reset_db
+python3 ops/local/infra_manager.py status
 ```
 
 ### Expected result
@@ -137,8 +144,8 @@ Before fresh migration + seed cycles.
 
 ### Commands
 ```bash
-python3 infra/infra_manager.py recreate
-python3 infra/infra_manager.py status
+python3 ops/local/infra_manager.py recreate
+python3 ops/local/infra_manager.py status
 ```
 
 ### Expected result
@@ -154,7 +161,7 @@ Destructive to database contents (schema-level).
 ## 7) Soft Delete Data
 
 ### What this operation does
-Performs logical cleanup of application data without infra/container changes.
+Performs logical cleanup of application data without ops/local/container changes.
 
 ### When to use it
 When you need selective cleanup and want to keep schema/migrations.
@@ -190,7 +197,7 @@ When you need complete data wipe but do not want infra teardown.
 
 ### Commands
 ```bash
-python3 infra/infra_manager.py reset_db
+python3 ops/local/infra_manager.py reset_db
 ```
 
 ### Expected result
@@ -212,8 +219,8 @@ When you need absolute clean slate (no data retained).
 
 ### Commands
 ```bash
-python3 infra/infra_manager.py destroy
-python3 infra/infra_manager.py status
+python3 ops/local/infra_manager.py destroy
+python3 ops/local/infra_manager.py status
 ```
 
 ### Expected result
@@ -235,9 +242,9 @@ Checks runtime state and restarts cleanly.
 
 #### Commands
 ```bash
-python3 infra/infra_manager.py status
+python3 ops/local/infra_manager.py status
 docker ps -a --filter name=gabi-postgres-appliance
-python3 infra/infra_manager.py up
+python3 ops/local/infra_manager.py up
 ```
 
 #### Expected result
@@ -263,7 +270,7 @@ If conflict is another container:
 ```bash
 docker stop <container_id>
 docker rm <container_id>
-python3 infra/infra_manager.py up
+python3 ops/local/infra_manager.py up
 ```
 
 #### Expected result
@@ -281,13 +288,13 @@ Verifies DB readiness and connectivity.
 
 #### Commands
 ```bash
-python3 infra/infra_manager.py up
+python3 ops/local/infra_manager.py up
 docker exec gabi-postgres-appliance pg_isready -U gabi -d gabi
 ```
 
 If still failing:
 ```bash
-python3 infra/infra_manager.py recreate
+python3 ops/local/infra_manager.py recreate
 ```
 
 #### Expected result
@@ -305,14 +312,14 @@ Resets schema to known clean state.
 
 #### Commands
 ```bash
-python3 infra/infra_manager.py reset_db
+python3 ops/local/infra_manager.py reset_db
 # then run your migrations and seed process
 ```
 
 If issue persists:
 ```bash
-python3 infra/infra_manager.py destroy
-python3 infra/infra_manager.py up
+python3 ops/local/infra_manager.py destroy
+python3 ops/local/infra_manager.py up
 # then run migrations and seed process
 ```
 
@@ -333,7 +340,7 @@ Restarts Docker service and revalidates infra.
 ```bash
 sudo systemctl start docker
 docker info
-python3 infra/infra_manager.py up
+python3 ops/local/infra_manager.py up
 ```
 
 #### Expected result

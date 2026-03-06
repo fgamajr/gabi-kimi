@@ -1,0 +1,137 @@
+Phase 1 Repository Refactor Plan: Safe Migration to src/ Layout
+
+PROPOSED DIRECTION
+Create src/backend and src/frontend directories, move implementation packages there with explicit mapping, keep root entrypoint shims for all currently-invoked top-level scripts, update pyproject.toml for src/ layout discovery, and implement validation gates before any code moves.
+
+EXPLICIT PACKAGE MAPPING (Keep-vs-Move Table)
+| Package    | Destination        | Rationale                                      | Phase |
+|------------|-------------------|------------------------------------------------|-------|
+| ingest/    | src/backend/ingest | Core backend data processing                   | 1     |
+| search/    | src/backend/search | Backend search/indexing logic                  | 1     |
+| dbsync/    | src/backend/dbsync | Database synchronization (backend concern)     | 1     |
+| commitment/| src/backend/commitment | Commitment tracking logic (backend)        | 1     |
+| web/       | src/frontend/web   | Frontend-facing web server logic               | 1     |
+| infra/     | root (defer)       | Shared utilities, audit imports before Phase 2 | 2     |
+| deploy/    | root (defer)       | Deployment scripts, defer to Phase 2           | 2     |
+| tests/     | root (stay)        | Update imports, verify discovery pre-merge     | 1     |
+
+ENTRYPOINT HANDLING
+| File              | Action                                          | MCP-Safe |
+|-------------------|-------------------------------------------------|----------|
+| web_server.py     | Keep at root, shim imports to src/frontend/web | Yes      |
+| mcp_server.py     | KEEP AT ROOT (do not move in Phase 1)          | Yes      |
+| mcp_es_server.py  | KEEP AT ROOT (do not move in Phase 1)          | Yes      |
+| schema_sync.py    | Keep at root, shim imports to src/backend      | Yes      |
+| commitment_cli.py | Keep at root, shim imports to src/backend      | Yes      |
+
+Rationale: MCP servers are invoked via absolute paths in Claude Desktop, VS Code, and other MCP client manifests. Moving these without atomic config updates breaks integrations immediately.
+
+ENTRYPOINT SHIM MECHANISM (Concrete Implementation)
+Example shim for web_server.py at root:
+```python
+#!/usr/bin/env python3
+import sys
+import os
+from pathlib import Path
+
+# Add src to path before any imports
+_root = Path(__file__).parent
+_src = _root / "src"
+if str(_src) not in sys.path:
+    sys.path.insert(0, str(_src))
+
+# Import from new location
+from backend.web.main import main as _main
+
+if __name__ == "__main__":
+    _main()
+```
+
+Key requirements:
+- Shims manipulate sys.path explicitly before importing
+- Shims are NOT named identically to modules they import (avoid circular import errors)
+- All five entrypoints use consistent pattern
+- Test each shim independently before merging
+
+IMPORT PATH STRATEGY
+1. Pre-move: Run automated refactoring tool (ast-grep or comby) to rewrite all internal imports
+   - Pattern: `from ingest\.(\w+)` → `from backend.ingest.\1`
+   - Pattern: `from search\.(\w+)` → `from backend.search.\1`
+   - Pattern: `from web\.(\w+)` → `from frontend.web.\1`
+2. Update pyproject.toml for src/ layout:
+```toml
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["backend*", "frontend*"]
+```
+3. Add src/backend/__init__.py and src/frontend/__init__.py with explicit __all__ exports for backward-compatible imports during transition
+4. Alternative fallback: Add src/backend and src/frontend to sys.path in all entrypoints (documented as namespace pollution risk)
+
+PYPROJECT.TOML UPDATES REQUIRED
+- Set packages.find.where = ["src"]
+- Set packages.find.include = ["backend*", "frontend*"]
+- Verify pip install -e . discovers moved packages
+- Update pytest configuration:
+```toml
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+```
+
+VALIDATION GATES (Before Any Move)
+1. Run full test suite on current state (baseline)
+2. Create feature branch with moves (git mv to preserve history)
+3. Run tests on feature branch (pytest --collect-only first, then full suite)
+4. Verify all five entrypoints execute without import errors
+5. Verify MCP server startup (actual process spawn, not just import)
+6. Verify MCP servers register tools correctly (test tool listing)
+7. Verify CI/CD pipelines pass with new paths
+8. Merge only after all gates green
+
+MIGRATION ORDER (Incremental, Not All-at-Once)
+1. Create src/backend and src/frontend empty dirs with __init__.py
+2. Update pyproject.toml and pytest configuration
+3. Move ONE package (e.g., ingest/ → src/backend/ingest/)
+4. Update imports for that package only, run automated refactoring
+5. Update one shim (e.g., schema_sync.py), validate it works
+6. Run tests, verify no regressions
+7. Repeat steps 3-6 for each remaining package
+8. Final validation: all entrypoints, MCP servers, CI/CD
+
+RISK REGISTER
+| Risk                              | Severity | Mitigation                                    |
+|-----------------------------------|----------|-----------------------------------------------|
+| ImportError cascade during transition | High   | Incremental migration, validate after each move |
+| CI/CD pipeline breakage           | High     | Update CI configs in same PR, test on branch   |
+| IDE autocomplete failures         | Medium   | Document new paths, update IDE workspace settings |
+| Third-party tool breakage (linters, formatters) | Medium | Update tool configs (pyproject.toml, .pre-commit-config.yaml) |
+| MCP integration breakage          | Critical | Keep MCP servers at root in Phase 1, atomic config updates |
+| tests/ directory import breakage  | High     | Update test imports, verify pytest --collect-only |
+| infra/deploy cross-tree dependencies | Medium | Audit imports from infra/ into backend packages before Phase 1 |
+
+ROLLBACK PLAN
+If Phase 1 causes unacceptable breakage:
+1. Do not merge to main; stay on feature branch
+2. If already merged: git revert <commit-hash> --no-commit
+3. Restore original import paths using pre-move backup or git history
+4. Restore original pyproject.toml configuration
+5. Tag pre-refactor state: git tag pre-phase1-refactor <commit-hash>
+6. Document failure mode and adjust plan before retry
+
+DEFERRAL DECISIONS (Phase 2)
+- infra/ and deploy/ remain at root in Phase 1
+- Before Phase 2: Audit all imports from infra/ into ingest/search/dbsync/commitment
+- If cross-tree dependencies exist, either move infra/ to src/backend/infra or create compatibility shims
+- scripts/ dependencies on infra/deploy paths must be audited before Phase 1 completes
+
+VALIDATION CHECKLIST
+- [ ] All five entrypoints execute without import errors (web_server.py, mcp_server.py, mcp_es_server.py, schema_sync.py, commitment_cli.py)
+- [ ] MCP servers register tools correctly (test tool listing endpoint)
+- [ ] Full test suite passes (pytest with new paths)
+- [ ] pytest --collect-only shows all tests discovered
+- [ ] CI/CD pipelines pass with new paths
+- [ ] pip install -e . works and discovers src/backend and src/frontend packages
+- [ ] Documented runbooks updated with new paths
+- [ ] IDE workspace settings updated (VS Code, PyCharm, etc.)
+- [ ] Git tag created: pre-phase1-refactor
+- [ ] Rollback procedure documented and tested on feature branch

@@ -1,0 +1,73 @@
+{
+  "case_count": 16,
+  "backends": [
+    "hybrid",
+    "es",
+    "pg"
+  ],
+  "run_dir": ".dev/bench/runs/20260306T142857Z-semantic-rerank-tune",
+  "aggregates": {
+    "hybrid": {
+      "cases": 16.0,
+      "p_at_1": 0.9375,
+      "p_at_3": 0.6875,
+      "p_at_5": 0.6875,
+      "hits_at_10": 1.0,
+      "mrr": 0.9688,
+      "avg_relevance": 0.4425
+    },
+    "es": {
+      "cases": 16.0,
+      "p_at_1": 0.625,
+      "p_at_3": 0.5,
+      "p_at_5": 0.45,
+      "hits_at_10": 0.875,
+      "mrr": 0.6944,
+      "avg_relevance": 0.4246
+    },
+    "pg": {
+      "cases": 16.0,
+      "p_at_1": 0.0,
+      "p_at_3": 0.0,
+      "p_at_5": 0.0,
+      "hits_at_10": 0.0,
+      "mrr": 0.0,
+      "avg_relevance": 0.0
+    }
+  },
+  "by_category": {
+    "hybrid": {
+      "semantic_paraphrase": {
+        "cases": 16.0,
+        "p_at_1": 0.9375,
+        "p_at_3": 0.6875,
+        "p_at_5": 0.6875,
+        "hits_at_10": 1.0,
+        "mrr": 0.9688,
+        "avg_relevance": 0.4425
+      }
+    },
+    "es": {
+      "semantic_paraphrase": {
+        "cases": 16.0,
+        "p_at_1": 0.625,
+        "p_at_3": 0.5,
+        "p_at_5": 0.45,
+        "hits_at_10": 0.875,
+        "mrr": 0.6944,
+        "avg_relevance": 0.4246
+      }
+    },
+    "pg": {
+      "semantic_paraphrase": {
+        "cases": 16.0,
+        "p_at_1": 0.0,
+        "p_at_3": 0.0,
+        "p_at_5": 0.0,
+        "hits_at_10": 0.0,
+        "mrr": 0.0,
+        "avg_relevance": 0.0
+      }
+    }
+  }
+}

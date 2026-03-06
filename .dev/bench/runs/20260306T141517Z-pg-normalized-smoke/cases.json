@@ -1,0 +1,370 @@
+[
+  {
+    "id": "bolsa-01",
+    "category": "bolsa_alimentacao",
+    "query": "bolsa alimentação ministério da saúde",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-02",
+    "category": "bolsa_alimentacao",
+    "query": "bolsa-alimentação ministério da saúde",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-03",
+    "category": "bolsa_alimentacao",
+    "query": "municípios qualificados bolsa alimentação",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-04",
+    "category": "bolsa_alimentacao",
+    "query": "atos sobre municípios qualificados no bolsa alimentação",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-05",
+    "category": "bolsa_alimentacao",
+    "query": "programa bolsa alimentação saúde 2002",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-06",
+    "category": "bolsa_alimentacao",
+    "query": "portarias sobre bolsa alimentação em 2002",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-07",
+    "category": "bolsa_alimentacao",
+    "query": "qualificação de municípios bolsa alimentação",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-08",
+    "category": "bolsa_alimentacao",
+    "query": "municípios integrar programa bolsa alimentação",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-09",
+    "category": "bolsa_alimentacao",
+    "query": "portaria ministério da saúde bolsa alimentação",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-10",
+    "category": "bolsa_alimentacao",
+    "query": "documentos sobre bolsa-alimentação e municípios",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-11",
+    "category": "bolsa_alimentacao",
+    "query": "municípios qualificados para o programa bolsa alimentação",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-12",
+    "category": "bolsa_alimentacao",
+    "query": "atos de qualificação de municípios bolsa alimentação",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-13",
+    "category": "bolsa_alimentacao",
+    "query": "programa bolsa-alimentação ministério da saúde 2002",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-14",
+    "category": "bolsa_alimentacao",
+    "query": "bolsa alimentação municípios portaria 2002",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-15",
+    "category": "bolsa_alimentacao",
+    "query": "quais portarias qualificam municípios no programa bolsa alimentação",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  },
+  {
+    "id": "bolsa-16",
+    "category": "bolsa_alimentacao",
+    "query": "qualifica municípios para integrar o programa bolsa-alimentação",
+    "filters": {
+      "date_from": "2002-01-01",
+      "date_to": "2002-12-31"
+    },
+    "relevance_hints": {
+      "title_contains": [
+        "BOLSA-ALIMENTAÇÃO",
+        "BOLSA ALIMENTAÇÃO"
+      ],
+      "body_contains": [
+        "qualifica municípios",
+        "programa bolsa-alimentação",
+        "bolsa-alimentação"
+      ],
+      "exact_phrase": "",
+      "expected_min_results": 1,
+      "notes": "Target should surface Ministry of Health portarias on Bolsa-Alimentacao municipal qualification."
+    }
+  }
+]

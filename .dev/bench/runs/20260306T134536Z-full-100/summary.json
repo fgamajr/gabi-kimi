@@ -1,0 +1,235 @@
+{
+  "case_count": 100,
+  "backends": [
+    "hybrid",
+    "pg",
+    "es"
+  ],
+  "run_dir": ".dev/bench/runs/20260306T134536Z-full-100",
+  "aggregates": {
+    "hybrid": {
+      "cases": 100.0,
+      "p_at_1": 0.8,
+      "p_at_3": 0.7967,
+      "p_at_5": 0.776,
+      "hits_at_10": 0.94,
+      "mrr": 0.8475,
+      "avg_relevance": 0.4891
+    },
+    "pg": {
+      "cases": 100.0,
+      "p_at_1": 0.02,
+      "p_at_3": 0.02,
+      "p_at_5": 0.02,
+      "hits_at_10": 0.02,
+      "mrr": 0.02,
+      "avg_relevance": 0.0094
+    },
+    "es": {
+      "cases": 100.0,
+      "p_at_1": 0.38,
+      "p_at_3": 0.3767,
+      "p_at_5": 0.382,
+      "hits_at_10": 0.49,
+      "mrr": 0.4174,
+      "avg_relevance": 0.3088
+    }
+  },
+  "by_category": {
+    "hybrid": {
+      "bolsa_alimentacao": {
+        "cases": 16.0,
+        "p_at_1": 0.8125,
+        "p_at_3": 0.7917,
+        "p_at_5": 0.7875,
+        "hits_at_10": 1.0,
+        "mrr": 0.8854,
+        "avg_relevance": 0.4283
+      },
+      "procurement_do3": {
+        "cases": 16.0,
+        "p_at_1": 0.9375,
+        "p_at_3": 0.9167,
+        "p_at_5": 0.9125,
+        "hits_at_10": 1.0,
+        "mrr": 0.9688,
+        "avg_relevance": 0.4753
+      },
+      "organ_type_filters": {
+        "cases": 16.0,
+        "p_at_1": 1.0,
+        "p_at_3": 1.0,
+        "p_at_5": 1.0,
+        "hits_at_10": 1.0,
+        "mrr": 1.0,
+        "avg_relevance": 0.4559
+      },
+      "person_exact_phrase": {
+        "cases": 12.0,
+        "p_at_1": 0.9167,
+        "p_at_3": 0.8611,
+        "p_at_5": 0.85,
+        "hits_at_10": 0.9167,
+        "mrr": 0.9167,
+        "avg_relevance": 0.7875
+      },
+      "legal_concepts": {
+        "cases": 12.0,
+        "p_at_1": 0.5833,
+        "p_at_3": 0.5555,
+        "p_at_5": 0.45,
+        "hits_at_10": 0.8333,
+        "mrr": 0.6632,
+        "avg_relevance": 0.4356
+      },
+      "semantic_paraphrase": {
+        "cases": 16.0,
+        "p_at_1": 0.375,
+        "p_at_3": 0.4583,
+        "p_at_5": 0.4375,
+        "hits_at_10": 0.8125,
+        "mrr": 0.508,
+        "avg_relevance": 0.4201
+      },
+      "broad_filter": {
+        "cases": 12.0,
+        "p_at_1": 1.0,
+        "p_at_3": 1.0,
+        "p_at_5": 0.9833,
+        "hits_at_10": 1.0,
+        "mrr": 1.0,
+        "avg_relevance": 0.4797
+      }
+    },
+    "pg": {
+      "bolsa_alimentacao": {
+        "cases": 16.0,
+        "p_at_1": 0.0,
+        "p_at_3": 0.0,
+        "p_at_5": 0.0,
+        "hits_at_10": 0.0,
+        "mrr": 0.0,
+        "avg_relevance": 0.0
+      },
+      "procurement_do3": {
+        "cases": 16.0,
+        "p_at_1": 0.0,
+        "p_at_3": 0.0,
+        "p_at_5": 0.0,
+        "hits_at_10": 0.0,
+        "mrr": 0.0,
+        "avg_relevance": 0.0
+      },
+      "organ_type_filters": {
+        "cases": 16.0,
+        "p_at_1": 0.0,
+        "p_at_3": 0.0,
+        "p_at_5": 0.0,
+        "hits_at_10": 0.0,
+        "mrr": 0.0,
+        "avg_relevance": 0.0
+      },
+      "person_exact_phrase": {
+        "cases": 12.0,
+        "p_at_1": 0.0,
+        "p_at_3": 0.0,
+        "p_at_5": 0.0,
+        "hits_at_10": 0.0,
+        "mrr": 0.0,
+        "avg_relevance": 0.0
+      },
+      "legal_concepts": {
+        "cases": 12.0,
+        "p_at_1": 0.0,
+        "p_at_3": 0.0,
+        "p_at_5": 0.0,
+        "hits_at_10": 0.0,
+        "mrr": 0.0,
+        "avg_relevance": 0.0
+      },
+      "semantic_paraphrase": {
+        "cases": 16.0,
+        "p_at_1": 0.0,
+        "p_at_3": 0.0,
+        "p_at_5": 0.0,
+        "hits_at_10": 0.0,
+        "mrr": 0.0,
+        "avg_relevance": 0.0
+      },
+      "broad_filter": {
+        "cases": 12.0,
+        "p_at_1": 0.1667,
+        "p_at_3": 0.1667,
+        "p_at_5": 0.1667,
+        "hits_at_10": 0.1667,
+        "mrr": 0.1667,
+        "avg_relevance": 0.0783
+      }
+    },
+    "es": {
+      "bolsa_alimentacao": {
+        "cases": 16.0,
+        "p_at_1": 0.8125,
+        "p_at_3": 0.875,
+        "p_at_5": 0.9125,
+        "hits_at_10": 1.0,
+        "mrr": 0.9062,
+        "avg_relevance": 0.4319
+      },
+      "procurement_do3": {
+        "cases": 16.0,
+        "p_at_1": 0.0,
+        "p_at_3": 0.0,
+        "p_at_5": 0.0,
+        "hits_at_10": 0.0,
+        "mrr": 0.0,
+        "avg_relevance": 0.0
+      },
+      "organ_type_filters": {
+        "cases": 16.0,
+        "p_at_1": 0.0,
+        "p_at_3": 0.0,
+        "p_at_5": 0.0,
+        "hits_at_10": 0.0,
+        "mrr": 0.0,
+        "avg_relevance": 0.0563
+      },
+      "person_exact_phrase": {
+        "cases": 12.0,
+        "p_at_1": 0.8333,
+        "p_at_3": 0.75,
+        "p_at_5": 0.75,
+        "hits_at_10": 0.8333,
+        "mrr": 0.8333,
+        "avg_relevance": 0.7056
+      },
+      "legal_concepts": {
+        "cases": 12.0,
+        "p_at_1": 0.3333,
+        "p_at_3": 0.3333,
+        "p_at_5": 0.3,
+        "hits_at_10": 0.6667,
+        "mrr": 0.416,
+        "avg_relevance": 0.4294
+      },
+      "semantic_paraphrase": {
+        "cases": 16.0,
+        "p_at_1": 0.3125,
+        "p_at_3": 0.2917,
+        "p_at_5": 0.3125,
+        "hits_at_10": 0.5625,
+        "mrr": 0.3906,
+        "avg_relevance": 0.4169
+      },
+      "broad_filter": {
+        "cases": 12.0,
+        "p_at_1": 0.5,
+        "p_at_3": 0.5,
+        "p_at_5": 0.5,
+        "hits_at_10": 0.5,
+        "mrr": 0.5,
+        "avg_relevance": 0.2319
+      }
+    }
+  }
+}

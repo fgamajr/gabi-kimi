@@ -1,0 +1,17 @@
+Current benchmark summary:
+- 100 cases
+- hybrid: P@1 0.8000, P@3 0.7967, Hits@10 0.9400, MRR 0.8475
+- es: P@1 0.3800, P@3 0.3767, Hits@10 0.4900, MRR 0.4174
+- pg: P@1 0.0200, P@3 0.0200, Hits@10 0.0200, MRR 0.0200
+Strong hybrid categories:
+- organ_type_filters: perfect
+- broad_filter: perfect
+- procurement_do3: very strong
+- person_exact_phrase: very strong
+Weakest hybrid category:
+- semantic_paraphrase: P@1 0.3750, Hits@10 0.8125
+Known caveat:
+- pg is likely under-scored by the current grader because its result shape is poorer for some filter-aware checks than es/hybrid. Therefore hybrid > es looks reliable, but pg gap may be exaggerated.
+
+Candidate recommendation:
+Option 2 is the better next step because it targets the weakest user-facing retrieval area directly, while PG normalization is mainly benchmark hygiene and can be done after improving hybrid relevance.

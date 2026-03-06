@@ -1,0 +1,1 @@
+../src/backend/dbsync/dou_schema.sql

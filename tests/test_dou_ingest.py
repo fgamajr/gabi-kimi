@@ -20,7 +20,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from ingest.html_extractor import (
+from src.backend.ingest.html_extractor import (
     ImageRef,
     NormRef,
     ProcRef,
@@ -35,12 +35,12 @@ from ingest.html_extractor import (
     normalize_art_type,
     strip_html,
 )
-from ingest.multipart_merger import (
+from src.backend.ingest.multipart_merger import (
     MergedArticle,
     _parse_id_from_filename,
     group_and_merge,
 )
-from ingest.xml_parser import (
+from src.backend.ingest.xml_parser import (
     DOUArticle,
     INLabsXMLParser,
     XMLParseError,
@@ -645,7 +645,7 @@ def test_merge_mixed():
 def test_infer_zip_meta():
     """Test ZIP filename → month/section inference."""
     _section("ZipMeta — inference")
-    from ingest.dou_ingest import _infer_zip_meta
+    from src.backend.ingest.dou_ingest import _infer_zip_meta
 
     m, s = _infer_zip_meta("2020-09_do1_S01092020.zip")
     _assert_eq(m, "2020-09", "structured month")

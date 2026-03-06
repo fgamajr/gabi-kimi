@@ -1,0 +1,73 @@
+{
+  "case_count": 16,
+  "backends": [
+    "pg",
+    "es",
+    "hybrid"
+  ],
+  "run_dir": ".dev/bench/runs/20260306T141517Z-pg-normalized-smoke",
+  "aggregates": {
+    "pg": {
+      "cases": 16.0,
+      "p_at_1": 0.0,
+      "p_at_3": 0.0,
+      "p_at_5": 0.0,
+      "hits_at_10": 0.0,
+      "mrr": 0.0,
+      "avg_relevance": 0.0
+    },
+    "es": {
+      "cases": 16.0,
+      "p_at_1": 0.8125,
+      "p_at_3": 0.9375,
+      "p_at_5": 0.95,
+      "hits_at_10": 1.0,
+      "mrr": 0.9062,
+      "avg_relevance": 0.4598
+    },
+    "hybrid": {
+      "cases": 16.0,
+      "p_at_1": 0.8125,
+      "p_at_3": 0.7917,
+      "p_at_5": 0.8125,
+      "hits_at_10": 1.0,
+      "mrr": 0.8854,
+      "avg_relevance": 0.4512
+    }
+  },
+  "by_category": {
+    "pg": {
+      "bolsa_alimentacao": {
+        "cases": 16.0,
+        "p_at_1": 0.0,
+        "p_at_3": 0.0,
+        "p_at_5": 0.0,
+        "hits_at_10": 0.0,
+        "mrr": 0.0,
+        "avg_relevance": 0.0
+      }
+    },
+    "es": {
+      "bolsa_alimentacao": {
+        "cases": 16.0,
+        "p_at_1": 0.8125,
+        "p_at_3": 0.9375,
+        "p_at_5": 0.95,
+        "hits_at_10": 1.0,
+        "mrr": 0.9062,
+        "avg_relevance": 0.4598
+      }
+    },
+    "hybrid": {
+      "bolsa_alimentacao": {
+        "cases": 16.0,
+        "p_at_1": 0.8125,
+        "p_at_3": 0.7917,
+        "p_at_5": 0.8125,
+        "hits_at_10": 1.0,
+        "mrr": 0.8854,
+        "avg_relevance": 0.4512
+      }
+    }
+  }
+}

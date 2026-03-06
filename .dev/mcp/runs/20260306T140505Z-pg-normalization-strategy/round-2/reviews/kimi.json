@@ -1,0 +1,67 @@
+{
+  "agent": "kimi",
+  "round": 2,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "CRITICAL",
+      "location": "Section 2 (IRS) and Section 3 (K-Retrieval)",
+      "description": "Fundamental contradiction: Section 1 claims PG returns 'unordered sets', but Section 2 proposes ordering via ROW_NUMBER() OVER (ORDER BY ts_rank DESC). If ts_rank is available, PG is not unordered; if truly unordered (bitmap heap scan without ORDER BY), window function ranking creates arbitrary ordering that is statistically incomparable to ES relevance-based ranking. Artificial ranking does not create semantic equivalence.",
+      "suggested_fix": "Clarify PG configuration: If using ts_rank, remove 'unordered sets' claim and validate ts_rank correlates with relevance. If PG returns sets without scores, abandon rank-based comparison and use set-based metrics (Precision@k, Recall) without imposing artificial ordering."
+    },
+    {
+      "severity": "CRITICAL",
+      "location": "Section 3 (Score normalization)",
+      "description": "Min-max normalization across ts_rank and BM25 is mathematically invalid. ts_rank (0-1, document-length normalized) and BM25 (unbounded, probabilistic) have incompatible distributions and ties-handling. Per-query min-max assumes the best/worst scores in each system are semantically equivalent, which is false. This destroys cross-query variance and creates synthetic scores that don't preserve rank correlations.",
+      "suggested_fix": "Remove score normalization entirely. Use rank-correlation metrics (nDCG, MAP, Kendall's Tau) that are invariant to score magnitude, or use binary relevance judgments. If score calibration is required, use percentile ranking or z-score standardization within each query, not min-max."
+    },
+    {
+      "severity": "HIGH",
+      "location": "Section 5 (Semantic Handling), Option A",
+      "description": "Adding pgvector fundamentally changes the system under test from 'PostgreSQL' to 'PostgreSQL+pgvector extension'. This invalidates the benchmark premise. If baseline PG lacks semantic retrieval, upgrading it to match ES capabilities is not 'normalization' but 'system modification', rendering the comparison apples-to-oranges.",
+      "suggested_fix": "Separate lexical and semantic axes: Benchmark PG-tsvector vs ES-BM25 only (lexical-only), or create a distinct 'PG+pgvector' category. Do not present enhanced PG results as normalized baseline. Option B (disabling paraphrase tests) is the only valid path for fair comparison."
+    },
+    {
+      "severity": "HIGH",
+      "location": "Section 9 (Acceptance Criteria), Result set overlap",
+      "description": "Jaccard ≥ 0.5 for top-10 overlap between PG and ES is unrealistic and potentially impossible. Lexical (tsvector) and semantic (dense vector) retrieval legitimately return different relevant documents for paraphrase queries. This criterion assumes system agreement implies correctness, which conflates inter-system similarity with retrieval accuracy.",
+      "suggested_fix": "Replace Jaccard with Rank-Biased Overlap (RBO) weighted toward top ranks. Better: use human relevance judgments or synthetic queries with known ground truth to compute Cohen's Kappa or nDCG agreement. Remove overlap targets for paraphrase queries where divergence is expected."
+    },
+    {
+      "severity": "HIGH",
+      "location": "Section 4 (Filter Pipeline)",
+      "description": "Pre-filter equivalence is insufficient. PG may use sequential scans with high selectivity while ES uses bitset intersections, causing identical filters to produce different result sets due to text analysis differences (lowercasing, ASCII folding) or NULL handling. The plan doesn't specify filter predicate normalization.",
+      "suggested_fix": "Add explicit filter predicate canonicalization: define collation, case-sensitivity, and NULL semantics. Add acceptance criterion for filter result set cardinality parity (±1%) across systems on filter-only queries before ranking evaluation."
+    },
+    {
+      "severity": "MEDIUM",
+      "location": "Section 3 (K-Retrieval Parity)",
+      "description": "Truncating all systems to exactly k candidates masks the actual 'under-scoring' problem mentioned in the task. If PG retrieves fewer relevant documents in top-k due to inferior ranking, forcing ES to limit to k artificially reduces ES performance to match PG, hiding the ranking quality difference the benchmark should measure.",
+      "suggested_fix": "Report metrics at multiple k values (10, 50, 100). Include 'Recall@k relative to corpus' to measure retrieval depth separately from ranking quality. Do not use k-truncation to hide ranking deficiencies."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "Section 7 (Hardware Isolation)",
+      "description": "Add explicit buffer pool warm-up protocol: run 100 warm-up queries before measurement to ensure PG shared_buffers and ES filesystem cache are populated. Cold-start latency bias favors ES's immutable segments over PG's heap pages."
+    },
+    {
+      "type": "improvement",
+      "location": "Section 6 (Query Translation)",
+      "description": "Validate query translation equivalence using synthetic query sets with Boolean algebra ground truth. Ensure websearch_to_tsquery handling of operators (AND, OR, NOT) matches ES bool query semantics, particularly operator precedence and phrase handling."
+    },
+    {
+      "type": "improvement",
+      "location": "Section 8 (Concerns)",
+      "description": "Add concern: 'Statistical Power'. Specify minimum effect size and required number of query samples (n>30) to detect significant differences between systems using paired statistical tests (Wilcoxon signed-rank)."
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 0,
+    "latency_ms": 0,
+    "thinking_tokens": 0
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"kimi\",\n  \"round\": 2,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"CRITICAL\",\n      \"location\": \"Section 2 (IRS) and Section 3 (K-Retrieval)\",\n      \"description\": \"Fundamental contradiction: Section 1 claims PG returns 'unordered sets', but Section 2 proposes ordering via ROW_NUMBER() OVER (ORDER BY ts_rank DESC). If ts_rank is available, PG is not unordered; if truly unordered (bitmap heap scan without ORDER BY), window function ranking creates arbitrary ordering that is statistically incomparable to ES relevance-based ranking. Artificial ranking does not create semantic equivalence.\",\n      \"suggested_fix\": \"Clarify PG configuration: If using ts_rank, remove 'unordered sets' claim and validate ts_rank correlates with relevance. If PG returns sets without scores, abandon rank-based comparison and use set-based metrics (Precision@k, Recall) without imposing artificial ordering.\"\n    },\n    {\n      \"severity\": \"CRITICAL\",\n      \"location\": \"Section 3 (Score normalization)\",\n      \"description\": \"Min-max normalization across ts_rank and BM25 is mathematically invalid. ts_rank (0-1, document-length normalized) and BM25 (unbounded, probabilistic) have incompatible distributions and ties-handling. Per-query min-max assumes the best/worst scores in each system are semantically equivalent, which is false. This destroys cross-query variance and creates synthetic scores that don't preserve rank correlations.\",\n      \"suggested_fix\": \"Remove score normalization entirely. Use rank-correlation metrics (nDCG, MAP, Kendall's Tau) that are invariant to score magnitude, or use binary relevance judgments. If score calibration is required, use percentile ranking or z-score standardization within each query, not min-max.\"\n    },\n    {\n      \"severity\": \"HIGH\",\n      \"location\": \"Section 5 (Semantic Handling), Option A\",\n      \"description\": \"Adding pgvector fundamentally changes the system under test from 'PostgreSQL' to 'PostgreSQL+pgvector extension'. This invalidates the benchmark premise. If baseline PG lacks semantic retrieval, upgrading it to match ES capabilities is not 'normalization' but 'system modification', rendering the comparison apples-to-oranges.\",\n      \"suggested_fix\": \"Separate lexical and semantic axes: Benchmark PG-tsvector vs ES-BM25 only (lexical-only), or create a distinct 'PG+pgvector' category. Do not present enhanced PG results as normalized baseline. Option B (disabling paraphrase tests) is the only valid path for fair comparison.\"\n    },\n    {\n      \"severity\": \"HIGH\",\n      \"location\": \"Section 9 (Acceptance Criteria), Result set overlap\",\n      \"description\": \"Jaccard ≥ 0.5 for top-10 overlap between PG and ES is unrealistic and potentially impossible. Lexical (tsvector) and semantic (dense vector) retrieval legitimately return different relevant documents for paraphrase queries. This criterion assumes system agreement implies correctness, which conflates inter-system similarity with retrieval accuracy.\",\n      \"suggested_fix\": \"Replace Jaccard with Rank-Biased Overlap (RBO) weighted toward top ranks. Better: use human relevance judgments or synthetic queries with known ground truth to compute Cohen's Kappa or nDCG agreement. Remove overlap targets for paraphrase queries where divergence is expected.\"\n    },\n    {\n      \"severity\": \"HIGH\",\n      \"location\": \"Section 4 (Filter Pipeline)\",\n      \"description\": \"Pre-filter equivalence is insufficient. PG may use sequential scans with high selectivity while ES uses bitset intersections, causing identical filters to produce different result sets due to text analysis differences (lowercasing, ASCII folding) or NULL handling. The plan doesn't specify filter predicate normalization.\",\n      \"suggested_fix\": \"Add explicit filter predicate canonicalization: define collation, case-sensitivity, and NULL semantics. Add acceptance criterion for filter result set cardinality parity (±1%) across systems on filter-only queries before ranking evaluation.\"\n    },\n    {\n      \"severity\": \"MEDIUM\",\n      \"location\": \"Section 3 (K-Retrieval Parity)\",\n      \"description\": \"Truncating all systems to exactly k candidates masks the actual 'under-scoring' problem mentioned in the task. If PG retrieves fewer relevant documents in top-k due to inferior ranking, forcing ES to limit to k artificially reduces ES performance to match PG, hiding the ranking quality difference the benchmark should measure.\",\n      \"suggested_fix\": \"Report metrics at multiple k values (10, 50, 100). Include 'Recall@k relative to corpus' to measure retrieval depth separately from ranking quality. Do not use k-truncation to hide ranking deficiencies.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 7 (Hardware Isolation)\",\n      \"description\": \"Add explicit buffer pool warm-up protocol: run 100 warm-up queries before measurement to ensure PG shared_buffers and ES filesystem cache are populated. Cold-start latency bias favors ES's immutable segments over PG's heap pages.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 6 (Query Translation)\",\n      \"description\": \"Validate query translation equivalence using synthetic query sets with Boolean algebra ground truth. Ensure websearch_to_tsquery handling of operators (AND, OR, NOT) matches ES bool query semantics, particularly operator precedence and phrase handling.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 8 (Concerns)\",\n      \"description\": \"Add concern: 'Statistical Power'. Specify minimum effect size and required number of query samples (n>30) to detect significant differences between systems using paired statistical tests (Wilcoxon signed-rank).\"\n    }\n  ],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 0,\n    \"latency_ms\": 0,\n    \"thinking_tokens\": 0\n  }\n}\n```"
+}

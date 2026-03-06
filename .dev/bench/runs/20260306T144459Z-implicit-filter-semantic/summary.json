@@ -1,0 +1,31 @@
+{
+  "case_count": 16,
+  "backends": [
+    "hybrid"
+  ],
+  "run_dir": ".dev/bench/runs/20260306T144459Z-implicit-filter-semantic",
+  "aggregates": {
+    "hybrid": {
+      "cases": 16.0,
+      "p_at_1": 0.8125,
+      "p_at_3": 0.6667,
+      "p_at_5": 0.65,
+      "hits_at_10": 0.8125,
+      "mrr": 0.8125,
+      "avg_relevance": 0.4365
+    }
+  },
+  "by_category": {
+    "hybrid": {
+      "semantic_paraphrase": {
+        "cases": 16.0,
+        "p_at_1": 0.8125,
+        "p_at_3": 0.6667,
+        "p_at_5": 0.65,
+        "hits_at_10": 0.8125,
+        "mrr": 0.8125,
+        "avg_relevance": 0.4365
+      }
+    }
+  }
+}

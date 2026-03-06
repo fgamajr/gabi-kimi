@@ -1,0 +1,1 @@
+../src/backend/dbsync/download_registry_schema.sql

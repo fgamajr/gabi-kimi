@@ -1,0 +1,6 @@
+--- before
++++ after
+@@ -1,2 +1,2 @@
+-def x():
++def total():
+     return 1

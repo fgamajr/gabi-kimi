@@ -1,0 +1,57 @@
+{
+  "round_number": 2,
+  "diff_text": "",
+  "zero_diff": true,
+  "unanimous_approve": false,
+  "converged": false,
+  "reviews": [
+    {
+      "agent": "claude",
+      "round": 2,
+      "verdict": "REQUEST_CHANGES",
+      "objections": [
+        {
+          "severity": "high",
+          "location": "artifact:1",
+          "description": "Need stronger naming",
+          "suggested_fix": "rename x to total"
+        }
+      ],
+      "suggestions": [],
+      "diffs": [],
+      "meta": {
+        "tokens_used": 12,
+        "latency_ms": 0,
+        "thinking_tokens": 0
+      },
+      "raw_text": "{\"verdict\": \"REQUEST_CHANGES\", \"objections\": [{\"severity\": \"high\", \"location\": \"artifact:1\", \"description\": \"Need stronger naming\", \"suggested_fix\": \"rename x to total\"}], \"suggestions\": [], \"diffs\": [], \"meta\": {}}"
+    },
+    {
+      "agent": "qwen",
+      "round": 2,
+      "verdict": "APPROVE",
+      "objections": [],
+      "suggestions": [],
+      "diffs": [],
+      "meta": {
+        "tokens_used": 12,
+        "latency_ms": 0,
+        "thinking_tokens": 0
+      },
+      "raw_text": "{\"verdict\": \"APPROVE\", \"objections\": [], \"suggestions\": [], \"diffs\": [], \"meta\": {}}"
+    }
+  ],
+  "orchestrator_response": {
+    "content": "def total():\n    return 1\n",
+    "reasoning": "",
+    "usage": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 7,
+      "thinking_tokens": 0,
+      "estimated_cost_usd": null
+    },
+    "latency_ms": 0,
+    "raw": {}
+  }
+}

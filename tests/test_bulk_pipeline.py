@@ -21,8 +21,8 @@ from pathlib import Path
 # Ensure project root is on path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from ingest.date_selector import DateRange
-from ingest.normalizer import (
+from src.backend.ingest.date_selector import DateRange
+from src.backend.ingest.normalizer import (
     article_to_ingest_record,
     normalize_article,
     normalize_pub_date,
@@ -32,8 +32,8 @@ from ingest.normalizer import (
     _extract_doc_number,
     _extract_issuing_organ,
 )
-from ingest.xml_parser import DOUArticle, INLabsXMLParser, parse_directory
-from ingest.zip_downloader import (
+from src.backend.ingest.xml_parser import DOUArticle, INLabsXMLParser, parse_directory
+from src.backend.ingest.zip_downloader import (
     ALL_SECTIONS,
     ZIPTarget,
     build_targets,
@@ -41,7 +41,7 @@ from ingest.zip_downloader import (
     extract_xml_from_zip,
     file_sha256,
 )
-import ingest.zip_downloader as _zd
+import src.backend.ingest.zip_downloader as _zd
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures" / "xml_samples"
 
