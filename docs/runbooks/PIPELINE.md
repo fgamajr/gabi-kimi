@@ -233,7 +233,10 @@ Pipeline steps:
 3. parse XML
 4. merge multipart fragments
 5. extract signatures/references/media
-6. insert into:
+6. classify embedded images with `src/backend/ingest/image_checker.py`
+7. cache available media locally under `ops/data/dou/images/`
+8. rewrite stored `body_html` image sources to `/api/media/{doc_id}/{media_name}`
+9. insert into:
    - `dou.source_zip`
    - `dou.edition`
    - `dou.document`
@@ -277,7 +280,30 @@ Core processors:
 - `src/backend/ingest/xml_parser.py`: XML -> structured article objects
 - `src/backend/ingest/multipart_merger.py`: reassembles split acts
 - `src/backend/ingest/html_extractor.py`: signatures, media, reference extraction
+- `src/backend/ingest/image_checker.py`: remote image probing, caching, fallback metadata, HTML rewrite
 - `src/backend/ingest/normalizer.py`: article -> registry ingest record
+
+### 7.2 Historical image handling
+
+The operational ingest path now treats legacy DOU images as structured ingest artifacts:
+
+- ZIP-bundled images are copied to `ops/data/dou/images/{doc_id}/...`
+- externally referenced images are probed with `HEAD` and classified as:
+  - `available`: cached locally and served from `/api/media/...`
+  - `missing`: no runtime fetch; viewer renders contextual fallback
+  - `unknown`: usually `403` or rate limiting; preserved for retry/audit
+- `dou.document_media` stores:
+  - `availability_status`
+  - `original_url`
+  - `alt_text`
+  - `context_hint`
+  - `fallback_text`
+  - `local_path`
+  - `ingest_checked_at`
+  - `retry_count`
+
+The frontend consumes this metadata from `GET /api/document/{id}` and still keeps `onerror`
+fallback rendering as defense in depth for corrupted local files.
 - `src/backend/ingest/dou_ingest.py`: operational row building for `dou.*`
 
 ### 7.2 Chunk generation for RAG/hybrid search

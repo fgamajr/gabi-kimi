@@ -488,6 +488,85 @@ def test_basic_rerank_prefers_bolsa_municipios_portaria_over_bolsa_noise() -> No
     )
 
 
+def test_hybrid_exact_phrase_skips_vector_branch() -> None:
+    adapter = HybridSearchAdapter(
+        url="http://localhost:9200",
+        index="gabi_documents_v1",
+        chunks_index="gabi_chunks_v1",
+        username=None,
+        password=None,
+        verify_tls=False,
+        timeout_sec=5,
+        lexical_k=10,
+        vector_k=10,
+        num_candidates=20,
+        rrf_k=60,
+        rerank_provider="none",
+        rerank_top_n=0,
+    )
+
+    adapter._lexical_candidates = lambda **kwargs: (  # type: ignore[method-assign]
+        [
+            {
+                "doc_id": "doc-hit",
+                "bm25_rank": 1,
+                "bm25_score": 10.0,
+                "identifica": "ANEXO",
+                "ementa": "",
+                "art_type": "anexo",
+                "pub_date": "2002-05-09",
+                "edition_section": "do3",
+                "issuing_organ": "Ministério da Fazenda",
+                "snippet": ">>>FERNANDO LIMA GAMA<<<",
+            }
+        ],
+        1,
+    )
+
+    def fail_vector(**kwargs):
+        raise AssertionError("vector branch should be skipped for exact phrase query")
+
+    adapter._vector_candidates = fail_vector  # type: ignore[method-assign]
+    out = adapter.search(query='"Fernando Lima Gama"', page_size=10, page=1)
+
+    _assert(out["vector_candidates"] == 0, "exact phrase query reports no vector candidates")
+    _assert(out["results"][0]["doc_id"] == "doc-hit", "exact phrase query still returns lexical hit")
+
+
+def test_hybrid_caches_query_embeddings() -> None:
+    adapter = HybridSearchAdapter(
+        url="http://localhost:9200",
+        index="gabi_documents_v1",
+        chunks_index="gabi_chunks_v1",
+        username=None,
+        password=None,
+        verify_tls=False,
+        timeout_sec=5,
+        lexical_k=10,
+        vector_k=10,
+        num_candidates=20,
+        rrf_k=60,
+        rerank_provider="none",
+        rerank_top_n=0,
+    )
+
+    calls = {"embed": 0}
+
+    class DummyEmbedder:
+        def embed_batch(self, texts):
+            calls["embed"] += 1
+            return [[0.1, 0.2, 0.3] for _ in texts]
+
+    adapter._embedder = DummyEmbedder()  # type: ignore[assignment]
+    adapter._query_embed_cache.clear()
+
+    v1 = adapter._query_vector("compra pública eletrônica")
+    v2 = adapter._query_vector("compra pública eletrônica")
+
+    _assert(calls["embed"] == 1, "reuses cached embedding for repeated query")
+    _assert(v1 == v2, "cached vector matches original vector")
+
+
 def main() -> int:
     test_es_search_translation_and_normalization()
     test_lexical_query_clause_boosts_exact_phrase_in_body()
@@ -499,6 +578,8 @@ def main() -> int:
     test_create_search_adapter_supports_hybrid()
     test_basic_rerank_prefers_vector_procurement_doc_over_bm25_noise()
     test_basic_rerank_prefers_bolsa_municipios_portaria_over_bolsa_noise()
+    test_hybrid_exact_phrase_skips_vector_branch()
+    test_hybrid_caches_query_embeddings()
 
     total = _passed + _failed
     print(f"\nsearch adapter tests: {total} total, {_passed} passed, {_failed} failed")

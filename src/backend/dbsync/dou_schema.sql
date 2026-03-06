@@ -137,6 +137,16 @@ CREATE TABLE dou.document_media (
     sequence_in_document    integer,                -- order of appearance in <Texto>
     source_filename         text,                   -- original filename in ZIP
     external_url            text,                   -- original image URL when binary is unavailable
+    original_url            text,                   -- canonical original URL from the HTML source
+    availability_status     text NOT NULL DEFAULT 'available', -- available | missing | unknown
+    alt_text                text,
+    context_hint            text NOT NULL DEFAULT 'unknown',   -- table | signature | emblem | chart | unknown
+    fallback_text           text,
+    local_path              text,                   -- cached local file path
+    width_px                integer,
+    height_px               integer,
+    ingest_checked_at       timestamptz,
+    retry_count             integer NOT NULL DEFAULT 0,
     created_at              timestamptz NOT NULL DEFAULT now()
 );
 

@@ -41,6 +41,14 @@ from src.backend.ingest.html_extractor import (
     strip_html,
 )
 from src.backend.ingest.html_extractor import _extract_signatures_precise as extract_signatures
+from src.backend.ingest.image_checker import (
+    check_document_images,
+    checked_image_row,
+    media_name_from_ref,
+    resolve_external_media_url,
+    rewrite_document_html_images,
+    summarize_checked_images,
+)
 from src.backend.ingest.multipart_merger import MergedArticle, group_and_merge, merge_page_fragments
 from src.backend.ingest.normalizer import (
     _canonicalize_content,
@@ -67,6 +75,9 @@ class ZIPIngestResult:
     signatures_inserted: int = 0
     norm_refs_inserted: int = 0
     proc_refs_inserted: int = 0
+    images_available: int = 0
+    images_missing: int = 0
+    images_unknown: int = 0
     parse_errors: int = 0
     errors: list[str] = field(default_factory=list)
     elapsed_ms: int = 0
@@ -83,6 +94,9 @@ class BatchIngestResult:
     total_signatures: int = 0
     total_norm_refs: int = 0
     total_proc_refs: int = 0
+    total_images_available: int = 0
+    total_images_missing: int = 0
+    total_images_unknown: int = 0
     errors: list[str] = field(default_factory=list)
     elapsed_ms: int = 0
 
@@ -113,28 +127,6 @@ def _guess_media_type(ext: str) -> str:
     """Guess MIME type from file extension."""
     mt = mimetypes.guess_type(f"file{ext}")[0]
     return mt or "application/octet-stream"
-
-
-def _media_name_from_ref(raw: str) -> str:
-    """Normalize image reference to a stable media_name."""
-    if not raw:
-        return ""
-    token = raw.strip().rsplit("/", 1)[-1].strip()
-    return re.sub(r"\.[A-Za-z0-9]{2,5}$", "", token)
-
-
-def _resolve_external_media_url(src: str | None) -> str | None:
-    """Resolve relative /images URLs to absolute in.gov.br URLs."""
-    if not src:
-        return None
-    ref = src.strip()
-    if not ref:
-        return None
-    if ref.startswith("http://") or ref.startswith("https://"):
-        return ref
-    if ref.startswith("/"):
-        return f"https://www.in.gov.br{ref}"
-    return None
 
 
 def _log(msg: str) -> None:
@@ -275,6 +267,9 @@ class DOUIngestor:
                     result.signatures_inserted += counts["signatures"]
                     result.norm_refs_inserted += counts["norm_refs"]
                     result.proc_refs_inserted += counts["proc_refs"]
+                    result.images_available += counts["images_available"]
+                    result.images_missing += counts["images_missing"]
+                    result.images_unknown += counts["images_unknown"]
                 except Exception as ex:
                     result.errors.append(
                         f"insert doc {ma.base_id_materia}: {ex}"
@@ -336,7 +331,16 @@ class DOUIngestor:
         Returns dict with counts: inserted, media, signatures, norm_refs, proc_refs.
         """
         article = ma.article
-        counts = {"inserted": 0, "media": 0, "signatures": 0, "norm_refs": 0, "proc_refs": 0}
+        counts = {
+            "inserted": 0,
+            "media": 0,
+            "signatures": 0,
+            "norm_refs": 0,
+            "proc_refs": 0,
+            "images_available": 0,
+            "images_missing": 0,
+            "images_unknown": 0,
+        }
 
         # --- Normalize fields ---
         pub_date = normalize_pub_date(article.pub_date)
@@ -406,51 +410,56 @@ class DOUIngestor:
 
         # --- Insert media (images) ---
         image_refs = extract_images(article.texto)
-        for img_ref in image_refs:
-            ref_name = _media_name_from_ref(img_ref.name)
-            if not ref_name:
-                continue
-            img_path = image_lookup.get(ref_name)
-            if img_path is None:
-                # Try with common extensions
-                for ext in (".jpg", ".jpeg", ".png"):
-                    candidate = image_lookup.get(ref_name)
-                    if candidate:
-                        img_path = candidate
-                        break
-            if img_path and img_path.exists():
-                data = img_path.read_bytes()
-                ext = img_path.suffix.lower()
-                media_type = _guess_media_type(ext)
-                cur.execute("""
-                    INSERT INTO dou.document_media (
-                        document_id, media_name, media_type, file_extension,
-                        data, size_bytes, sequence_in_document, source_filename, external_url
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, (
-                    doc_id, ref_name, media_type, ext,
-                    data, len(data), img_ref.sequence, img_path.name, None,
-                ))
-                counts["media"] += 1
-                continue
+        checked_images = check_document_images(doc_id=doc_id, refs=image_refs, image_lookup=image_lookup)
+        for item in checked_images:
+            row = checked_image_row(item)
+            cur.execute("""
+                INSERT INTO dou.document_media (
+                    document_id, media_name, media_type, file_extension,
+                    data, size_bytes, sequence_in_document, source_filename, external_url,
+                    original_url, availability_status, alt_text, context_hint,
+                    fallback_text, local_path, width_px, height_px,
+                    ingest_checked_at, retry_count
+                ) VALUES (
+                    %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s,
+                    %s, %s, %s, %s,
+                    %s, %s
+                )
+            """, (
+                doc_id,
+                row["media_name"],
+                row["media_type"],
+                row["file_extension"],
+                item.data,
+                row["size_bytes"],
+                row["position_in_doc"],
+                row["source_filename"],
+                row["original_url"],
+                row["original_url"],
+                row["availability_status"],
+                row["alt_text"],
+                row["context_hint"],
+                row["fallback_text"],
+                row["local_path"],
+                row["width_px"],
+                row["height_px"],
+                row["ingest_timestamp"],
+                row["retry_count"],
+            ))
+            counts["media"] += 1
 
-            # Legacy DOU years often reference dynamic /images URLs without zip binaries.
-            external_url = _resolve_external_media_url(img_ref.source)
-            if external_url:
-                src_name = (img_ref.source or "").strip().rsplit("/", 1)[-1]
-                ext_raw = Path(src_name).suffix.lower() if src_name else ""
-                ext = ext_raw if ext_raw in _IMAGE_EXTENSIONS else ""
-                media_type = _guess_media_type(ext) if ext else "application/octet-stream"
-                cur.execute("""
-                    INSERT INTO dou.document_media (
-                        document_id, media_name, media_type, file_extension,
-                        data, size_bytes, sequence_in_document, source_filename, external_url
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, (
-                    doc_id, ref_name, media_type, ext or None,
-                    None, None, img_ref.sequence, src_name or img_ref.source, external_url,
-                ))
-                counts["media"] += 1
+        image_summary = summarize_checked_images(checked_images)
+        counts["images_available"] = image_summary.get("available", 0)
+        counts["images_missing"] = image_summary.get("missing", 0)
+        counts["images_unknown"] = image_summary.get("unknown", 0)
+        if checked_images:
+            rewritten_html = rewrite_document_html_images(article.texto, doc_id, checked_images)
+            cur.execute(
+                "UPDATE dou.document SET body_html = %s WHERE id = %s::uuid",
+                (rewritten_html, doc_id),
+            )
 
         # --- Insert signatures ---
         signatures = extract_signatures(article.texto)
@@ -515,12 +524,16 @@ class DOUIngestor:
             batch.total_signatures += zr.signatures_inserted
             batch.total_norm_refs += zr.norm_refs_inserted
             batch.total_proc_refs += zr.proc_refs_inserted
+            batch.total_images_available += zr.images_available
+            batch.total_images_missing += zr.images_missing
+            batch.total_images_unknown += zr.images_unknown
             batch.errors.extend(zr.errors)
 
             _log(
                 f"  → docs={zr.documents_inserted} media={zr.media_inserted} "
                 f"sigs={zr.signatures_inserted} nrefs={zr.norm_refs_inserted} "
                 f"prefs={zr.proc_refs_inserted} "
+                f"images={{total:{zr.media_inserted} available:{zr.images_available} missing:{zr.images_missing} unknown:{zr.images_unknown}}} "
                 f"({'OK' if zr.success else 'FAIL'}) {zr.elapsed_ms}ms"
             )
 
@@ -617,6 +630,12 @@ def main() -> int:
     print(f"  Signatures:   {result.total_signatures}")
     print(f"  Norm refs:    {result.total_norm_refs}")
     print(f"  Proc refs:    {result.total_proc_refs}")
+    print(
+        "  Images:       "
+        f"available={result.total_images_available} "
+        f"missing={result.total_images_missing} "
+        f"unknown={result.total_images_unknown}"
+    )
     print(f"  Errors:       {len(result.errors)}")
     print(f"  Time:         {result.elapsed_ms / 1000:.1f}s")
     print("=" * 60)

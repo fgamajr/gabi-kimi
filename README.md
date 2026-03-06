@@ -28,6 +28,7 @@ The current retrieval stack is:
 - Elasticsearch 8.x on `localhost:9200`
 - Redis 7 on `localhost:6380`
 - FastAPI + static frontend in `src/frontend/web/`
+- Image availability classification + local cache for historical DOU media in `src/backend/ingest/image_checker.py`
 - Root wrappers in `ops/bin/web_server.py`, `ops/bin/mcp_server.py`, and `ops/bin/mcp_es_server.py`
 - Server implementations in `src/backend/apps/`
 
@@ -98,6 +99,14 @@ Primary operational path:
 .venv/bin/python -m src.backend.ingest.sync_pipeline --start 2002-01 --end 2002-12
 ```
 
+What this now does for embedded DOU images:
+
+- extracts every `<img>` from `body_html`
+- classifies remote assets as `available`, `missing`, or `unknown`
+- caches available files under `ops/data/dou/images/{doc_id}/`
+- stores image fallback metadata in `dou.document_media`
+- rewrites stored `body_html` to stable local `/api/media/{doc_id}/{media_name}` URLs
+
 Registry/sealing path:
 
 ```bash
@@ -144,6 +153,10 @@ Web:
 ```bash
 .venv/bin/python ops/bin/web_server.py --port 8000
 ```
+
+The document viewer no longer relies on browser broken-image behavior. When an image is unavailable,
+the frontend renders a contextual fallback card using `context_hint`, `fallback_text`, and DOU
+metadata from `/api/document/{id}`.
 
 MCP:
 
