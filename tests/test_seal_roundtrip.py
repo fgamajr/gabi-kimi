@@ -29,8 +29,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import psycopg
 
 DSN = os.environ.get("GABI_DSN", "host=localhost port=5433 dbname=gabi user=gabi password=gabi")
-SOURCES_YAML = Path("sources_v3.yaml")
-IDENTITY_YAML = Path("sources_v3.identity-test.yaml")
+SOURCES_YAML = Path("config/sources/sources_v3.yaml")
+IDENTITY_YAML = Path("config/sources/sources_v3.identity-test.yaml")
 VENV_PYTHON = Path(".venv/bin/python3")
 
 
@@ -196,8 +196,8 @@ def main() -> None:
 
         # Step 3: Run ingest_batch_sealed
         print("\n[3] Run ingest_batch_sealed()")
-        from ingest.identity_analyzer import load_identity_config
-        from dbsync.registry_ingest import ingest_batch_sealed, IngestionUnsealedError
+        from src.backend.ingest.identity_analyzer import load_identity_config
+        from src.backend.dbsync.registry_ingest import ingest_batch_sealed, IngestionUnsealedError
 
         cfg = load_identity_config(IDENTITY_YAML)
         result = ingest_batch_sealed(
@@ -241,7 +241,7 @@ def main() -> None:
         envelope_path = Path(tmpdir) / "envelope.json"
         records_path = Path(tmpdir) / "canonical_records.txt"
 
-        from commitment.anchor import anchor_to_file
+        from src.backend.commitment.anchor import anchor_to_file
         envelope = anchor_to_file(
             DSN,
             envelope_path,

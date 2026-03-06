@@ -4,7 +4,7 @@
       "type": "stdio",
       "command": "/home/parallels/dev/gabi-kimi/.venv/bin/python",
       "args": [
-        "/home/parallels/dev/gabi-kimi/mcp_es_server.py"
+        "/home/parallels/dev/gabi-kimi/ops/bin/mcp_es_server.py"
       ],
       "env": {
         "SEARCH_BACKEND": "hybrid",
@@ -13,6 +13,13 @@
         "ES_CHUNKS_INDEX": "gabi_chunks_v1",
         "ES_VERIFY_TLS": "false"
       }
+    },
+    "dev-converge": {
+      "type": "stdio",
+      "command": "/home/parallels/dev/gabi-kimi/.venv/bin/python",
+      "args": [
+        "/home/parallels/dev/gabi-kimi/.dev/mcp/server.py"
+      ]
     }
   }
 }

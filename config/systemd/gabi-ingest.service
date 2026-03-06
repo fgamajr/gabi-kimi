@@ -10,7 +10,7 @@ Group=gabi
 WorkingDirectory=/opt/gabi
 Environment="PATH=/opt/gabi/.venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="GABI_DSN=host=localhost port=5433 dbname=gabi user=gabi password=gabi"
-ExecStart=/opt/gabi/.venv/bin/python -m ingest.orchestrator --days 1 --seal --report-output /opt/gabi/logs/pipeline_$(date +%%Y-%%m-%%d_%%H-%%M-%%S).json
+ExecStart=/opt/gabi/.venv/bin/python -m src.backend.ingest.orchestrator --days 1 --seal --report-output /opt/gabi/logs/pipeline_$(date +%%Y-%%m-%%d_%%H-%%M-%%S).json
 StandardOutput=journal
 StandardError=journal
 TimeoutSec=7200

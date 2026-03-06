@@ -17,7 +17,7 @@ from pathlib import Path
 # Ensure project root is on sys.path when running as standalone script
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from commitment.crss1 import (
+from src.backend.commitment.crss1 import (
     CRSS_VERSION,
     FIELD_ORDER,
     SORT_KEY_FIELDS,
@@ -26,7 +26,7 @@ from commitment.crss1 import (
     sort_key,
     _nfc,
 )
-from commitment.tree import (
+from src.backend.commitment.tree import (
     EMPTY_HASH,
     MerkleTree,
     build_tree,

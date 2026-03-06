@@ -1,14 +1,13 @@
-# GABI Pipeline Configuration Schema
-# ===================================
-#
-# This YAML file configures the automated DOU ingestion pipeline.
-# Copy this file to config/production.yaml and customize for your environment.
+# Last verified: 2026-03-06
+# GABI orchestrator configuration template.
+# Only the fields below are currently consumed by src/backend/ingest/orchestrator.py.
+# Copy to config/production.yaml and customize for your environment.
 
 # ---------------------------------------------------------------------------
 # Data Directory
 # ---------------------------------------------------------------------------
 
-data_dir: "data/inlabs"  # Directory for ZIP downloads and extractions
+data_dir: "ops/data/inlabs"  # Directory for ZIP downloads and extractions
 
 
 # ---------------------------------------------------------------------------
@@ -51,9 +50,6 @@ download:
   # Skip downloading ZIPs that already exist on disk
   skip_existing: true
 
-  # Maximum number of concurrent downloads (not yet implemented)
-  max_concurrent: 1
-
 
 # ---------------------------------------------------------------------------
 # Ingestion Configuration
@@ -64,10 +60,10 @@ ingestion:
   seal_commitment: true
 
   # Path to sources YAML file (for commitment schema)
-  sources_yaml: "sources_v3.yaml"
+  sources_yaml: "config/sources/sources_v3.yaml"
 
   # Path to identity YAML file (for identity analysis)
-  identity_yaml: "sources_v3.identity-test.yaml"
+  identity_yaml: "config/sources/sources_v3.identity-test.yaml"
 
 
 # ---------------------------------------------------------------------------
@@ -81,9 +77,6 @@ error_handling:
   # Delay between retries (seconds)
   retry_delay_seconds: 300
 
-  # Whether to stop on first error or continue
-  stop_on_error: false
-
 
 # ---------------------------------------------------------------------------
 # Reporting Configuration
@@ -93,48 +86,5 @@ reporting:
   # Generate JSON report after each pipeline run
   generate_report: true
 
-  # Path to write report file (timestamp will be appended)
+  # Path to write report file
   report_output: "logs/pipeline_report.json"
-
-  # Whether to log to stdout
-  log_to_stdout: true
-
-  # Log level: DEBUG, INFO, WARNING, ERROR
-  log_level: "INFO"
-
-
-# ---------------------------------------------------------------------------
-# Alerting Configuration (Future)
-# ---------------------------------------------------------------------------
-
-# alerting:
-#   # Send email alerts on failure
-#   email_enabled: false
-#   email_recipients:
-#     - "admin@example.com"
-#   email_smtp_server: "smtp.example.com"
-#   email_smtp_port: 587
-#   email_from: "gabi@example.com"
-#
-#   # Send Slack alerts on failure
-#   slack_enabled: false
-#   slack_webhook_url: "https://hooks.slack.com/services/..."
-#
-#   # Send webhook alerts on failure
-#   webhook_enabled: false
-#   webhook_url: "https://example.com/webhook"
-#   webhook_method: "POST"
-
-
-# ---------------------------------------------------------------------------
-# Monitoring Configuration (Future)
-# ---------------------------------------------------------------------------
-
-# monitoring:
-#   # Export Prometheus metrics
-#   prometheus_enabled: false
-#   prometheus_port: 9100
-#
-#   # Health check endpoint
-#   health_check_enabled: false
-#   health_check_port: 8080
