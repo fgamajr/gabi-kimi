@@ -1,0 +1,134 @@
+{
+  "round_number": 1,
+  "diff_text": "--- before\n+++ after\n@@ -1,15 +1,51 @@\n-Frontend target for GABI DOU:\n-- Replace the current landing-like home with a true operational dashboard.\n-- Add an app shell with persistent navigation, mobile-first but strong on desktop.\n-- Improve search to feel assisted, not just a plain input.\n-- Upgrade the document reader for very long DOU documents with section-aware reading UX.\n-- Keep the existing safe image fallback system.\n-- Prioritize functionality and research workflow over decorative polish.\n+GABI DOU Frontend Roadmap — Prioritized Verdict\n \n-Current concrete gaps observed in code:\n-- No shared app shell; routes are standalone.\n-- Home still has centered hero/title/copy and lacks recent history, richer status, and actionable density.\n-- Document page does not integrate reading progress, TOC, deep-linking, or saved reading position, despite hooks existing.\n-- No PDF/share-at-position flow.\n-- No parser for tabular concurso-style plain text.\n-- Motion tokens exist but are barely applied.\n+═══════════════════════════════════════════════════\n+PHASE 1 — Implement First (maximum product impact)\n+═══════════════════════════════════════════════════\n+\n+1. Operational Dashboard + App Shell\n+   Replace the hero/landing page with a dense research cockpit. Persistent top-level navigation across all routes (currently standalone). Desktop-first layout with responsive mobile fallback — DOU research is a desktop-primary, multi-tab workflow; optimizing for mobile touch targets at the expense of information density is a strategic mistake.\n+   Key deliverables:\n+   - Shared app shell with sidebar/topbar navigation, route-aware breadcrumbs.\n+   - Dashboard home: recent documents queue, saved searches, reading progress summary, DOU edition status.\n+   - Research session continuity: localStorage-backed history with one-click resume.\n+   Dependency: None. This is the scaffold everything else mounts into.\n+\n+2. Assisted Search with DOU-Specific Facets\n+   \"Assisted\" must mean something concrete, not a vague UX aspiration. For gazette research, the minimum viable assistance is structured filtering over the DOU's own taxonomy.\n+   Key deliverables:\n+   - Faceted query builder: date-range picker, DOU section filters (Seção 1/2/3,Extra), act-type classification (Portaria, Edital, Decreto, etc.).\n+   - Persistent query history per session.\n+   - Result snippets with keyword hit-highlighting and section context — DOU documents are too long for title-only result lists.\n+   - Autocomplete seeded from recent queries and known entity names.\n+   Dependency: App shell (search lives in the shell header and as a dashboard module).\n+\n+3. High-Performance Document Reader\n+   Long DOU editions can contain thousands of acts. Rendering them monolithically will crash mobile browsers and lag desktop. Performance is not optional; it is the feature gate.\n+   Key deliverables:\n+   - Virtualized scrolling (react-window or equivalent) with section-based lazy loading as a hard prerequisite.\n+   - TOC sidebar generated from document section headings, with scroll-spy active state.\n+   - URL hash deep-linking to specific sections (enables citation sharing).\n+   - localStorage scroll-position restoration (resume reading where you left off).\n+   - Existing reading-progress hooks wired into visible UI (progress bar, TOC position indicator).\n+   Dependency: App shell (reader is a route within the shell).\n+\n+═══════════════════════════════════════════════════\n+EXPLICITLY DEFERRED\n+═══════════════════════════════════════════════════\n+\n+- Motion tokens / animation polish — Decorative. Tokens exist, application can wait until Phase 1 surfaces are stable. Zero research workflow impact.\n+- PDF export / share-at-position — Browser print-to-PDF covers 80% of the need. Deep-link sharing (Phase 1, item 3) solves the citation use case more cleanly. Revisit only if user research shows demand.\n+- Concurso tabular text parser — High potential value but narrow audience segment. Requires its own data-modeling work (structured table extraction) that doesn't block the core research loop. Candidate for Phase 2 once the reader infrastructure exists to display parsed tables.\n+- Mobile-first optimization — Explicitly deprioritized. The app must be responsive and usable on mobile, but layout decisions should optimize for desktop information density. Mobile-specific UX (swipe gestures, bottom sheets) is Phase 3 at earliest.\n+- Multi-document comparison (split-view / tabbed editions) — Valid research need (retificações, cross-edition comparison) but architecturally complex. Requires the reader and app shell to be stable first. Logged as a Phase 2 requirement; not in scope for Phase 1.\n+- Safe image fallback system — Already working. Keep as-is. No investment needed.\n+\n+═══════════════════════════════════════════════════\n+KNOWN LIMITATIONS (documented, not ignored)\n+═══════════════════════════════════════════════════\n+\n+- No cross-document comparison workflow until Phase 2. Researchers needing to compare retificações must use browser tabs.\n+- No structured concurso data extraction. Tabular plain-text content renders as-is in the reader without semantic parsing.\n+- Mobile experience is functional but not optimized. Complex faceted search and long-document reading will be compromised on small screens.",
+  "zero_diff": false,
+  "unanimous_approve": false,
+  "converged": false,
+  "reviews": [
+    {
+      "agent": "kimi",
+      "round": 1,
+      "verdict": "REQUEST_CHANGES",
+      "objections": [
+        {
+          "severity": "high",
+          "location": "roadmap:prioritization-strategy",
+          "description": "The roadmap presents a disorganized feature laundry list rather than a workflow-centric execution plan. It lists six parallel workstreams without sequencing for research utility, forcing engineering to guess at dependencies.",
+          "suggested_fix": "Explicitly sequence three phases: (1) Persistent App Shell with Research Session history/queue, (2) Assisted Search with DOU-specific facets, (3) Virtualized Document Reader with deep-linking. Defer all polish items."
+        },
+        {
+          "severity": "high",
+          "location": "roadmap:search-specification",
+          "description": "Assisted search is hand-wavy vaporware. No specification of the assistance mechanism (autocomplete? boolean syntax? entity extraction?) or DOU-specific affordances like date-range filtering or section facets, which are critical for gazette research.",
+          "suggested_fix": "Define assisted search as: faceted query builder with date range picker, DOU section filters (Admin, Judiciário, etc.), and persistent query history with result highlighting."
+        },
+        {
+          "severity": "high",
+          "location": "roadmap:document-performance",
+          "description": "Claims to support very long DOU documents but gaps analysis omits virtualization or incremental loading strategies. Rendering a 10,000-item Diário Oficial in a browser without virtualization will crash mobile and lag desktop.",
+          "suggested_fix": "Mandate virtualized scrolling (react-window or similar) and section-based lazy loading as non-negotiable prerequisites to TOC and reading position features."
+        },
+        {
+          "severity": "medium",
+          "location": "roadmap:workflow-coverage",
+          "description": "Missing multi-document comparison workflow. DOU research is fundamentally cross-referential (comparing editions, checking retificações), yet the roadmap only supports single-document reading.",
+          "suggested_fix": "Add Phase 2 requirement for tabbed document interface or split-view comparison mode; if out of scope, explicitly document this limitation."
+        }
+      ],
+      "suggestions": [
+        {
+          "type": "improvement",
+          "location": "roadmap:priorities",
+          "description": "PRIORITY 1: Operational Dashboard App Shell. Replace hero with dense research cockpit: recent documents queue, saved search alerts, and reading progress summary. This maximizes researcher efficiency immediately."
+        },
+        {
+          "type": "improvement",
+          "location": "roadmap:priorities",
+          "description": "PRIORITY 2: Assisted Search with Context. Implement faceted filters (date, section, act type) and result snippets with hit-highlighting. DOU documents are too long for blind navigation."
+        },
+        {
+          "type": "improvement",
+          "location": "roadmap:priorities",
+          "description": "PRIORITY 3: High-Performance Document Reader. Virtualized rendering + TOC sidebar + URL hash deep-linking + localStorage scroll position restoration. Enables reliable citation and resumption."
+        },
+        {
+          "type": "improvement",
+          "location": "roadmap:deferred",
+          "description": "DEFERRED: Motion tokens (decorative), PDF/share-at-position (browsers handle this), concurso parser (narrow use case), and mobile-first emphasis (DOU research is desktop-primary; mobile is secondary)."
+        }
+      ],
+      "diffs": [],
+      "meta": {
+        "tokens_used": 0,
+        "latency_ms": 0,
+        "thinking_tokens": 0
+      },
+      "raw_text": "```json\n{\n  \"agent\": \"kimi\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"roadmap:prioritization-strategy\",\n      \"description\": \"The roadmap presents a disorganized feature laundry list rather than a workflow-centric execution plan. It lists six parallel workstreams without sequencing for research utility, forcing engineering to guess at dependencies.\",\n      \"suggested_fix\": \"Explicitly sequence three phases: (1) Persistent App Shell with Research Session history/queue, (2) Assisted Search with DOU-specific facets, (3) Virtualized Document Reader with deep-linking. Defer all polish items.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"roadmap:search-specification\",\n      \"description\": \"Assisted search is hand-wavy vaporware. No specification of the assistance mechanism (autocomplete? boolean syntax? entity extraction?) or DOU-specific affordances like date-range filtering or section facets, which are critical for gazette research.\",\n      \"suggested_fix\": \"Define assisted search as: faceted query builder with date range picker, DOU section filters (Admin, Judiciário, etc.), and persistent query history with result highlighting.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"roadmap:document-performance\",\n      \"description\": \"Claims to support very long DOU documents but gaps analysis omits virtualization or incremental loading strategies. Rendering a 10,000-item Diário Oficial in a browser without virtualization will crash mobile and lag desktop.\",\n      \"suggested_fix\": \"Mandate virtualized scrolling (react-window or similar) and section-based lazy loading as non-negotiable prerequisites to TOC and reading position features.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"roadmap:workflow-coverage\",\n      \"description\": \"Missing multi-document comparison workflow. DOU research is fundamentally cross-referential (comparing editions, checking retificações), yet the roadmap only supports single-document reading.\",\n      \"suggested_fix\": \"Add Phase 2 requirement for tabbed document interface or split-view comparison mode; if out of scope, explicitly document this limitation.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"roadmap:priorities\",\n      \"description\": \"PRIORITY 1: Operational Dashboard App Shell. Replace hero with dense research cockpit: recent documents queue, saved search alerts, and reading progress summary. This maximizes researcher efficiency immediately.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"roadmap:priorities\",\n      \"description\": \"PRIORITY 2: Assisted Search with Context. Implement faceted filters (date, section, act type) and result snippets with hit-highlighting. DOU documents are too long for blind navigation.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"roadmap:priorities\",\n      \"description\": \"PRIORITY 3: High-Performance Document Reader. Virtualized rendering + TOC sidebar + URL hash deep-linking + localStorage scroll position restoration. Enables reliable citation and resumption.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"roadmap:deferred\",\n      \"description\": \"DEFERRED: Motion tokens (decorative), PDF/share-at-position (browsers handle this), concurso parser (narrow use case), and mobile-first emphasis (DOU research is desktop-primary; mobile is secondary).\"\n    }\n  ],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 0,\n    \"latency_ms\": 0,\n    \"thinking_tokens\": 0\n  }\n}\n```"
+    },
+    {
+      "agent": "qwen",
+      "round": 1,
+      "verdict": "REQUEST_CHANGES",
+      "objections": [
+        {
+          "severity": "high",
+          "location": "Roadmap: Targets",
+          "description": "User task explicitly requested a prioritized verdict (3 areas first, what deferred). Artifact lists goals without ranking or deferral list, failing the core prompt requirement.",
+          "suggested_fix": "Add explicit 'Phase 1' and 'Deferred' sections to the roadmap to satisfy the prioritization constraint."
+        },
+        {
+          "severity": "high",
+          "location": "Roadmap: App Shell",
+          "description": "'Mobile-first' is a strategic risk for DOU research tools which are desktop-heavy (legal/comparison workflows). Prioritizing mobile may compromise power-user density.",
+          "suggested_fix": "Change strategy to 'Desktop-first with mobile responsiveness' to match actual user workflow."
+        },
+        {
+          "severity": "medium",
+          "location": "Roadmap: Observed Gaps",
+          "description": "Parser for tabular concurso-style text is listed as a gap but missing from the 'Frontend target' list despite high product impact for DOU.",
+          "suggested_fix": "Move parser implementation into Phase 1 targets or explicitly defer with justification."
+        }
+      ],
+      "suggestions": [
+        {
+          "type": "improvement",
+          "location": "Roadmap: Prioritization",
+          "description": "Implement App Shell, Assisted Search, and Document Reader as Phase 1. Defer Motion tokens and Mobile optimization."
+        },
+        {
+          "type": "improvement",
+          "location": "Roadmap: Targets",
+          "description": "Explicitly add 'Concurso Text Parser' to high-priority functionality list."
+        }
+      ],
+      "diffs": [
+        {
+          "file": "roadmap.md",
+          "hunks": "@@ -1,8 +1,15 @@\n Frontend target for GABI DOU:\n+Priority Phase 1:\n+- Add an app shell with persistent navigation (Desktop-first).\n+- Improve search to feel assisted.\n+- Upgrade the document reader for section-aware reading.\n+\n+Deferred:\n+- Motion tokens application.\n+- Mobile-first optimization.\n+\n - Replace the current landing-like home with a true operational dashboard.\n- - Add an app shell with persistent navigation, mobile-first but strong on desktop.\n- - Improve search to feel assisted, not just a plain input.\n- - Upgrade the document reader for very long DOU documents with section-aware reading UX.\n - Keep the existing safe image fallback system.\n- - Prioritize functionality and research workflow over decorative polish."
+        }
+      ],
+      "meta": {
+        "tokens_used": 0,
+        "latency_ms": 0,
+        "thinking_tokens": 0
+      },
+      "raw_text": "{\n  \"agent\": \"qwen\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Roadmap: Targets\",\n      \"description\": \"User task explicitly requested a prioritized verdict (3 areas first, what deferred). Artifact lists goals without ranking or deferral list, failing the core prompt requirement.\",\n      \"suggested_fix\": \"Add explicit 'Phase 1' and 'Deferred' sections to the roadmap to satisfy the prioritization constraint.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Roadmap: App Shell\",\n      \"description\": \"'Mobile-first' is a strategic risk for DOU research tools which are desktop-heavy (legal/comparison workflows). Prioritizing mobile may compromise power-user density.\",\n      \"suggested_fix\": \"Change strategy to 'Desktop-first with mobile responsiveness' to match actual user workflow.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Roadmap: Observed Gaps\",\n      \"description\": \"Parser for tabular concurso-style text is listed as a gap but missing from the 'Frontend target' list despite high product impact for DOU.\",\n      \"suggested_fix\": \"Move parser implementation into Phase 1 targets or explicitly defer with justification.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Roadmap: Prioritization\",\n      \"description\": \"Implement App Shell, Assisted Search, and Document Reader as Phase 1. Defer Motion tokens and Mobile optimization.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Roadmap: Targets\",\n      \"description\": \"Explicitly add 'Concurso Text Parser' to high-priority functionality list.\"\n    }\n  ],\n  \"diffs\": [\n    {\n      \"file\": \"roadmap.md\",\n      \"hunks\": \"@@ -1,8 +1,15 @@\\n Frontend target for GABI DOU:\\n+Priority Phase 1:\\n+- Add an app shell with persistent navigation (Desktop-first).\\n+- Improve search to feel assisted.\\n+- Upgrade the document reader for section-aware reading.\\n+\\n+Deferred:\\n+- Motion tokens application.\\n+- Mobile-first optimization.\\n+\\n - Replace the current landing-like home with a true operational dashboard.\\n- - Add an app shell with persistent navigation, mobile-first but strong on desktop.\\n- - Improve search to feel assisted, not just a plain input.\\n- - Upgrade the document reader for very long DOU documents with section-aware reading UX.\\n - Keep the existing safe image fallback system.\\n- - Prioritize functionality and research workflow over decorative polish.\"\n    }\n  ],\n  \"meta\": {\n    \"tokens_used\": 0,\n    \"latency_ms\": 0,\n    \"thinking_tokens\": 0\n  }\n}"
+    }
+  ],
+  "orchestrator_response": {
+    "content": "GABI DOU Frontend Roadmap — Prioritized Verdict\n\n═══════════════════════════════════════════════════\nPHASE 1 — Implement First (maximum product impact)\n═══════════════════════════════════════════════════\n\n1. Operational Dashboard + App Shell\n   Replace the hero/landing page with a dense research cockpit. Persistent top-level navigation across all routes (currently standalone). Desktop-first layout with responsive mobile fallback — DOU research is a desktop-primary, multi-tab workflow; optimizing for mobile touch targets at the expense of information density is a strategic mistake.\n   Key deliverables:\n   - Shared app shell with sidebar/topbar navigation, route-aware breadcrumbs.\n   - Dashboard home: recent documents queue, saved searches, reading progress summary, DOU edition status.\n   - Research session continuity: localStorage-backed history with one-click resume.\n   Dependency: None. This is the scaffold everything else mounts into.\n\n2. Assisted Search with DOU-Specific Facets\n   \"Assisted\" must mean something concrete, not a vague UX aspiration. For gazette research, the minimum viable assistance is structured filtering over the DOU's own taxonomy.\n   Key deliverables:\n   - Faceted query builder: date-range picker, DOU section filters (Seção 1/2/3,Extra), act-type classification (Portaria, Edital, Decreto, etc.).\n   - Persistent query history per session.\n   - Result snippets with keyword hit-highlighting and section context — DOU documents are too long for title-only result lists.\n   - Autocomplete seeded from recent queries and known entity names.\n   Dependency: App shell (search lives in the shell header and as a dashboard module).\n\n3. High-Performance Document Reader\n   Long DOU editions can contain thousands of acts. Rendering them monolithically will crash mobile browsers and lag desktop. Performance is not optional; it is the feature gate.\n   Key deliverables:\n   - Virtualized scrolling (react-window or equivalent) with section-based lazy loading as a hard prerequisite.\n   - TOC sidebar generated from document section headings, with scroll-spy active state.\n   - URL hash deep-linking to specific sections (enables citation sharing).\n   - localStorage scroll-position restoration (resume reading where you left off).\n   - Existing reading-progress hooks wired into visible UI (progress bar, TOC position indicator).\n   Dependency: App shell (reader is a route within the shell).\n\n═══════════════════════════════════════════════════\nEXPLICITLY DEFERRED\n═══════════════════════════════════════════════════\n\n- Motion tokens / animation polish — Decorative. Tokens exist, application can wait until Phase 1 surfaces are stable. Zero research workflow impact.\n- PDF export / share-at-position — Browser print-to-PDF covers 80% of the need. Deep-link sharing (Phase 1, item 3) solves the citation use case more cleanly. Revisit only if user research shows demand.\n- Concurso tabular text parser — High potential value but narrow audience segment. Requires its own data-modeling work (structured table extraction) that doesn't block the core research loop. Candidate for Phase 2 once the reader infrastructure exists to display parsed tables.\n- Mobile-first optimization — Explicitly deprioritized. The app must be responsive and usable on mobile, but layout decisions should optimize for desktop information density. Mobile-specific UX (swipe gestures, bottom sheets) is Phase 3 at earliest.\n- Multi-document comparison (split-view / tabbed editions) — Valid research need (retificações, cross-edition comparison) but architecturally complex. Requires the reader and app shell to be stable first. Logged as a Phase 2 requirement; not in scope for Phase 1.\n- Safe image fallback system — Already working. Keep as-is. No investment needed.\n\n═══════════════════════════════════════════════════\nKNOWN LIMITATIONS (documented, not ignored)\n═══════════════════════════════════════════════════\n\n- No cross-document comparison workflow until Phase 2. Researchers needing to compare retificações must use browser tabs.\n- No structured concurso data extraction. Tabular plain-text content renders as-is in the reader without semantic parsing.\n- Mobile experience is functional but not optimized. Complex faceted search and long-document reading will be compromised on small screens.",
+    "reasoning": "",
+    "usage": {
+      "input_tokens": 4284,
+      "output_tokens": 1033,
+      "total_tokens": 5317,
+      "thinking_tokens": 0,
+      "estimated_cost_usd": null
+    },
+    "latency_ms": 28045,
+    "raw": {
+      "http": true,
+      "stream": true
+    }
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "agent": "kimi",
+  "round": 1,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "roadmap:prioritization-strategy",
+      "description": "The roadmap presents a disorganized feature laundry list rather than a workflow-centric execution plan. It lists six parallel workstreams without sequencing for research utility, forcing engineering to guess at dependencies.",
+      "suggested_fix": "Explicitly sequence three phases: (1) Persistent App Shell with Research Session history/queue, (2) Assisted Search with DOU-specific facets, (3) Virtualized Document Reader with deep-linking. Defer all polish items."
+    },
+    {
+      "severity": "high",
+      "location": "roadmap:search-specification",
+      "description": "Assisted search is hand-wavy vaporware. No specification of the assistance mechanism (autocomplete? boolean syntax? entity extraction?) or DOU-specific affordances like date-range filtering or section facets, which are critical for gazette research.",
+      "suggested_fix": "Define assisted search as: faceted query builder with date range picker, DOU section filters (Admin, Judiciário, etc.), and persistent query history with result highlighting."
+    },
+    {
+      "severity": "high",
+      "location": "roadmap:document-performance",
+      "description": "Claims to support very long DOU documents but gaps analysis omits virtualization or incremental loading strategies. Rendering a 10,000-item Diário Oficial in a browser without virtualization will crash mobile and lag desktop.",
+      "suggested_fix": "Mandate virtualized scrolling (react-window or similar) and section-based lazy loading as non-negotiable prerequisites to TOC and reading position features."
+    },
+    {
+      "severity": "medium",
+      "location": "roadmap:workflow-coverage",
+      "description": "Missing multi-document comparison workflow. DOU research is fundamentally cross-referential (comparing editions, checking retificações), yet the roadmap only supports single-document reading.",
+      "suggested_fix": "Add Phase 2 requirement for tabbed document interface or split-view comparison mode; if out of scope, explicitly document this limitation."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "roadmap:priorities",
+      "description": "PRIORITY 1: Operational Dashboard App Shell. Replace hero with dense research cockpit: recent documents queue, saved search alerts, and reading progress summary. This maximizes researcher efficiency immediately."
+    },
+    {
+      "type": "improvement",
+      "location": "roadmap:priorities",
+      "description": "PRIORITY 2: Assisted Search with Context. Implement faceted filters (date, section, act type) and result snippets with hit-highlighting. DOU documents are too long for blind navigation."
+    },
+    {
+      "type": "improvement",
+      "location": "roadmap:priorities",
+      "description": "PRIORITY 3: High-Performance Document Reader. Virtualized rendering + TOC sidebar + URL hash deep-linking + localStorage scroll position restoration. Enables reliable citation and resumption."
+    },
+    {
+      "type": "improvement",
+      "location": "roadmap:deferred",
+      "description": "DEFERRED: Motion tokens (decorative), PDF/share-at-position (browsers handle this), concurso parser (narrow use case), and mobile-first emphasis (DOU research is desktop-primary; mobile is secondary)."
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 0,
+    "latency_ms": 0,
+    "thinking_tokens": 0
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"kimi\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"roadmap:prioritization-strategy\",\n      \"description\": \"The roadmap presents a disorganized feature laundry list rather than a workflow-centric execution plan. It lists six parallel workstreams without sequencing for research utility, forcing engineering to guess at dependencies.\",\n      \"suggested_fix\": \"Explicitly sequence three phases: (1) Persistent App Shell with Research Session history/queue, (2) Assisted Search with DOU-specific facets, (3) Virtualized Document Reader with deep-linking. Defer all polish items.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"roadmap:search-specification\",\n      \"description\": \"Assisted search is hand-wavy vaporware. No specification of the assistance mechanism (autocomplete? boolean syntax? entity extraction?) or DOU-specific affordances like date-range filtering or section facets, which are critical for gazette research.\",\n      \"suggested_fix\": \"Define assisted search as: faceted query builder with date range picker, DOU section filters (Admin, Judiciário, etc.), and persistent query history with result highlighting.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"roadmap:document-performance\",\n      \"description\": \"Claims to support very long DOU documents but gaps analysis omits virtualization or incremental loading strategies. Rendering a 10,000-item Diário Oficial in a browser without virtualization will crash mobile and lag desktop.\",\n      \"suggested_fix\": \"Mandate virtualized scrolling (react-window or similar) and section-based lazy loading as non-negotiable prerequisites to TOC and reading position features.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"roadmap:workflow-coverage\",\n      \"description\": \"Missing multi-document comparison workflow. DOU research is fundamentally cross-referential (comparing editions, checking retificações), yet the roadmap only supports single-document reading.\",\n      \"suggested_fix\": \"Add Phase 2 requirement for tabbed document interface or split-view comparison mode; if out of scope, explicitly document this limitation.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"roadmap:priorities\",\n      \"description\": \"PRIORITY 1: Operational Dashboard App Shell. Replace hero with dense research cockpit: recent documents queue, saved search alerts, and reading progress summary. This maximizes researcher efficiency immediately.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"roadmap:priorities\",\n      \"description\": \"PRIORITY 2: Assisted Search with Context. Implement faceted filters (date, section, act type) and result snippets with hit-highlighting. DOU documents are too long for blind navigation.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"roadmap:priorities\",\n      \"description\": \"PRIORITY 3: High-Performance Document Reader. Virtualized rendering + TOC sidebar + URL hash deep-linking + localStorage scroll position restoration. Enables reliable citation and resumption.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"roadmap:deferred\",\n      \"description\": \"DEFERRED: Motion tokens (decorative), PDF/share-at-position (browsers handle this), concurso parser (narrow use case), and mobile-first emphasis (DOU research is desktop-primary; mobile is secondary).\"\n    }\n  ],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 0,\n    \"latency_ms\": 0,\n    \"thinking_tokens\": 0\n  }\n}\n```"
+}

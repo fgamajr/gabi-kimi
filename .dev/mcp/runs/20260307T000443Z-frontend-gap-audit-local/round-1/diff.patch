@@ -1,0 +1,190 @@
+--- before
++++ after
+@@ -1,25 +1,165 @@
+-Current frontend integrated into this repo:
+-- Imported from official-archives and adapted to current backend through src/frontend/web/src/lib/api.ts.
+-- Home currently shows compact header, search bar, 3 metric cards (Publicações, Período, Status), a featured document card, popular search chips with counts, and a recent-history empty state.
+-- Search page exists with filters and result cards.
+-- Document page exists with metadata masthead, safe HTML renderer, image fallback cards, and bottom-sheet actions.
+-- Autocomplete now works after fixing SearchBar dropdown state.
+-- Image fallback ingest/backend exists already.
++# DOU Frontend Gap Analysis: Prioritized Production Readiness Assessment
+ 
+-Reference visuals provided by user:
+-1. Home screenshot: dark compact dashboard with sidebar icons, search, metrics, featured document, chips, and recent history empty state.
+-2. Document screenshot: premium dark editorial reader with compact metadata row, right-side section index, and well-paced typography.
+-3. Time-series concepts HTML: premium operational charts for publication volume, organ activity, type distribution, pipeline health, sparkline cards, and calendar heatmap.
++## Methodology
+ 
+-What appears missing or incomplete in current repo implementation:
+-- No command-palette style assisted search panel on focus.
+-- No obvious recent-history clickability/utility verification on home yet.
+-- No visible always-on motion system matching the prompt lineage (SVG pulse, float drift, spring stagger).
+-- No mobile reading system for long documents: TOC/FAB, reading progress, resume position, share-at-position.
+-- No PDF view/export flow.
+-- No tabular detector for concurso-style content; some docs still render as walls of text.
+-- No time-series dashboard widgets integrated from the concept HTML.
+-- Search/home information density may still be too low compared with Nubank/Flighty/BB references.
+-- Need to distinguish what is truly missing versus what is merely a style preference.
++Each gap is classified into one of four categories:
++- **MISSING** — No implementation exists; must be built from scratch.
++- **PARTIAL** — Code or scaffolding exists but is not wired, incomplete, or non-functional in production context.
++- **AESTHETIC** — Stylistic preference from reference visuals; not a functional blocker.
++- **INTEGRATED** — Exists and works; no action needed.
+ 
+-Produce a prioritized gap list with severity, why it matters, and implementation order.
++Severity uses a strict production lens: would a legal researcher on a 6-inch phone screen abandon the tool because of this gap?
++
++---
++
++## TIER 1 — Production Blockers (Ship-stopping for target users)
++
++### 1.1 Mobile Reading System for Long Documents
++- **Category:** MISSING
++- **Severity:** CRITICAL
++- **Location:** `src/frontend/web/src/app/document/page.tsx`, new `ReadingContext` provider
++- **Current state:** Static safe-HTML renderer with metadata masthead and bottom-sheet actions. No affordances for 10,000+ word DOU documents on mobile. Users must manually scroll with no orientation, no resume, no way to share a specific position.
++- **What is needed:**
++  1. **Floating TOC access (FAB):** Slide-out sheet on mobile triggered by a persistent button. Uses IntersectionObserver on heading elements to highlight the active section.
++  2. **Reading progress indicator:** Thin bar at top of viewport or section-based fraction (e.g., "Seção 3 de 7"). Scroll-percentage alone is insufficient for legal docs — section-based is more meaningful.
++  3. **Resume reading position:** Persist `{ documentId, scrollY, sectionId, timestamp }` to localStorage. On return visit, prompt "Continuar de onde parou?" with one-tap restore.
++  4. **Share-at-position deep linking:** URL param `?section=<id>` that scrolls-to and highlights the target section on load. Enables citation sharing between researchers.
++- **Why it matters:** DOU documents are routinely 5,000–30,000 words. Without navigation affordances, mobile reading is physically unusable. This is the single highest-impact gap for the stated "mobile reading" product goal.
++- **Implementation order:** FIRST. Unblocks the core use case.
++- **Estimated scope:** ~3–4 days. ReadingContext provider + IntersectionObserver hook + TOC sheet component + localStorage persistence + URL param handling.
++
++### 1.2 Semantic Tabular Detector for Structured Content
++- **Category:** MISSING
++- **Severity:** CRITICAL
++- **Location:** New module `src/frontend/web/src/lib/content-renderers/tabular-detector.ts`, consumed by document renderer
++- **Current state:** All document content passes through a generic safe-HTML renderer. Documents containing tabular data (concurso editais, procurement tables, salary grids) render as undifferentiated paragraph walls. Critical structured information is visually destroyed.
++- **What is needed:**
++  1. **DOM analysis pass** before render: detect sequences of `<p>` tags containing delimiters (`|`, `R$`, sequential numbering, repeated structural patterns like "Cargo: ... Vagas: ... Remuneração: ...").
++  2. **Heuristic classifier** for known DOU document types: `EDITAL`, `EXTRATO DE CONTRATO`, `RESULTADO DE JULGAMENTO`. These have predictable internal structure.
++  3. **Transform detected structures** into responsive `<table>` elements with sticky headers on mobile, horizontal scroll on narrow viewports.
++  4. **Fallback:** If heuristic confidence is below threshold, render original HTML unchanged. Never corrupt content by misdetecting structure.
++- **Why it matters:** Concurso/procurement research is one of the highest-traffic DOU use cases. Rendering tables as text walls makes the tool unreliable for its primary audience. Legal professionals will use the official gazette PDF instead — which defeats the product's purpose.
++- **Implementation order:** SECOND. Directly after mobile reading, because it affects document rendering quality at the same layer.
++- **Estimated scope:** ~3 days. Heuristic engine + responsive table component + test suite against sample DOU documents.
++
++---
++
++## TIER 2 — Core Product Gaps (Significantly degrades value proposition)
++
++### 2.1 Time-Series Dashboard Widgets
++- **Category:** MISSING (concept HTML exists as reference but is not integrated into the React app)
++- **Severity:** HIGH
++- **Location:** `src/frontend/web/src/app/page.tsx` (Home), new `src/frontend/web/src/components/dashboard/` directory
++- **Current state:** Home shows 3 static metric cards (Publicações count, Período, Status). No temporal context. No trend visualization. The concept HTML provided by the user demonstrates publication volume sparklines, organ activity heatmaps, type distribution, pipeline health indicators, and calendar heatmaps — none of which exist in the running app.
++- **What is needed:**
++  1. **Sparkline injection into existing metric cards:** Add a 7-day or 30-day trend line inside the Publicações and Status cards using recharts `<Sparkline>` or a lightweight SVG path. This is the minimum viable enhancement — it transforms static numbers into trend indicators.
++  2. **Publication volume time-series chart:** Full-width area chart below the fold. X-axis = date, Y-axis = count. Filterable by document type. This answers "is regulatory output increasing or decreasing?" — a core research question.
++  3. **Organ activity heatmap:** Rows = top N organs, columns = days/weeks, cell intensity = publication count. Answers "which ministries are active right now?"
++  4. **Pipeline health indicators:** Backend ingest status, last successful sync, document count delta. Answers "can I trust this data is current?"
++- **Backend dependency:** Requires aggregated time-bucketed endpoints. Verify whether `/api/stats` or equivalent already returns time-series data or only scalar counts. If only scalars, backend work is needed first.
++- **Library choice:** recharts. It's already the standard for Next.js/React dashboards, has good SSR story, and the concept HTML uses chart patterns that map directly to recharts components. visx is more flexible but overkill here.
++- **Why it matters:** The dashboard is the landing page. Without temporal context, it's a vanity metrics screen, not a research tool. Researchers need to understand publication trends to prioritize their reading.
++- **Implementation order:** THIRD. After document-layer fixes (reading + tables), because the dashboard is visited once per session but documents are read many times.
++- **Estimated scope:** ~4–5 days. Backend aggregation endpoint (if missing) + 4 widget components + responsive grid layout.
++
++### 2.2 Command-Palette Assisted Search (Cmd+K)
++- **Category:** MISSING (autocomplete exists but is a simple dropdown, not a structured discovery interface)
++- **Severity:** HIGH
++- **Location:** `src/frontend/web/src/components/SearchBar.tsx`, new `CommandPalette` component
++- **Current state:** SearchBar has working autocomplete with dropdown suggestions. No grouping, no filter shortcuts, no keyboard navigation beyond basic up/down, no Cmd+K global trigger.
++- **What is needed:**
++  1. **Global Cmd+K / Ctrl+K trigger** that opens a modal search palette from any page.
++  2. **Grouped suggestion sections:** "Recentes" (from localStorage history), "Buscas salvas" (if user system exists), "Filtros rápidos" (date ranges, specific organs as clickable chips that pre-fill filter state).
++  3. **Keyboard-first navigation:** Arrow keys move between groups, Enter selects, Esc closes. Tab moves between groups.
++  4. **Type-ahead filter application:** Typing `orgão:` or `tipo:` activates structured filter mode inline, not requiring the user to open a separate filter panel.
++- **Why it matters:** This is NOT merely aesthetic. It's a discovery mechanism for the filter system. Current filter panel requires users to know it exists and manually open it. Power users (legal researchers who use this tool daily) will expect keyboard-driven search. This directly improves search UX, which is one of the stated focus areas.
++- **Implementation order:** FOURTH. After dashboard widgets. Search works today — it's just not optimally discoverable.
++- **Estimated scope:** ~2–3 days. Command palette component + keyboard event handlers + suggestion grouping logic + localStorage integration.
++
++### 2.3 PDF Export / Print-Optimized View
++- **Category:** MISSING
++- **Severity:** HIGH
++- **Location:** `src/frontend/web/src/app/document/page.tsx` (UI trigger), backend endpoint for PDF generation or DOU PDF proxy
++- **Current state:** Bottom-sheet actions exist but do not include PDF export or print optimization. No `@media print` CSS rules.
++- **What is needed:**
++  1. **Immediate (low-effort):** Add `@media print` CSS that hides navigation, optimizes typography for A4/Letter, and includes document metadata as a header block. Add "Imprimir" button to bottom-sheet actions that triggers `window.print()`.
++  2. **Near-term:** Backend endpoint that either (a) proxies the original DOU PDF from `in.gov.br` if available for the document, or (b) generates a PDF from the rendered HTML using a headless renderer (Puppeteer/Playwright on backend, or client-side via `html2pdf.js`).
++  3. **Citation metadata:** Print/PDF output should include canonical URL, publication date, DOU section, and page number for legal citation purposes.
++- **Why it matters:** Legal professionals annotate PDFs. They file PDFs. They attach PDFs to legal proceedings. If they can't get a PDF from this tool, they go back to the official gazette website. This is a workflow integration issue, not a feature request.
++- **Implementation order:** FIFTH. Print CSS can ship in hours; full PDF pipeline is backend-dependent.
++- **Estimated scope:** Print CSS = 0.5 day. PDF proxy/generation = 2–3 days (backend + frontend).
++
++---
++
++## TIER 3 — Quality-of-Life Improvements (Enhances but doesn't block)
++
++### 3.1 Home Information Density
++- **Category:** PARTIAL (layout exists but density is too low for the data-heavy use case)
++- **Severity:** MEDIUM
++- **Location:** `src/frontend/web/src/app/page.tsx`, metric cards, featured document card, search chips
++- **Current state:** Excessive padding on metric cards, featured document card consumes ~40%+ viewport height, search chips lack secondary metadata.
++- **What is needed:**
++  1. Reduce card padding (`p-6` → `p-3` on desktop, keep `p-4` on mobile for touch targets).
++  2. Convert featured document to horizontal compact layout on desktop (thumbnail left, metadata right). Keep stacked on mobile.
++  3. Add micro-metadata to search chips: trend indicator ("+12% hoje") or last-updated timestamp.
++  4. Consider bento-grid layout for dashboard section instead of single-column stack on desktop.
++- **Why it matters:** Information density is a competitive differentiator against the official gazette. If researchers see the same amount of information per screen, they have no reason to switch. Higher density = faster scanning = more value per session.
++- **Implementation order:** SIXTH. Can be done incrementally alongside other work.
++- **Estimated scope:** ~1–2 days. CSS/layout changes + chip metadata enrichment.
++
++### 3.2 Recent History Wiring
++- **Category:** PARTIAL (empty state UI exists, persistence and click handlers do not)
++- **Severity:** MEDIUM
++- **Location:** `src/frontend/web/src/app/page.tsx`, new `useReadingHistory` hook
++- **Current state:** Home shows a recent-history section with an empty state message. No localStorage persistence of viewed documents. No click handlers to navigate back to a document at the last-read position.
++- **What is needed:**
++  1. `useReadingHistory` hook that writes `{ documentId, title, organ, lastReadAt, scrollPosition, sectionId }` to localStorage on document view.
++  2. Home page reads from this hook and renders history cards with document title, organ, time-ago, and a "Continuar lendo" action.
++  3. Click handler navigates to document page with scroll position restore (ties into §1.1 resume reading).
++  4. Swipe-to-dismiss on mobile for history items. Clear-all action.
++- **Why it matters:** Without history, returning users start from zero every session. This is the simplest retention mechanism.
++- **Implementation order:** SEVENTH. Partially blocked by §1.1 (resume reading position), since the history click should restore position.
++- **Estimated scope:** ~1 day (assumes §1.1 ReadingContext already exists).
++
++---
++
++## TIER 4 — Aesthetic Preferences (Deprioritize)
++
++### 4.1 Always-On Motion System (SVG Pulse, Float Drift, Spring Stagger)
++- **Category:** AESTHETIC
++- **Severity:** LOW
++- **Location:** Global animation layer
++- **Current state:** No ambient motion system.
++- **Assessment:** This is a visual branding choice from the reference visuals. It does not improve task completion, reading comprehension, or search efficiency. Implementing it requires a global animation framework (framer-motion spring configs, SVG animation loops) that adds bundle size and maintenance surface.
++- **Exception:** Micro-interactions on the search dropdown (spring-physics open/close) ARE functional UX — they communicate state transitions and reduce perceived latency. These should use the existing autocomplete state and framer-motion's `AnimatePresence` if already in the bundle.
++- **Implementation order:** LAST. Only after all Tier 1–3 items are complete. Micro-interactions on search can be folded into §2.2.
++- **Estimated scope:** Micro-interactions = 0.5 day. Full ambient motion system = 2–3 days.
++
++---
++
++## Implementation Sequence Summary
++
++| Priority | Gap | Category | Severity | Est. Days | Dependencies |
++|----------|-----|----------|----------|-----------|-------------|
++| 1 | Mobile Reading System (TOC, progress, resume, share) | MISSING | CRITICAL | 3–4 | None |
++| 2 | Semantic Tabular Detector | MISSING | CRITICAL | 3 | None |
++| 3 | Time-Series Dashboard Widgets | MISSING | HIGH | 4–5 | Backend aggregation endpoint |
++| 4 | Command-Palette Search (Cmd+K) | MISSING | HIGH | 2–3 | None |
++| 5 | PDF Export / Print View | MISSING | HIGH | 0.5–3 | Backend PDF endpoint (for full flow) |
++| 6 | Home Information Density | PARTIAL | MEDIUM | 1–2 | None |
++| 7 | Recent History Wiring | PARTIAL | MEDIUM | 1 | §1 (ReadingContext) |
++| 8 | Motion System / Micro-interactions | AESTHETIC | LOW | 0.5–3 | §4 (search dropdown exists) |
++
++**Total estimated scope: 15–24 engineering days** for a single frontend developer. Parallelizable: §1+§3 can run simultaneously if two developers are available (document layer vs. dashboard layer).
++
++---
++
++## Key Architectural Decisions Required Before Implementation
++
++1. **State management for reading context:** React Context + localStorage is sufficient for single-user, no-auth scenario. If user accounts are planned, this should be designed with a migration path to server-persisted state (reading history, saved searches, bookmarks).
++
++2. **Tabular detector: client-side or backend?** Client-side DOM analysis is simpler to ship but runs on every render. Backend pre-processing during ingest would store a `content_type: "tabular" | "prose" | "mixed"` flag and pre-transformed HTML. Recommendation: **client-side first** (ships faster, no backend deploy), migrate to backend pre-processing when the heuristics stabilize.
++
++3. **Chart library:** recharts. Already argued above. Do not introduce D3 directly — the abstraction cost is not justified for the 4 chart types needed.
++
++4. **PDF generation:** If the DOU source documents have stable PDF URLs on `in.gov.br`, proxy those directly. Do not generate PDFs from HTML unless the source PDF is unavailable. Legal professionals prefer the official PDF for citation validity.

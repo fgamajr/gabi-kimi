@@ -1,0 +1,61 @@
+{
+  "agent": "qwen",
+  "round": 1,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "Reader validity/version awareness - normative status heuristics",
+      "description": "Cautious heuristics for revocation/replacement signals are insufficient for legal/audit workflows. Professional users need authoritative status indicators with source citations, not heuristic guesses. False positives could mislead compliance decisions.",
+      "suggested_fix": "Replace heuristics with explicit source-backed status flags from backend. Show confidence levels and link to source documents that establish each status claim. Add disclaimer when status cannot be authoritatively determined."
+    },
+    {
+      "severity": "high",
+      "location": "Search panel - filter depth",
+      "description": "Current filter set (section, art type, issuing organ, date range) misses critical DOU metadata: classification codes, DOU section parts (1/2/3/4), publication type distinctions (original vs retification), and keyword-in-context options. Professional researchers need these for precise queries.",
+      "suggested_fix": "Expand filter panel to include classification codes, DOU part selector, publication type toggle, and advanced text operators. Add saved search templates for common audit patterns."
+    },
+    {
+      "severity": "medium",
+      "location": "Normative timeline display",
+      "description": "Compact timeline may not show full amendment chain depth required for legal research. Professionals need to trace changes through multiple iterations with clear before/after text comparison access.",
+      "suggested_fix": "Expand timeline to show full chain with expandable nodes. Add inline diff viewer for any two versions. Include effective date ranges for each version state."
+    },
+    {
+      "severity": "medium",
+      "location": "Query interpretation transparency",
+      "description": "Showing interpreted_query is good but users cannot override incorrect interpretations or provide feedback. This blocks iterative refinement essential for complex legal searches.",
+      "suggested_fix": "Add editable interpretation layer where users can correct inferred filters. Store correction history to improve future searches. Add one-click 'search failed' feedback."
+    },
+    {
+      "severity": "medium",
+      "location": "Audit trail and export capabilities",
+      "description": "No mention of search methodology export or document chain documentation. Professional audit work requires reproducible search records for case files and compliance documentation.",
+      "suggested_fix": "Add export function for search sessions including filters used, documents reviewed, and normative chains traced. Generate citable search receipts with timestamps."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "Cross-reference navigation",
+      "description": "normative_refs and procedure_refs should enable one-click navigation to connected documents with context preservation. Add breadcrumb trail showing how user arrived at current document through reference chain."
+    },
+    {
+      "type": "improvement",
+      "location": "Mobile/desktop workflow parity",
+      "description": "Mobile hides nav on document routes while desktop keeps shell. This creates inconsistent workflows for professionals switching devices. Consider consistent navigation availability with collapsible options."
+    },
+    {
+      "type": "improvement",
+      "location": "Search result provenance",
+      "description": "Add match highlighting showing why each document matched the query. Include which filters triggered inclusion and relevance scoring breakdown for transparent result evaluation."
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 847,
+    "latency_ms": 234,
+    "thinking_tokens": 0
+  },
+  "raw_text": "{\n  \"agent\": \"qwen\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Reader validity/version awareness - normative status heuristics\",\n      \"description\": \"Cautious heuristics for revocation/replacement signals are insufficient for legal/audit workflows. Professional users need authoritative status indicators with source citations, not heuristic guesses. False positives could mislead compliance decisions.\",\n      \"suggested_fix\": \"Replace heuristics with explicit source-backed status flags from backend. Show confidence levels and link to source documents that establish each status claim. Add disclaimer when status cannot be authoritatively determined.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Search panel - filter depth\",\n      \"description\": \"Current filter set (section, art type, issuing organ, date range) misses critical DOU metadata: classification codes, DOU section parts (1/2/3/4), publication type distinctions (original vs retification), and keyword-in-context options. Professional researchers need these for precise queries.\",\n      \"suggested_fix\": \"Expand filter panel to include classification codes, DOU part selector, publication type toggle, and advanced text operators. Add saved search templates for common audit patterns.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Normative timeline display\",\n      \"description\": \"Compact timeline may not show full amendment chain depth required for legal research. Professionals need to trace changes through multiple iterations with clear before/after text comparison access.\",\n      \"suggested_fix\": \"Expand timeline to show full chain with expandable nodes. Add inline diff viewer for any two versions. Include effective date ranges for each version state.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Query interpretation transparency\",\n      \"description\": \"Showing interpreted_query is good but users cannot override incorrect interpretations or provide feedback. This blocks iterative refinement essential for complex legal searches.\",\n      \"suggested_fix\": \"Add editable interpretation layer where users can correct inferred filters. Store correction history to improve future searches. Add one-click 'search failed' feedback.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Audit trail and export capabilities\",\n      \"description\": \"No mention of search methodology export or document chain documentation. Professional audit work requires reproducible search records for case files and compliance documentation.\",\n      \"suggested_fix\": \"Add export function for search sessions including filters used, documents reviewed, and normative chains traced. Generate citable search receipts with timestamps.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Cross-reference navigation\",\n      \"description\": \"normative_refs and procedure_refs should enable one-click navigation to connected documents with context preservation. Add breadcrumb trail showing how user arrived at current document through reference chain.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Mobile/desktop workflow parity\",\n      \"description\": \"Mobile hides nav on document routes while desktop keeps shell. This creates inconsistent workflows for professionals switching devices. Consider consistent navigation availability with collapsible options.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Search result provenance\",\n      \"description\": \"Add match highlighting showing why each document matched the query. Include which filters triggered inclusion and relevance scoring breakdown for transparent result evaluation.\"\n    }\n  ],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 847,\n    \"latency_ms\": 234,\n    \"thinking_tokens\": 0\n  }\n}"
+}

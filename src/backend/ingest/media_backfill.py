@@ -31,8 +31,16 @@ def _iter_docs(cur: Any, start: date | None, end: date | None, limit: int) -> li
         WHERE d.body_html ILIKE '%%<img%%'
           AND (%s::date IS NULL OR e.publication_date >= %s::date)
           AND (%s::date IS NULL OR e.publication_date <= %s::date)
-          AND NOT EXISTS (
-              SELECT 1 FROM dou.document_media dm WHERE dm.document_id = d.id
+          AND (
+              NOT EXISTS (
+                  SELECT 1 FROM dou.document_media dm WHERE dm.document_id = d.id
+              )
+              OR EXISTS (
+                  SELECT 1
+                  FROM dou.document_media dm
+                  WHERE dm.document_id = d.id
+                    AND dm.ingest_checked_at IS NULL
+              )
           )
         ORDER BY e.publication_date, d.id
         LIMIT %s
@@ -58,50 +66,99 @@ def run(dsn: str, start: date | None, end: date | None, limit: int) -> None:
                     row = checked_image_row(item)
                     cur.execute(
                         """
-                        INSERT INTO dou.document_media (
-                            document_id, media_name, media_type, file_extension,
-                            data, size_bytes, sequence_in_document, source_filename, external_url,
-                            original_url, availability_status, alt_text, context_hint,
-                            fallback_text, local_path, width_px, height_px,
-                            ingest_checked_at, retry_count
-                        )
-                        SELECT %s::uuid, %s, %s, %s,
-                               %s, %s, %s, %s, %s,
-                               %s, %s, %s, %s,
-                               %s, %s, %s, %s,
-                               %s, %s
-                        WHERE NOT EXISTS (
-                            SELECT 1 FROM dou.document_media
-                            WHERE document_id = %s::uuid
-                              AND media_name = %s
-                              AND sequence_in_document = %s
-                        )
+                        SELECT id
+                        FROM dou.document_media
+                        WHERE document_id = %s::uuid
+                          AND sequence_in_document = %s
+                        ORDER BY created_at
+                        LIMIT 1
                         """,
-                        (
-                            doc_id,
-                            row["media_name"],
-                            row["media_type"],
-                            row["file_extension"],
-                            item.data,
-                            row["size_bytes"],
-                            row["position_in_doc"],
-                            row["source_filename"],
-                            row["original_url"],
-                            row["original_url"],
-                            row["availability_status"],
-                            row["alt_text"],
-                            row["context_hint"],
-                            row["fallback_text"],
-                            row["local_path"],
-                            row["width_px"],
-                            row["height_px"],
-                            row["ingest_timestamp"],
-                            row["retry_count"],
-                            doc_id,
-                            row["media_name"],
-                            row["position_in_doc"],
-                        ),
+                        (doc_id, row["position_in_doc"]),
                     )
+                    existing = cur.fetchone()
+                    if existing:
+                        cur.execute(
+                            """
+                            UPDATE dou.document_media
+                            SET media_name = %s,
+                                media_type = %s,
+                                file_extension = %s,
+                                data = COALESCE(%s, data),
+                                size_bytes = %s,
+                                source_filename = %s,
+                                external_url = %s,
+                                original_url = %s,
+                                availability_status = %s,
+                                alt_text = %s,
+                                context_hint = %s,
+                                fallback_text = %s,
+                                local_path = %s,
+                                width_px = %s,
+                                height_px = %s,
+                                ingest_checked_at = %s,
+                                retry_count = %s
+                            WHERE id = %s::uuid
+                            """,
+                            (
+                                row["media_name"],
+                                row["media_type"],
+                                row["file_extension"],
+                                item.data,
+                                row["size_bytes"],
+                                row["source_filename"],
+                                row["original_url"],
+                                row["original_url"],
+                                row["availability_status"],
+                                row["alt_text"],
+                                row["context_hint"],
+                                row["fallback_text"],
+                                row["local_path"],
+                                row["width_px"],
+                                row["height_px"],
+                                row["ingest_timestamp"],
+                                row["retry_count"],
+                                existing[0],
+                            ),
+                        )
+                    else:
+                        cur.execute(
+                            """
+                            INSERT INTO dou.document_media (
+                                document_id, media_name, media_type, file_extension,
+                                data, size_bytes, sequence_in_document, source_filename, external_url,
+                                original_url, availability_status, alt_text, context_hint,
+                                fallback_text, local_path, width_px, height_px,
+                                ingest_checked_at, retry_count
+                            ) VALUES (
+                                %s::uuid, %s, %s, %s,
+                                %s, %s, %s, %s, %s,
+                                %s, %s, %s, %s,
+                                %s, %s, %s, %s,
+                                %s, %s
+                            )
+                            """,
+                            (
+                                doc_id,
+                                row["media_name"],
+                                row["media_type"],
+                                row["file_extension"],
+                                item.data,
+                                row["size_bytes"],
+                                row["position_in_doc"],
+                                row["source_filename"],
+                                row["original_url"],
+                                row["original_url"],
+                                row["availability_status"],
+                                row["alt_text"],
+                                row["context_hint"],
+                                row["fallback_text"],
+                                row["local_path"],
+                                row["width_px"],
+                                row["height_px"],
+                                row["ingest_timestamp"],
+                                row["retry_count"],
+                            ),
+                        )
                     rows_inserted += cur.rowcount
                 if checked_images:
                     rewritten_html = rewrite_document_html_images(body_html, doc_id, checked_images)
@@ -109,7 +166,11 @@ def run(dsn: str, start: date | None, end: date | None, limit: int) -> None:
                         "UPDATE dou.document SET body_html = %s WHERE id = %s::uuid",
                         (rewritten_html, doc_id),
                     )
-        conn.commit()
+                conn.commit()
+                print(
+                    f"doc={docs_seen}/{len(docs)} doc_id={doc_id} refs={len(refs)} rows_inserted={rows_inserted}",
+                    flush=True,
+                )
     except Exception:
         conn.rollback()
         raise

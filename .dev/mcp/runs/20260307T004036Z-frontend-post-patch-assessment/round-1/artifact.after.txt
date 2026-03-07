@@ -1,0 +1,35 @@
+**Principal-Level Verdict: Frontend Patch Assessment**
+
+**Overall assessment:** The patch moves the product meaningfully toward a professional DOU research tool in terms of surface-level UX — dashboard density, reading position persistence, TOC, keyboard shortcuts, and PDF export are real capability gains. However, all three reviewing agents (Claude, Kimi, Qwen) converge on the same structural conclusion: the patch builds consumer-grade convenience features on top of what needs to be a professional legal/research workflow foundation. The gaps are not polish items — they are capability ceilings that will block adoption by the target user (legal analysts, policy researchers, compliance teams).
+
+**Convergence across reviewers:** Kimi and Qwen independently flagged search, persistence, and document fidelity as the critical deficits. Their objections reinforce rather than contradict each other. After synthesis, the top 3 remaining gaps — ranked by impact on professional workflow viability — are:
+
+---
+
+**Gap 1 (Critical): Search is cosmetic — no structured query capability or corpus-scale indexing**
+
+The Cmd+K shortcut and recent-search chips improve discoverability of the search entry point, but the search *engine* behind them appears to be absent or trivial. A professional DOU tool must support: (a) faceted filtering by date range, section type (Seção 1/2/3), signatory/ministry, and document type (Portaria, Resolução, IN, etc.); (b) boolean operators (AND/OR/NOT, phrase matching, proximity); (c) an actual index — either client-side (FlexSearch/MiniSearch for small corpora) or server-side (Elasticsearch/OpenSearch for production scale). Without this, the tool cannot replace the existing Imprensa Nacional search, and the UX improvements are decorative.
+
+*Recommended action:* Implement an advanced filter panel (collapsible sidebar or modal) gated behind the SearchBar. Wire it to a proper search backend. Expose boolean syntax inline. This is the single highest-leverage feature for professional adoption.
+
+**Gap 2 (Critical): Client-side PDF export undermines legal document fidelity**
+
+Using html2pdf.js to generate PDFs from rendered HTML is fundamentally unsuitable for official legal documents. It introduces layout drift, font substitution, encoding issues with Portuguese diacritics, and — most critically — produces a document with no verifiable provenance. Legal and compliance workflows require either: (a) direct linking to the original official PDF/DOU page as canonical source, or (b) server-side rendering that preserves exact formatting and embeds metadata (document number, publication date, digital signature hash). The current approach creates a liability: users may cite or file a PDF that doesn't match the official text.
+
+*Recommended action:* Replace client-side html2pdf with a "Download Original" link to the canonical DOU source. If a rendered PDF is also desired, generate it server-side with a headless renderer (Puppeteer/Playwright) that stamps it as "unofficial copy" with source URL and retrieval timestamp.
+
+**Gap 3 (High): No document validity tracking, version history, or corrigenda awareness**
+
+DOU documents are routinely corrected (retificações), revoked, or superseded. The current patch treats every document as a static, immutable artifact. A professional tool must surface: (a) validity status (vigente, revogado, retificado) as a prominent badge; (b) links to corrigenda and superseding documents; (c) version history or amendment timeline. Without this, a researcher has no way to know whether the document they're reading is the current authoritative text. This is a correctness problem, not a feature request — serving stale legal text without warning is worse than not serving it at all.
+
+*Recommended action:* Add a validity/status badge to the DocumentPage header and the HomePage featured card. Source validity data from the backend (or scrape the official DOU metadata). Display a warning banner on any document with known amendments. Link to related documents (retificações, revogações) in a sidebar panel.
+
+---
+
+**Items reviewed and assessed as valid but lower priority (deferred):**
+
+- *LocalStorage-only persistence (Kimi):* Valid concern for cross-device sync and quota limits, but acceptable for MVP if scoped to reading position and recent searches only. Upgrade to IndexedDB with export/import before adding annotations. Cloud sync is a v2 feature.
+- *Annotation/citation management (Kimi):* Important for academic users but not blocking for the primary DOU research workflow. Standardized citation formats (copy as ABNT, APA) are a quick win; full Zotero integration is a later milestone.
+- *Share-at-position durability (Qwen):* Current client-side fragment links will break if document structure changes. Server-side permalink snapshotting is the right fix, but lower urgency than the top 3.
+
+**Bottom line:** The patch delivers real UX progress. But the product cannot be called a professional DOU research tool until it has structured search, legally faithful document output, and validity awareness. These three gaps are the difference between a document viewer and a research instrument.

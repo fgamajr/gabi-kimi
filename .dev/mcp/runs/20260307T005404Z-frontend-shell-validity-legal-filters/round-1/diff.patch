@@ -1,0 +1,165 @@
+--- before
++++ after
+@@ -1,47 +1,121 @@
+-Frontend iteration summary:
++# Frontend Audit — DOU Research Tool (Iteration Review)
+ 
+-1. Shared app shell + route-level layout
+-- App routes now run inside a shared AppShell.
+-- Desktop: persistent left rail with Home and Search.
+-- Mobile: persistent bottom nav with Home and Search.
+-- Document routes keep the shell on desktop and hide the mobile nav.
++## Scope
+ 
+-2. Search experience upgrade
+-- Search page now includes a structured legal search panel.
+-- Desktop exposes direct fields for section, art type, issuing organ, and date range.
+-- Mobile keeps a bottom sheet for the same filter set.
+-- Search results now surface backend query interpretation via interpreted_query, inferred_filters, and applied_filters.
+-- Active filter chips include issuing organ.
++Three implemented changes evaluated: (1) shared app shell with route-level layout, (2) validity/version awareness in the document reader, (3) structured legal search filters. Assessed against the standard of an investigation-grade interface for professional legal and audit workflows.
+ 
+-3. Reader validity/version awareness
+-- Document API types now include normative_refs and procedure_refs.
+-- Document page now shows a "Situação normativa" card using cautious heuristics:
+-  - revocation/replacement signals
+-  - alteration/complementation signals
+-  - connected references/procedures
+-  - no structured references detected
+-- Document page now shows a compact normative timeline derived from normative references.
++---
+ 
+-4. Existing reader capabilities retained from prior patch
+-- section parsing + TOC
+-- reading progress bar
+-- saved reading position and resume toast
+-- deep-link restore
+-- share current position
+-- copy formal reference
+-- PDF export fallback
+-- mobile action bar
+-- image fallback and secure document renderer remain in place
++## 1. What Actually Improved
+ 
+-5. Existing home/dashboard capabilities retained from prior patch
+-- denser dashboard
+-- recent history from localStorage
+-- featured document card
+-- popular search chips
+-- operational status card
++### App Shell + Route-Level Layout
++**Real gain.** A shared shell with persistent navigation is structural prerequisite infrastructure. Desktop left rail and mobile bottom nav give researchers stable orientation across routes. This is a genuine architecture improvement, not cosmetic — it means every future feature has a consistent mount point and the product stops feeling like disconnected pages.
+ 
+-Assessment request:
+-- Separate real capability gains from cosmetic gains.
+-- Identify the top remaining blockers after these three changes.
+-- Judge whether the search panel and normative-awareness layer are strong enough for professional legal/audit workflows or still too shallow.
+-- Recommend the next highest-impact frontend/product step.
++### Structured Search Filters
++**Partial gain.** Exposing section, act type, issuing organ, and date range as direct fields is a meaningful step above free-text-only search. Surfacing backend query interpretation (interpreted_query, inferred_filters, applied_filters) is a strong transparency move that most legal tools lack. Filter chips with issuing organ make active constraints visible. However, the filter set is incomplete for professional use (see blockers below).
++
++### Normative Timeline + Validity Card
++**Conceptual gain, liability risk in execution.** The idea of showing normative status and a timeline of connected references is exactly what differentiates a research tool from a document viewer. The type system expansion (normative_refs, procedure_refs) is sound data modeling. But the implementation introduces a serious professional risk that must be resolved before production.
++
++---
++
++## 2. Production Blockers (Ranked)
++
++### BLOCKER 1 — Heuristic Normative Status is a Liability Hazard (Critical)
++
++The "Situação normativa" card uses client-side text heuristics to infer revocation, replacement, alteration, and complementation status. This is unacceptable for professional legal use. A false-positive "Vigente" on a revoked act, or a missed revocation signal, exposes users to citing invalid law. No amount of "cautious" framing eliminates this risk when the UI renders colored badges that visually assert a definitive status.
++
++**Required fix:** Replace the heuristic inference with a tri-state model sourced from authoritative data:
++
++- **Vigente (Consolidado Oficial)** — only when backed by an official consolidated feed (Planalto, LexML, or equivalent backend enrichment with explicit source attribution).
++- **Revogado (Consolidado Oficial)** — same authoritative sourcing.
++- **Status não verificado** — default state when no authoritative data exists. Render as a yellow alert with explicit language: "Status normativo não verificado. Consulte o texto consolidado oficial." Link directly to the Planalto consolidated page for the act when possible.
++
++Heuristic signals (detected revocation keywords, amendment references) may be retained only as supplementary indicators clearly labeled as "Sinais detectados no texto (não verificados)" — visually subordinate to the authoritative status, never rendered as badges, and never green/red. They are research aids, not assertions.
++
++The normative timeline should similarly distinguish between authoritative chain links (sourced from official consolidation data) and inferred connections (parsed from document text), with clear visual differentiation.
++
++### BLOCKER 2 — Search Filters Are Too Shallow for Professional DOU Research (High)
++
++The current filter set covers the basics but misses metadata fields that professional researchers depend on daily:
++
++- **DOU section parts (Seção 1, 2, 3, Extra)** — not just "section" generically. Researchers filter by these constantly; regulatory acts concentrate in Seção 1, personnel acts in Seção 2, judicial in Seção 3.
++- **Publication type (original vs. retificação/republicação)** — critical for audit workflows where the distinction between original publication and correction changes the legally operative text.
++- **Classification codes** — used by specialized researchers tracking specific regulatory domains.
++- **Text proximity operators** — professional legal search requires at minimum AND/OR/NOT and ideally NEAR/ADJ operators. An "Advanced search" toggle exposing boolean syntax is table stakes for investigation-grade tools.
++
++Without these, the tool handles casual lookups but fails the workflow test for compliance officers and legal researchers who will default back to the official DOU portal or commercial tools that expose full metadata.
++
++**Required fix:** Expand the filter panel in two tiers. The primary panel retains the current fields plus DOU section part and publication type. An "Advanced" toggle reveals classification codes, boolean query syntax, and a "search within results" capability for iterative refinement of large result sets.
++
++### BLOCKER 3 — Query Interpretation Is Read-Only (High)
++
++Surfacing interpreted_query and inferred_filters is good. Making them non-interactive is a trap. When a researcher sees the system misinterpreted "STF" as something other than the Supremo Tribunal Federal, or inferred an incorrect date range, they currently have no recourse except rewriting the entire query. This transforms a transparency feature into a frustration feature.
++
++**Required fix:** Make inferred filter chips dismissible (click X to remove) and editable (click to modify the value). Add a "Reset interpretation" action that clears all inferred filters and re-runs the raw query. This is not a large UI effort — the chips already exist — but the interaction model must be bidirectional.
++
++### BLOCKER 4 — localStorage as Primary Persistence (High)
++
++Reading history, saved positions, and research context stored exclusively in localStorage is fundamentally incompatible with professional workflows:
++
++- Device-bound: researchers move between office desktop, laptop, and mobile.
++- Ephemeral: cleared by browser maintenance, private browsing, or IT policies.
++- No audit trail: compliance and litigation work requires provenance — who searched what, when, with which filters, which documents were reviewed.
++- No collaboration: team-based research is invisible.
++
++**Required fix (phased):**
++
++- **Phase 1 (immediate):** Add a clear product-level disclaimer that local storage is not persistent. Do not present localStorage-backed features (recent history, saved position) as reliable workspace capabilities. Label them explicitly as "Local device only — not synced."
++- **Phase 2 (next cycle):** Implement authenticated sessions with server-side persistence. Model research around Project/Workspace entities. Persist search sessions (query, filters, results reviewed, timestamps) and reading state per-project. Provide exportable audit logs (search methodology receipts) for case files.
++
++localStorage becomes the unauthenticated fallback, not the primary strategy.
++
++### BLOCKER 5 — Mobile Nav Hidden on Document Routes (Medium)
++
++Hiding mobile bottom navigation during document reading optimizes for an immersive reading metaphor that contradicts professional workflow. Legal research is iterative: search → open document → check cross-reference → return to results → open another document. Removing system navigation forces browser-back reliance, which loses filter state, scroll position, and cognitive context.
++
++**Required fix:** Retain bottom navigation on mobile document routes. Reposition the existing mobile action bar (share, copy reference, PDF export) as a floating action button or a toolbar that sits above the persistent nav. Preserve search state (filters, pagination, scroll position) in sessionStorage so returning to results is instantaneous.
++
++---
++
++## 3. Depth Assessment
++
++### Search Panel: Not Yet Investigation-Grade
++
++The current implementation handles the "casual lookup" use case well: a researcher with a rough idea of what they want can find it faster than the raw DOU portal. But investigation-grade search requires precision — boolean operators, exhaustive metadata filters, reproducible search sessions, and iterative refinement. The gap is the difference between "I found something" and "I can certify I found everything relevant." The tool is currently at the former; professional workflows demand the latter.
++
++### Normative Awareness Layer: Architecturally Sound, Executionally Dangerous
++
++The data model (normative_refs, procedure_refs, timeline) is the right foundation. The type system captures the right entities. But rendering heuristic inferences as status indicators — without explicit sourcing, confidence levels, or authoritative data — creates a product that is more dangerous than one with no status indicators at all. A blank field prompts the researcher to check manually. A green "Vigente" badge suppresses that instinct. The architecture should be preserved; the presentation layer must be rebuilt around the tri-state authoritative model.
++
++---
++
++## 4. Cross-Reference Navigation Gap
++
++The types include normative_refs and procedure_refs, but the audit does not describe how these render as interactive elements. For professional use, every reference to another act, article, or procedure must be a navigable link. Clicking a normative reference should open the target document (ideally in a side panel or new tab to preserve context) with a breadcrumb trail showing the reference chain. Without this, the reference data is informational but not operational — researchers still have to manually search for connected documents.
++
++**Required:** One-click navigation from any normative_ref or procedure_ref to the target document, with context preservation (breadcrumb trail, back-to-source link, maintained search state).
++
++---
++
++## 5. Next Highest-Impact Step
++
++**Implement authenticated workspaces with server-side search session persistence and exportable audit logs.**
++
++Rationale: This single change resolves the localStorage blocker, enables the audit trail requirement, creates the foundation for saved searches and document collections, and provides the authentication layer needed for future collaboration features. Every other professional capability — saved search templates, team annotations, project-based organization — depends on this infrastructure existing.
++
++The normative status fix (switching to authoritative sourcing) should ship in the same cycle because it eliminates liability risk, but workspace persistence is the higher-leverage structural investment.
++
++**Sequenced roadmap:**
++
++1. **This cycle:** Tri-state authoritative normative status + authenticated workspace MVP (user accounts, server-persisted search sessions, exportable search receipts).
++2. **Next cycle:** Expanded search filters (DOU parts, publication type, boolean operators, search-within-results) + interactive query interpretation chips + persistent mobile nav fix.
++3. **Following cycle:** Cross-reference navigation with context preservation + version diff viewer + citation network foundations.
++
++---
++
++## 6. Verdict
++
++The product is moving toward an investigation-grade interface, but it is not there yet. The app shell and structured search represent genuine architectural progress. The normative awareness layer has the right data model but the wrong presentation contract — it must not ship with heuristic status assertions. The localStorage dependency is a fundamental constraint that caps the product at "personal convenience tool" rather than "professional research platform." The search filters need one more tier of depth to serve the precision requirements of legal and audit work.
++
++The direction is correct. The velocity is reasonable. The risk is concentrated in the normative status card, which must be fixed before any professional user relies on it.

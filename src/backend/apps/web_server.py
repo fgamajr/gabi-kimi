@@ -64,6 +64,7 @@ _ROOT_DIR = Path(__file__).resolve().parents[3]
 _FRONTEND_WEB_DIR = _ROOT_DIR / "src" / "frontend" / "web"
 _LEGACY_WEB_DIR = _ROOT_DIR / "web"
 WEB_DIR = _FRONTEND_WEB_DIR if _FRONTEND_WEB_DIR.exists() else _LEGACY_WEB_DIR
+SPA_INDEX = WEB_DIR / "dist" / "index.html" if (WEB_DIR / "dist" / "index.html").exists() else WEB_DIR / "index.html"
 
 # ---------------------------------------------------------------------------
 # App
@@ -881,13 +882,24 @@ def api_media(doc_id: str, media_name: str):
 # SPA fallback: serve index.html for non-API routes
 @app.get("/")
 def index():
-    return FileResponse(WEB_DIR / "index.html")
+    return FileResponse(SPA_INDEX)
+
+
+@app.get("/search")
+@app.get("/search/{path:path}")
+def search_page(path: str = ""):
+    return FileResponse(SPA_INDEX)
+
+
+@app.get("/document/{path:path}")
+def document_page(path: str):
+    return FileResponse(SPA_INDEX)
 
 
 @app.get("/doc/{path:path}")
 def doc_page(path: str):
     """Serve SPA for document pages."""
-    return FileResponse(WEB_DIR / "index.html")
+    return FileResponse(SPA_INDEX)
 
 
 @app.get("/dist/{path:path}")

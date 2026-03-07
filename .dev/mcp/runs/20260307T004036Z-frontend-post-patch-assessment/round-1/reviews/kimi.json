@@ -1,0 +1,33 @@
+{
+  "agent": "kimi",
+  "round": 1,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "Data persistence layer",
+      "description": "LocalStorage-only persistence for reading history and document state is insufficient for professional research; subject to 5-10MB quota limits, browser data clearing, and zero cross-device continuity. A professional DOU tool requires durable cloud sync or at least backend session persistence.",
+      "suggested_fix": "Implement a backend synchronization layer with optimistic UI updates, or integrate with existing cloud storage APIs (Dropbox, Google Drive) for document state and annotations. Fallback to IndexedDB with explicit export/import workflows if offline-first is required."
+    },
+    {
+      "severity": "high",
+      "location": "Search architecture",
+      "description": "Recent-search UI features (chips, Cmd+K) are cosmetic without full-text indexing of document corpus. No evidence of inverted index, boolean query support, or faceted search (date, author, section). Current implementation likely performs O(n) string scans, unusable at research-scale corpus sizes.",
+      "suggested_fix": "Integrate a client-side search index (FlexSearch, MiniSearch, or WASM-based engine) for offline capability, or server-side Elasticsearch/OpenSearch for large corpora. Expose advanced query syntax (AND/OR/NOT) and filter chips for metadata dimensions."
+    },
+    {
+      "severity": "high",
+      "location": "Document interaction layer",
+      "description": "Missing structured annotation system (highlights, margin notes, anchored comments) and reference management integration. 'Copy reference' without standardized citation formats (APA, MLA, Chicago) and Zotero/Mendeley export makes this unsuitable for academic or legal workflows where provenance tracking is mandatory.",
+      "suggested_fix": "Implement a highlight/annotation layer with anchoring to document sections (not just pixel positions), persistent annotation store, and export formats including .ris, .bib, and direct Zotero Web API integration. Add citation format selector and 'Copy Citation' with proper formatting."
+    }
+  ],
+  "suggestions": [],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 0,
+    "latency_ms": 0,
+    "thinking_tokens": 0
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"kimi\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Data persistence layer\",\n      \"description\": \"LocalStorage-only persistence for reading history and document state is insufficient for professional research; subject to 5-10MB quota limits, browser data clearing, and zero cross-device continuity. A professional DOU tool requires durable cloud sync or at least backend session persistence.\",\n      \"suggested_fix\": \"Implement a backend synchronization layer with optimistic UI updates, or integrate with existing cloud storage APIs (Dropbox, Google Drive) for document state and annotations. Fallback to IndexedDB with explicit export/import workflows if offline-first is required.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Search architecture\",\n      \"description\": \"Recent-search UI features (chips, Cmd+K) are cosmetic without full-text indexing of document corpus. No evidence of inverted index, boolean query support, or faceted search (date, author, section). Current implementation likely performs O(n) string scans, unusable at research-scale corpus sizes.\",\n      \"suggested_fix\": \"Integrate a client-side search index (FlexSearch, MiniSearch, or WASM-based engine) for offline capability, or server-side Elasticsearch/OpenSearch for large corpora. Expose advanced query syntax (AND/OR/NOT) and filter chips for metadata dimensions.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Document interaction layer\",\n      \"description\": \"Missing structured annotation system (highlights, margin notes, anchored comments) and reference management integration. 'Copy reference' without standardized citation formats (APA, MLA, Chicago) and Zotero/Mendeley export makes this unsuitable for academic or legal workflows where provenance tracking is mandatory.\",\n      \"suggested_fix\": \"Implement a highlight/annotation layer with anchoring to document sections (not just pixel positions), persistent annotation store, and export formats including .ris, .bib, and direct Zotero Web API integration. Add citation format selector and 'Copy Citation' with proper formatting.\"\n    }\n  ],\n  \"suggestions\": [],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 0,\n    \"latency_ms\": 0,\n    \"thinking_tokens\": 0\n  }\n}\n```"
+}

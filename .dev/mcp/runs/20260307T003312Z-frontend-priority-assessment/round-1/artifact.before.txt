@@ -1,0 +1,15 @@
+Frontend target for GABI DOU:
+- Replace the current landing-like home with a true operational dashboard.
+- Add an app shell with persistent navigation, mobile-first but strong on desktop.
+- Improve search to feel assisted, not just a plain input.
+- Upgrade the document reader for very long DOU documents with section-aware reading UX.
+- Keep the existing safe image fallback system.
+- Prioritize functionality and research workflow over decorative polish.
+
+Current concrete gaps observed in code:
+- No shared app shell; routes are standalone.
+- Home still has centered hero/title/copy and lacks recent history, richer status, and actionable density.
+- Document page does not integrate reading progress, TOC, deep-linking, or saved reading position, despite hooks existing.
+- No PDF/share-at-position flow.
+- No parser for tabular concurso-style plain text.
+- Motion tokens exist but are barely applied.
