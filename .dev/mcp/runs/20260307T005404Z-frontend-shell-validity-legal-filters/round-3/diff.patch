@@ -1,0 +1,356 @@
+--- before
++++ after
+@@ -21,39 +21,57 @@
+ 
+ ## 2. Production Blockers (Ranked)
+ 
+-### BLOCKER 1 — Heuristic Normative Status is a Liability Hazard (Critical · Production Gate)
+-
+-The "Situação normativa" card uses client-side text heuristics to infer revocation, replacement, alteration, and complementation status. This is unacceptable for professional legal use. A false-positive "Vigente" on a revoked act, or a missed revocation signal, exposes users to citing invalid law. No amount of "cautious" framing eliminates this risk when the UI renders colored badges that visually assert a definitive status.
+-
+-**This blocker is a hard production gate. The normative status feature must not ship with heuristic inference. If authoritative data integration proves infeasible within the release window, the status indicator must be removed entirely — not shipped with heuristics. A blank field prompts manual verification; a green badge suppresses it.**
++### BLOCKER 1 — Client-Side Heuristic Status Inference Is a Liability Hazard (Critical · Hard Production Gate)
++
++The "Situação normativa" card uses client-side text heuristics to infer revocation, replacement, alteration, and complementation status. This is unacceptable for professional legal use. A false-positive "Vigente" on a revoked act, or a missed revocation signal, exposes users to citing invalid law. No amount of disclaimers or confidence scores eliminates this risk when the UI renders visual indicators that assert or imply a definitive status.
++
++**Why confidence scoring does not resolve this:** A confidence-scored middle ground (e.g., "80% likely Vigente") is worse than a binary gate. Legal status is not probabilistic — an act is either in force or it is not. Displaying a confidence percentage invites users to treat high-confidence heuristics as reliable, which is precisely the failure mode. Major legal platforms that display heuristic flags during data transitions (Westlaw's "Negative Treatment" flags, for example) do so backed by editorial review processes and authoritative case databases, not unsupervised text pattern matching. The comparison is inapt. Additionally, logging heuristic accuracy over time requires ground truth data that, if available, would itself constitute the authoritative source — making the heuristic unnecessary.
++
++**This blocker is a hard production gate. The heuristic inference code must be excised from the production frontend bundle entirely — not feature-flagged, not hidden behind debug views, not retained as a confidence-scored alternative.**
+ 
+ **Go/no-go criteria:**
+ 
+-1. Authoritative data integration is viable (see feasibility assessment below) → ship tri-state model.
+-2. Authoritative data integration is not viable → remove the status card from the release. Retain the underlying data model and heuristic signals only in a developer/debug view, never user-facing.
+-
+-**Required fix (if go):** Replace the heuristic inference with a tri-state model sourced from authoritative data:
+-
+-- **Vigente (Consolidado Oficial)** — only when backed by an official consolidated feed (Planalto, LexML, or equivalent backend enrichment with explicit source attribution and last-verified timestamp).
+-- **Revogado (Consolidado Oficial)** — same authoritative sourcing.
+-- **Status não verificado** — default state when no authoritative data exists. Render as a neutral alert (not colored) with explicit language: "Status normativo não verificado. Consulte o texto consolidado oficial." Link directly to the Planalto consolidated page for the act when possible.
+-
+-Heuristic signals (detected revocation keywords, amendment references) may be retained only as supplementary indicators clearly labeled as "Sinais detectados no texto (não verificados)" — visually subordinate to the authoritative status, never rendered as badges, and never green/red. They are research aids, not assertions.
+-
+-The normative timeline should similarly distinguish between authoritative chain links (sourced from official consolidation data) and inferred connections (parsed from document text), with clear visual differentiation.
+-
+-**Technical feasibility assessment (required before committing to tri-state implementation):**
+-
+-The prescribed solution assumes availability of authoritative consolidated feeds. Before implementation, the team must evaluate:
+-
+-1. **API availability:** Planalto's legislative consolidation data (via LexML/SPARQL endpoint or scraping) — what endpoints exist, what rate limits apply, whether bulk validation is feasible.
+-2. **Coverage statistics by act type and year:** Pre-digital acts (pre-~2000) likely have limited or no structured consolidation data. If authoritative validation is achievable for <50% of indexed acts, the "Status não verificado" state dominates the UI, which risks training users to ignore the warning — a different failure mode but still dangerous. In this scenario, the feature should not ship at all; remove it rather than provide a predominantly unverified experience.
+-3. **Update latency:** If official sources update with 24–48 hour delays, the system may show stale status. The UI must display a "Verificado em: [date/time]" timestamp and refresh interval to make latency visible to the user.
+-4. **Fallback strategy:** If the primary authoritative source is unavailable, the system must degrade to "Status não verificado" — never fall back to heuristics silently.
+-
+-**Liability risk quantification:** While precise error rates for the heuristic approach require empirical measurement, the risk profile is asymmetric. The probability of heuristic error is non-trivial (revocation language varies, indirect amendments are common, temporal revocations create edge cases). The severity of a legal citation error ranges from professional embarrassment to malpractice liability, regulatory non-compliance, or incorrect judicial filings. User exposure scales with adoption. Even a low error rate (e.g., 5% of status inferences incorrect) applied across professional users making consequential decisions creates unacceptable aggregate risk. This is why the go/no-go gate is binary: authoritative data or no feature.
+-
+-### BLOCKER 2 — Search Filters Are Too Shallow for Professional DOU Research (High)
++1. Authoritative backend integration is viable → ship the authoritative model (below).
++2. Authoritative backend integration is not viable → remove the status card from the release entirely. The underlying data model types may be retained in the codebase for future use, but no status-inferring code ships to the client.
++
++**Required implementation (if go):** All normative status resolution moves to a backend service. The frontend becomes a pure renderer of backend-resolved status. The backend service:
++
++- Queries official consolidated feeds (Planalto/LexML) with a circuit-breaker pattern (fallback to "não verificado" on source unavailability — never silent fallback to heuristics).
++- Returns one of exactly two frontend-renderable states:
++  - **Verified status:** "Vigente conforme [source] em [timestamp]" or "Revogado conforme [source] em [timestamp]" — rendered with a hyperlink to the official consolidated text. Source attribution and verification timestamp are mandatory, not optional metadata.
++  - **Unverified status:** "Consultar texto consolidado oficial" — rendered as a neutral text link to the Planalto consolidated page. No badge. No color. No icon that implies a status determination was attempted. This is the default state when authoritative data is unavailable, stale (>24h), or when the circuit breaker is open.
++
++- No heuristic signals render in any user-facing view. The rationale: even "supplementary" heuristic indicators labeled as "unverified" create anchoring bias. A researcher who sees "Sinais detectados: possível revogação" will treat that as a semi-authoritative signal regardless of disclaimers. If the backend cannot verify status, the frontend shows nothing about status — a clean absence that prompts manual verification.
++
++**Technical feasibility assessment (required before committing):**
++
++1. **API availability:** Evaluate Planalto's legislative consolidation data (LexML/SPARQL endpoint, structured scraping). Determine endpoints, rate limits, and bulk validation feasibility.
++2. **Coverage by act type and year:** Pre-digital acts (pre-~2000) likely have limited structured consolidation data. If authoritative validation is achievable for <50% of indexed acts, the "Consultar texto consolidado" state dominates the UI. This is acceptable — a link to the official source is always useful — but the feature provides limited differentiation. The team should assess whether the coverage level justifies the implementation cost.
++3. **Update latency:** If official sources update with 24–48 hour delays, the verification timestamp makes latency visible. The backend must expose a refresh interval and the frontend must display "Verificado em: [date/time]."
++4. **Rollback plan:** If the authoritative API degrades in production (latency exceeds thresholds, availability drops), the circuit breaker opens and all documents revert to "Consultar texto consolidado." This is safe degradation. Define the circuit breaker thresholds before launch (e.g., >2s p95 latency or >5% error rate over 5-minute window).
++
++**Liability risk profile:** The risk is asymmetric. The probability of heuristic error is non-trivial (revocation language varies, indirect amendments are common, temporal revocations create edge cases). The severity of a legal citation error ranges from professional embarrassment to malpractice liability, regulatory non-compliance, or incorrect judicial filings. User exposure scales with adoption. This asymmetry is why the gate is binary: authoritative backend resolution or no feature.
++
++### BLOCKER 2 — Search Lacks Deterministic Query Mode (High · Investigation-Grade Gate)
++
++The current implementation relies on natural language interpretation without a deterministic alternative. Natural language search provides convenience and aligns with modern legal search trends (Casetext, Google Scholar), but it cannot guarantee recall completeness. Investigation-grade workflows — regulatory compliance searches, litigation holds, exhaustive due diligence — require the ability to construct deterministic queries where the researcher can certify that the result set is the complete intersection/union of specified terms.
++
++This is not a matter of user preference to be validated by research. It is a structural requirement of the domain: a compliance officer conducting an exhaustive search must be able to prove that their query was deterministic, not subject to NLP interpretation that may silently expand or narrow scope.
++
++**Required fix:** Implement a dual-mode search architecture:
++
++- **Default mode (NLP-interpreted):** Current behavior. Natural language query with transparent interpretation display. Suitable for exploratory research.
++- **Deterministic mode ("Modo Determinístico"):** Toggle in the search interface that disables NLP interpretation entirely. In this mode:
++  - Boolean operators (AND, OR, NOT) are parsed with standard precedence.
++  - Exact phrase matching via quotation marks.
++  - Results are strict set operations, not semantic similarity rankings.
++  - The UI displays a syntax helper panel showing supported operators.
++  - Proximity operators (NEAR/ADJ with configurable distance) are a Phase 2 enhancement within this mode — boolean operators are the baseline.
++  
++- The mode toggle must be visually prominent and its state must be reflected in the query interpretation display (e.g., "Modo: Determinístico — operadores aplicados literalmente" vs. "Modo: Interpretado — consulta expandida por IA").
++- Exported search protocol receipts (see Section 5) must record which mode was active.
++
++### BLOCKER 3 — Search Filters Are Too Shallow for Professional DOU Research (High)
+ 
+ The current filter set covers the basics but misses metadata fields that professional researchers depend on daily:
+ 
+@@ -61,48 +79,54 @@
+ - **Publication type (original vs. retificação/republicação)** — critical for audit workflows where the distinction between original publication and correction changes the legally operative text.
+ - **Classification codes** — used by specialized researchers tracking specific regulatory domains.
+ 
+-**On boolean/proximity operators:** The audit initially prescribed boolean operators (AND/OR/NOT, NEAR/ADJ) as "table stakes." This warrants nuance. The product already invests in interpreted natural language queries (Blocker 3), which is the direction modern legal search tools (Casetext, Google Scholar) are trending. Forcing boolean syntax as a primary interface may degrade usability for researchers who benefit from the interpreted model. However, professional investigation workflows — particularly exhaustive searches where a researcher must certify completeness — still require deterministic query control that natural language interpretation cannot guarantee.
+-
+ **Required fix:** Expand the filter panel in two tiers:
+ - **Primary panel:** Current fields plus DOU section part (Seção 1/2/3/Extra) and publication type (original/retificação/republicação). These are metadata filters, not query syntax — they belong in the primary interface for all user personas.
+-- **Advanced toggle:** Classification codes, "search within results" for iterative refinement, and an optional boolean syntax mode for power users who need deterministic query control. Frame this explicitly as "Busca avançada — controle manual de operadores" to signal that it overrides the interpreted model. Do not force boolean syntax on users who prefer natural language; let the two models coexist with clear framing.
+-
+-Validate with user research whether the interpreted query model is meeting precision needs for the core user base before prioritizing proximity operators (NEAR/ADJ) — these may be unnecessary if semantic search quality is high.
+-
+-### BLOCKER 3 — Query Interpretation Is Read-Only (High)
++- **Advanced toggle:** Classification codes, "search within results" for iterative refinement. Frame this explicitly as "Filtros avançados" in a collapsible panel.
++
++### BLOCKER 4 — Query Interpretation Is Read-Only (High)
+ 
+ Surfacing interpreted_query and inferred_filters is good. Making them non-interactive is a trap. When a researcher sees the system misinterpreted "STF" as something other than the Supremo Tribunal Federal, or inferred an incorrect date range, they currently have no recourse except rewriting the entire query. This transforms a transparency feature into a frustration feature.
+ 
+-**Required fix:** Make inferred filter chips dismissible (click X to remove) and editable (click to modify the value). Add a "Reset interpretation" action that clears all inferred filters and re-runs the raw query. This is not a large UI effort — the chips already exist — but the interaction model must be bidirectional.
+-
+-### BLOCKER 4 — localStorage as Primary Persistence (High)
+-
+-Reading history, saved positions, and research context stored exclusively in localStorage is fundamentally incompatible with professional workflows:
+-
+-- Device-bound: researchers move between office desktop, laptop, and mobile.
+-- Ephemeral: cleared by browser maintenance, private browsing, or IT policies.
+-- No audit trail: compliance and litigation work requires provenance — who searched what, when, with which filters, which documents were reviewed.
+-- No collaboration: team-based research is invisible.
++**Required fix:** Make inferred filter chips interactive:
++- **Dismissible:** Click X to remove an inferred filter and re-execute the query without it.
++- **Editable:** Click the chip value to open an inline editor (dropdown for enum values like organ/act type, date picker for date ranges, text input for free-form values).
++- **"Ignorar interpretação" action:** Clears all inferred filters and re-runs the raw query text without NLP expansion. This is distinct from the deterministic mode toggle (Blocker 2) — it operates within the NLP mode by removing specific inferences while retaining the interpreted model.
++- Chips must expose proper ARIA attributes: `role="option"` or button role with `aria-label` describing the filter and its removal action (see Accessibility, Section 4).
++
++### BLOCKER 5 — Client-Side Persistence Is Insecure and Device-Bound (High)
++
++Reading history, saved positions, and research context stored in localStorage or sessionStorage are fundamentally incompatible with professional workflows for multiple compounding reasons:
++
++**Device-bound:** Researchers move between office desktop, laptop, and mobile. localStorage does not sync. sessionStorage is additionally scoped to a single tab and does not survive "Open in New Tab," browser crashes, or iOS background termination — which breaks the common workflow of opening multiple acts in parallel tabs for comparison.
++
++**Security exposure:** localStorage is accessible to any script executing on the domain. For a tool handling legal research that may involve privileged or pre-disclosure information (M&A due diligence, litigation strategy, regulatory investigations), storing search history and reading patterns in unencrypted browser storage is a data leakage vector via XSS.
++
++**No audit trail:** Compliance and litigation work requires provenance — who searched what, when, with which filters, which documents were reviewed.
+ 
+ **Required fix (phased):**
+ 
+-- **Phase 1 (immediate):** Add a clear product-level disclaimer that local storage is not persistent. Do not present localStorage-backed features (recent history, saved position) as reliable workspace capabilities. Label them explicitly as "Local device only — not synced."
+-- **Phase 1.5 (bridge):** Implement a hybrid persistence strategy that does not require full authentication infrastructure. Options include: shareable/bookmarkable URLs that encode search state (query, filters, sort, pagination) so that search sessions are portable via URL; optional export/import of local research state as encrypted JSON files; or an anonymous sync token (similar to Firefox Sync pairing codes) that enables cross-device state transfer without accounts. These are lower-lift than full authentication and address device portability for solo researchers.
+-- **Phase 2 (next cycle):** Implement authenticated sessions with server-side persistence. Model research around Project/Workspace entities. Persist search sessions (query, filters, results reviewed, timestamps) and reading state per-project. Provide exportable audit logs (search methodology receipts) for case files.
+-
+-localStorage becomes the unauthenticated fallback, not the primary strategy.
+-
+-### BLOCKER 5 — Mobile Document Reading Breaks Iterative Workflow (Medium)
+-
+-Hiding mobile bottom navigation during document reading prioritizes an immersive reading metaphor. This is a defensible pattern for long-form content consumption (Kindle, Acrobat Reader, etc.), and the audit's initial recommendation to force persistent bottom nav was overcorrective — persistent chrome reduces viewport area and creates tap-target conflicts during dense legal text review.
+-
+-However, the underlying workflow concern is real: legal research is iterative (search → open → cross-reference → return to results → open another), and browser-back navigation loses filter state, scroll position, and cognitive context.
+-
+-**Required fix:** Preserve the immersive reading mode but solve the workflow problem:
+-
+-1. **Guaranteed state recovery:** Persist search state (query, filters, scroll position, pagination) in sessionStorage so that browser-back and gesture-based navigation restore results exactly as left. This is the highest-priority fix — if state recovery works, the nav problem is 80% solved.
+-2. **Quick-return affordance:** Implement a lightweight, non-intrusive "Return to results" floating button or edge-swipe gesture rather than full persistent navigation. This preserves reading focus while providing a one-tap escape hatch.
+-3. **Context breadcrumb:** Show a minimal top bar on document routes indicating the originating search context (e.g., "3 of 47 results for 'ANVISA resolução 2024'") with left/right navigation to adjacent results, enabling serial document review without returning to the results list.
++- **Phase 1 (release gate):**
++  - **URL-encoded search state as primary state recovery mechanism.** Encode query, filters, sort order, pagination, and search mode (NLP vs. deterministic) in URL query parameters. Use `lz-string` compression for long queries. This replaces sessionStorage for search state recovery — URLs survive tab duplication, browser restart, and are shareable across devices via copy-paste. Scroll position within results can use URL hash fragments.
++  - **Encrypt all localStorage contents** using Web Crypto API (AES-GCM) with a session-derived key. This is defense-in-depth against XSS — it does not replace the need for server-side storage but raises the bar for data extraction.
++  - **Scope localStorage strictly to non-sensitive metadata:** UI preferences (theme, layout), anonymous usage hints (recently viewed document IDs — not titles or content). Explicitly prohibit storing search queries, filter configurations, notes, or any user-generated text content in localStorage until authenticated server-side storage is available.
++  - **Add "Limpar dados locais" button** in settings that performs a complete wipe of all client-side stored data with confirmation dialog.
++  - **Label all localStorage-backed features** explicitly: "Armazenado apenas neste dispositivo — não sincronizado."
++
++- **Phase 2 (next cycle):** Implement authenticated sessions with server-side persistence. Model research around Project/Workspace entities. Persist search sessions (query, filters, mode, results reviewed, timestamps) and reading state per-project. Provide exportable audit logs (search methodology receipts — see Section 5).
++
++localStorage becomes the unauthenticated fallback for non-sensitive UI preferences only, not the primary persistence strategy.
++
++### BLOCKER 6 — Mobile Document Reading Breaks Iterative Workflow (Medium)
++
++Hiding mobile bottom navigation during document reading prioritizes an immersive reading metaphor. This is a defensible pattern for long-form content, and the initial recommendation to force persistent bottom nav was overcorrective — persistent chrome reduces viewport area and creates tap-target conflicts during dense legal text review.
++
++However, the underlying workflow concern is real: legal research is iterative (search → open → cross-reference → return to results → open another), and navigation loss breaks cognitive context.
++
++**Required fix:** Preserve the immersive reading mode but solve the workflow problem through state recovery and gesture navigation rather than additional persistent UI chrome:
++
++1. **URL-based state recovery (from Blocker 5, Phase 1):** Because search state is encoded in URLs, browser-back navigation restores results exactly as left — query, filters, scroll position, pagination. This is the highest-priority fix; if state recovery works, the nav problem is 80% solved.
++2. **Edge-swipe gesture for context return:** Implement a right-to-left edge swipe (on the left 20px edge, mirroring iOS back gesture conventions) to return to results. This avoids adding floating UI elements that contradict the immersive reading goal. Define the gesture activation zone to avoid conflict with text selection (text selection requires a long-press initiation; the edge swipe is an immediate drag from the screen edge).
++3. **Context breadcrumb (minimal top bar):** On document routes, show a single-line top bar indicating the originating search context (e.g., "3 de 47 resultados para 'ANVISA resolução 2024'") with left/right chevrons to navigate to adjacent results. This enables serial document review without returning to the results list. The bar should auto-hide on scroll-down and reappear on scroll-up (standard content-reading pattern) to preserve viewport space.
+ 
+ ---
+ 
+@@ -110,67 +134,127 @@
+ 
+ ### Search Panel: Not Yet Investigation-Grade
+ 
+-The current implementation handles the "casual lookup" use case well: a researcher with a rough idea of what they want can find it faster than the raw DOU portal. Investigation-grade search requires precision — exhaustive metadata filters, reproducible search sessions, and iterative refinement. The gap is the difference between "I found something" and "I can certify I found everything relevant." The tool is currently at the former; professional workflows demand the latter. The natural language interpretation approach is promising and aligns with modern legal search trends, but it must be complemented by deterministic query controls for exhaustive search scenarios.
++The current implementation handles the "casual lookup" use case well: a researcher with a rough idea of what they want can find it faster than the raw DOU portal. Investigation-grade search requires two additional capabilities: (1) exhaustive metadata filters enabling precise faceting, and (2) a deterministic query mode that guarantees recall completeness for certified searches. The gap is the difference between "I found something" and "I can certify I found everything relevant and document my methodology." The tool is currently at the former; professional workflows demand the latter. The dual-mode architecture (NLP default + deterministic toggle) resolves this without forcing boolean syntax on casual users.
+ 
+ ### Normative Awareness Layer: Architecturally Sound, Executionally Dangerous
+ 
+-The data model (normative_refs, procedure_refs, timeline) is the right foundation. The type system captures the right entities. But rendering heuristic inferences as status indicators — without explicit sourcing, confidence levels, or authoritative data — creates a product that is more dangerous than one with no status indicators at all. A blank field prompts the researcher to check manually. A green "Vigente" badge suppresses that instinct. The architecture should be preserved; the presentation layer must either be rebuilt around the tri-state authoritative model or removed from the release.
+-
+----
+-
+-## 4. Accessibility Compliance Gap
+-
+-The audit would be incomplete without evaluating accessibility, which is mandatory for government-facing legal tools and a likely requirement for public sector procurement (Brazilian accessibility law, Lei 13.146/2015, and WCAG 2.1 AA).
+-
+-**Identified risks in the current implementation:**
+-
+-- **Color-dependent status indicators (WCAG 1.4.1):** The normative status badges (green for Vigente, red for Revogado) rely solely on color to convey meaning. If the tri-state model ships, every status must include a text label and an icon (e.g., checkmark, X mark, question mark) in addition to color. Color alone is insufficient.
+-- **Keyboard operability for filter panel (WCAG 2.1.1):** The structured filter panel (dropdowns, date pickers, chips) must be fully operable via keyboard without mouse dependency. Tab order, focus management on chip creation/dismissal, and date picker keyboard interaction need explicit testing.
+-- **Screen reader compatibility for normative timeline (WCAG 4.1.2):** The timeline visualization requires ARIA labels for each node (act type, date, relationship type) and a linearized alternative for screen readers. A visual graph without semantic markup is invisible to assistive technology.
+-- **Query interpretation chips (WCAG 4.1.2):** Interactive filter chips must expose name, role, and value to assistive technology. Dismissible chips need aria-label describing the filter being removed and appropriate role (e.g., `role="option"` with `aria-selected`, or a button with descriptive label).
+-
+-**Required:** Add accessibility testing (automated via axe-core in CI, manual via screen reader testing) as a gating criterion for all UI components before production release. Prioritize the status indicator and filter panel — these are the highest-interaction-frequency components.
+-
+----
+-
+-## 5. Cross-Reference Navigation Gap
++The data model (normative_refs, procedure_refs, timeline) is the right foundation. The type system captures the right entities. But rendering any client-side status inference — whether as colored badges, confidence scores, or "unverified" hints — creates a product that is more dangerous than one with no status indicators at all. A blank field prompts the researcher to check manually. Any visual signal about status, regardless of confidence framing, creates anchoring bias that suppresses manual verification. The architecture should be preserved; the status presentation must either render exclusively backend-resolved authoritative data or be absent from the release.
++
++### Performance Considerations for Investigation-Grade Definition
++
++The audit has focused on information architecture and workflow, but investigation-grade also implies performance under real workloads. Large DOU documents (some legislative compilations exceed 100 pages of dense text) require:
++
++- **Document virtualization:** Only the visible viewport plus a buffer zone should be in the DOM. Rendering a 100-page act as a single DOM tree will produce multi-second time-to-interactive on mid-range devices.
++- **Search result rendering:** Result sets of 500+ items need windowed rendering (react-window or equivalent). Define a performance budget: time-to-interactive <2s on a 4G connection with a mid-range mobile device (Lighthouse "mobile" throttling profile).
++- **Filter interaction latency:** Filter changes should produce updated results in <500ms perceived latency. If backend response exceeds this, implement optimistic UI with skeleton states.
++
++These are not release gates for this cycle but must be addressed before the tool is used for large-scale research sessions.
++
++---
++
++## 4. Accessibility Compliance
++
++Accessibility is mandatory for government-facing legal tools (Brazilian Lei 13.146/2015, WCAG 2.1 AA) and a likely requirement for public sector procurement.
++
++**Identified risks and required fixes:**
++
++- **Color-dependent status indicators (WCAG 1.4.1):** If the authoritative status model ships, every status must include a text label, a distinct icon (checkmark for Vigente, X for Revogado), and color. Color alone is insufficient. The "Consultar texto consolidado" unverified state uses no color coding — it is a text link only, which is inherently accessible.
++
++- **Keyboard operability for filter panel (WCAG 2.1.1):** The structured filter panel (dropdowns, date pickers, chips) must be fully operable via keyboard. Tab order must follow visual layout. Focus must be managed on chip creation (focus moves to new chip) and dismissal (focus moves to previous chip or the input field). Date picker must support keyboard date entry, not only calendar click.
++
++- **Screen reader compatibility for normative timeline (WCAG 4.1.2):** The timeline visualization requires ARIA labels for each node (act type, date, relationship type) and a linearized table alternative for screen readers. A visual graph without semantic markup is invisible to assistive technology.
++
++- **Interactive filter chips (WCAG 4.1.2):** Dismissible chips must use `role="button"` (or native `<button>`) with `aria-label` describing the action (e.g., `aria-label="Remover filtro: órgão emissor ANVISA"`). Editable chips must announce their editable state.
++
++**Enforcement mechanism (release gate):**
++
++- Add axe-core to the CI pipeline with **build-failing rules** for the following WCAG 2.1 AA criteria: `color-contrast` (1.4.3), `aria-valid-attr` (4.1.2), `aria-valid-attr-value` (4.1.2), `button-name` (4.1.2), `image-alt` (1.1.1), `label` (1.3.1), `keyboard` (2.1.1). Any violation of these rules fails the build — no override without documented accessibility exception reviewed by a team lead.
++- Manual screen reader testing (NVDA on Windows, VoiceOver on macOS/iOS) for the filter panel and document reader before each release. Automated testing catches ~30-40% of accessibility issues; manual testing is not optional.
++- Performance budget for accessibility tooling: axe-core CI step must complete in <30s; accessibility-related runtime scripts (ARIA live regions, focus management) must add <5ms to interaction latency.
++
++---
++
++## 5. Document Integrity and Search Protocol Receipts
++
++Two capabilities required for evidentiary and audit use cases:
++
++### Content Integrity Verification (Phase 2)
++
++Professional legal tools used in litigation or regulatory proceedings must support document authenticity verification. When a document is fetched from the backend:
++
++- Compute a SHA-256 hash of the document content on the backend (not client-side, where content could be tampered in transit without TLS pinning).
++- Display "Hash de integridade: [truncated hash]" in the document metadata panel with a copy-to-clipboard action and a "Verificar" link that re-fetches and re-computes.
++- Store the hash with a retrieval timestamp in the search session log.
++
++This is not a release gate for this cycle but is required before the tool is used for evidence gathering or court filings.
++
++### Search Protocol Receipt Export (Phase 2)
++
++Add an "Exportar Protocolo de Busca" action on the search results view that generates a structured receipt (PDF/A for court filing, JSON for machine processing) containing:
++
++- Exact query text and mode (NLP-interpreted or deterministic)
++- All filters applied (explicit and inferred, with inferred filters marked as such)
++- Query interpretation as displayed to the user
++- Timestamp of search execution
++- Total result count
++- SHA-256 hash of the ordered result list (document IDs + ranking scores)
++- Tool version and search engine version
++
++This creates defensible audit trails for court filings demonstrating that search methodology was systematic and exhaustive. It is the professional equivalent of a librarian's research log.
++
++---
++
++## 6. Cross-Reference Navigation Gap
+ 
+ The types include normative_refs and procedure_refs, but the current implementation does not describe how these render as interactive elements. For professional use, every reference to another act, article, or procedure must be a navigable link. Without this, the reference data is informational but not operational — researchers still have to manually search for connected documents.
+ 
+-This is not a production blocker for the current release — the tool is usable without it — but it is a Phase 3 requirement for investigation-grade status. Clicking a normative reference should open the target document (ideally in a side panel or new tab to preserve context) with a breadcrumb trail showing the reference chain. This directly enables the "follow the chain" workflow that distinguishes research tools from document viewers.
+-
+-**Classified as:** Phase 3 enhancement (not a release gate, but required for investigation-grade designation).
+-
+----
+-
+-## 6. Sequenced Roadmap
+-
+-### This cycle (release gate):
+-
+-1. **Normative status resolution (hard gate):** Complete feasibility assessment of authoritative data sources. If viable (>50% coverage, API available, latency <24h), implement tri-state model with source attribution and verification timestamps. If not viable, remove the status card from the release entirely. No third option.
+-2. **Accessibility baseline:** Audit and fix color-dependent status indicators, keyboard operability for filters, and ARIA labeling for interactive chips. Add axe-core to CI pipeline.
+-3. **Mobile state recovery:** Implement sessionStorage-based search state preservation so browser-back restores results exactly.
++For the normative timeline specifically: professional researchers need to see the transitive closure of revocation relationships (A revoga B, B revoga C → full obsolescence chain), not just immediate parent/child links. This "Cadeia de Revogações" view is a differentiator for investigation-grade tools.
++
++**Classified as:** Phase 3 enhancement (not a release gate, but required for investigation-grade designation). Clicking a normative reference should open the target document (in a side panel or new tab to preserve context) with a breadcrumb trail showing the reference chain.
++
++---
++
++## 7. Sequenced Roadmap
++
++### This cycle (release gates):
++
++1. **Normative status resolution (hard gate):** Complete feasibility assessment of authoritative backend integration. If viable (API available, >50% act coverage, latency <24h, circuit breaker defined), implement backend-resolved status with source attribution. If not viable, remove the status card from the release entirely — delete heuristic inference code from the production bundle. No third option.
++2. **URL-encoded search state:** Replace sessionStorage-based recovery with URL query parameter serialization (lz-string compressed). Search state becomes portable, shareable, and survives browser restart and tab operations.
++3. **localStorage security hardening:** Encrypt all localStorage values via Web Crypto API (AES-GCM). Scope stored data to non-sensitive UI preferences only. Add "Limpar dados locais" wipe action.
++4. **Accessibility CI gate:** Integrate axe-core with build-failing rule set (color-contrast, aria-valid-attr, button-name, label, keyboard). Manual screen reader test pass for filter panel and document reader.
++5. **Mobile state recovery:** URL-based state recovery eliminates sessionStorage dependency. Edge-swipe gesture for context return. Auto-hiding context breadcrumb on document routes.
+ 
+ ### Next cycle:
+ 
+-4. **Expanded search filters:** DOU section parts, publication type, advanced toggle with boolean syntax and search-within-results.
+-5. **Interactive query interpretation:** Editable/dismissible inferred filter chips with reset action.
+-6. **Hybrid persistence bridge:** URL-encoded search state for shareability/portability, optional state export/import.
++6. **Deterministic query mode:** Boolean operator parser (AND/OR/NOT with precedence). "Modo Determinístico" toggle with syntax helper. Mode state reflected in query interpretation display and included in search receipts.
++7. **Expanded search filters:** DOU section parts (Seção 1/2/3/Extra), publication type (original/retificação/republicação), advanced toggle with classification codes and search-within-results.
++8. **Interactive query interpretation:** Editable/dismissible inferred filter chips with "Ignorar interpretação" reset action.
++9. **Search protocol receipt export:** PDF/A and JSON receipt generation with query, filters, mode, timestamp, result hash.
+ 
+ ### Following cycle:
+ 
+-7. **Authenticated workspaces:** User accounts, server-persisted search sessions, project/workspace entities, exportable audit logs (search methodology receipts).
+-8. **Cross-reference navigation:** One-click navigation from normative/procedure refs to target documents with context preservation.
+-9. **Version diff viewer and citation network foundations.**
+-
+----
+-
+-## 7. Verdict
++10. **Authenticated workspaces:** User accounts, server-persisted search sessions, project/workspace entities, exportable audit logs.
++11. **Document integrity verification:** Backend-computed SHA-256 hashes, verification UI, hash-timestamped session logs.
++12. **Cross-reference navigation:** One-click navigation from normative/procedure refs to target documents. Transitive revocation chain visualization ("Cadeia de Revogações").
++13. **Version diff viewer and citation network foundations.**
++14. **Performance optimization:** Document virtualization for large acts, windowed result rendering, interaction latency budgets.
++
++---
++
++## 8. Verdict
+ 
+ The product is moving toward an investigation-grade interface, but it is not there yet and must not ship in its current state.
+ 
+-The app shell and structured search represent genuine architectural progress. The normative awareness layer has the right data model but the wrong presentation contract — it is a **hard production gate** that must be resolved by either integrating authoritative data or removing the feature. There is no acceptable middle ground where heuristic status assertions reach professional users. The liability risk is asymmetric: a low probability of heuristic error multiplied by high severity of legal citation consequences across a growing user base creates unacceptable aggregate exposure.
+-
+-The localStorage dependency caps the product at "personal convenience tool." The search filters need one more tier of depth. The accessibility gaps must be closed for government-facing deployment.
+-
+-The direction is correct. The velocity is reasonable. The release gate is singular and non-negotiable: resolve the normative status card before production.
++The app shell and structured search represent genuine architectural progress. The normative awareness layer has the right data model but a dangerous presentation implementation. The heuristic status inference code must be excised from the production bundle — not confidence-scored, not disclaimered, not feature-flagged. The liability risk is asymmetric and non-negotiable: authoritative backend resolution or no feature.
++
++Beyond the normative status gate, the release is blocked by three additional issues that compound into a "not production-ready" assessment: (1) search state stored in volatile, insecure client-side storage rather than URLs, (2) unencrypted localStorage holding research activity data, and (3) missing accessibility CI enforcement for a government-facing tool.
++
++The absence of a deterministic query mode and shallow filter set do not block initial release but do block "investigation-grade" designation — the tool cannot be used for certified exhaustive searches without deterministic query control.
++
++**Release gates (all must pass):**
++1. Normative status: authoritative backend integration or feature removal.
++2. Search state: URL-encoded, shareable, browser-restart-safe.
++3. Client-side storage: encrypted, scoped to non-sensitive data, with wipe capability.
++4. Accessibility: axe-core CI gate with defined failing rules, manual screen reader pass.
++
++The direction is correct. The velocity is reasonable. The gates are defined and non-negotiable.

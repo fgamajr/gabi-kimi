@@ -1,0 +1,72 @@
+{
+  "agent": "qwen",
+  "round": 3,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "Section 2, BLOCKER 1 — ValidityCard component specification",
+      "description": "Critical severity contradicts implementation timeline. If heuristic normative status is a 'Critical' liability that can cause legal harm, Phase A (1-2 weeks frontend only) is insufficient. The document acknowledges false negatives/positives can lead to reliance on invalid legislation, yet defers the authoritative backend pipeline to 3-6 months. This creates a gap where production users are exposed to known-dangerous data with only UI warnings as mitigation.",
+      "suggested_fix": "Either upgrade severity to block production entirely until Phase B backend pipeline is operational, or downgrade severity and explicitly document the residual legal risk that UI warnings do not eliminate. Cannot have both 'Critical liability' and 'ship in 1-2 weeks'."
+    },
+    {
+      "severity": "high",
+      "location": "Section 2, BLOCKER 4 — Content Security Policy headers",
+      "description": "CSP configuration includes 'unsafe-inline' for style-src, which undermines the stated security posture. CSS injection attacks can exfiltrate data through attribute selectors and background-image URLs. For a tool handling privileged attorney-client information, this is insufficient. The justification (DOU tables rely on inline styles) is a technical debt problem, not a security tradeoff.",
+      "suggested_fix": "Require server-side CSS extraction and inlining into a stylesheet at sanitization time, or use a strict CSP with nonce-based inline styles. Document the specific DOU markup patterns that require inline styles and address them in the ingest pipeline instead of weakening CSP."
+    },
+    {
+      "severity": "medium",
+      "location": "Section 3 — Citation parser confidence thresholds",
+      "description": "Confidence thresholds (≥0.9, 0.6-0.9, <0.6) are arbitrary values without empirical basis. No mention of how these thresholds were derived, validated, or will be tuned. For legal search, false positive parses are as dangerous as the auto-applied filters criticized in Blocker 2.",
+      "suggested_fix": "Add requirement for threshold validation against a corpus of real DOU search queries before shipping. Include A/B testing plan or conservative default (only parse unambiguous formats like 'Lei X.XXX/YYYY') with thresholds widened based on logged parse accuracy data."
+    },
+    {
+      "severity": "medium",
+      "location": "Section 5, Priority 2 — Accessibility Baseline",
+      "description": "WCAG 2.1 AA is correctly identified as a procurement blocker for government agencies and law firms, yet scheduled as Priority 2 (parallel with Priority 1, 2 weeks out). This contradicts the risk assessment that flags it as a procurement blocker. Accessibility retrofitting is explicitly noted as 'more expensive than accessible-first development.'",
+      "suggested_fix": "Elevate accessibility to Priority 1 alongside trust blockers. If parallel execution is required, specify which accessibility tests must pass before any production deployment (minimum: keyboard navigation, screen reader TOC, contrast ratios on confidence indicators)."
+    },
+    {
+      "severity": "medium",
+      "location": "Section 2, BLOCKER 2 — Query Audit Log encryption",
+      "description": "Client-side encryption with 'user-controlled key' lacks key recovery, key loss, or cross-device synchronization handling. If a user loses their key, the audit log is permanently inaccessible. For legal research reproducibility (the stated purpose), this creates a single point of failure.",
+      "suggested_fix": "Add key escrow option with explicit user consent, or document that audit logs are local-only ephemeral records (not suitable for legal discovery). Specify key derivation method (PBKDF2, Argon2) and storage mechanism (Web Crypto API, not localStorage)."
+    },
+    {
+      "severity": "low",
+      "location": "Section 5, Priority 1 — Search state preservation",
+      "description": "URL-based search state preservation is recommended but doesn't address URL length limits. Complex filter combinations with multiple facets can exceed 2KB URL limits, causing silent state loss or request failures.",
+      "suggested_fix": "Specify fallback to sessionStorage for state exceeding URL length limits, with URL containing only a session reference ID. Document the maximum filter combination supported via URL parameters."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "Section 2, BLOCKER 1 — ValidityCard rendering rules",
+      "description": "Add explicit user acknowledgment requirement for 'unverified' status documents. Before displaying heuristic-derived status, require user to click through a warning modal on first use per session. This creates an audit trail of user awareness."
+    },
+    {
+      "type": "improvement",
+      "location": "Section 4 — Overall Trajectory Assessment table",
+      "description": "Add current baseline measurements for performance targets. Without knowing current render times, bundle sizes, and filter response latencies, the performance targets are meaningless. Include 'Current' column alongside 'Performance Target'."
+    },
+    {
+      "type": "improvement",
+      "location": "Section 5, Priority 0 — Content Security Hardening",
+      "description": "Add automated regression testing for XSS vectors in the ingest pipeline. Include a test suite of known-malicious HTML patterns that must fail sanitization before any deploy. Reference OWASP XSS Prevention Cheat Sheet test cases."
+    },
+    {
+      "type": "improvement",
+      "location": "Section 3 — Boolean query support",
+      "description": "Specify query syntax validation and user feedback. If a user types malformed boolean syntax (unclosed parens, orphaned operators), the system should show a syntax error with correction suggestions rather than silently falling back to keyword search."
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 1847,
+    "latency_ms": 342,
+    "thinking_tokens": 1203
+  },
+  "raw_text": "{\n  \"agent\": \"qwen\",\n  \"round\": 3,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 2, BLOCKER 1 — ValidityCard component specification\",\n      \"description\": \"Critical severity contradicts implementation timeline. If heuristic normative status is a 'Critical' liability that can cause legal harm, Phase A (1-2 weeks frontend only) is insufficient. The document acknowledges false negatives/positives can lead to reliance on invalid legislation, yet defers the authoritative backend pipeline to 3-6 months. This creates a gap where production users are exposed to known-dangerous data with only UI warnings as mitigation.\",\n      \"suggested_fix\": \"Either upgrade severity to block production entirely until Phase B backend pipeline is operational, or downgrade severity and explicitly document the residual legal risk that UI warnings do not eliminate. Cannot have both 'Critical liability' and 'ship in 1-2 weeks'.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 2, BLOCKER 4 — Content Security Policy headers\",\n      \"description\": \"CSP configuration includes 'unsafe-inline' for style-src, which undermines the stated security posture. CSS injection attacks can exfiltrate data through attribute selectors and background-image URLs. For a tool handling privileged attorney-client information, this is insufficient. The justification (DOU tables rely on inline styles) is a technical debt problem, not a security tradeoff.\",\n      \"suggested_fix\": \"Require server-side CSS extraction and inlining into a stylesheet at sanitization time, or use a strict CSP with nonce-based inline styles. Document the specific DOU markup patterns that require inline styles and address them in the ingest pipeline instead of weakening CSP.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Section 3 — Citation parser confidence thresholds\",\n      \"description\": \"Confidence thresholds (≥0.9, 0.6-0.9, <0.6) are arbitrary values without empirical basis. No mention of how these thresholds were derived, validated, or will be tuned. For legal search, false positive parses are as dangerous as the auto-applied filters criticized in Blocker 2.\",\n      \"suggested_fix\": \"Add requirement for threshold validation against a corpus of real DOU search queries before shipping. Include A/B testing plan or conservative default (only parse unambiguous formats like 'Lei X.XXX/YYYY') with thresholds widened based on logged parse accuracy data.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Section 5, Priority 2 — Accessibility Baseline\",\n      \"description\": \"WCAG 2.1 AA is correctly identified as a procurement blocker for government agencies and law firms, yet scheduled as Priority 2 (parallel with Priority 1, 2 weeks out). This contradicts the risk assessment that flags it as a procurement blocker. Accessibility retrofitting is explicitly noted as 'more expensive than accessible-first development.'\",\n      \"suggested_fix\": \"Elevate accessibility to Priority 1 alongside trust blockers. If parallel execution is required, specify which accessibility tests must pass before any production deployment (minimum: keyboard navigation, screen reader TOC, contrast ratios on confidence indicators).\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Section 2, BLOCKER 2 — Query Audit Log encryption\",\n      \"description\": \"Client-side encryption with 'user-controlled key' lacks key recovery, key loss, or cross-device synchronization handling. If a user loses their key, the audit log is permanently inaccessible. For legal research reproducibility (the stated purpose), this creates a single point of failure.\",\n      \"suggested_fix\": \"Add key escrow option with explicit user consent, or document that audit logs are local-only ephemeral records (not suitable for legal discovery). Specify key derivation method (PBKDF2, Argon2) and storage mechanism (Web Crypto API, not localStorage).\"\n    },\n    {\n      \"severity\": \"low\",\n      \"location\": \"Section 5, Priority 1 — Search state preservation\",\n      \"description\": \"URL-based search state preservation is recommended but doesn't address URL length limits. Complex filter combinations with multiple facets can exceed 2KB URL limits, causing silent state loss or request failures.\",\n      \"suggested_fix\": \"Specify fallback to sessionStorage for state exceeding URL length limits, with URL containing only a session reference ID. Document the maximum filter combination supported via URL parameters.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 2, BLOCKER 1 — ValidityCard rendering rules\",\n      \"description\": \"Add explicit user acknowledgment requirement for 'unverified' status documents. Before displaying heuristic-derived status, require user to click through a warning modal on first use per session. This creates an audit trail of user awareness.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 4 — Overall Trajectory Assessment table\",\n      \"description\": \"Add current baseline measurements for performance targets. Without knowing current render times, bundle sizes, and filter response latencies, the performance targets are meaningless. Include 'Current' column alongside 'Performance Target'.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 5, Priority 0 — Content Security Hardening\",\n      \"description\": \"Add automated regression testing for XSS vectors in the ingest pipeline. Include a test suite of known-malicious HTML patterns that must fail sanitization before any deploy. Reference OWASP XSS Prevention Cheat Sheet test cases.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 3 — Boolean query support\",\n      \"description\": \"Specify query syntax validation and user feedback. If a user types malformed boolean syntax (unclosed parens, orphaned operators), the system should show a syntax error with correction suggestions rather than silently falling back to keyword search.\"\n    }\n  ],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 1847,\n    \"latency_ms\": 342,\n    \"thinking_tokens\": 1203\n  }\n}"
+}

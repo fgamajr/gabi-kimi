@@ -1,0 +1,112 @@
+--- before
++++ after
+@@ -1,11 +1,99 @@
+-Increment delivered:
+-- Command palette is now a global surface owned by AppShell.
+-- Desktop has a top-right trigger; mobile has a central bottom-nav trigger and a floating trigger on document routes.
+-- DocumentGraph now performs a second hop by querying related documents for each normative/procedural seed.
+-- Legal status logic moved from ad-hoc page helpers into lib/legalStatus.ts with explicit status codes, confidence, evidence, and timeline building.
+-- Document reader now renders model evidence, not just a summary sentence.
++# Frontend Audit — Increment Review (Round 1 Revised)
+ 
+-Assess:
+-1. What real workflow value was added for professional DOU research?
+-2. What is still too shallow to count as investigation-grade?
+-3. What should be next?
++## What was delivered
++
++- Command palette promoted to global surface owned by AppShell, with desktop top-right trigger and mobile bottom-nav + floating trigger on document routes.
++- DocumentGraph performs a hardcoded second-hop query from normative/procedural seeds.
++- Legal status logic extracted into `lib/legalStatus.ts` with status codes, confidence, evidence, and timeline building.
++- Document reader renders model evidence instead of summary sentences.
++
++---
++
++## 1. Real workflow value added for professional DOU research
++
++**Command palette centralization — moderate value.** Moving it to AppShell means any route can invoke search/navigation without route-specific wiring. This is correct architecture. Desktop trigger placement is standard. The bottom-nav mobile trigger is the right call for thumb-zone reachability.
++
++**Second-hop graph query — low-to-moderate value.** Fetching one additional layer of related documents is a meaningful step beyond flat search results. Researchers can now see what a normative document references and what those references themselves cite. But the value is capped: the data is fetched without an interactive exploration surface, making it backend plumbing exposed as a flat list rather than genuine graph exploration.
++
++**Legal status extraction into a typed module — moderate value.** Moving from ad-hoc page helpers to a single source of truth with explicit status codes and confidence scores is structurally important. It creates a foundation for everything downstream. Evidence rendering in the reader is a clear upgrade over opaque summary sentences.
++
++---
++
++## 2. What is still too shallow to count as investigation-grade
++
++### Critical (blocks professional use)
++
++**Mobile command palette: dual-trigger ambiguity and missing interaction physics.**
++Two triggers (bottom-nav + floating FAB on document routes) waste viewport space and create decision friction. Worse, neither implements the interaction patterns mobile field researchers need: no bottom-sheet with swipe-to-dismiss, no `visualViewport` API integration to prevent keyboard occlusion of the input field, no ARIA live regions for dynamic result announcements. This is trigger placement, not mobile-first design.
++
++**Resolution required:** Remove the floating trigger on document routes — the bottom-nav trigger is sufficient and preserves reading space. Implement the palette as a bottom-sheet with drag-to-dismiss (react-spring or framer-motion gesture handling). Use `window.visualViewport.resize` events to pin the input above the on-screen keyboard. Add `aria-live="polite"` region for result count announcements and proper focus trapping.
++
++**Graph traversal: hardcoded 2-hop with no cycle detection, no pruning, no interactive visualization.**
++A fixed second hop is arbitrary. Brazilian legal corpora have dense circular citation patterns (decree → portaria → decree). Without visited-node tracking, this will produce duplicates or infinite expansion at scale. Without edge weighting or relevance scoring, a highly-cited document explodes the result set with noise. Without interactive visualization (expandable tree or force-directed graph), the user sees a flat list that hides the topological relationships — citation clusters, authority hubs, cascade chains — that are the entire point of multi-hop exploration.
++
++**Resolution required:**
++1. Configurable `maxDepth` parameter (default 3, cap at 5).
++2. `Set<string>`-based visited tracking to break cycles.
++3. Edge scoring by citation count or recency to rank/prune results before rendering.
++4. Replace flat list with expandable node tree at minimum; force-directed Canvas/SVG graph as fast-follow. Each node must be click-to-navigate.
++
++### Significant (undermines trust for compliance/litigation workflows)
++
++**Legal status model lacks temporal intervals and point-in-time queries.**
++The current timeline is a linear event log. Legal research requires interval-based validity modeling: a status is `VIGENTE` from date A until date B, potentially overlapping with a `PARCIALMENTE_REVOGADO` interval. Without `validFrom`/`validUntil` on each status interval, researchers cannot answer "what was the status of Portaria X on 2021-03-15?" — the single most common temporal query in compliance verification.
++
++**Resolution required:** Adopt interval-based modeling:
++
++```typescript
++export interface StatusInterval {
++  id: string;
++  status: StatusCode;
++  validFrom: Date;
++  validUntil: Date | null; // null = currently effective
++  supersededBy: string | null; // ID of interval that closed this one
++  conflictResolution: 'lex_posterior' | 'lex_specialis' | 'explicit_revocation' | null;
++}
++
++export interface LegalStatus {
++  code: StatusCode; // current effective status
++  confidence: number;
++  evidence: EvidenceItem[];
++  timeline: StatusInterval[];
++}
++
++// Required query interface
++function getStatusAtDate(timeline: StatusInterval[], date: Date): StatusInterval | null;
++```
++
++**Evidence rendering lacks source anchoring.**
++Displaying model evidence without linking to specific text spans in the source document is a provenance failure. Investigators need to verify *why* a status was assigned by clicking through to the exact paragraph. Without byte-offset or paragraph-ID anchoring, the evidence is an unverifiable assertion — unacceptable for litigation or audit contexts.
++
++**Resolution required:** Each `EvidenceItem` must carry a `TextRange` (`{ paragraphId: string; startOffset: number; endOffset: number }`). The document reader must synchronize: hovering an evidence item highlights the corresponding span in the document view. Confidence scores must include provenance metadata (which extraction algorithm, which model version).
++
++---
++
++## 3. What should be next (priority-ordered)
++
++| Priority | Item | Why now |
++|----------|------|---------|
++| **P0** | Collapse mobile triggers to single bottom-nav + bottom-sheet pattern | Current dual-trigger is a UX regression on small viewports; blocks field use. |
++| **P0** | Configurable N-hop traversal with cycle detection + interactive expandable tree | Without this, "multi-hop exploration" is a marketing claim, not a feature. |
++| **P1** | Interval-based legal status model with `getStatusAtDate` query | Temporal validity is table stakes for any legal research tool. |
++| **P1** | Span-anchored evidence with highlight synchronization | Evidence without provenance is liability, not value. |
++| **P2** | Edge-scored graph pruning + force-directed visualization | Prevents noise explosion as corpus density increases; reveals citation topology. |
++| **P2** | Service Worker caching for command palette history + recent traversals | DOU researchers work in courthouses and government offices with unreliable connectivity. |
++| **P3** | Legal status timeline export (PDF/JSON) with audit trail and diff between dates | Downstream value; depends on P1 interval model being correct first. |
++| **P3** | Desktop keyboard shortcut hints in command palette | Polish; real but non-blocking. |
++
++---
++
++## Verdict: REQUEST_CHANGES
++
++The increment moved the right pieces to the right layers (command palette to AppShell, legal status to a typed module, graph queries beyond single-hop). Architecturally sound direction. But all three focus areas stop one step short of investigation-grade:
++
++- Mobile command palette solves *discovery* but not *ergonomics*.
++- Graph traversal fetches data but doesn't enable *exploration*.
++- Legal status has structure but lacks *temporal semantics*.
++- Evidence is rendered but not *anchored*.
++
++The gap between "present in the UI" and "trustworthy for professional legal research" is where all four items currently sit. P0 and P1 items above close that gap.

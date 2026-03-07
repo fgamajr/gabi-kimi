@@ -1,0 +1,16 @@
+Increment delivered:
+- Added docs/meta/CURRENT_STATE.md grounded in real code only.
+- Added a global command palette with Cmd/Ctrl+K, recent searches, recent docs, inline top search results, and quick navigation.
+- Added a first shipped DocumentGraph using real normative_refs and procedure_refs.
+- Integrated the command palette into the shared app shell.
+- Removed the old SearchBar-level global Cmd/Ctrl+K handler so the palette owns the shortcut.
+
+Constraints:
+- This is not yet a full analytics dashboard.
+- The graph is a first-step relationship explorer, not a full force-directed investigation view.
+- Validity/version awareness remains heuristic and cautious.
+
+Please assess:
+1. What real workflow value was added?
+2. What remains too shallow?
+3. What should be the next highest-impact step?

@@ -120,6 +120,35 @@ export interface AutocompleteResult {
   type?: string;
 }
 
+export interface DocumentGraphNode {
+  id: string;
+  title: string;
+  subtitle?: string | null;
+  query?: string | null;
+  node_type?: "reference" | "procedure" | string;
+  relation_type?: string | null;
+}
+
+export interface DocumentGraphBranch {
+  seed: DocumentGraphNode;
+  related_documents: SearchResult[];
+}
+
+export interface DocumentGraphResponse {
+  document: {
+    id: string;
+    title: string;
+    pub_date?: string;
+    section?: string;
+    page?: string | null;
+    art_type?: string | null;
+    issuing_organ?: string | null;
+  };
+  depth: number;
+  per_seed: number;
+  branches: DocumentGraphBranch[];
+}
+
 // --- API Functions ---
 
 async function fetchJSON<T>(url: string): Promise<T> {
@@ -278,6 +307,45 @@ export function getDocument(id: string): Promise<DocumentDetail> {
         : [],
     };
   });
+}
+
+export function getDocumentGraph(id: string, depth = 2, perSeed = 3): Promise<DocumentGraphResponse> {
+  return fetchJSON<Record<string, unknown>>(
+    `${API_BASE}/document/${encodeURIComponent(id)}/graph?depth=${depth}&per_seed=${perSeed}`
+  ).then((payload) => ({
+    document: {
+      id: String((payload.document as Record<string, unknown> | undefined)?.id || id),
+      title: String((payload.document as Record<string, unknown> | undefined)?.title || "Sem título"),
+      pub_date: String((payload.document as Record<string, unknown> | undefined)?.pub_date || "").trim() || undefined,
+      section: String((payload.document as Record<string, unknown> | undefined)?.section || "").trim() || undefined,
+      page: (payload.document as Record<string, unknown> | undefined)?.page != null
+        ? String((payload.document as Record<string, unknown>).page)
+        : undefined,
+      art_type: String((payload.document as Record<string, unknown> | undefined)?.art_type || "").trim() || undefined,
+      issuing_organ: String((payload.document as Record<string, unknown> | undefined)?.issuing_organ || "").trim() || undefined,
+    },
+    depth: Number(payload.depth || depth),
+    per_seed: Number(payload.per_seed || perSeed),
+    branches: Array.isArray(payload.branches)
+      ? payload.branches.map((branch) => {
+          const row = branch as Record<string, unknown>;
+          const seed = (row.seed as Record<string, unknown> | undefined) || {};
+          return {
+            seed: {
+              id: String(seed.id || ""),
+              title: String(seed.title || "Referência"),
+              subtitle: String(seed.subtitle || "").trim() || undefined,
+              query: String(seed.query || "").trim() || undefined,
+              node_type: String(seed.node_type || "").trim() || undefined,
+              relation_type: String(seed.relation_type || "").trim() || undefined,
+            },
+            related_documents: Array.isArray(row.related_documents)
+              ? row.related_documents.map((item) => normalizeSearchResult(item as Record<string, unknown>))
+              : [],
+          };
+        })
+      : [],
+  }));
 }
 
 export function getMediaUrl(docId: string, mediaName: string): string {

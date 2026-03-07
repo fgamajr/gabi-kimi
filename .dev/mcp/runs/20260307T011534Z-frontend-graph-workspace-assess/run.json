@@ -1,0 +1,123 @@
+{
+  "run_id": "20260307T011534Z-frontend-graph-workspace-assess",
+  "task": "Assess the recent frontend changes for GABI DOU. Focus on: 1) backend-driven document graph workspace with expandable typed branches, 2) mobile-first command palette surface, 3) code-splitting outcome and whether the remaining isolated pdf-export chunk is acceptable. Return concise approval or objections.",
+  "artifact_kind": "review",
+  "selected_agents": {
+    "orchestrator": "claude",
+    "reviewers": [
+      "kimi",
+      "qwen"
+    ],
+    "personas": {
+      "kimi": "general",
+      "qwen": "general"
+    },
+    "rationale": [
+      "reviewers overridden by caller",
+      "persona heuristic resolved to 'general'",
+      "orchestrator overridden by caller"
+    ]
+  },
+  "config": {
+    "config_path": "/home/parallels/dev/gabi-kimi/.dev/mcp/mcp-agents.yaml",
+    "providers": {
+      "dashscope": {
+        "base_url": "https://coding-intl.dashscope.aliyuncs.com/v1",
+        "key_env": "DASHSCOPE_API_KEY",
+        "sdk": "openai-compatible",
+        "streaming": true
+      },
+      "anthropic": {
+        "base_url": "https://api.anthropic.com/v1",
+        "key_env": "ANTHROPIC_API_KEY",
+        "sdk": "anthropic",
+        "streaming": true
+      }
+    },
+    "agents": {
+      "claude": {
+        "provider": "anthropic",
+        "model": "claude-opus-4-6",
+        "key_env": null,
+        "enable_thinking": false,
+        "max_response": 8000,
+        "personas": [
+          "general",
+          "security",
+          "architecture"
+        ],
+        "output_config": {
+          "effort": "high"
+        }
+      },
+      "kimi": {
+        "provider": "dashscope",
+        "model": "kimi-k2.5",
+        "key_env": null,
+        "enable_thinking": true,
+        "max_response": 32768,
+        "personas": [
+          "general",
+          "security",
+          "code-review"
+        ],
+        "output_config": {}
+      },
+      "qwen": {
+        "provider": "dashscope",
+        "model": "qwen3.5-plus",
+        "key_env": null,
+        "enable_thinking": true,
+        "max_response": 8192,
+        "personas": [
+          "general",
+          "data-integrity",
+          "architecture"
+        ],
+        "output_config": {}
+      },
+      "zai": {
+        "provider": "dashscope",
+        "model": "glm-5",
+        "key_env": null,
+        "enable_thinking": true,
+        "max_response": 16384,
+        "personas": [
+          "general",
+          "performance",
+          "code-review"
+        ],
+        "output_config": {}
+      },
+      "minimax": {
+        "provider": "dashscope",
+        "model": "MiniMax-M2.5",
+        "key_env": null,
+        "enable_thinking": true,
+        "max_response": 16384,
+        "personas": [
+          "general",
+          "performance",
+          "architecture"
+        ],
+        "output_config": {}
+      }
+    },
+    "defaults": {
+      "max_rounds": 5,
+      "parallel": true,
+      "log_dir": ".dev/mcp/runs",
+      "convergence": {
+        "zero_diff": true,
+        "unanimous_approve": true
+      }
+    },
+    "available_agents": [
+      "claude",
+      "kimi",
+      "minimax",
+      "qwen",
+      "zai"
+    ]
+  }
+}
