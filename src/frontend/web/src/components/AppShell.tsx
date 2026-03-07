@@ -1,6 +1,6 @@
 import React from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { CommandPalette } from "@/components/CommandPalette";
+import { CommandPalette, openCommandPalette } from "@/components/CommandPalette";
 import { Icons } from "@/components/Icons";
 
 const NAV_ITEMS = [
@@ -55,7 +55,15 @@ export const AppShell: React.FC = () => {
 
         <div className="flex-1 min-w-0">
           <div className="hidden md:flex items-center justify-end px-4 pt-4">
-            <CommandPalette />
+            <button
+              onClick={() => openCommandPalette()}
+              className="inline-flex items-center gap-2 rounded-2xl border border-border bg-card px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-secondary transition-colors focus-ring"
+              aria-label="Abrir pesquisa rápida"
+            >
+              <Icons.search className="w-4 h-4" />
+              Pesquisa rápida
+              <span className="rounded-md border border-border bg-background px-1.5 py-0.5 text-[11px] text-text-tertiary">⌘K</span>
+            </button>
           </div>
           <Outlet />
         </div>
@@ -63,32 +71,50 @@ export const AppShell: React.FC = () => {
 
       {!hideMobileNav ? (
         <nav className="md:hidden fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 backdrop-blur-xl px-4 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2">
-          <div className="grid grid-cols-2 gap-2">
-            {NAV_ITEMS.map((item) => {
-              const Icon = item.icon;
-              const active =
-                item.to === "/"
-                  ? location.pathname === "/"
-                  : location.pathname.startsWith(item.to);
-              return (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.to === "/"}
-                  className={`min-h-[52px] rounded-2xl border flex items-center justify-center gap-2 text-sm font-medium ${
-                    active
-                      ? "bg-primary/12 border-primary/25 text-primary"
-                      : "bg-card border-border text-text-secondary"
-                  }`}
-                >
-                  <Icon className="w-4 h-4" />
-                  {item.label}
-                </NavLink>
-              );
-            })}
+          <div className="grid grid-cols-3 gap-2">
+            <NavLink
+              to="/"
+              end
+              className={`min-h-[52px] rounded-2xl border flex items-center justify-center gap-2 text-sm font-medium ${
+                location.pathname === "/"
+                  ? "bg-primary/12 border-primary/25 text-primary"
+                  : "bg-card border-border text-text-secondary"
+              }`}
+            >
+              <Icons.home className="w-4 h-4" />
+              Início
+            </NavLink>
+            <button
+              onClick={() => openCommandPalette()}
+              className="min-h-[52px] rounded-2xl border flex items-center justify-center gap-2 text-sm font-medium bg-card border-border text-text-secondary focus-ring"
+            >
+              <Icons.command className="w-4 h-4" />
+              Comando
+            </button>
+            <NavLink
+              to="/search"
+              className={`min-h-[52px] rounded-2xl border flex items-center justify-center gap-2 text-sm font-medium ${
+                location.pathname.startsWith("/search")
+                  ? "bg-primary/12 border-primary/25 text-primary"
+                  : "bg-card border-border text-text-secondary"
+              }`}
+            >
+              <Icons.search className="w-4 h-4" />
+              Buscar
+            </NavLink>
           </div>
         </nav>
-      ) : null}
+      ) : (
+        <button
+          onClick={() => openCommandPalette()}
+          className="md:hidden fixed right-4 bottom-24 z-40 min-h-[52px] min-w-[52px] rounded-2xl border border-border bg-card/95 backdrop-blur-xl text-text-secondary shadow-[var(--shadow-lg)] flex items-center justify-center focus-ring"
+          aria-label="Abrir comando"
+        >
+          <Icons.command className="w-5 h-5" />
+        </button>
+      )}
+
+      <CommandPalette />
     </div>
   );
 };

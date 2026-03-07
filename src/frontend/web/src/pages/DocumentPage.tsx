@@ -12,8 +12,9 @@ import { MobileActionsBar } from "@/components/MobileActionsBar";
 import { ReadingProgress } from "@/components/ReadingProgress";
 import { SkeletonDocument } from "@/components/Skeletons";
 import { getDocument } from "@/lib/api";
-import type { DocumentDetail, NormativeReference } from "@/lib/api";
+import type { DocumentDetail } from "@/lib/api";
 import { addRecentDocument } from "@/lib/history";
+import { assessLegalStatus, buildNormativeTimeline } from "@/lib/legalStatus";
 import { exportDocumentPdf } from "@/lib/pdfExport";
 import { parseSections, type Section } from "@/lib/sectionParser";
 import { generateShareUrl, useDeepLink } from "@/hooks/useDeepLink";
@@ -112,7 +113,7 @@ const DocumentPage: React.FC = () => {
     () => sections.find((section) => section.id === activeSectionId)?.label,
     [activeSectionId, sections]
   );
-  const normativeSummary = useMemo(() => buildNormativeSummary(doc), [doc]);
+  const normativeSummary = useMemo(() => assessLegalStatus(doc), [doc]);
   const normativeTimeline = useMemo(() => buildNormativeTimeline(doc?.normative_refs), [doc?.normative_refs]);
 
   const formatDate = (value: string) => {
@@ -291,9 +292,24 @@ const DocumentPage: React.FC = () => {
                 />
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-foreground">{normativeSummary.label}</p>
-                  <p className="text-xs text-text-secondary mt-1 leading-relaxed">{normativeSummary.detail}</p>
+                  <p className="text-xs text-text-secondary mt-1 leading-relaxed">{normativeSummary.summary}</p>
+                  <p className="text-[11px] text-text-tertiary mt-2 uppercase tracking-[0.12em]">
+                    Confiança {normativeSummary.confidence === "medium" ? "média" : "baixa"}
+                  </p>
                 </div>
               </div>
+
+              {normativeSummary.evidence.length ? (
+                <div className="mt-4 pt-4 border-t border-border space-y-2">
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-text-tertiary">Evidências do modelo</p>
+                  {normativeSummary.evidence.map((item, index) => (
+                    <div key={`${item.kind}-${index}`} className="rounded-lg bg-background/70 border border-border px-3 py-2.5">
+                      <p className="text-xs font-medium text-foreground">{item.label}</p>
+                      {item.detail ? <p className="text-xs text-text-secondary mt-1 line-clamp-3">{item.detail}</p> : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
 
               {doc.procedure_refs?.length ? (
                 <div className="mt-4 pt-4 border-t border-border">
@@ -427,76 +443,6 @@ const DocumentPage: React.FC = () => {
     </div>
   );
 };
-
-function buildNormativeSummary(doc: DocumentDetail | null) {
-  if (!doc) {
-    return {
-      tone: "info" as const,
-      label: "Sem dados normativos",
-      detail: "O documento ainda não carregou referências suficientes para análise.",
-    };
-  }
-
-  const refs = doc.normative_refs || [];
-  const corpus = refs
-    .map((ref) => [ref.reference_type, ref.reference_text, ref.reference_number].filter(Boolean).join(" "))
-    .join(" ")
-    .toLowerCase();
-
-  if (/\brevog/i.test(corpus)) {
-    return {
-      tone: "warn" as const,
-      label: "Ato com sinal de revogação ou substituição",
-      detail:
-        "As referências detectadas incluem linguagem de revogação. Confirme a vigência no texto consolidado ou no ato posterior correspondente.",
-    };
-  }
-
-  if (/\balter|\bretific|\bprorrog|\bcomplement/i.test(corpus)) {
-    return {
-      tone: "warn" as const,
-      label: "Ato com alterações ou complementações detectadas",
-      detail:
-        "Há indícios de nova versão normativa ligada a este documento. Use a linha detectada abaixo para continuar a investigação.",
-    };
-  }
-
-  if (refs.length > 0 || (doc.procedure_refs || []).length > 0) {
-    return {
-      tone: "ok" as const,
-      label: "Ato conectado a outras referências do corpus",
-      detail:
-        "Foram encontradas referências normativas ou procedimentais relacionadas. Isso ajuda a reconstruir contexto, mas não substitui consolidação oficial.",
-    };
-  }
-
-  return {
-    tone: "info" as const,
-    label: "Sem alterações detectadas no corpus",
-    detail:
-      "Nenhuma referência estruturada de alteração, revogação ou procedimento foi detectada para este documento na base atual.",
-  };
-}
-
-function buildNormativeTimeline(refs: NormativeReference[] | undefined) {
-  return (refs || [])
-    .map((ref) => {
-      const date = ref.reference_date ? new Date(ref.reference_date) : null;
-      const isValidDate = Boolean(date && !Number.isNaN(date.getTime()));
-      const label = [ref.reference_type, ref.reference_number].filter(Boolean).join(" ").trim() || "Referência normativa";
-      return {
-        date: isValidDate ? date!.toISOString() : undefined,
-        timestamp: isValidDate ? date!.getTime() : Number.MAX_SAFE_INTEGER,
-        dateLabel: isValidDate
-          ? date!.toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" })
-          : "Sem data",
-        label,
-        detail: ref.reference_text || "",
-      };
-    })
-    .sort((left, right) => left.timestamp - right.timestamp)
-    .slice(0, 6);
-}
 
 const ActionItem: React.FC<{ icon: React.ReactNode; label: string; onClick: () => void }> = ({
   icon,

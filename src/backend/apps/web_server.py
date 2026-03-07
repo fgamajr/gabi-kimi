@@ -121,6 +121,41 @@ def _resolve_local_media_path(local_path: str | None) -> Path | None:
     return candidate
 
 
+def _infer_relation_type(text: str | None, fallback: str | None = None) -> str:
+    corpus = f"{fallback or ''} {text or ''}".lower()
+    if "revog" in corpus:
+        return "revoga"
+    if "alter" in corpus or "retific" in corpus:
+        return "altera"
+    if "prorrog" in corpus:
+        return "prorroga"
+    if "complement" in corpus or "regulament" in corpus:
+        return "complementa"
+    return "cita"
+
+
+def _graph_title_from_search_row(row: dict[str, Any]) -> str:
+    return str(row.get("identifica") or row.get("titulo") or row.get("ementa") or row.get("title") or "Sem título")
+
+
+def _normalize_graph_search_result(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row.get("doc_id") or row.get("id") or ""),
+        "title": _graph_title_from_search_row(row),
+        "snippet": str(row.get("snippet") or row.get("highlight") or "").strip() or None,
+        "pub_date": str(row.get("pub_date") or row.get("publication_date") or ""),
+        "section": str(row.get("edition_section") or row.get("section") or ""),
+        "page": str(row.get("page_number")) if row.get("page_number") is not None else None,
+        "art_type": str(row.get("art_type") or "").strip() or None,
+        "issuing_organ": str(row.get("issuing_organ") or "").strip() or None,
+        "dou_url": (
+            f"https://www.in.gov.br/web/dou/-/{row.get('id_materia')}"
+            if row.get("id_materia")
+            else None
+        ),
+    }
+
+
 # ---------------------------------------------------------------------------
 # API — Search
 # ---------------------------------------------------------------------------
@@ -321,6 +356,149 @@ def api_document(doc_id: str):
         conn.close()
 
     return doc
+
+
+@app.get("/api/document/{doc_id}/graph")
+def api_document_graph(
+    doc_id: str,
+    depth: int = Query(2, ge=1, le=2),
+    per_seed: int = Query(3, ge=1, le=5),
+):
+    """Derived document graph from existing references + search backend."""
+    conn = _conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT d.id, d.identifica, d.titulo, d.ementa, d.issuing_organ, d.page_number,
+                   d.art_type, e.publication_date, e.section
+            FROM dou.document d
+            JOIN dou.edition e ON e.id = d.edition_id
+            WHERE d.id = %s::uuid
+            """,
+            (doc_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Documento não encontrado")
+        cols = [desc[0] for desc in cur.description]
+        doc = {k: _ser(v) for k, v in zip(cols, row)}
+
+        cur.execute(
+            """
+            SELECT reference_type, reference_number, reference_date, reference_text
+            FROM dou.normative_reference
+            WHERE document_id = %s::uuid
+            ORDER BY reference_date NULLS LAST, reference_type, reference_number
+            LIMIT 8
+            """,
+            (doc_id,),
+        )
+        normative_refs = [{k: _ser(v) for k, v in r.items()} for r in _rows(cur)]
+
+        cur.execute(
+            """
+            SELECT procedure_type, procedure_identifier
+            FROM dou.procedure_reference
+            WHERE document_id = %s::uuid
+            LIMIT 6
+            """,
+            (doc_id,),
+        )
+        procedure_refs = [{k: _ser(v) for k, v in r.items()} for r in _rows(cur)]
+        cur.close()
+    finally:
+        conn.close()
+
+    branches: list[dict[str, Any]] = []
+
+    for idx, ref in enumerate(normative_refs[:4]):
+        query = " ".join(
+            part for part in [ref.get("reference_type"), ref.get("reference_number")] if part
+        ).strip() or str(ref.get("reference_text") or "").strip()
+        if not query:
+            continue
+        related_docs: list[dict[str, Any]] = []
+        if depth >= 2:
+            try:
+                result = search_payload(query=query, max_results=per_seed, page=1)
+                related_docs = [
+                    _normalize_graph_search_result(item)
+                    for item in result.get("results", [])
+                    if str(item.get("doc_id") or item.get("id") or "") != doc_id
+                ][:per_seed]
+            except Exception:
+                related_docs = []
+
+        branches.append(
+            {
+                "seed": {
+                    "id": f"normative-{idx}",
+                    "node_type": "reference",
+                    "relation_type": _infer_relation_type(
+                        str(ref.get("reference_text") or ""),
+                        str(ref.get("reference_type") or ""),
+                    ),
+                    "title": " ".join(
+                        part for part in [ref.get("reference_type"), ref.get("reference_number")] if part
+                    ).strip()
+                    or "Referência normativa",
+                    "subtitle": str(ref.get("reference_text") or "").strip() or str(ref.get("reference_date") or "").strip() or None,
+                    "query": query,
+                },
+                "related_documents": related_docs,
+            }
+        )
+
+    for idx, procedure in enumerate(procedure_refs[:3]):
+        query = " ".join(
+            part for part in [procedure.get("procedure_type"), procedure.get("procedure_identifier")] if part
+        ).strip()
+        if not query:
+            continue
+        related_docs: list[dict[str, Any]] = []
+        if depth >= 2:
+            try:
+                result = search_payload(query=query, max_results=per_seed, page=1)
+                related_docs = [
+                    _normalize_graph_search_result(item)
+                    for item in result.get("results", [])
+                    if str(item.get("doc_id") or item.get("id") or "") != doc_id
+                ][:per_seed]
+            except Exception:
+                related_docs = []
+
+        branches.append(
+            {
+                "seed": {
+                    "id": f"procedure-{idx}",
+                    "node_type": "procedure",
+                    "relation_type": str(procedure.get("procedure_type") or "procedimento"),
+                    "title": " · ".join(
+                        part for part in [procedure.get("procedure_type"), procedure.get("procedure_identifier")] if part
+                    )
+                    or "Procedimento relacionado",
+                    "subtitle": "Consulta correlata no corpus",
+                    "query": query,
+                },
+                "related_documents": related_docs,
+            }
+        )
+
+    return {
+        "document": {
+            "id": str(doc.get("id") or doc_id),
+            "title": str(doc.get("identifica") or doc.get("titulo") or doc.get("ementa") or "Sem título"),
+            "pub_date": str(doc.get("publication_date") or ""),
+            "section": str(doc.get("section") or ""),
+            "page": str(doc.get("page_number")) if doc.get("page_number") is not None else None,
+            "art_type": str(doc.get("art_type") or "").strip() or None,
+            "issuing_organ": str(doc.get("issuing_organ") or "").strip() or None,
+        },
+        "depth": depth,
+        "per_seed": per_seed,
+        "branches": branches,
+    }
 
 
 # ---------------------------------------------------------------------------
