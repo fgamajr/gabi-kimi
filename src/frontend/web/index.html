@@ -1,32 +1,19 @@
 <!doctype html>
-<html lang="pt-BR" data-theme="dark">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="description" content="GABI · Busca premium no Diário Oficial da União" />
-  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0b0b10" />
-  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
-  <title>GABI · DOU</title>
-  <script>
-    (function () {
-      try {
-        var stored = localStorage.getItem("gabi-theme");
-        var preferred = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
-        document.documentElement.setAttribute("data-theme", stored || preferred || "dark");
-      } catch (error) {
-        document.documentElement.setAttribute("data-theme", "dark");
-      }
-    })();
-  </script>
-  <link rel="stylesheet" href="/dist/index.css" />
-</head>
-<body>
-  <div id="app-root"></div>
-  <div id="portal-root"></div>
-  <script nomodule>
-    document.getElementById("app-root").innerHTML =
-      '<main style="padding:24px;font-family:system-ui,sans-serif"><h1>Navegador não suportado</h1><p>Atualize para uma versão recente do Chrome, Safari ou Firefox para usar o GABI.</p></main>';
-  </script>
-  <script type="module" src="/dist/main.js"></script>
-</body>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>DOU — Diário Oficial da União</title>
+    <meta name="description" content="Pesquise e consulte publicações históricas do Diário Oficial da União." />
+    <meta name="theme-color" content="#121520" />
+
+    <meta property="og:title" content="DOU — Diário Oficial da União" />
+    <meta property="og:description" content="Busca inteligente em publicações oficiais" />
+    <meta property="og:type" content="website" />
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
 </html>
