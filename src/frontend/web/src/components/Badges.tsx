@@ -8,10 +8,15 @@ interface SectionBadgeProps {
 export const SectionBadge: React.FC<SectionBadgeProps> = ({ section, className = '' }) => {
   const s = section?.toLowerCase().replace(/\s+/g, '') || '';
   let badgeClass = 'section-badge-1';
-  let label = `Seção ${section}`;
+  let label = 'Seção 1';
 
-  if (s.includes('2') || s === 'secao2') badgeClass = 'section-badge-2';
-  else if (s.includes('3') || s === 'secao3') badgeClass = 'section-badge-3';
+  if (s.includes('2') || s === 'secao2') {
+    badgeClass = 'section-badge-2';
+    label = 'Seção 2';
+  } else if (s.includes('3') || s === 'secao3') {
+    badgeClass = 'section-badge-3';
+    label = 'Seção 3';
+  }
   else if (s.includes('extra') || s.includes('e') && s.length <= 2) {
     badgeClass = 'section-badge-e';
     label = 'Extra';

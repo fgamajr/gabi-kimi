@@ -9,6 +9,7 @@ import { AppShell } from "./components/AppShell";
 const HomePage = lazy(() => import("./pages/HomePage"));
 const SearchPage = lazy(() => import("./pages/SearchPage"));
 const DocumentPage = lazy(() => import("./pages/DocumentPage"));
+const AnalyticsPage = lazy(() => import("./pages/AnalyticsPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
@@ -38,6 +39,7 @@ const App = () => (
             <Route element={<AppShell />}>
               <Route path="/" element={<HomePage />} />
               <Route path="/search" element={<SearchPage />} />
+              <Route path="/analytics" element={<AnalyticsPage />} />
               <Route path="/document/:id" element={<DocumentPage />} />
               <Route path="/doc/:id" element={<DocumentPage />} />
             </Route>

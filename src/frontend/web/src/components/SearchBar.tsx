@@ -10,6 +10,7 @@ interface SearchBarProps {
   autoFocus?: boolean;
   compact?: boolean;
   placeholder?: string;
+  showShortcutHint?: boolean;
 }
 
 export const SearchBar: React.FC<SearchBarProps> = ({
@@ -18,6 +19,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   autoFocus = false,
   compact = false,
   placeholder = 'Pesquisar no Diário Oficial...',
+  showShortcutHint = true,
 }) => {
   const [query, setQuery] = useState(defaultValue);
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -26,8 +28,10 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   const [selectedIdx, setSelectedIdx] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
   const navigate = useNavigate();
+  const [panelHeight, setPanelHeight] = useState(0);
 
   useEffect(() => {
     setQuery(defaultValue);
@@ -109,11 +113,32 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   const panelItems = query.trim().length >= 2 ? suggestions : recentSearches;
   const showPanel = showSuggestions && panelItems.length > 0;
 
+  useEffect(() => {
+    if (!showPanel) {
+      setPanelHeight(0);
+      return;
+    }
+
+    const updatePanelHeight = () => {
+      setPanelHeight((panelRef.current?.offsetHeight || 0) + 12);
+    };
+
+    updatePanelHeight();
+    window.addEventListener('resize', updatePanelHeight);
+    return () => window.removeEventListener('resize', updatePanelHeight);
+  }, [panelItems.length, query, recentSearches.length, showPanel, suggestions.length]);
+
   return (
-    <div ref={containerRef} className="relative w-full">
-      <div className={`flex items-center gap-3 rounded-xl bg-card border border-border transition-all focus-within:border-primary focus-within:shadow-[var(--shadow-glow)]
-        ${compact ? 'px-3 py-2' : 'px-4 py-3.5'}`}>
-        <Icons.search className="w-5 h-5 text-muted-foreground shrink-0" />
+    <div
+      ref={containerRef}
+      className="relative z-20 w-full"
+      style={{ paddingBottom: showPanel ? `${panelHeight}px` : undefined }}
+    >
+      <div
+        className={`flex items-center gap-3 rounded-[20px] border bg-[linear-gradient(180deg,rgba(26,28,36,0.94),rgba(18,20,28,0.98))] transition-all focus-within:border-primary/90 focus-within:shadow-[0_0_0_1px_rgba(126,87,255,0.25),0_0_24px_rgba(126,87,255,0.12)]
+        ${compact ? 'px-4 py-3' : 'px-5 py-4'}`}
+      >
+        <Icons.search className="h-5 w-5 shrink-0 text-muted-foreground" />
         <input
           ref={inputRef}
           type="text"
@@ -128,29 +153,35 @@ export const SearchBar: React.FC<SearchBarProps> = ({
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           autoFocus={autoFocus}
-          className="flex-1 bg-transparent outline-none text-foreground placeholder:text-muted-foreground text-base"
+          className={`flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground ${compact ? 'text-[15px]' : 'text-lg'}`}
           role="combobox"
           aria-expanded={showSuggestions}
           aria-autocomplete="list"
           aria-controls="search-suggestions"
         />
-        {query && (
+
+        {query ? (
           <button
             onClick={() => { setQuery(''); setSuggestions([]); inputRef.current?.focus(); }}
-            className="p-1 rounded-md hover:bg-muted transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+            className="flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border border-border bg-white/[0.03] transition-colors hover:bg-white/[0.06]"
             aria-label="Limpar pesquisa"
           >
             <Icons.close className="w-4 h-4 text-muted-foreground" />
           </button>
-        )}
+        ) : showShortcutHint ? (
+          <span className="hidden rounded-md border border-white/8 bg-white/[0.04] px-2 py-1 text-[11px] text-text-tertiary md:inline-flex">
+            ⌘K
+          </span>
+        ) : null}
       </div>
 
       {showPanel && (
         <div
           id="search-suggestions"
-          className="absolute z-50 top-full mt-2 w-full rounded-xl bg-popover border border-border shadow-[var(--shadow-lg)] overflow-hidden"
+          ref={panelRef}
+          className="absolute z-50 top-full mt-3 w-full overflow-hidden rounded-[20px] border border-white/8 bg-[#141821] shadow-[var(--shadow-lg)]"
         >
-          <div className="px-4 py-2.5 border-b border-border text-[11px] uppercase tracking-[0.16em] text-text-tertiary">
+          <div className="border-b border-white/6 px-4 py-2.5 text-[11px] uppercase tracking-[0.16em] text-text-tertiary">
             {query.trim().length >= 2 ? 'Sugestões' : 'Pesquisas recentes'}
           </div>
           <ul role="listbox">
@@ -159,8 +190,8 @@ export const SearchBar: React.FC<SearchBarProps> = ({
                 key={`${item}-${i}`}
                 role="option"
                 aria-selected={i === selectedIdx}
-                className={`px-4 py-3 text-sm cursor-pointer transition-colors flex items-center gap-3 min-h-[44px]
-                ${i === selectedIdx ? 'bg-muted text-foreground' : 'text-secondary-foreground hover:bg-muted/50'}`}
+                className={`flex min-h-[48px] cursor-pointer items-center gap-3 px-4 py-3 text-sm transition-colors
+                ${i === selectedIdx ? 'bg-white/[0.05] text-foreground' : 'text-secondary-foreground hover:bg-white/[0.04]'}`}
                 onMouseDown={() => {
                   setQuery(item);
                   submit(item);

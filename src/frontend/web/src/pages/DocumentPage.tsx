@@ -14,7 +14,6 @@ import { SkeletonDocument } from "@/components/Skeletons";
 import { getDocument } from "@/lib/api";
 import type { DocumentDetail } from "@/lib/api";
 import { addRecentDocument } from "@/lib/history";
-import { assessLegalStatus, buildNormativeTimeline } from "@/lib/legalStatus";
 import { exportDocumentPdf } from "@/lib/pdfExport";
 import { parseSections, type Section } from "@/lib/sectionParser";
 import { generateShareUrl, useDeepLink } from "@/hooks/useDeepLink";
@@ -26,7 +25,6 @@ const DocumentPage: React.FC = () => {
   const [doc, setDoc] = useState<DocumentDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const [showActions, setShowActions] = useState(false);
   const [showToc, setShowToc] = useState(false);
   const [sections, setSections] = useState<Section[]>([]);
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
@@ -113,8 +111,6 @@ const DocumentPage: React.FC = () => {
     () => sections.find((section) => section.id === activeSectionId)?.label,
     [activeSectionId, sections]
   );
-  const normativeSummary = useMemo(() => assessLegalStatus(doc), [doc]);
-  const normativeTimeline = useMemo(() => buildNormativeTimeline(doc?.normative_refs), [doc?.normative_refs]);
 
   const formatDate = (value: string) => {
     try {
@@ -128,6 +124,27 @@ const DocumentPage: React.FC = () => {
       return value;
     }
   };
+
+  const activityItems = useMemo(
+    () => [
+      {
+        label: "Publicação no DOU",
+        detail: formatDate(doc?.pub_date || ""),
+        meta: doc?.pub_date || "",
+      },
+      {
+        label: "Indexação GABI",
+        detail: "Disponível para busca e navegação contextual.",
+        meta: doc?.pub_date || "",
+      },
+      {
+        label: "Consulta",
+        detail: "Agora",
+        meta: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+      },
+    ],
+    [doc?.pub_date]
+  );
 
   const handleSectionSelect = (section: Section) => {
     setShowToc(false);
@@ -146,24 +163,7 @@ const DocumentPage: React.FC = () => {
       }
     } catch {
       toast("Não foi possível compartilhar agora.");
-    } finally {
-      setShowActions(false);
     }
-  };
-
-  const handleCopyReference = async () => {
-    if (!doc) return;
-    const reference = [
-      doc.title,
-      doc.section ? `DOU ${doc.section.toUpperCase()}` : null,
-      doc.pub_date ? new Date(doc.pub_date).toLocaleDateString("pt-BR") : null,
-      doc.page ? `p. ${doc.page}` : null,
-    ]
-      .filter(Boolean)
-      .join(" · ");
-    await navigator.clipboard.writeText(reference);
-    toast("Referência copiada");
-    setShowActions(false);
   };
 
   const handlePdf = async () => {
@@ -178,8 +178,6 @@ const DocumentPage: React.FC = () => {
     } catch {
       window.print();
       toast("Abrindo impressão", { description: "Use Salvar como PDF no navegador se necessário." });
-    } finally {
-      setShowActions(false);
     }
   };
 
@@ -204,161 +202,79 @@ const DocumentPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-background pb-24 md:pb-0">
-      <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-xl border-b border-border">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+      <header className="sticky top-0 z-40 border-b border-white/6 bg-background/85 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-[1180px] items-center justify-between px-6 py-4 md:px-10">
           <button
             onClick={() => navigate(-1)}
-            className="p-2 rounded-lg hover:bg-muted transition-colors focus-ring min-w-[44px] min-h-[44px] flex items-center justify-center"
+            className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-foreground transition-colors hover:bg-white/[0.04] focus-ring"
             aria-label="Voltar"
           >
             <Icons.back className="w-5 h-5" />
           </button>
-          <div className="hidden md:flex items-center gap-3 text-sm text-text-secondary">
+          <div className="hidden items-center gap-3 text-sm text-text-secondary md:flex">
             <SectionBadge section={doc.section} />
             <span>{doc.page ? `Página ${doc.page}` : "Documento"}</span>
           </div>
-          <button
-            onClick={() => setShowActions(true)}
-            className="p-2 rounded-lg hover:bg-muted transition-colors focus-ring min-w-[44px] min-h-[44px] flex items-center justify-center"
-            aria-label="Ações"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-              <circle cx="12" cy="5" r="2" />
-              <circle cx="12" cy="12" r="2" />
-              <circle cx="12" cy="19" r="2" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={handleShare}
+              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-text-secondary transition-colors hover:bg-white/[0.04] hover:text-foreground focus-ring"
+              aria-label="Compartilhar"
+            >
+              <Icons.share className="h-5 w-5" />
+            </button>
+            <button
+              onClick={handlePdf}
+              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-text-secondary transition-colors hover:bg-white/[0.04] hover:text-foreground focus-ring"
+              aria-label="Baixar ou imprimir"
+            >
+              <Icons.download className="h-5 w-5" />
+            </button>
+          </div>
         </div>
       </header>
 
       <ReadingProgress progress={scrollPercent} activeLabel={activeSectionLabel} />
 
-      <div className="max-w-6xl mx-auto px-4 py-6 md:py-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_18rem]">
+      <div className="mx-auto grid max-w-[1180px] gap-10 px-6 py-8 md:px-10 lg:grid-cols-[minmax(0,1fr)_16rem]">
         <div className="min-w-0">
-          <div className="border-b border-border pb-6 mb-6 animate-fade-in">
-            <div className="inline-flex items-center gap-2 text-xs tracking-[0.2em] uppercase text-text-tertiary font-medium mb-5">
-              <div className="w-6 h-px bg-border" />
+          <section className="animate-fade-in border-b border-white/6 pb-8">
+            <div className="mb-5 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.2em] text-text-tertiary">
+              <div className="h-px w-6 bg-white/10" />
               Diário Oficial da União
-              <div className="w-6 h-px bg-border" />
+              <div className="h-px w-6 bg-white/10" />
             </div>
 
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm mb-4">
+            <div className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
               <SectionBadge section={doc.section} />
               <span className="text-text-secondary">{formatDate(doc.pub_date)}</span>
               {doc.page ? <span className="text-text-tertiary">Página {doc.page}</span> : null}
               {doc.edition ? <span className="text-text-tertiary">Ed. {doc.edition}</span> : null}
             </div>
 
-            {doc.art_type_name ? (
-              <p className="text-xs uppercase tracking-[0.16em] text-text-accent font-semibold mb-3">
-                {doc.art_type_name}
-              </p>
-            ) : null}
-
-            <h1 className="text-2xl md:text-4xl font-semibold text-foreground leading-tight">
+            <h1 className="max-w-4xl text-3xl font-semibold leading-tight text-foreground md:text-5xl">
               {doc.title}
             </h1>
 
             {doc.identifica && doc.identifica !== doc.title ? (
-              <p className="text-base text-text-secondary mt-3 italic">{doc.identifica}</p>
+              <p className="mt-4 text-lg italic text-text-secondary">{doc.identifica}</p>
             ) : null}
 
             {doc.issuing_organ ? (
-              <p className="text-sm text-text-tertiary mt-4 flex items-center gap-1.5">
+              <p className="mt-5 flex items-center gap-2 text-base text-text-tertiary">
                 <Icons.building className="w-3.5 h-3.5" />
                 {doc.issuing_organ}
               </p>
             ) : null}
 
             {doc.ementa ? (
-              <blockquote className="mt-5 border-l-2 border-primary/40 pl-4 text-sm text-text-secondary italic leading-relaxed">
+              <blockquote className="mt-6 max-w-3xl border-l-2 border-primary/50 pl-5 text-lg italic leading-relaxed text-text-secondary">
                 {doc.ementa}
               </blockquote>
             ) : null}
-          </div>
-
-          <section className="grid gap-4 md:grid-cols-2 mb-6 animate-fade-in" style={{ animationDelay: "40ms" }}>
-            <div className="rounded-2xl border border-border bg-card px-4 py-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-text-tertiary mb-3">Situação normativa</p>
-              <div className="flex items-start gap-3">
-                <span
-                  className={`mt-1 inline-flex h-2.5 w-2.5 rounded-full ${
-                    normativeSummary.tone === "ok"
-                      ? "bg-emerald-400"
-                      : normativeSummary.tone === "warn"
-                        ? "bg-amber-400"
-                        : "bg-sky-400"
-                  }`}
-                />
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-foreground">{normativeSummary.label}</p>
-                  <p className="text-xs text-text-secondary mt-1 leading-relaxed">{normativeSummary.summary}</p>
-                  <p className="text-[11px] text-text-tertiary mt-2 uppercase tracking-[0.12em]">
-                    Confiança {normativeSummary.confidence === "medium" ? "média" : "baixa"}
-                  </p>
-                </div>
-              </div>
-
-              {normativeSummary.evidence.length ? (
-                <div className="mt-4 pt-4 border-t border-border space-y-2">
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-text-tertiary">Evidências do modelo</p>
-                  {normativeSummary.evidence.map((item, index) => (
-                    <div key={`${item.kind}-${index}`} className="rounded-lg bg-background/70 border border-border px-3 py-2.5">
-                      <p className="text-xs font-medium text-foreground">{item.label}</p>
-                      {item.detail ? <p className="text-xs text-text-secondary mt-1 line-clamp-3">{item.detail}</p> : null}
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-
-              {doc.procedure_refs?.length ? (
-                <div className="mt-4 pt-4 border-t border-border">
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-text-tertiary mb-2">Procedimentos detectados</p>
-                  <div className="flex flex-wrap gap-2">
-                    {doc.procedure_refs.slice(0, 4).map((procedure, index) => (
-                      <span
-                        key={`${procedure.procedure_type || "proc"}-${procedure.procedure_identifier || index}`}
-                        className="inline-flex items-center rounded-full border border-border bg-background/70 px-2.5 py-1 text-xs text-text-secondary"
-                      >
-                        {[procedure.procedure_type, procedure.procedure_identifier].filter(Boolean).join(" · ")}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-
-            <div className="rounded-2xl border border-border bg-card px-4 py-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-text-tertiary mb-3">Linha normativa detectada</p>
-              {normativeTimeline.length ? (
-                <ol className="space-y-3">
-                  {normativeTimeline.map((item, index) => (
-                    <li key={`${item.date || "sem-data"}-${item.label}-${index}`} className="flex gap-3">
-                      <div className="flex flex-col items-center pt-0.5">
-                        <span className="h-2.5 w-2.5 rounded-full bg-primary/80" />
-                        {index < normativeTimeline.length - 1 ? <span className="mt-1 w-px flex-1 bg-border" /> : null}
-                      </div>
-                      <div className="min-w-0 pb-1">
-                        <p className="text-xs text-text-tertiary">{item.dateLabel}</p>
-                        <p className="text-sm text-foreground font-medium">{item.label}</p>
-                        {item.detail ? <p className="text-xs text-text-secondary mt-1 leading-relaxed">{item.detail}</p> : null}
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-              ) : (
-                <p className="text-xs text-text-secondary leading-relaxed">
-                  Nenhuma cadeia de alteração foi detectada neste corpus. Isso não confirma vigência final; apenas indica ausência de referências estruturadas associadas ao documento.
-                </p>
-              )}
-            </div>
           </section>
 
-          <section className="mb-6 animate-fade-in" style={{ animationDelay: "60ms" }}>
-            <DocumentGraph document={doc} />
-          </section>
-
-          <main ref={contentRef} className="animate-fade-in" style={{ animationDelay: "80ms" }}>
+          <main ref={contentRef} className="animate-fade-in pt-8" style={{ animationDelay: "60ms" }}>
             <DocumentBody doc={doc} />
 
             {trailingMedia.map((media, index) => (
@@ -373,18 +289,18 @@ const DocumentPage: React.FC = () => {
             ))}
 
             {doc.assinatura ? (
-              <div className="mt-8 pt-6 border-t border-border text-center">
-                <p className="text-sm text-text-secondary whitespace-pre-line">{doc.assinatura}</p>
+              <div className="mt-12 border-t border-white/6 pt-10 text-center">
+                <p className="whitespace-pre-line text-2xl text-text-secondary">{doc.assinatura}</p>
               </div>
             ) : null}
 
             {doc.dou_url ? (
-              <div className="mt-8 pt-6 border-t border-border">
+              <div className="mt-10 border-t border-white/6 pt-6">
                 <a
                   href={doc.dou_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 text-sm text-text-accent hover:underline min-h-[44px]"
+                  className="inline-flex min-h-[44px] items-center gap-2 text-sm text-text-accent hover:underline"
                 >
                   <Icons.externalLink className="w-4 h-4" />
                   Ver no Diário Oficial
@@ -392,42 +308,41 @@ const DocumentPage: React.FC = () => {
               </div>
             ) : null}
           </main>
+
+          <section className="mt-12 grid gap-8 border-t border-white/6 pt-8 lg:grid-cols-[0.9fr_1.1fr]">
+            <div>
+              <p className="mb-5 text-xs font-semibold uppercase tracking-[0.18em] text-text-tertiary">
+                Rastro editorial
+              </p>
+              <ol className="space-y-5">
+                {activityItems.map((item, index) => (
+                  <li key={`${item.label}-${index}`} className="flex gap-4">
+                    <div className="flex flex-col items-center">
+                      <span className="mt-1 h-3 w-3 rounded-full bg-primary" />
+                      {index < activityItems.length - 1 ? <span className="mt-1 h-full w-px bg-white/8" /> : null}
+                    </div>
+                    <div>
+                      <p className="text-lg text-foreground">{item.label}</p>
+                      <p className="mt-1 text-sm text-text-secondary">{item.detail}</p>
+                      <p className="text-sm text-text-tertiary">{item.meta}</p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </div>
+
+            <div>
+              <DocumentGraph document={doc} />
+            </div>
+          </section>
         </div>
 
         <aside className="hidden lg:block">
-          <div className="sticky top-[112px]">
+          <div className="sticky top-[104px]">
             <DocumentTOC sections={sections} activeSectionId={activeSectionId} onSelect={handleSectionSelect} />
           </div>
         </aside>
       </div>
-
-      <BottomSheet open={showActions} onClose={() => setShowActions(false)} title="Ações">
-        <div className="space-y-1 mt-2">
-          <ActionItem icon={<Icons.share className="w-5 h-5" />} label="Compartilhar posição atual" onClick={handleShare} />
-          <ActionItem icon={<Icons.document className="w-5 h-5" />} label="Exportar PDF" onClick={handlePdf} />
-          <ActionItem icon={<Icons.book className="w-5 h-5" />} label="Copiar referência" onClick={handleCopyReference} />
-          {sections.length ? (
-            <ActionItem
-              icon={<Icons.chevronRight className="w-5 h-5" />}
-              label="Abrir índice"
-              onClick={() => {
-                setShowActions(false);
-                setShowToc(true);
-              }}
-            />
-          ) : null}
-          {doc.dou_url ? (
-            <ActionItem
-              icon={<Icons.externalLink className="w-5 h-5" />}
-              label="Abrir no DOU"
-              onClick={() => {
-                window.open(doc.dou_url, "_blank");
-                setShowActions(false);
-              }}
-            />
-          ) : null}
-        </div>
-      </BottomSheet>
 
       <BottomSheet open={showToc} onClose={() => setShowToc(false)} title="Índice do documento">
         <DocumentTOC sections={sections} activeSectionId={activeSectionId} onSelect={handleSectionSelect} />
@@ -443,19 +358,5 @@ const DocumentPage: React.FC = () => {
     </div>
   );
 };
-
-const ActionItem: React.FC<{ icon: React.ReactNode; label: string; onClick: () => void }> = ({
-  icon,
-  label,
-  onClick,
-}) => (
-  <button
-    onClick={onClick}
-    className="w-full flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-muted transition-colors text-foreground text-sm press-effect focus-ring min-h-[44px]"
-  >
-    <span className="text-text-secondary">{icon}</span>
-    {label}
-  </button>
-);
 
 export default DocumentPage;
