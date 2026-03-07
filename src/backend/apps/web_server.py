@@ -18,10 +18,13 @@ from __future__ import annotations
 
 import os
 import json
+from io import BytesIO
+from html import escape
 from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
 from typing import Any
+import re
 
 import httpx
 import psycopg2
@@ -121,6 +124,79 @@ def _resolve_local_media_path(local_path: str | None) -> Path | None:
     return candidate
 
 
+def _load_document_payload(doc_id: str) -> dict[str, Any]:
+    conn = _conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT d.id, d.id_materia, d.art_type, d.art_type_raw,
+                   d.art_category, d.identifica, d.ementa, d.titulo,
+                   d.sub_titulo, d.body_plain, d.body_html,
+                   d.document_number, d.document_year, d.issuing_organ,
+                   d.page_number,
+                   COALESCE(array_length(regexp_split_to_array(trim(d.body_plain), E'\\s+'), 1), 0) AS body_word_count,
+                   e.publication_date, e.edition_number, e.section, e.is_extra
+            FROM dou.document d
+            JOIN dou.edition e ON e.id = d.edition_id
+            WHERE d.id = %s::uuid
+        """, (doc_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Documento não encontrado")
+        cols = [desc[0] for desc in cur.description]
+        doc = {k: _ser(v) for k, v in zip(cols, row)}
+
+        cur.execute("""
+            SELECT reference_type, reference_number, reference_date, reference_text
+            FROM dou.normative_reference WHERE document_id = %s::uuid
+            ORDER BY reference_type, reference_number
+        """, (doc_id,))
+        doc["normative_refs"] = [{k: _ser(v) for k, v in r.items()} for r in _rows(cur)]
+
+        cur.execute("""
+            SELECT procedure_type, procedure_identifier
+            FROM dou.procedure_reference WHERE document_id = %s::uuid
+        """, (doc_id,))
+        doc["procedure_refs"] = [{k: _ser(v) for k, v in r.items()} for r in _rows(cur)]
+
+        cur.execute("""
+            SELECT person_name, role_title
+            FROM dou.document_signature WHERE document_id = %s::uuid
+            ORDER BY sequence_in_document
+        """, (doc_id,))
+        doc["signatures"] = [{k: _ser(v) for k, v in r.items()} for r in _rows(cur)]
+
+        cur.execute("""
+            SELECT media_name, media_type, file_extension, size_bytes,
+                   source_filename, external_url, original_url,
+                   availability_status, alt_text, context_hint, fallback_text,
+                   local_path, width_px, height_px, ingest_checked_at, retry_count,
+                   (data IS NOT NULL) AS has_binary,
+                   sequence_in_document
+            FROM dou.document_media WHERE document_id = %s::uuid
+            ORDER BY sequence_in_document
+        """, (doc_id,))
+        media_rows = [{k: _ser(v) for k, v in r.items()} for r in _rows(cur)]
+        for item in media_rows:
+            media_name = str(item.get("media_name", "")).strip()
+            effective_status = item.get("availability_status") or "unknown"
+            if effective_status == "available" and not item.get("has_binary") and not item.get("local_path"):
+                effective_status = "unknown"
+            item["position_in_doc"] = item.get("sequence_in_document")
+            item["status"] = effective_status
+            item["blob_url"] = (
+                f"/api/media/{doc_id}/{media_name}"
+                if media_name and effective_status == "available"
+                else None
+            )
+        doc["media"] = media_rows
+        doc["images"] = media_rows
+        cur.close()
+        return doc
+    finally:
+        conn.close()
+
+
 def _infer_relation_type(text: str | None, fallback: str | None = None) -> str:
     corpus = f"{fallback or ''} {text or ''}".lower()
     if "revog" in corpus:
@@ -154,6 +230,37 @@ def _normalize_graph_search_result(row: dict[str, Any]) -> dict[str, Any]:
             else None
         ),
     }
+
+
+def _collapse_text(value: str) -> str:
+    return " ".join((value or "").replace("\xa0", " ").split())
+
+
+def _repair_pdf_text(value: str) -> str:
+    text = _collapse_text(value or "")
+    if not text:
+        return ""
+
+    replacements = {
+        "GrÆfico": "Gráfico",
+        "Gráfico": "Gráfico",
+        "˝ndice": "Índice",
+        "■ndice": "Índice",
+        "freq�Œncia": "freqüência",
+        "freq■Œncia": "freqüência",
+        "�bitos": "óbitos",
+        "■bitos": "óbitos",
+        "p�lo": "pólo",
+        "p■lo": "pólo",
+        "� composto": "é composto",
+        "■ composto": "é composto",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+
+    # Repair OCR-style line-break hyphenation while preserving spaced hyphens.
+    text = re.sub(r"(?<=\w)-\s+(?=[a-záàâãéêíóôõúüç])", "", text)
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -271,91 +378,387 @@ def api_search_examples(n: int = Query(8, ge=1, le=20)):
 @app.get("/api/document/{doc_id}")
 def api_document(doc_id: str):
     """Get full document by UUID."""
-    conn = _conn()
-    try:
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT d.id, d.id_materia, d.art_type, d.art_type_raw,
-                   d.art_category, d.identifica, d.ementa, d.titulo,
-                   d.sub_titulo, d.body_plain, d.body_html,
-                   d.document_number, d.document_year, d.issuing_organ,
-                   d.page_number,
-                   COALESCE(array_length(regexp_split_to_array(trim(d.body_plain), E'\\s+'), 1), 0) AS body_word_count,
-                   e.publication_date, e.edition_number, e.section, e.is_extra
-            FROM dou.document d
-            JOIN dou.edition e ON e.id = d.edition_id
-            WHERE d.id = %s::uuid
-        """, (doc_id,))
-        row = cur.fetchone()
-        if not row:
-            raise HTTPException(404, "Documento não encontrado")
-        cols = [desc[0] for desc in cur.description]
-        doc = {k: _ser(v) for k, v in zip(cols, row)}
+    return _load_document_payload(doc_id)
 
-        # Normative references
-        cur.execute("""
-            SELECT reference_type, reference_number, reference_date, reference_text
-            FROM dou.normative_reference WHERE document_id = %s::uuid
-            ORDER BY reference_type, reference_number
-        """, (doc_id,))
-        doc["normative_refs"] = [
-            {k: _ser(v) for k, v in r.items()}
-            for r in _rows(cur)
-        ]
 
-        # Procedure references
-        cur.execute("""
-            SELECT procedure_type, procedure_identifier
-            FROM dou.procedure_reference WHERE document_id = %s::uuid
-        """, (doc_id,))
-        doc["procedure_refs"] = [
-            {k: _ser(v) for k, v in r.items()}
-            for r in _rows(cur)
-        ]
+@app.get("/api/document/{doc_id}/pdf")
+def api_document_pdf(doc_id: str):
+    """Generate a server-side PDF rendition with editorial/two-column layout."""
+    doc = _load_document_payload(doc_id)
 
-        # Signatures
-        cur.execute("""
-            SELECT person_name, role_title
-            FROM dou.document_signature WHERE document_id = %s::uuid
-            ORDER BY sequence_in_document
-        """, (doc_id,))
-        doc["signatures"] = [
-            {k: _ser(v) for k, v in r.items()}
-            for r in _rows(cur)
-        ]
+    from bs4 import BeautifulSoup, Tag
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_JUSTIFY, TA_LEFT
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (
+        BaseDocTemplate,
+        Frame,
+        FrameBreak,
+        NextPageTemplate,
+        PageBreak,
+        PageTemplate,
+        Paragraph,
+        Spacer,
+        Table,
+        TableStyle,
+    )
 
-        # Media list (names only, images served separately)
-        cur.execute("""
-            SELECT media_name, media_type, file_extension, size_bytes,
-                   source_filename, external_url, original_url,
-                   availability_status, alt_text, context_hint, fallback_text,
-                   local_path, width_px, height_px, ingest_checked_at, retry_count,
-                   (data IS NOT NULL) AS has_binary,
-                   sequence_in_document
-            FROM dou.document_media WHERE document_id = %s::uuid
-            ORDER BY sequence_in_document
-        """, (doc_id,))
-        media_rows = [{k: _ser(v) for k, v in r.items()} for r in _rows(cur)]
-        for item in media_rows:
-            media_name = str(item.get("media_name", "")).strip()
-            effective_status = item.get("availability_status") or "unknown"
-            if effective_status == "available" and not item.get("has_binary") and not item.get("local_path"):
-                effective_status = "unknown"
-            item["position_in_doc"] = item.get("sequence_in_document")
-            item["status"] = effective_status
-            item["blob_url"] = (
-                f"/api/media/{doc_id}/{media_name}"
-                if media_name and effective_status == "available"
-                else None
+    buffer = BytesIO()
+    pdf = BaseDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=18 * mm,
+        rightMargin=18 * mm,
+        topMargin=18 * mm,
+        bottomMargin=18 * mm,
+        title=str(doc.get("identifica") or doc.get("titulo") or "Documento DOU"),
+        author="GABI DOU",
+    )
+    page_width, page_height = A4
+    content_width = page_width - pdf.leftMargin - pdf.rightMargin
+    gutter = 10 * mm
+    column_width = (content_width - gutter) / 2
+    first_header_height = 44 * mm
+
+    first_page_frames = [
+        Frame(
+            pdf.leftMargin,
+            page_height - pdf.topMargin - first_header_height,
+            content_width,
+            first_header_height,
+            id="first-header",
+            showBoundary=0,
+            leftPadding=0,
+            rightPadding=0,
+            topPadding=0,
+            bottomPadding=0,
+        ),
+        Frame(
+            pdf.leftMargin,
+            pdf.bottomMargin,
+            column_width,
+            page_height - pdf.bottomMargin - pdf.topMargin - first_header_height - 8 * mm,
+            id="first-left",
+            showBoundary=0,
+            leftPadding=0,
+            rightPadding=6,
+            topPadding=0,
+            bottomPadding=0,
+        ),
+        Frame(
+            pdf.leftMargin + column_width + gutter,
+            pdf.bottomMargin,
+            column_width,
+            page_height - pdf.bottomMargin - pdf.topMargin - first_header_height - 8 * mm,
+            id="first-right",
+            showBoundary=0,
+            leftPadding=6,
+            rightPadding=0,
+            topPadding=0,
+            bottomPadding=0,
+        ),
+    ]
+
+    later_page_frames = [
+        Frame(
+            pdf.leftMargin,
+            pdf.bottomMargin,
+            column_width,
+            page_height - pdf.bottomMargin - pdf.topMargin,
+            id="later-left",
+            showBoundary=0,
+            leftPadding=0,
+            rightPadding=6,
+            topPadding=0,
+            bottomPadding=0,
+        ),
+        Frame(
+            pdf.leftMargin + column_width + gutter,
+            pdf.bottomMargin,
+            column_width,
+            page_height - pdf.bottomMargin - pdf.topMargin,
+            id="later-right",
+            showBoundary=0,
+            leftPadding=6,
+            rightPadding=0,
+            topPadding=0,
+            bottomPadding=0,
+        ),
+    ]
+
+    styles = getSampleStyleSheet()
+    styles.add(
+        ParagraphStyle(
+            name="GabiTitle",
+            parent=styles["Heading1"],
+            fontName="Helvetica-Bold",
+            fontSize=17,
+            leading=20,
+            textColor=colors.HexColor("#111111"),
+            alignment=TA_LEFT,
+            spaceAfter=6,
+        )
+    )
+    styles.add(
+        ParagraphStyle(
+            name="GabiMeta",
+            parent=styles["BodyText"],
+            fontName="Helvetica",
+            fontSize=9,
+            leading=12,
+            textColor=colors.HexColor("#4b5563"),
+            spaceAfter=6,
+        )
+    )
+    styles.add(
+        ParagraphStyle(
+            name="GabiBody",
+            parent=styles["BodyText"],
+            fontName="Helvetica",
+            fontSize=9.2,
+            leading=12.6,
+            textColor=colors.HexColor("#111111"),
+            alignment=TA_JUSTIFY,
+            firstLineIndent=0,
+            spaceAfter=5,
+        )
+    )
+    styles.add(
+        ParagraphStyle(
+            name="GabiSubhead",
+            parent=styles["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=10.2,
+            leading=12.4,
+            textColor=colors.HexColor("#111111"),
+            alignment=TA_LEFT,
+            spaceBefore=6,
+            spaceAfter=6,
+        )
+    )
+    styles.add(
+        ParagraphStyle(
+            name="GabiCentered",
+            parent=styles["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=10,
+            leading=12,
+            textColor=colors.HexColor("#111111"),
+            alignment=1,
+            spaceBefore=4,
+            spaceAfter=6,
+        )
+    )
+    styles.add(
+        ParagraphStyle(
+            name="GabiBullet",
+            parent=styles["BodyText"],
+            fontName="Helvetica",
+            fontSize=9.2,
+            leading=12.4,
+            textColor=colors.HexColor("#111111"),
+            leftIndent=10,
+            firstLineIndent=-6,
+            bulletIndent=0,
+            spaceAfter=4,
+        )
+    )
+    styles.add(
+        ParagraphStyle(
+            name="GabiFallback",
+            parent=styles["BodyText"],
+            fontName="Helvetica-Oblique",
+            fontSize=8.6,
+            leading=11,
+            textColor=colors.HexColor("#4b5563"),
+            alignment=TA_LEFT,
+            leftIndent=6,
+            borderPadding=6,
+            borderWidth=0.6,
+            borderColor=colors.HexColor("#cbd5e1"),
+            backColor=colors.HexColor("#f8fafc"),
+            spaceBefore=4,
+            spaceAfter=6,
+        )
+    )
+
+    story: list[Any] = []
+    story.append(Paragraph("Diário Oficial da União", styles["GabiMeta"]))
+    story.append(Paragraph(escape(str(doc.get("identifica") or doc.get("titulo") or "Documento")), styles["GabiTitle"]))
+
+    meta_line = " · ".join(
+        part for part in [
+            f"Seção {str(doc.get('section') or '').replace('do', '').upper()}" if doc.get("section") else None,
+            str(doc.get("publication_date") or ""),
+            f"Página {doc.get('page_number')}" if doc.get("page_number") is not None else None,
+            str(doc.get("issuing_organ") or "").strip() or None,
+        ] if part
+    )
+    if meta_line:
+        story.append(Paragraph(escape(meta_line), styles["GabiMeta"]))
+
+    if doc.get("ementa"):
+        story.append(Paragraph(escape(_repair_pdf_text(str(doc["ementa"]))), styles["GabiBody"]))
+        story.append(Spacer(1, 4))
+
+    story.append(NextPageTemplate("Later"))
+    story.append(FrameBreak())
+
+    media_by_position = {
+        int(item.get("position_in_doc")): item
+        for item in (doc.get("media") or [])
+        if item.get("position_in_doc") is not None
+    }
+
+    def append_table(tag: Tag) -> None:
+        rows: list[list[str]] = []
+        for tr in tag.find_all("tr"):
+            cols = []
+            cells = tr.find_all(["th", "td"])
+            for cell in cells:
+                cols.append(_repair_pdf_text(cell.get_text(" ", strip=True)))
+            if cols:
+                rows.append(cols)
+        if not rows:
+            return
+        max_cols = max(len(r) for r in rows)
+        normalized_rows = [r + [""] * (max_cols - len(r)) for r in rows]
+        col_width = (content_width - gutter) / max_cols
+        table = Table(normalized_rows, repeatRows=1 if len(normalized_rows) > 1 else 0, colWidths=[col_width] * max_cols)
+        table.setStyle(
+            TableStyle(
+                [
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8),
+                    ("LEADING", (0, 0), (-1, -1), 10),
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eef2f7")),
+                    ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor("#111111")),
+                    ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#cbd5e1")),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ]
             )
-        doc["media"] = media_rows
-        doc["images"] = media_rows
+        )
+        story.append(table)
+        story.append(Spacer(1, 6))
 
-        cur.close()
-    finally:
-        conn.close()
+    def append_missing_media_fallback(tag: Tag) -> bool:
+        img = tag.find("img")
+        if not img:
+            return False
+        seq_raw = img.get("data-image-seq")
+        try:
+            seq = int(seq_raw)
+        except (TypeError, ValueError):
+            seq = None
+        media = media_by_position.get(seq) if seq is not None else None
+        if not media:
+            return False
 
-    return doc
+        context_hint = str(media.get("context_hint") or "").strip().lower()
+        label = "Imagem"
+        if context_hint == "table":
+            label = "Tabela"
+        elif context_hint == "signature":
+            label = "Assinatura"
+        elif context_hint == "emblem":
+            label = "Brasão/Logotipo"
+        elif context_hint == "chart":
+            label = "Gráfico"
+
+        fallback_text = _repair_pdf_text(
+            str(media.get("fallback_text") or f"{label} disponível apenas no documento original")
+        )
+        original_url = str(media.get("original_url") or media.get("external_url") or "").strip()
+        block = f"<b>{escape(label)} indisponível</b><br/>{escape(fallback_text)}"
+        if original_url:
+            block += f"<br/><font size='7'>{escape(original_url)}</font>"
+        story.append(Paragraph(block, styles["GabiFallback"]))
+        return True
+
+    body_html = str(doc.get("body_html") or "").strip()
+    if body_html:
+        soup = BeautifulSoup(body_html, "html.parser")
+        for node in soup.contents:
+            if not isinstance(node, Tag):
+                continue
+            if append_missing_media_fallback(node):
+                continue
+            if node.name == "table":
+                append_table(node)
+                continue
+
+            text = _repair_pdf_text(node.get_text(" ", strip=True))
+            if not text:
+                continue
+
+            classes = set(node.get("class", []))
+            text_html = escape(text)
+
+            if "identifica" in classes:
+                continue
+            if "subtitulo" in classes:
+                story.append(Paragraph(text_html, styles["GabiCentered"]))
+                continue
+            if text.startswith("•"):
+                story.append(Paragraph(escape(text.lstrip("• ").strip()), styles["GabiBullet"], bulletText="•"))
+                continue
+            if len(text) <= 80 and text.upper() == text and any(ch.isalpha() for ch in text):
+                story.append(Paragraph(text_html, styles["GabiSubhead"]))
+                continue
+            if text[:3].lower() in {"a) ", "b) ", "c) "}:
+                story.append(Paragraph(text_html, styles["GabiBullet"]))
+                continue
+            story.append(Paragraph(text_html, styles["GabiBody"]))
+    else:
+        body_plain = str(doc.get("body_plain") or "").strip()
+        paragraphs = [p.strip() for p in body_plain.split("\n\n") if p.strip()]
+        if not paragraphs and body_plain:
+            paragraphs = [body_plain]
+
+        for paragraph in paragraphs:
+            normalized = escape(_repair_pdf_text(paragraph))
+            if not normalized:
+                continue
+            story.append(Paragraph(normalized, styles["GabiBody"]))
+
+    if doc.get("signatures"):
+        story.append(Spacer(1, 8))
+        story.append(Paragraph("Assinaturas", styles["GabiMeta"]))
+        for sig in doc.get("signatures") or []:
+            person = escape(_repair_pdf_text(str(sig.get("person_name") or "").strip()))
+            role = escape(_repair_pdf_text(str(sig.get("role_title") or "").strip()))
+            line = " — ".join([p for p in [person, role] if p])
+            if line:
+                story.append(Paragraph(line, styles["GabiBody"]))
+
+    def draw_footer(canvas, _doc):
+        canvas.saveState()
+        canvas.setFont("Helvetica", 8)
+        canvas.setFillColor(colors.HexColor("#6b7280"))
+        canvas.drawString(pdf.leftMargin, 9 * mm, "GABI · DOU")
+        canvas.drawRightString(page_width - pdf.rightMargin, 9 * mm, f"Página {canvas.getPageNumber()}")
+        canvas.restoreState()
+
+    pdf.addPageTemplates(
+        [
+            PageTemplate(id="First", frames=first_page_frames, onPage=draw_footer),
+            PageTemplate(id="Later", frames=later_page_frames, onPage=draw_footer),
+        ]
+    )
+
+    pdf.build(story)
+    payload = buffer.getvalue()
+    buffer.close()
+
+    filename = f"dou_{doc_id}.pdf"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return Response(content=payload, media_type="application/pdf", headers=headers)
 
 
 @app.get("/api/document/{doc_id}/graph")

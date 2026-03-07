@@ -1,0 +1,336 @@
+--- before
++++ after
+@@ -1,6 +1,327 @@
+-# Blueprint inicial
+-- Base: shadcn/ui + React Bits
+-- Tema dark-first com tokens próprios
+-- Componentes-chave: AppShell, Search Surface, ResultCard, Document Viewer, BottomSheet
+-- Foco em mobile e leitura longa
+-- Motion apenas com propósito
++# GABI DOU — Blueprint de Frontend v2
++
++## 1. Conceito Visual: "Brasília Moderna"
++
++Identidade inspirada no racionalismo brasileiro: espaço generoso, tipografia com
++autoridade, contraste calculado. O dourado do Diário Oficial como acento — não como
++tema. Nada genérico, nada que pareça template SaaS.
++
++---
++
++## 2. Stack Técnica
++
++| Camada | Escolha | Justificativa |
++|---|---|---|
++| Framework | React 18 + Vite 5 | Fast refresh, ESM nativo, tree-shaking agressivo |
++| Primitives UI | shadcn/ui (Radix) | Copia-se o primitivo, descarta-se o estilo |
++| Componentes extras | React Bits (apenas SpringModal, Dock) | Só o que não existe em shadcn |
++| Estilos | Tailwind CSS 4 + CSS custom properties | Tokens como variáveis, utility classes para layout |
++| Estado client | Zustand | Leve, sem boilerplate, devtools integrado |
++| Estado server | TanStack Query v5 | Cache, stale-while-revalidate, retry automático |
++| Motion | Framer Motion 11 | Gestos no BottomSheet, layout animations |
++| Virtualização | react-virtuoso | estimateSize dinâmico para documentos longos |
++| Busca local | FlexSearch | Busca full-text client-side dentro de documento aberto |
++| Testes | Vitest + Testing Library + Playwright | Unit → component → e2e |
++| a11y | @axe-core/react (dev) + jest-axe (CI) | Gate automatizado |
++
++---
++
++## 3. Design Tokens
++
++### 3.1 Paleta — Dark (default)
++
++```css
++:root[data-theme='dark'] {
++  /* Superfícies */
++  --color-bg:          hsl(210 12% 7%);     /* #101214 */
++  --color-surface:     hsl(210 10% 13%);    /* #1c1f23 */
++  --color-elevated:    hsl(210 8% 20%);     /* #2e3238 */
++  --color-overlay:     hsl(210 10% 13% / 0.85);
++
++  /* Texto */
++  --color-on-surface:  hsl(210 15% 92%);    /* #e6e9ed */
++  --color-muted:       hsl(210 8% 55%);     /* #848b94 */
++  --color-subtle:      hsl(210 6% 35%);     /* #525962 */
++
++  /* Acentos — dourado DOU */
++  --color-accent:      hsl(42 87% 55%);     /* #e8b520 */
++  --color-accent-muted:hsl(42 60% 35%);     /* #8f7a23 */
++  --color-accent-on:   hsl(42 90% 10%);     /* texto sobre accent */
++
++  /* Secundário — teal */
++  --color-secondary:   hsl(174 62% 47%);    /* #2db8a4 */
++  --color-secondary-muted: hsl(174 40% 25%);
++
++  /* Semânticos */
++  --color-danger:      hsl(0 72% 56%);
++  --color-success:     hsl(145 60% 42%);
++  --color-info:        hsl(210 70% 55%);
++  --color-border:      hsl(210 8% 22%);
++  --color-focus-ring:  hsl(42 87% 55% / 0.5);
++}
++```
++
++### 3.2 Tipografia
++
++```css
++:root {
++  /* Famílias */
++  --font-display: 'IBM Plex Sans', 'Inter', system-ui, sans-serif;
++  --font-body:    'Literata', 'Source Serif 4', Georgia, serif;
++  --font-mono:    'JetBrains Mono', 'Fira Code', monospace;
++
++  /* Escala fluida (min: mobile 360px, max: desktop 1280px) */
++  --text-xs:   clamp(0.694rem, 0.66rem + 0.17vw, 0.75rem);   /* ~11-12px */
++  --text-sm:   clamp(0.833rem, 0.79rem + 0.22vw, 0.875rem);  /* ~13-14px */
++  --text-base: clamp(1rem, 0.95rem + 0.26vw, 1.063rem);      /* ~16-17px */
++  --text-lg:   clamp(1.125rem, 1.05rem + 0.38vw, 1.25rem);   /* ~18-20px */
++  --text-xl:   clamp(1.35rem, 1.2rem + 0.75vw, 1.625rem);    /* ~22-26px */
++  --text-2xl:  clamp(1.62rem, 1.4rem + 1.1vw, 2.1rem);       /* ~26-34px */
++  --text-3xl:  clamp(1.94rem, 1.6rem + 1.7vw, 2.75rem);      /* ~31-44px */
++
++  /* Line heights */
++  --leading-tight:  1.2;
++  --leading-normal: 1.5;
++  --leading-relaxed:1.7;  /* para leitura longa em serif */
++
++  /* Letter spacing */
++  --tracking-tight:  -0.02em;
++  --tracking-normal:  0;
++  --tracking-wide:    0.04em;
++}
++```
++
++**Estratégia de loading:** Preload woff2 de IBM Plex Sans (400, 600) e
++Literata (400, 400i). `font-display: swap`. Subsets: latin, latin-ext.
++
++### 3.3 Espaçamento (base 4px)
++
++```css
++:root {
++  --space-1:  0.25rem;  /* 4px */
++  --space-2:  0.5rem;   /* 8px */
++  --space-3:  0.75rem;  /* 12px */
++  --space-4:  1rem;     /* 16px */
++  --space-6:  1.5rem;   /* 24px */
++  --space-8:  2rem;     /* 32px */
++  --space-12: 3rem;     /* 48px */
++  --space-16: 4rem;     /* 64px */
++}
++```
++
++### 3.4 Breakpoints (mobile-first)
++
++```
++sm: 480px  |  md: 768px  |  lg: 1024px  |  xl: 1280px
++```
++
++### 3.5 Elevation & Shape
++
++```css
++:root {
++  --radius-sm: 6px;
++  --radius-md: 10px;
++  --radius-lg: 16px;
++  --radius-full: 9999px;
++
++  --shadow-sm:  0 1px 2px hsl(0 0% 0% / 0.3);
++  --shadow-md:  0 4px 12px hsl(0 0% 0% / 0.4);
++  --shadow-lg:  0 8px 30px hsl(0 0% 0% / 0.5);
++  --shadow-sheet: 0 -4px 24px hsl(0 0% 0% / 0.6);
++
++  --z-base:    0;
++  --z-sticky:  100;
++  --z-dropdown:200;
++  --z-modal:   300;
++  --z-sheet:   400;
++  --z-toast:   500;
++  --z-max:     999;
++}
++```
++
++### 3.6 Motion Tokens
++
++```css
++:root {
++  --duration-fast:   120ms;
++  --duration-normal: 200ms;
++  --duration-slow:   350ms;
++  --duration-sheet:  400ms;
++
++  --ease-out:     cubic-bezier(0.16, 1, 0.3, 1);   /* expo out */
++  --ease-in-out:  cubic-bezier(0.45, 0, 0.55, 1);
++  --ease-spring:  /* framer-motion: { type:'spring', stiffness:80, damping:10 } */
++}
++
++@media (prefers-reduced-motion: reduce) {
++  :root {
++    --duration-fast:   0ms;
++    --duration-normal: 0ms;
++    --duration-slow:   0ms;
++    --duration-sheet:  0ms;
++  }
++}
++```
++
++**Regras de motion:**
++- OBRIGATÓRIO: BottomSheet snap, skeleton shimmer (opacity only), page crossfade
++- PROIBIDO: animações decorativas dentro do Document Viewer (prejudica leitura)
++- reduced-motion: tudo vira opacity transition instantânea
++
++---
++
++## 4. Contratos de Componentes
++
++### 4.1 AppShell
++```typescript
++interface AppShellProps {
++  children: ReactNode;
++  sidebar?: ReactNode;          // collapsa para BottomNav em mobile
++  topBar?: ReactNode;
++  className?: string;
++}
++// States: authenticated | loading
++// a11y: <nav>, <main>, <aside> landmarks, skip-to-content link
++```
++
++### 4.2 SearchSurface
++```typescript
++interface SearchSurfaceProps {
++  onSearch: (query: string, filters: SearchFilters) => void;
++  onClear: () => void;
++  isLoading: boolean;
++  recentSearches?: string[];
++  className?: string;
++}
++interface SearchFilters {
++  secao?: 1 | 2 | 3 | 'extra';
++  dateRange?: { from: Date; to: Date };
++  orgao?: string;
++}
++// States: idle | focused | loading | with-results
++// Debounce: 300ms
++// a11y: role="search", aria-live="polite" for result count
++```
++
++### 4.3 ResultCard
++```typescript
++interface ResultCardProps {
++  id: string;
++  title: string;
++  excerpt: string;                // com <mark> para highlight
++  secao: number;
++  publishedAt: Date;
++  orgao: string;
++  matchCount: number;
++  onClick: (id: string) => void;
++  variant?: 'compact' | 'expanded';
++}
++// a11y: role="article", aria-label com título
++```
++
++### 4.4 DocumentViewer
++```typescript
++interface DocumentViewerProps {
++  documentId: string;
++  content: DocumentSection[];     // virtualizado
++  searchQuery?: string;           // highlight matches
++  onNavigate: (sectionId: string) => void;
++  fontSize?: 'sm' | 'md' | 'lg' | 'xl';  // a11y: user-adjustable
++}
++interface DocumentSection {
++  id: string;
++  type: 'artigo' | 'paragrafo' | 'inciso' | 'titulo' | 'ementa';
++  content: string;
++  depth: number;
++}
++// States: loading (skeleton) | ready | error | empty
++// Features: TOC sidebar (collapsible), reading progress bar,
++//           deep-link via URL hash, scroll-to-match
++// a11y: role="article", aria-label dinâmico, font-size control
++// Performance: react-virtuoso, FlexSearch para busca intra-doc
++```
++
++### 4.5 BottomSheet
++```typescript
++interface BottomSheetProps {
++  snapPoints: number[];           // ex: [0.25, 0.5, 0.92]
++  initialSnap?: number;           // index
++  onSnapChange?: (index: number) => void;
++  onDismiss?: () => void;
++  trapFocus?: boolean;            // default: true
++  children: ReactNode;
++  handle?: boolean;               // grab handle visual
++}
++// Gesture: drag with momentum, spring physics
++// a11y: focus trap, Escape to dismiss, aria-modal="true"
++// Implementation: vaul (Radix-based) ou Framer Motion custom
++```
++
++---
++
++## 5. Performance Budget
++
++| Métrica | Target |
++|---|---|
++| JS bundle inicial (gzip) | < 150 KB |
++| LCP (3G throttled) | < 2.5s |
++| CLS | < 0.05 |
++| INP | < 200ms |
++| Lighthouse Performance | ≥ 90 |
++| Lighthouse Accessibility | ≥ 95 |
++
++Documentos > 50 parágrafos: virtualização obrigatória.
++Code-splitting por rota via React.lazy + Suspense.
++Documentos do DOU são imutáveis pós-publicação → staleTime: Infinity no TanStack Query.
++
++---
++
++## 6. Acessibilidade (WCAG 2.1 AA — obrigatório)
++
++- Contraste mínimo: 4.5:1 texto normal, 3:1 texto grande
++- Skip-to-content link em AppShell
++- Focus ring visível (--color-focus-ring)
++- BottomSheet: focus trap ativo, restaurar focus ao fechar
++- Landmarks ARIA: nav, main, aside, search
++- prefers-reduced-motion respeitado em todos os tokens de motion
++- Font-size adjustável no Document Viewer
++- Testes automatizados: @axe-core/react em dev, jest-axe em CI
++- Conformidade com Lei Brasileira de Inclusão (13.146/2015)
++
++---
++
++## 7. Roadmap de Implementação
++
++### Fase 0 — Foundation (Semana 1)
++- [ ] Setup Vite + React 18 + TypeScript strict
++- [ ] Design tokens como CSS custom properties + tokens.ts tipado
++- [ ] Tipografia carregando (preload, font-display: swap)
++- [ ] AppShell responsivo com landmarks
++- [ ] Tema dark funcional, estrutura para light theme futuro
++- [ ] Configuração Vitest + Testing Library + Playwright
++- [ ] Lint: ESLint + eslint-plugin-jsx-a11y
++
++### Fase 1 — Core Read (Semanas 2-3)
++- [ ] DocumentViewer com virtualização (react-virtuoso)
++- [ ] BottomSheet com gesture handling
++- [ ] Skeleton loading para documento
++- [ ] TOC sidebar / colapsável em mobile
++- [ ] Reading progress indicator
++- [ ] Font-size control no viewer
++- [ ] Deep-linking por hash
++
++### Fase 2 — Search (Semanas 4-5)
++- [ ] SearchSurface com debounce 300ms
++- [ ] ResultCard com highlight de matches
++- [ ] Filtros por seção, data, órgão
++- [ ] Empty states e error states
++- [ ] FlexSearch para busca intra-documento
++- [ ] Zustand store para filtros + TanStack Query para resultados
++
++### Fase 3 — Polish & Ship (Semana 6)
++- [ ] Dashboard com cards de métricas
++- [ ] Transições entre rotas (crossfade)
++- [ ] PWA: service worker com Workbox, cache de docs lidos
++- [ ] Lighthouse CI gate no pipeline
++- [ ] Testes e2e dos fluxos críticos (buscar → abrir → navegar)
++- [ ] Auditoria final de a11y com axe-core

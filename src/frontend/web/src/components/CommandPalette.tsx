@@ -14,6 +14,7 @@ import { Icons } from "@/components/Icons";
 import { getRecentDocuments, getRecentSearches } from "@/lib/history";
 import { searchDocuments } from "@/lib/api";
 import type { SearchResult } from "@/lib/api";
+import { navigateToDocument } from "@/lib/navigation";
 
 export const COMMAND_PALETTE_EVENT = "gabi:open-command-palette";
 
@@ -70,6 +71,12 @@ export const CommandPalette: React.FC = () => {
     navigate(href);
   };
 
+  const closeAndOpenDocument = (documentId: string, origin: "command-palette") => {
+    setOpen(false);
+    setQuery("");
+    navigateToDocument(navigate, documentId, origin);
+  };
+
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>
       <CommandInput
@@ -112,7 +119,7 @@ export const CommandPalette: React.FC = () => {
                 <CommandSeparator />
                 <CommandGroup heading="Documentos recentes">
                   {recentDocs.map((doc) => (
-                    <CommandItem key={doc.id} onSelect={() => closeAndNavigate(`/document/${encodeURIComponent(doc.id)}`)}>
+                    <CommandItem key={doc.id} onSelect={() => closeAndOpenDocument(doc.id, "command-palette")}>
                       <Icons.document className="mr-2 h-4 w-4 text-text-tertiary" />
                       <div className="min-w-0 flex-1">
                         <p className="truncate">{doc.title}</p>
@@ -135,7 +142,7 @@ export const CommandPalette: React.FC = () => {
               {results.map((result) => (
                 <CommandItem
                   key={result.id}
-                  onSelect={() => closeAndNavigate(`/document/${encodeURIComponent(result.id)}`)}
+                  onSelect={() => closeAndOpenDocument(result.id, "command-palette")}
                 >
                   <Icons.document className="mr-2 h-4 w-4 text-text-tertiary" />
                   <div className="min-w-0 flex-1">

@@ -1,0 +1,73 @@
+{
+  "agent": "zai",
+  "round": 1,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "critical",
+      "location": "Blueprint geral",
+      "description": "O artifact é um esboço de 5 linhas vagas, não um blueprint técnico. Faltam TODOS os entregáveis solicitados: tokens de design, sistema tipográfico, especificações de motion, contratos de componentes, e roadmap em fases. Isso não é um blueprint — é uma lista de intenções.",
+      "suggested_fix": "Entregar blueprint completo com: (1) Design tokens (cores, espaçamento, sombras, bordas, z-index), (2) Sistema tipográfico com escala modular e fontes específicas, (3) Motion tokens com durações, easings e triggers, (4) Contratos de cada componente com props, estados e variantes, (5) Roadmap em 3-4 fases com entregáveis claros."
+    },
+    {
+      "severity": "high",
+      "location": "Sistema de cores",
+      "description": "Nenhuma definição de paleta. A regra 'evitar roxo padrão' foi citada mas não há proposta alternativa. Dark-first exige escala de cinzas com cuidado de contraste WCAG AA mínimo.",
+      "suggested_fix": "Definir paleta completa: base (neutros quentes/frios), accent (cor primária distintiva), semantic (success/warning/error/info), com valores hex, HSL e uso de CSS custom properties. Incluir contrast ratios verificados."
+    },
+    {
+      "severity": "high",
+      "location": "Tipografia",
+      "description": "Nenhuma especificação tipográfica. 'Evitar tipografia default' sem proporção concreta é vazio. Leitura longa de documentos DOU exige tipografia otimizada para legibilidade.",
+      "suggested_fix": "Definir: família display (títulos), família UI (interface), família reading (documentos longos). Escala modular (ex: 1.25 ou 1.333), line-height por contexto, letter-spacing, font-variation-settings para variable fonts. Considerar fontes como IBM Plex, Source Serif, ou similar com qualidade profissional."
+    },
+    {
+      "severity": "high",
+      "location": "Componentes - Document Viewer",
+      "description": "Componente crítico para leitura de documentos longos sem especificação. Não há menção a: paginação virtual, scroll progress, índice lateral, modo de leitura, ajuste de tamanho de fonte, bookmarks, ou busca in-document.",
+      "suggested_fix": "Especificar Document Viewer com: viewport virtualizado para docs longos, índice navegável (toc), progress indicator, reading mode toggle, font-size controls, bookmark system, highlight/annotation capability, search-within-document."
+    },
+    {
+      "severity": "medium",
+      "location": "Mobile-first strategy",
+      "description": "'Foco em mobile' sem breakpoints definidos, touch targets, gesture patterns, ou considerações de viewport. BottomSheet mencionado sem contrato.",
+      "suggested_fix": "Definir breakpoints (ex: 320/375/428/768/1024/1440), touch targets mínimo 44px, gesture patterns (swipe, pull-to-refresh, long-press), safe areas para notch/home indicator. Especificar BottomSheet com: snap points, drag handle, backdrop, dismiss behavior."
+    },
+    {
+      "severity": "medium",
+      "location": "Performance",
+      "description": "Persona é 'performance' mas não há menção a: code-splitting, lazy loading, virtual scrolling, caching strategy, bundle budgets, ou métricas alvo (LCP, FID, CLS).",
+      "suggested_fix": "Definir: performance budgets (ex: LCP < 2.5s, FID < 100ms, bundle < 150KB initial), estratégia de lazy loading por rota, virtual scrolling para listas longas, service worker para cache offline, skeleton states."
+    },
+    {
+      "severity": "medium",
+      "location": "Acessibilidade",
+      "description": "Requisito de acessibilidade mencionado mas zero especificação técnica. Sem WCAG compliance, screen reader support, ou focus management.",
+      "suggested_fix": "Especificar: WCAG 2.1 AA compliance, focus trap em modais/bottom sheets, skip links, ARIA labels, keyboard navigation patterns, reduced motion preference, high contrast mode support."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "Identidade visual",
+      "description": "Considerar paleta baseada em tons de teal/verde-água com accent em âmbar/laranja queimado — distintiva, profissional, evita roxo genérico, funciona bem em dark mode, e remete a documentos oficiais/governamentais sem ser genérico."
+    },
+    {
+      "type": "improvement",
+      "location": "Search Surface",
+      "description": "Especificar search com: filtros avançados (data, seção DOU, categoria), recent searches, saved searches, autocomplete, search history, e resultados com highlight de termos."
+    },
+    {
+      "type": "improvement",
+      "location": "Motion system",
+      "description": "Definir motion tokens: duration-fast (100-150ms), duration-normal (200-300ms), duration-slow (400-500ms), easing-spring para elementos interativos, easing-out para entradas, easing-in para saídas. Respeitar prefers-reduced-motion."
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 0,
+    "latency_ms": 0,
+    "thinking_tokens": 0
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"zai\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"critical\",\n      \"location\": \"Blueprint geral\",\n      \"description\": \"O artifact é um esboço de 5 linhas vagas, não um blueprint técnico. Faltam TODOS os entregáveis solicitados: tokens de design, sistema tipográfico, especificações de motion, contratos de componentes, e roadmap em fases. Isso não é um blueprint — é uma lista de intenções.\",\n      \"suggested_fix\": \"Entregar blueprint completo com: (1) Design tokens (cores, espaçamento, sombras, bordas, z-index), (2) Sistema tipográfico com escala modular e fontes específicas, (3) Motion tokens com durações, easings e triggers, (4) Contratos de cada componente com props, estados e variantes, (5) Roadmap em 3-4 fases com entregáveis claros.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Sistema de cores\",\n      \"description\": \"Nenhuma definição de paleta. A regra 'evitar roxo padrão' foi citada mas não há proposta alternativa. Dark-first exige escala de cinzas com cuidado de contraste WCAG AA mínimo.\",\n      \"suggested_fix\": \"Definir paleta completa: base (neutros quentes/frios), accent (cor primária distintiva), semantic (success/warning/error/info), com valores hex, HSL e uso de CSS custom properties. Incluir contrast ratios verificados.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Tipografia\",\n      \"description\": \"Nenhuma especificação tipográfica. 'Evitar tipografia default' sem proporção concreta é vazio. Leitura longa de documentos DOU exige tipografia otimizada para legibilidade.\",\n      \"suggested_fix\": \"Definir: família display (títulos), família UI (interface), família reading (documentos longos). Escala modular (ex: 1.25 ou 1.333), line-height por contexto, letter-spacing, font-variation-settings para variable fonts. Considerar fontes como IBM Plex, Source Serif, ou similar com qualidade profissional.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Componentes - Document Viewer\",\n      \"description\": \"Componente crítico para leitura de documentos longos sem especificação. Não há menção a: paginação virtual, scroll progress, índice lateral, modo de leitura, ajuste de tamanho de fonte, bookmarks, ou busca in-document.\",\n      \"suggested_fix\": \"Especificar Document Viewer com: viewport virtualizado para docs longos, índice navegável (toc), progress indicator, reading mode toggle, font-size controls, bookmark system, highlight/annotation capability, search-within-document.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Mobile-first strategy\",\n      \"description\": \"'Foco em mobile' sem breakpoints definidos, touch targets, gesture patterns, ou considerações de viewport. BottomSheet mencionado sem contrato.\",\n      \"suggested_fix\": \"Definir breakpoints (ex: 320/375/428/768/1024/1440), touch targets mínimo 44px, gesture patterns (swipe, pull-to-refresh, long-press), safe areas para notch/home indicator. Especificar BottomSheet com: snap points, drag handle, backdrop, dismiss behavior.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Performance\",\n      \"description\": \"Persona é 'performance' mas não há menção a: code-splitting, lazy loading, virtual scrolling, caching strategy, bundle budgets, ou métricas alvo (LCP, FID, CLS).\",\n      \"suggested_fix\": \"Definir: performance budgets (ex: LCP < 2.5s, FID < 100ms, bundle < 150KB initial), estratégia de lazy loading por rota, virtual scrolling para listas longas, service worker para cache offline, skeleton states.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Acessibilidade\",\n      \"description\": \"Requisito de acessibilidade mencionado mas zero especificação técnica. Sem WCAG compliance, screen reader support, ou focus management.\",\n      \"suggested_fix\": \"Especificar: WCAG 2.1 AA compliance, focus trap em modais/bottom sheets, skip links, ARIA labels, keyboard navigation patterns, reduced motion preference, high contrast mode support.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Identidade visual\",\n      \"description\": \"Considerar paleta baseada em tons de teal/verde-água com accent em âmbar/laranja queimado — distintiva, profissional, evita roxo genérico, funciona bem em dark mode, e remete a documentos oficiais/governamentais sem ser genérico.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Search Surface\",\n      \"description\": \"Especificar search com: filtros avançados (data, seção DOU, categoria), recent searches, saved searches, autocomplete, search history, e resultados com highlight de termos.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Motion system\",\n      \"description\": \"Definir motion tokens: duration-fast (100-150ms), duration-normal (200-300ms), duration-slow (400-500ms), easing-spring para elementos interativos, easing-out para entradas, easing-in para saídas. Respeitar prefers-reduced-motion.\"\n    }\n  ],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 0,\n    \"latency_ms\": 0,\n    \"thinking_tokens\": 0\n  }\n}\n```"
+}

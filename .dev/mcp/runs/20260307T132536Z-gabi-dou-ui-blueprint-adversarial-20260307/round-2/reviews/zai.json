@@ -1,0 +1,93 @@
+{
+  "agent": "zai",
+  "round": 2,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "Seção 3.2 - Tipografia",
+      "description": "Carregamento de 3 famílias de fontes (IBM Plex Sans, Literata, JetBrains Mono) com múltiplos pesos inviabiliza o budget de LCP < 2.5s. O preload de woff2 não garante que as fontes estarão disponíveis no first paint, causando FOIT/FOUT. Não há estratégia de fallback crítico.",
+      "suggested_fix": "Adotar estratégia em duas fases: (1) carregar apenas IBM Plex Sans 400/600 como crítica no primeiro paint; (2) Literata deve ser carregada com font-display: optional para leitura de documentos — não deve bloquear render. Definir subset explícito: 'latin-ext' para português brasileiro (ç, ã, á, é, etc). Considerar Variable Fonts para reduzir payload."
+    },
+    {
+      "severity": "high",
+      "location": "Seção 4.4 - DocumentViewer",
+      "description": "Contrato ignora completamente conteúdo rico do DOU: imagens, tabelas, PDFs embutidos, assinaturas digitais. DocumentSection.type só prevê tipos textuais. DOU publica atos com tabelas complexas e imagens de assinaturas.",
+      "suggested_fix": "Estender DocumentSection para incluir tipos 'imagem', 'tabela', 'assinatura', 'anexo'. Adicionar prop onMediaLoad para lazy-loading de imagens com placeholder. Definir comportamento para PDFs embutidos (inline viewer vs. download)."
+    },
+    {
+      "severity": "high",
+      "location": "Seção 5 - Performance Budget",
+      "description": "Budget de 150KB gzip é irrealista com a stack proposta. React (42KB) + Framer Motion (28KB) + TanStack Query (13KB) + react-virtuoso (9KB) + FlexSearch (8KB) + Zustand (3KB) + shadcn components (~15-20KB) já totaliza ~118-123KB sem código de aplicação. Margem de 27-32KB para toda lógica de negócio é insuficiente.",
+      "suggested_fix": "Reavaliar Framer Motion: usar CSS transitions + WAAPI para 80% das interações, reservar Framer apenas para BottomSheet com gesture. Alternativa: usar 'vaul' (3KB) que já abstrai gestures. Definir code-splitting obrigatório por rota com chunks documentados."
+    },
+    {
+      "severity": "medium",
+      "location": "Seção 3.1 - Paleta",
+      "description": "Estados interativos (hover, active, disabled, focus-visible) não estão definidos para cores accent e secondary. Isso gera inconsistência e acessibilidade comprometida. --color-accent-on com luminosidade 10% é ilegível sobre --color-accent em tamanhos pequenos.",
+      "suggested_fix": "Adicionar tokens: --color-accent-hover, --color-accent-active, --color-accent-disabled. Revisar --color-accent-on para hsl(42 90% 15%) mínimo. Documentar contraste WCAG para cada combinação de texto/fundo nos estados."
+    },
+    {
+      "severity": "medium",
+      "location": "Seção 4.2 - SearchSurface",
+      "description": "Interface SearchSurface tem estado binário isLoading que não representa estados reais: idle, debouncing, searching, success, error, empty. Também falta paginação/scroll infinito — a API do DOU retorna resultados paginados.",
+      "suggested_fix": "Estado deve ser enum: 'idle' | 'debouncing' | 'searching' | 'success' | 'error' | 'empty'. Adicionar props: pagination: { page, pageSize, total }, onLoadMore, hasMore. Definir debouncedQuery como estado derivado para cancelamento de requests em flight."
+    },
+    {
+      "severity": "medium",
+      "location": "Seção 4.5 - BottomSheet",
+      "description": "snapPoints como number[] é ambíguo — pode ser interpretado como percentual, pixels, ou viewport height. Misturar unidades quebra o gesture handling. Falta backdrop/overlay e preventScroll no body.",
+      "suggested_fix": "snapPoints deve aceitar string com unidade: ['25vh', '50vh', '92vh'] ou [200, '50%', '90dvh']. Adicionar props: backdrop (boolean default true), closeOnBackdrop (boolean default true). Documentar uso de document.body.style.overflow = 'hidden' quando sheet está aberto."
+    },
+    {
+      "severity": "medium",
+      "location": "Seção 6 - Acessibilidade",
+      "description": "Declaração de WCAG 2.1 AA é insuficiente sem abordar: (1) navegação por teclado em lista virtualizada; (2) anúncio de resultados dinâmicos em buscas; (3) leitor de tela em DocumentViewer com highlight ativo; (4) suporte a zoom 200% sem quebra de layout.",
+      "suggested_fix": "Adicionar requisitos: (1) roving tabindex para lista virtualizada; (2) aria-live='polite' com count de resultados após busca; (3) role='mark' com aria-label para highlights no documento; (4) testar em 200% zoom e definir breakpoint min-width para cada viewport. Incluir teste manual com NVDA/JAWS."
+    },
+    {
+      "severity": "low",
+      "location": "Seção 7 - Roadmap",
+      "description": "Fase 0 (Semana 1) inclui setup de Vite, tokens, tipografia, AppShell responsivo, testes, lint, e estrutura de tema. Isso é 8-10 tarefas paralelas que dependem umas das outras — inviável em 5 dias úteis.",
+      "suggested_fix": "Dividir Fase 0 em: Fase 0a (2 dias): Vite + TypeScript + tokens + lint. Fase 0b (2 dias): AppShell + tema + landmarks. Fase 0c (1 dia): testes configurados. Adicionar buffer de 20% entre fases para bugs e refinamentos."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "Seção 3.3 - Espaçamento",
+      "description": "Falta --space-5 (1.25rem / 20px) que é comum para gaps entre elementos relacionados em listas e cards. Adicionar também --space-10 (2.5rem / 40px) e --space-20 (5rem / 80px) para separações de seção."
+    },
+    {
+      "type": "improvement",
+      "location": "Seção 4.4 - DocumentViewer",
+      "description": "Adicionar persistência de preferências do usuário: fontSize, activeSection, scrollPosition. Usar localStorage ou Zustand persist middleware. Isso é crítico para UX em documentos longos."
+    },
+    {
+      "type": "improvement",
+      "location": "Seção 2 - Stack Técnica",
+      "description": "Considerar trocar Framer Motion por 'vaul' (3KB) para BottomSheet + CSS transitions para demais animações. Reduz ~25KB do bundle e mantém qualidade de gesture handling. vaul é específico para sheets e já lida com spring physics."
+    },
+    {
+      "type": "improvement",
+      "location": "Seção 3.1 - Paleta",
+      "description": "Adicionar cor --color-accent-subtle para backgrounds de destaque suave (ex: linhas de tabela em hover, badges de categoria). Sugerir: hsl(42 60% 15%) que funciona sobre --color-surface."
+    }
+  ],
+  "diffs": [
+    {
+      "file": "design-tokens.css",
+      "hunks": "@@ -45,6 +45,12 @@\n   --color-accent:      hsl(42 87% 55%);\n   --color-accent-muted:hsl(42 60% 35%);\n   --color-accent-on:   hsl(42 90% 15%);  /* ajustado de 10% para 15% */\n+  --color-accent-hover: hsl(42 87% 60%);\n+  --color-accent-active:hsl(42 87% 45%);\n+  --color-accent-disabled:hsl(42 30% 50%);\n+  --color-accent-subtle: hsl(42 60% 15%);\n \n   --color-secondary:   hsl(174 62% 47%);\n+  --color-secondary-hover: hsl(174 62% 52%);\n+  --color-secondary-active: hsl(174 62% 42%);\n"
+    },
+    {
+      "file": "DocumentViewer.types.ts",
+      "hunks": "@@ -12,6 +12,8 @@\n interface DocumentSection {\n   id: string;\n-  type: 'artigo' | 'paragrafo' | 'inciso' | 'titulo' | 'ementa';\n+  type: 'artigo' | 'paragrafo' | 'inciso' | 'titulo' | 'ementa' | 'imagem' | 'tabela' | 'assinatura' | 'anexo';\n   content: string;\n+  mediaUrl?: string;\n+  mediaAlt?: string;\n   depth: number;\n }\n@@ -22,6 +24,8 @@\n   searchQuery?: string;\n   onNavigate: (sectionId: string) => void;\n   fontSize?: 'sm' | 'md' | 'lg' | 'xl';\n+  preferences?: UserPreferences;\n+  onPreferencesChange?: (prefs: UserPreferences) => void;\n }\n+interface UserPreferences { fontSize: string; activeSection?: string; }\n"
+    }
+  ],
+  "meta": {
+    "tokens_used": 2847,
+    "latency_ms": 0,
+    "thinking_tokens": 0
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"zai\",\n  \"round\": 2,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Seção 3.2 - Tipografia\",\n      \"description\": \"Carregamento de 3 famílias de fontes (IBM Plex Sans, Literata, JetBrains Mono) com múltiplos pesos inviabiliza o budget de LCP < 2.5s. O preload de woff2 não garante que as fontes estarão disponíveis no first paint, causando FOIT/FOUT. Não há estratégia de fallback crítico.\",\n      \"suggested_fix\": \"Adotar estratégia em duas fases: (1) carregar apenas IBM Plex Sans 400/600 como crítica no primeiro paint; (2) Literata deve ser carregada com font-display: optional para leitura de documentos — não deve bloquear render. Definir subset explícito: 'latin-ext' para português brasileiro (ç, ã, á, é, etc). Considerar Variable Fonts para reduzir payload.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Seção 4.4 - DocumentViewer\",\n      \"description\": \"Contrato ignora completamente conteúdo rico do DOU: imagens, tabelas, PDFs embutidos, assinaturas digitais. DocumentSection.type só prevê tipos textuais. DOU publica atos com tabelas complexas e imagens de assinaturas.\",\n      \"suggested_fix\": \"Estender DocumentSection para incluir tipos 'imagem', 'tabela', 'assinatura', 'anexo'. Adicionar prop onMediaLoad para lazy-loading de imagens com placeholder. Definir comportamento para PDFs embutidos (inline viewer vs. download).\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Seção 5 - Performance Budget\",\n      \"description\": \"Budget de 150KB gzip é irrealista com a stack proposta. React (42KB) + Framer Motion (28KB) + TanStack Query (13KB) + react-virtuoso (9KB) + FlexSearch (8KB) + Zustand (3KB) + shadcn components (~15-20KB) já totaliza ~118-123KB sem código de aplicação. Margem de 27-32KB para toda lógica de negócio é insuficiente.\",\n      \"suggested_fix\": \"Reavaliar Framer Motion: usar CSS transitions + WAAPI para 80% das interações, reservar Framer apenas para BottomSheet com gesture. Alternativa: usar 'vaul' (3KB) que já abstrai gestures. Definir code-splitting obrigatório por rota com chunks documentados.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Seção 3.1 - Paleta\",\n      \"description\": \"Estados interativos (hover, active, disabled, focus-visible) não estão definidos para cores accent e secondary. Isso gera inconsistência e acessibilidade comprometida. --color-accent-on com luminosidade 10% é ilegível sobre --color-accent em tamanhos pequenos.\",\n      \"suggested_fix\": \"Adicionar tokens: --color-accent-hover, --color-accent-active, --color-accent-disabled. Revisar --color-accent-on para hsl(42 90% 15%) mínimo. Documentar contraste WCAG para cada combinação de texto/fundo nos estados.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Seção 4.2 - SearchSurface\",\n      \"description\": \"Interface SearchSurface tem estado binário isLoading que não representa estados reais: idle, debouncing, searching, success, error, empty. Também falta paginação/scroll infinito — a API do DOU retorna resultados paginados.\",\n      \"suggested_fix\": \"Estado deve ser enum: 'idle' | 'debouncing' | 'searching' | 'success' | 'error' | 'empty'. Adicionar props: pagination: { page, pageSize, total }, onLoadMore, hasMore. Definir debouncedQuery como estado derivado para cancelamento de requests em flight.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Seção 4.5 - BottomSheet\",\n      \"description\": \"snapPoints como number[] é ambíguo — pode ser interpretado como percentual, pixels, ou viewport height. Misturar unidades quebra o gesture handling. Falta backdrop/overlay e preventScroll no body.\",\n      \"suggested_fix\": \"snapPoints deve aceitar string com unidade: ['25vh', '50vh', '92vh'] ou [200, '50%', '90dvh']. Adicionar props: backdrop (boolean default true), closeOnBackdrop (boolean default true). Documentar uso de document.body.style.overflow = 'hidden' quando sheet está aberto.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Seção 6 - Acessibilidade\",\n      \"description\": \"Declaração de WCAG 2.1 AA é insuficiente sem abordar: (1) navegação por teclado em lista virtualizada; (2) anúncio de resultados dinâmicos em buscas; (3) leitor de tela em DocumentViewer com highlight ativo; (4) suporte a zoom 200% sem quebra de layout.\",\n      \"suggested_fix\": \"Adicionar requisitos: (1) roving tabindex para lista virtualizada; (2) aria-live='polite' com count de resultados após busca; (3) role='mark' com aria-label para highlights no documento; (4) testar em 200% zoom e definir breakpoint min-width para cada viewport. Incluir teste manual com NVDA/JAWS.\"\n    },\n    {\n      \"severity\": \"low\",\n      \"location\": \"Seção 7 - Roadmap\",\n      \"description\": \"Fase 0 (Semana 1) inclui setup de Vite, tokens, tipografia, AppShell responsivo, testes, lint, e estrutura de tema. Isso é 8-10 tarefas paralelas que dependem umas das outras — inviável em 5 dias úteis.\",\n      \"suggested_fix\": \"Dividir Fase 0 em: Fase 0a (2 dias): Vite + TypeScript + tokens + lint. Fase 0b (2 dias): AppShell + tema + landmarks. Fase 0c (1 dia): testes configurados. Adicionar buffer de 20% entre fases para bugs e refinamentos.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Seção 3.3 - Espaçamento\",\n      \"description\": \"Falta --space-5 (1.25rem / 20px) que é comum para gaps entre elementos relacionados em listas e cards. Adicionar também --space-10 (2.5rem / 40px) e --space-20 (5rem / 80px) para separações de seção.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Seção 4.4 - DocumentViewer\",\n      \"description\": \"Adicionar persistência de preferências do usuário: fontSize, activeSection, scrollPosition. Usar localStorage ou Zustand persist middleware. Isso é crítico para UX em documentos longos.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Seção 2 - Stack Técnica\",\n      \"description\": \"Considerar trocar Framer Motion por 'vaul' (3KB) para BottomSheet + CSS transitions para demais animações. Reduz ~25KB do bundle e mantém qualidade de gesture handling. vaul é específico para sheets e já lida com spring physics.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Seção 3.1 - Paleta\",\n      \"description\": \"Adicionar cor --color-accent-subtle para backgrounds de destaque suave (ex: linhas de tabela em hover, badges de categoria). Sugerir: hsl(42 60% 15%) que funciona sobre --color-surface.\"\n    }\n  ],\n  \"diffs\": [\n    {\n      \"file\": \"design-tokens.css\",\n      \"hunks\": \"@@ -45,6 +45,12 @@\\n   --color-accent:      hsl(42 87% 55%);\\n   --color-accent-muted:hsl(42 60% 35%);\\n   --color-accent-on:   hsl(42 90% 15%);  /* ajustado de 10% para 15% */\\n+  --color-accent-hover: hsl(42 87% 60%);\\n+  --color-accent-active:hsl(42 87% 45%);\\n+  --color-accent-disabled:hsl(42 30% 50%);\\n+  --color-accent-subtle: hsl(42 60% 15%);\\n \\n   --color-secondary:   hsl(174 62% 47%);\\n+  --color-secondary-hover: hsl(174 62% 52%);\\n+  --color-secondary-active: hsl(174 62% 42%);\\n\"\n    },\n    {\n      \"file\": \"DocumentViewer.types.ts\",\n      \"hunks\": \"@@ -12,6 +12,8 @@\\n interface DocumentSection {\\n   id: string;\\n-  type: 'artigo' | 'paragrafo' | 'inciso' | 'titulo' | 'ementa';\\n+  type: 'artigo' | 'paragrafo' | 'inciso' | 'titulo' | 'ementa' | 'imagem' | 'tabela' | 'assinatura' | 'anexo';\\n   content: string;\\n+  mediaUrl?: string;\\n+  mediaAlt?: string;\\n   depth: number;\\n }\\n@@ -22,6 +24,8 @@\\n   searchQuery?: string;\\n   onNavigate: (sectionId: string) => void;\\n   fontSize?: 'sm' | 'md' | 'lg' | 'xl';\\n+  preferences?: UserPreferences;\\n+  onPreferencesChange?: (prefs: UserPreferences) => void;\\n }\\n+interface UserPreferences { fontSize: string; activeSection?: string; }\\n\"\n    }\n  ],\n  \"meta\": {\n    \"tokens_used\": 2847,\n    \"latency_ms\": 0,\n    \"thinking_tokens\": 0\n  }\n}\n```"
+}

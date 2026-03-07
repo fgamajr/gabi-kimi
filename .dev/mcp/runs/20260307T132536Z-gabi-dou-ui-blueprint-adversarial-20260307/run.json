@@ -1,0 +1,123 @@
+{
+  "run_id": "20260307T132536Z-gabi-dou-ui-blueprint-adversarial-20260307",
+  "task": "Revise e fortaleça este blueprint de frontend para o GABI DOU com postura adversarial. Contexto obrigatório: React/Vite, mobile-first, dark-first, ferramenta profissional para busca e leitura de documentos longos do DOU com dashboard, search, document viewer e bottom sheets. Objetivo: UX premium, identidade visual distinta, performance e acessibilidade. Regras: evitar visual genérico, evitar paleta roxa padrão, evitar tipografia default comum; definir tokens, tipografia, motion, contratos de componentes, e roadmap de implementação em fases. Entregar em português técnico e acionável.",
+  "artifact_kind": "markdown",
+  "selected_agents": {
+    "orchestrator": "kimi",
+    "reviewers": [
+      "claude",
+      "zai"
+    ],
+    "personas": {
+      "claude": "general",
+      "zai": "performance"
+    },
+    "rationale": [
+      "reviewers overridden by caller",
+      "persona heuristic resolved to 'performance'",
+      "orchestrator overridden by caller"
+    ]
+  },
+  "config": {
+    "config_path": "/home/parallels/dev/gabi-kimi/.dev/mcp/mcp-agents.yaml",
+    "providers": {
+      "dashscope": {
+        "base_url": "https://coding-intl.dashscope.aliyuncs.com/v1",
+        "key_env": "DASHSCOPE_API_KEY",
+        "sdk": "openai-compatible",
+        "streaming": true
+      },
+      "anthropic": {
+        "base_url": "https://api.anthropic.com/v1",
+        "key_env": "ANTHROPIC_API_KEY",
+        "sdk": "anthropic",
+        "streaming": true
+      }
+    },
+    "agents": {
+      "claude": {
+        "provider": "anthropic",
+        "model": "claude-opus-4-6",
+        "key_env": null,
+        "enable_thinking": false,
+        "max_response": 8000,
+        "personas": [
+          "general",
+          "security",
+          "architecture"
+        ],
+        "output_config": {
+          "effort": "high"
+        }
+      },
+      "kimi": {
+        "provider": "dashscope",
+        "model": "kimi-k2.5",
+        "key_env": null,
+        "enable_thinking": true,
+        "max_response": 32768,
+        "personas": [
+          "general",
+          "security",
+          "code-review"
+        ],
+        "output_config": {}
+      },
+      "qwen": {
+        "provider": "dashscope",
+        "model": "qwen3.5-plus",
+        "key_env": null,
+        "enable_thinking": true,
+        "max_response": 8192,
+        "personas": [
+          "general",
+          "data-integrity",
+          "architecture"
+        ],
+        "output_config": {}
+      },
+      "zai": {
+        "provider": "dashscope",
+        "model": "glm-5",
+        "key_env": null,
+        "enable_thinking": true,
+        "max_response": 16384,
+        "personas": [
+          "general",
+          "performance",
+          "code-review"
+        ],
+        "output_config": {}
+      },
+      "minimax": {
+        "provider": "dashscope",
+        "model": "MiniMax-M2.5",
+        "key_env": null,
+        "enable_thinking": true,
+        "max_response": 16384,
+        "personas": [
+          "general",
+          "performance",
+          "architecture"
+        ],
+        "output_config": {}
+      }
+    },
+    "defaults": {
+      "max_rounds": 5,
+      "parallel": true,
+      "log_dir": ".dev/mcp/runs",
+      "convergence": {
+        "zero_diff": true,
+        "unanimous_approve": true
+      }
+    },
+    "available_agents": [
+      "claude",
+      "kimi",
+      "minimax",
+      "qwen",
+      "zai"
+    ]
+  }
+}

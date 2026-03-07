@@ -127,8 +127,8 @@ const ChartCard: React.FC<{
 
 const PublicationVolumeChart: React.FC = () => {
   const maxTotal = Math.max(...publicationData.map((item) => item.do1 + item.do2 + item.do3));
-  const chartBottom = 268;
-  const usableHeight = 208;
+  const chartBottom = 244;
+  const usableHeight = 186;
   const averagePoints = publicationData
     .map((item, index) => {
       const total = item.do1 + item.do2 + item.do3;
@@ -139,57 +139,55 @@ const PublicationVolumeChart: React.FC = () => {
     .join(" ");
 
   return (
-    <svg viewBox="0 0 980 320" className="w-full">
-      <line x1="48" y1="26" x2="48" y2="268" stroke="rgba(255,255,255,0.08)" />
-      <line x1="48" y1="268" x2="940" y2="268" stroke="rgba(255,255,255,0.08)" />
-      <line x1="48" y1="64" x2="940" y2="64" stroke="rgba(255,255,255,0.06)" strokeDasharray="5 7" />
-      <line x1="48" y1="146" x2="940" y2="146" stroke="rgba(255,255,255,0.06)" strokeDasharray="5 7" />
+    <div>
+      <svg viewBox="0 0 980 286" className="w-full">
+        <line x1="48" y1="26" x2="48" y2="244" stroke="rgba(255,255,255,0.08)" />
+        <line x1="48" y1="244" x2="940" y2="244" stroke="rgba(255,255,255,0.08)" />
+        <line x1="48" y1="64" x2="940" y2="64" stroke="rgba(255,255,255,0.06)" strokeDasharray="5 7" />
+        <line x1="48" y1="138" x2="940" y2="138" stroke="rgba(255,255,255,0.06)" strokeDasharray="5 7" />
 
-      {[600, 300, 0].map((label, index) => (
-        <text key={label} x="36" y={index === 0 ? 30 : index === 1 ? 150 : 272} fill="#666d7d" fontSize="11" textAnchor="end">
-          {label}
+        {[600, 300, 0].map((label, index) => (
+          <text key={label} x="36" y={index === 0 ? 30 : index === 1 ? 142 : 248} fill="#666d7d" fontSize="11" textAnchor="end">
+            {label}
+          </text>
+        ))}
+
+        {publicationData.map((item, index) => {
+          const total = item.do1 + item.do2 + item.do3;
+          const x = 72 + index * 76;
+          const barWidth = 42;
+          const do3Height = (item.do3 / maxTotal) * usableHeight;
+          const do2Height = (item.do2 / maxTotal) * usableHeight;
+          const do1Height = (item.do1 / maxTotal) * usableHeight;
+          const totalHeight = (total / maxTotal) * usableHeight;
+          const top = chartBottom - totalHeight;
+          return (
+            <g key={item.month}>
+              <rect x={x} y={chartBottom - do3Height} width={barWidth} height={do3Height} rx="5" fill="#a73a72" opacity="0.82" />
+              <rect x={x} y={chartBottom - do3Height - do2Height} width={barWidth} height={do2Height} rx="5" fill="#6940c8" opacity="0.9" />
+              <rect x={x} y={top} width={barWidth} height={do1Height} rx="5" fill="#3f7dff" opacity="0.92" />
+              <text x={x + barWidth / 2} y="274" fill="#666d7d" fontSize="11" textAnchor="middle">
+                {item.month}
+              </text>
+            </g>
+          );
+        })}
+
+        <path d={averagePoints} fill="none" stroke="#f2b82f" strokeWidth="3" strokeDasharray="10 6" />
+        <line x1="826" y1="58" x2="826" y2="146" stroke="#ef4444" strokeWidth="2" strokeDasharray="5 4" />
+        <circle cx="826" cy="56" r="5" fill="#ef4444" />
+        <text x="840" y="60" fill="#ef4444" fontSize="12" fontWeight="700">
+          ANOMALIA: +127% v/o
         </text>
-      ))}
+      </svg>
 
-      {publicationData.map((item, index) => {
-        const total = item.do1 + item.do2 + item.do3;
-        const x = 72 + index * 76;
-        const barWidth = 42;
-        const do3Height = (item.do3 / maxTotal) * usableHeight;
-        const do2Height = (item.do2 / maxTotal) * usableHeight;
-        const do1Height = (item.do1 / maxTotal) * usableHeight;
-        const totalHeight = (total / maxTotal) * usableHeight;
-        const top = chartBottom - totalHeight;
-        return (
-          <g key={item.month}>
-            <rect x={x} y={chartBottom - do3Height} width={barWidth} height={do3Height} rx="5" fill="#a73a72" opacity="0.82" />
-            <rect x={x} y={chartBottom - do3Height - do2Height} width={barWidth} height={do2Height} rx="5" fill="#6940c8" opacity="0.9" />
-            <rect x={x} y={top} width={barWidth} height={do1Height} rx="5" fill="#3f7dff" opacity="0.92" />
-            <text x={x + barWidth / 2} y="306" fill="#666d7d" fontSize="11" textAnchor="middle">
-              {item.month}
-            </text>
-          </g>
-        );
-      })}
-
-      <path d={averagePoints} fill="none" stroke="#f2b82f" strokeWidth="3" strokeDasharray="10 6" />
-      <line x1="826" y1="58" x2="826" y2="160" stroke="#ef4444" strokeWidth="2" strokeDasharray="5 4" />
-      <circle cx="826" cy="56" r="5" fill="#ef4444" />
-      <text x="840" y="60" fill="#ef4444" fontSize="12" fontWeight="700">
-        ANOMALIA: +127% v/o
-      </text>
-
-      <g transform="translate(570 292)">
-        <rect width="12" height="12" rx="3" fill="#3f7dff" />
-        <text x="18" y="10" fill="#959caf" fontSize="12">DO1</text>
-        <rect x="66" width="12" height="12" rx="3" fill="#6940c8" />
-        <text x="84" y="10" fill="#959caf" fontSize="12">DO2</text>
-        <rect x="132" width="12" height="12" rx="3" fill="#a73a72" />
-        <text x="150" y="10" fill="#959caf" fontSize="12">DO3</text>
-        <line x1="202" y1="6" x2="222" y2="6" stroke="#f2b82f" strokeWidth="3" strokeDasharray="8 5" />
-        <text x="230" y="10" fill="#959caf" fontSize="12">Média 3m</text>
-      </g>
-    </svg>
+      <div className="mt-5 flex flex-wrap items-center justify-end gap-x-6 gap-y-3 text-[12px] text-text-secondary">
+        <LegendSwatch color="#3f7dff" label="DO1" />
+        <LegendSwatch color="#6940c8" label="DO2" />
+        <LegendSwatch color="#a73a72" label="DO3" />
+        <LegendSwatch color="#f2b82f" label="Média 3m" dashed />
+      </div>
+    </div>
   );
 };
 
@@ -206,43 +204,51 @@ const ActsLineChart: React.FC = () => {
       .join(" ");
 
   return (
-    <svg viewBox="0 0 980 320" className="w-full">
-      <line x1="48" y1="24" x2="48" y2="240" stroke="rgba(255,255,255,0.08)" />
-      <line x1="48" y1="240" x2="940" y2="240" stroke="rgba(255,255,255,0.08)" />
-      <rect x="786" y="40" width="158" height="200" rx="16" fill="rgba(239,68,68,0.08)" />
-      <text x="830" y="56" fill="#ef4444" fontSize="12" fontWeight="700">RED FLAG</text>
-      <text x="810" y="74" fill="#ef4444" fontSize="11">Pico de contratos</text>
+    <div>
+      <svg viewBox="0 0 980 286" className="w-full">
+        <line x1="48" y1="24" x2="48" y2="222" stroke="rgba(255,255,255,0.08)" />
+        <line x1="48" y1="222" x2="940" y2="222" stroke="rgba(255,255,255,0.08)" />
+        <rect x="786" y="40" width="158" height="182" rx="16" fill="rgba(239,68,68,0.08)" />
+        <text x="830" y="56" fill="#ef4444" fontSize="12" fontWeight="700">RED FLAG</text>
+        <text x="810" y="74" fill="#ef4444" fontSize="11">Pico de contratos</text>
 
-      {lineSeries.map((series) => (
-        <path
-          key={series.label}
-          d={buildPath(series.points)}
-          fill="none"
-          stroke={series.color}
-          strokeWidth="3"
-          strokeDasharray={series.dashed ? "8 6" : undefined}
-        />
-      ))}
-
-      <circle cx="866" cy="146" r="5" fill="#ef4444" />
-
-      {months.map((month, index) => (
-        <text key={month} x={54 + index * 75} y="286" fill="#666d7d" fontSize="11" textAnchor="middle">
-          {month}
-        </text>
-      ))}
-
-      <g transform="translate(48 300)">
-        {lineSeries.map((series, index) => (
-          <g key={series.label} transform={`translate(${index * 140} 0)`}>
-            <line x1="0" y1="8" x2="18" y2="8" stroke={series.color} strokeWidth="3" strokeDasharray={series.dashed ? "8 6" : undefined} />
-            <text x="24" y="12" fill="#959caf" fontSize="12">{series.label}</text>
-          </g>
+        {lineSeries.map((series) => (
+          <path
+            key={series.label}
+            d={buildPath(series.points)}
+            fill="none"
+            stroke={series.color}
+            strokeWidth="3"
+            strokeDasharray={series.dashed ? "8 6" : undefined}
+          />
         ))}
-      </g>
-    </svg>
+
+        <circle cx="866" cy="136" r="5" fill="#ef4444" />
+
+        {months.map((month, index) => (
+          <text key={month} x={54 + index * 75} y="256" fill="#666d7d" fontSize="11" textAnchor="middle">
+            {month}
+          </text>
+        ))}
+      </svg>
+
+      <div className="mt-5 flex flex-wrap items-center gap-x-8 gap-y-3 text-[12px] text-text-secondary">
+        {lineSeries.map((series) => (
+          <LegendSwatch key={series.label} color={series.color} label={series.label} dashed={series.dashed} />
+        ))}
+      </div>
+    </div>
   );
 };
+
+const LegendSwatch: React.FC<{ color: string; label: string; dashed?: boolean }> = ({ color, label, dashed }) => (
+  <div className="flex items-center gap-2">
+    <svg width="18" height="10" viewBox="0 0 18 10" aria-hidden="true">
+      <line x1="0" y1="5" x2="18" y2="5" stroke={color} strokeWidth="3" strokeDasharray={dashed ? "7 5" : undefined} />
+    </svg>
+    <span>{label}</span>
+  </div>
+);
 
 const HeatmapChart: React.FC = () => (
   <div className="overflow-x-auto">

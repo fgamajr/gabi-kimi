@@ -69,7 +69,7 @@ export const AppShell: React.FC = () => {
       </div>
 
       {!hideMobileNav ? (
-        <nav className="md:hidden fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 px-4 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 backdrop-blur-xl">
+        <nav className="app-shell-mobile-nav md:hidden fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 px-4 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 backdrop-blur-xl">
           <div className="grid grid-cols-4 gap-2">
             <NavLink
               to="/"
@@ -114,15 +114,7 @@ export const AppShell: React.FC = () => {
             </button>
           </div>
         </nav>
-      ) : (
-        <button
-          onClick={() => openCommandPalette()}
-          className="md:hidden fixed right-4 bottom-24 z-40 min-h-[52px] min-w-[52px] rounded-2xl border border-border bg-card/95 backdrop-blur-xl text-text-secondary shadow-[var(--shadow-lg)] flex items-center justify-center focus-ring"
-          aria-label="Abrir comando"
-        >
-          <Icons.command className="w-5 h-5" />
-        </button>
-      )}
+      ) : null}
 
       <CommandPalette />
     </div>

@@ -1,8 +1,0 @@
-Frontend patch summary:
-- HomePage redesigned into a denser dashboard with wider layout, single-row horizontal popular-search chips, featured document card, and recent document history from localStorage.
-- New StatusIndicator component with more visible SVG pulse.
-- SearchBar now records recent searches, exposes recent-search suggestions on focus, and supports Cmd/Ctrl+K focus shortcut.
-- DocumentPage now integrates section parsing, reading progress, TOC, saved reading position, deep-link restoration, PDF export via html2pdf, share-at-position, copy reference, and mobile action bar.
-- Existing safe image fallback renderer preserved.
-
-Assess whether the product direction is now substantially closer to a professional DOU research tool, and list the top 3 remaining gaps only.

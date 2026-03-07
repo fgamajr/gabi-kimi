@@ -1,0 +1,541 @@
+--- before
++++ after
+@@ -1,4 +1,4 @@
+-# GABI DOU — Blueprint de Frontend v3 (Revisado)
++# GABI DOU — Blueprint de Frontend v4 (Revisado)
+ 
+ ## 1. Conceito Visual: "Brasília Moderna"
+ 
+@@ -14,8 +14,8 @@
+ | Primitives UI | shadcn/ui (Radix) | Copia-se o primitivo, descarta-se o estilo |
+ | Ícones | Lucide React | Tree-shakeable (~0.5KB/ícone), sem identidade genérica |
+ | Bottom Sheet | vaul | <5KB gzip, spring physics nativo, acessível |
+-| Motion | Framer Motion 11 | Apenas para layout animations e page transitions; NÃO para sheets |
+-| Estilos | Tailwind CSS 4 + CSS custom properties | Tokens como variáveis, utility classes para layout |
++| Motion | Framer Motion 11 | Apenas para layout animations e page transitions; lazy-loaded em chunk separado |
++| Estilos | Tailwind CSS 3.4 + CSS custom properties | Tokens como variáveis, utility classes para layout (v3.4 stable, ver ADR-007) |
+ | Estado client | Zustand (+ persist middleware com IndexedDB) | Leve, sem boilerplate, async storage via idb-keyval (~600B) |
+ | Estado server | TanStack Query v5 | Cache, stale-while-revalidate, retry automático, prefetch, AbortSignal |
+ | Virtualização | react-virtuoso | estimateSize dinâmico para documentos longos, endReached para streaming |
+@@ -26,6 +26,7 @@
+ | Dev/Doc | Ladle | Storybook alternativo nativo em Vite, desenvolvimento isolado |
+ | a11y | @axe-core/react (dev) + jest-axe (CI) + NVDA/JAWS manual | Gate automatizado + teste com leitor de tela |
+ | Bundle Check | size-limit | CI gate para budgets granulares por chunk |
++| Font Metrics | @capsizecss/metrics ou fontaine | Cálculo preciso de size-adjust/ascent-override para mitigar CLS |
+ 
+ ---
+ 
+@@ -34,7 +35,7 @@
+ ### 3.1 Paleta — Dark (default), Light e High Contrast
+ 
+ **Verificação de Contraste Obrigatória:**
+-Todos os pares foreground/background abaixo foram validados para WCAG 2.1 AA (4.5:1 texto normal, 3:1 texto grande/UI components).
++Todos os pares foreground/background abaixo foram validados para WCAG 2.1 AA (4.5:1 texto normal, 3:1 texto grande/UI components). CI roda `color-contrast` em tokens.css.
+ 
+ ```css
+ :root[data-theme='dark'] {
+@@ -82,57 +83,75 @@
+   --color-muted:       hsl(210 10% 45%);
+   --color-subtle:      hsl(210 12% 75%);
+   
+-  --color-accent:             hsl(42 85% 45%);       /* decorativo/bordas apenas */
+-  --color-accent-hover:       hsl(42 85% 40%);
+-  --color-accent-active:      hsl(42 85% 35%);
+-  --color-accent-text:        hsl(42 70% 28%);       /* 4.8:1 sobre branco — uso em texto */
++  /* Acentos — decorativo vs texto obrigatório */
++  --color-accent-decorative:  hsl(42 85% 45%);       /* 2.8:1 — UI/bordas apenas, NUNCA texto */
++  --color-accent-text:        hsl(42 70% 28%);       /* 4.8:1 — texto e ícones */
++  --color-accent-hover:       hsl(42 70% 23%);
++  --color-accent-active:      hsl(42 70% 18%);
+   --color-accent-muted:       hsl(42 60% 65%);
+   --color-accent-subtle:      hsl(42 80% 94%);
+   --color-accent-disabled:    hsl(42 30% 75%);
+   --color-accent-on:          hsl(42 90% 10%);       /* texto escuro sobre fundo dourado */
+   
++  /* Secundário — teal */
+   --color-secondary:          hsl(174 60% 38%);
+   --color-secondary-hover:    hsl(174 60% 33%);
+   --color-secondary-active:   hsl(174 60% 28%);
++  --color-secondary-muted:    hsl(174 40% 75%);
++
++  /* Semânticos — variantes light */
++  --color-danger:      hsl(0 65% 45%);
++  --color-danger-hover:hsl(0 65% 40%);
++  --color-success:     hsl(145 55% 35%);
++  --color-success-hover:hsl(145 55% 30%);
++  --color-info:        hsl(210 65% 45%);
++  --color-info-hover:  hsl(210 65% 40%);
+   
+   --color-border:      hsl(210 16% 88%);
+-  --color-focus-ring:  hsl(42 85% 45% / 0.4);
++  --color-focus-ring:  hsl(42 70% 28% / 0.4);
+ }
+ 
+ :root[data-theme='high-contrast'] {
+-  --color-bg:          #000000;
+-  --color-surface:     #000000;
+-  --color-elevated:    #1a1a1a;
+-  --color-on-surface:  #ffffff;
+-  --color-muted:       #aaaaaa;
+-  --color-subtle:      #666666;
+-  
+-  --color-accent:      #ffdd00;  /* dourado menos agressivo */
+-  --color-accent-on:   #000000;
+-  --color-accent-text: #000000;
+-  --color-border:      #ffffff;
+-  --color-focus-ring:  #ffdd00;
++  --color-bg:          hsl(0 0% 0%);
++  --color-surface:     hsl(0 0% 0%);
++  --color-elevated:    hsl(0 0% 10%);
++  --color-on-surface:  hsl(0 0% 100%);
++  --color-muted:       hsl(0 0% 67%);
++  --color-subtle:      hsl(0 0% 40%);
++  
++  --color-accent:      hsl(52 100% 50%);  /* dourado menos agressivo */
++  --color-accent-on:   hsl(0 0% 0%);
++  --color-accent-text: hsl(0 0% 0%);
++  --color-border:      hsl(0 0% 100%);
++  --color-focus-ring:  hsl(52 100% 50%);
+   
+   /* Semânticos obrigatórios */
+-  --color-danger:      #ff4444;
+-  --color-success:     #44ff44;
+-  --color-info:        #4488ff;
+-  --color-secondary:   #00dddd;
++  --color-danger:      hsl(0 100% 63%);
++  --color-success:     hsl(120 100% 50%);
++  --color-info:        hsl(220 100% 60%);
++  --color-secondary:   hsl(180 100% 50%);
+   
+   /* Bordas forçadas em todos os componentes interativos */
+ }
+ ```
+ 
+ **Tabela de Verificação de Contraste (AA):**
+-| Token Foreground | Token Background | Ratio | Uso Permitido |
+-|---|---|---|---|
+-| `--color-accent` | `--color-bg` | 8.5:1 | Texto, UI |
+-| `--color-accent` | `--color-surface` | 6.8:1 | Texto grande, UI |
+-| `--color-accent-on` (dark) | `--color-accent` | 7.1:1 | Texto sobre botões (dark) |
+-| `--color-accent-text` | `--color-surface` (light) | 4.8:1 | Texto sobre fundo claro |
+-| `--color-accent-on` (light) | `--color-accent-subtle` | 4.6:1 | Texto em badges/tags (light) |
+-
+-**Lint obrigatório:** Stylelint com `color-no-hex`, `function-disallowed-list: [rgb, hsl]` fora de tokens.css, e `declaration-property-value-disallowed-list` para z-index raw.
++| Token Foreground | Token Background | Ratio | Tema | Uso Permitido |
++|---|---|---|---|---|
++| `--color-accent` | `--color-bg` | 8.5:1 | Dark | Texto, UI |
++| `--color-accent` | `--color-surface` | 6.8:1 | Dark | Texto grande, UI |
++| `--color-accent-on` | `--color-accent` | 7.1:1 | Dark | Texto sobre botões |
++| `--color-accent-decorative` | `--color-surface` | 2.8:1 | Light | Bordas, ícones grandes (não texto) |
++| `--color-accent-text` | `--color-surface` | 4.8:1 | Light | Texto, labels |
++| `--color-accent-on` | `--color-accent-subtle` | 4.6:1 | Light | Texto em badges/tags |
++| `--color-on-surface` | `--color-bg` | 12.1:1 | Dark | Texto primário |
++| `--color-on-surface` | `--color-surface` | 11.2:1 | Light | Texto primário |
++| `--color-muted` | `--color-bg` | 6.4:1 | Dark | Texto secundário |
++| `--color-muted` | `--color-surface` | 5.9:1 | Light | Texto secundário |
++| `--color-secondary` | `--color-bg` | 5.2:1 | Dark | Texto/links |
++| `--color-secondary` | `--color-surface` | 4.7:1 | Light | Texto/links |
++
++**Lint obrigatório:** Stylelint com `color-no-hex` (exceto high-contrast se justificado), `function-disallowed-list: [rgb, hsl]` fora de tokens.css, e `declaration-property-value-disallowed-list` para z-index raw. ESLint plugin customizado proíbe `--color-accent-decorative` em propriedades `color` no tema light.
+ 
+ ### 3.2 Tipografia
+ 
+@@ -170,10 +189,10 @@
+ ```
+ 
+ **Estratégia de loading crítico (LCP < 2.5s):**
+-1. **Preload crítico:** IBM Plex Sans 400/600, Literata 400/400i (subset latin-ext).
+-2. **Font-display:** `swap` para display e body (Literata). `optional` apenas para JetBrains Mono.
+-3. **Mitigação CLS:** `size-adjust: 103%` no @font-face de Literata para reduzir shift de Georgia→Literata.
+-4. **Fallback:** System serif stack (Georgia) renderiza progressivamente.
++1. **Preload crítico:** Apenas IBM Plex Sans 400/600 (UI chrome). Literata e JetBrains Mono NÃO são preloaded.
++2. **Font-display:** `swap` para display e body (Literata). `optional` para JetBrains Mono (lazy load no mount do DocumentViewer).
++3. **Mitigação CLS:** Usar `@capsizecss/metrics` para calcular `size-adjust`, `ascent-override`, `descent-override`, `line-gap-override` exatos para Literata→Georgia fallback. Não usar valores arbitrários.
++4. **Fallback:** System serif stack (Georgia) renderiza progressivamente com métricas ajustadas para minimizar shift.
+ 
+ **Mapeamento de pesos:**
+ - Headings: display/600 (semibold)
+@@ -218,7 +237,7 @@
+   --shadow-lg:  0 8px 30px hsl(0 0% 0% / 0.5);
+   --shadow-sheet: 0 -4px 24px hsl(0 0% 0% / 0.6);
+   
+-  /* Z-Index Scale */
++  /* Z-Index Scale — apenas para componentes portalizados */
+   --z-base:     0;
+   --z-sticky:   100;
+   --z-dropdown: 200;
+@@ -228,7 +247,10 @@
+ }
+ ```
+ 
+-**Regra de ouro:** Componentes portalizados DEVEM usar tokens (`var(--z-sheet)`), NUNCA valores inline. Cada camada utiliza `isolation: isolate`.
++**Regras de Stacking Context:**
++- **Portalizados (modais, sheets, toasts, dropdowns):** DEVEM usar `React.createPortal` para `document.body` e aplicar tokens `--z-*`.
++- **Isolados (AppShell regions):** `isolation: isolate` apenas em regiões estruturais (sidebar, main) para contencimento interno. Componentes dentro dessas regiões que precisam escapar (dropdowns) devem ser portalizados.
++- **Proibido:** Valores z-index inline ou tokens em componentes não-portalizados.
+ 
+ ### 3.6 Motion Tokens
+ 
+@@ -254,7 +276,7 @@
+ ```
+ 
+ **Regras de motion:**
+-- OBRIGATÓRIO: BottomSheet snap (vaul spring), skeleton shimmer (opacity only), page crossfade (Framer Motion layout)
++- OBRIGATÓRIO: BottomSheet snap (vaul spring), skeleton shimmer (opacity only), page crossfade (Framer Motion layout — lazy loaded)
+ - PROIBIDO: animações decorativas no Document Viewer (prejudica leitura)
+ - reduced-motion: opacity transition instantânea
+ 
+@@ -263,8 +285,8 @@
+ ## 4. Contratos de Componentes
+ 
+ ### Convenção de Test IDs
+-Todos os componentes expõem `data-testid` seguindo padrão: `{component}-{element}` ou `{component}-{element}-{id}` para itens dinâmicos.
+-- Exemplos: `data-testid="search-input"`, `data-testid="result-card-12345"`, `data-testid="document-viewer-toc"`.
++Todos os componentes expõem `data-testid` seguindo padrão: `{component}-{element}` ou `{component}-{subcomponent}-{element}` para componentes compostos.
++- Exemplos: `data-testid="search-input"`, `data-testid="result-card-12345"`, `data-testid="document-viewer-toc-item"`, `data-testid="search-surface-filter-chip"`.
+ 
+ ### 4.1 AppShell
+ ```typescript
+@@ -278,16 +300,30 @@
+ // a11y: <nav>, <main>, <aside> landmarks, skip-to-content link
+ // ErrorBoundary: envolve children com fallback genérico
+ // data-testid: "appshell-main", "appshell-sidebar", "appshell-navbar"
++// Stacking: sidebar e main usam isolation: isolate; modais/sheets portalizados escapam
+ ```
+ 
+ ### 4.2 SearchSurface
+ ```typescript
+ type SearchStatus = 'idle' | 'debouncing' | 'searching' | 'success' | 'error' | 'empty';
+ 
++interface SearchResult {
++  id: string;
++  title: string;
++  excerpt: Array<{ text: string; highlight?: boolean }>;
++  secao: number;
++  publishedAt: Date;
++  orgao: string;
++  matchCount?: number;
++}
++
+ interface SearchSurfaceProps {
+-  onSearch: (query: string, filters: SearchFilters, signal: AbortSignal) => Promise<void>;
++  // Controlled component: dados fluem via props, não via callback
++  results: SearchResult[];
++  status: SearchStatus;
++  onSearch: (query: string, filters: SearchFilters) => void;  // TanStack Query gerencia async/cancel
+   onClear: () => void;
+-  status: SearchStatus;
++  debounceMs?: number;  // default: 300
+   recentSearches?: string[];
+   pagination?: {
+     page: number;
+@@ -305,9 +341,8 @@
+   orgao?: string;
+ }
+ 
+-// Implementação: SearchSurface gerencia AbortController internamente,
+-// cancelando requisições anteriores ao iniciar nova busca (debounce 300ms).
+-// O signal deve ser repassado para fetch/TanStack Query.
++// Implementação: SearchSurface gerencia debounce interno (configurável via debounceMs).
++// AbortController é gerenciado pelo TanStack Query (stale/cancel automático).
+ // a11y: role="search", aria-live="polite" para count de resultados
+ // Virtualização: roving tabindex para navegação por teclado na lista
+ ```
+@@ -318,7 +353,6 @@
+   id: string;
+   title: string;
+   excerpt: Array<{ text: string; highlight?: boolean }>; // chunks com highlight
+-  // Alternativa sanitizada: excerptHtml?: string; // HTML com <mark>, sanitizado via DOMPurify
+   secao: number;
+   publishedAt: Date;
+   orgao: string;
+@@ -339,46 +373,61 @@
+   depth: number;
+   mediaUrl?: string;
+   mediaAlt?: string;
++  // Para tabelas estruturadas (evita HTML sanitizado):
++  tableData?: { headers: string[]; rows: string[][] };
+ }
+ 
+ interface UserPreferences {
+   fontSize: 'sm' | 'md' | 'lg' | 'xl';
+-  // scrollPosition e activeSection REMOVIDOS de preferences - gerenciados via URL/hash
+-}
+-
+-interface ReadingProgress {
+-  activeSection?: string;
+-  scrollPosition?: number;
+ }
+ 
+ interface DocumentViewerProps {
+   documentId: string;
+   queryKey: string[];
+   initialSections?: DocumentSection[];
+-  totalSections?: number; // para progresso "142 de 387 seções"
+-  contentLoader: (offset: number, limit: number, signal: AbortSignal) => Promise<DocumentSection[]>;
++  totalSections: number; // obrigatório para progresso "142 de 387" e controle de streaming
++  
++  // Retorna seções completas (nunca corta um artigo no meio)
++  // hasMore: false indica fim do documento (diferencia de erro/transiente)
++  contentLoader: (afterSectionId: string | null, limit: number, signal: AbortSignal) => Promise<{ 
++    sections: DocumentSection[]; 
++    hasMore: boolean 
++  }>;
++  
+   searchQuery?: string;
+-  searchMatches?: Array<{ sectionId: string; matchIndex: number }>; // para scrollToMatch
++  // matchIndex: índice global do match no documento (0 = primeiro match)
++  // occurrenceInSection: qual ocorrência dentro da seção específica
++  searchMatches?: Array<{ sectionId: string; matchIndex: number; occurrenceInSection: number }>;
++  
+   onNavigate: (sectionId: string) => void;
+-  onLoadError?: (error: Error, context: { offset: number; loadedCount: number }) => void;
++  onLoadError?: (error: Error, context: { loadedCount: number }) => void;
+   preferences?: UserPreferences; // persistido via Zustand (fontSize apenas)
+   onPreferencesChange?: (prefs: UserPreferences) => void;
+-  scrollToMatch?: (matchIndex: number) => void; // dispara: compute target → virtuoso.scrollToIndex → highlight
++}
++
++// Imperative handle via ref:
++interface DocumentViewerRef {
++  scrollToMatch(matchIndex: number): void;  // computa target → virtuoso.scrollToIndex → highlight
++  getVisibleSection(): string | null;       // retorna ID da seção atualmente visível
++  setFontSize(size: 'sm' | 'md' | 'lg' | 'xl'): void;
+ }
+ 
+ // Estados: loading (skeleton) | ready | error | empty | partial-error (inline)
+ // Retry: TanStack Query gerencia retry automático; onLoadError para telemetry/UI de erro parcial
+ // Persistência: fontSize via Zustand + IndexedDB; progresso de leitura via URL hash (#artigo-5)
+ // a11y: role="article", aria-label dinâmico, role="mark" com aria-label para highlights
+-// Performance: react-virtuoso com endReached, AbortSignal para cancelamento
++// Performance: react-virtuoso com endReached (respeitando hasMore), AbortSignal para cancelamento
++// Deep-link: hook useDocumentDeepLink sincroniza URL hash → virtuoso.scrollToIndex com fetch prévio se necessário
+ ```
+ 
+ ### 4.5 BottomSheet (vaul)
+ ```typescript
+-// API alinhada com vaul ^0.9.x (snapPoints como number[] representando porcentagens 0-1 ou pixels)
++// vaul v0.9.x API: snapPoints aceita strings ('148px', '50vh', '92dvh') ou números (pixels)
++type SnapPoint = `${number}px` | `${number}vh` | `${number}dvh` | number;
++
+ interface BottomSheetProps {
+-  snapPoints?: number[];  // ex: [0.25, 0.5, 0.92] ou [200, 400, 800]
+-  defaultSnap?: number;   // index inicial
++  snapPoints?: SnapPoint[];  // ex: ['25vh', '50vh', '92dvh'] ou [200, 400, 800]
++  defaultSnap?: number;      // index inicial
+   onSnapChange?: (index: number) => void;
+   onDismiss?: () => void;
+   backdrop?: boolean;
+@@ -389,9 +438,21 @@
+   children: ReactNode;
+ }
+ 
+-// Nota: Para unidades amigáveis (vh, dvh), usar utilitário:
+-// parseSnapPoints(['25vh', '50vh', '92dvh']) → converte para pixels baseado em window.innerHeight
+-// vaul implementa focus trap, snap points e gestures nativamente (não é baseado em Radix Dialog)
++// Utilitário obrigatório para converter unidades relativas em pixels (vaul espera pixels no cálculo interno):
++function parseSnapPoints(points: SnapPoint[]): number[] {
++  return points.map(p => {
++    if (typeof p === 'number') return p;
++    const match = p.match(/^(\d+(?:\.\d+)?)(px|vh|dvh)$/);
++    if (!match) throw new Error(`Invalid snap point: ${p}`);
++    const value = parseFloat(match[1]);
++    const unit = match[2];
++    if (unit === 'px') return value;
++    const height = unit === 'dvh' ? window.innerHeight : document.documentElement.clientHeight;
++    return (value / 100) * height;
++  });
++}
++
++// Nota: vaul implementa focus trap, snap points e gestures nativamente (não é baseado em Radix Dialog)
+ ```
+ 
+ ### 4.6 Toast/Notification
+@@ -412,6 +473,7 @@
+ // Implementação: Radix Toast via shadcn/ui
+ // Gerenciamento: ToastProvider com fila (max 3 visíveis)
+ // a11y: role="status", aria-live="polite", focus não é movido (non-modal)
++// Portalizado para document.body com --z-toast
+ ```
+ 
+ ### 4.7 ErrorBoundary
+@@ -431,176 +493,6 @@
+ // Uso: AppShell (global), DocumentViewer (viewer), SearchSurface (search)
+ ```
+ 
+----
+-
+-## 5. Performance Budget & Estratégia
+-
+-| Métrica | Target | Enforcement |
+-|---|---|---|
+-| Vendor chunk (React+ReactDOM) | ≤ 140 KB gzip | size-limit (custo fixo, monitorar upgrades) |
+-| Shared libs (TanStack, Zustand, Framer Motion, Radix) | ≤ 50 KB gzip | size-limit |
+-| App initial route (excl. vendor) | ≤ 50 KB gzip | code-splitting obrigatório |
+-| Total initial transfer | ≤ 210 KB gzip | Lighthouse CI gate |
+-| Lazy routes | ≤ 30 KB cada | dynamic imports documentados |
+-| LCP (3G throttled) | < 2.5s | Lighthouse CI |
+-| CLS | < 0.05 | font-size-adjust no @font-face |
+-| INP | < 200ms | |
+-| Lighthouse Performance | ≥ 90 | |
+-| Lighthouse Accessibility | ≥ 95 | axe-playwright + manual |
+-
+-**Code-splitting obrigatório:**
+-- Rota /dashboard: lazy
+-- Rota /document/:id: lazy
+-- DocumentViewer: lazy load de FlexSearch
+-- JetBrains Mono: lazy (sem preload)
+-
+-**Prefetch estratégia:**
+-- Na lista de resultados, prefetch do primeiro documento visível via `queryClient.prefetchQuery`
+-- Documentos DOU são imutáveis: `staleTime: Infinity` no TanStack Query
+-
+----
+-
+-## 6. Estado: Boundaries (Arquitetura)
+-
+-Demarcação rígida de responsabilidades para evitar sincronização incorreta:
+-
+-| Tipo | Tecnologia | Responsabilidade | Persistência |
+-|---|---|---|---|
+-| **Server State** | TanStack Query | Dados DOU, resultados de busca, seções de documentos | Cache em memória (staleTime) |
+-| **Client Preferences** | Zustand + IndexedDB | Tema, fontSize, preferências de leitura | IndexedDB (async, não bloqueante) |
+-| **Session State** | Zustand (sem persist) | Filtros ativos, aba selecionada, estado de UI transitório | Memória apenas |
+-| **Navigation State** | URL (hash + query) | scrollPosition, activeSection, searchQuery, page | URL (shareable, back/forward) |
+-
+-**Regras:**
+-- Nunca persistir scrollPosition no Zustand (usar URL hash)
+-- Nunca armazenar dados DOU no Zustand (usar TanStack Query)
+-- Migrações de schema Zustand: usar opção `version` + `migrate` desde dia 1
+-
+----
+-
+-## 7. Acessibilidade (WCAG 2.1 AA + LBI 13.146/2015)
+-
+-- **Contraste:** Todos os pares foreground/background validados (Seção 3.1). Accent text usa tokens específicos por tema.
+-- **Navegação:** Skip-to-content link, landmarks ARIA, roving tabindex em listas virtualizadas.
+-- **Motion:** `prefers-reduced-motion` respeitado em todos os tokens.
+-- **Zoom:** Suporte a 200% zoom sem quebra (breakpoints fluidos).
+-- **Leitores de tela:** 
+-  - Anúncio de resultados dinâmicos via `aria-live="polite"`
+-  - Highlights no documento com `role="mark"` e `aria-label` indicando ocorrência
+-  - Teste manual obrigatório com NVDA/JAWS antes de release
+-  - Testes automatizados: axe-playwright no CI
+-- **Alto contraste:** Tema `high-contrast` completo com todos os tokens semânticos.
+-- **Foco:** Focus ring visível (`--color-focus-ring`), trap de foco em modais/sheets, restauração de foco ao fechar.
+-
+-### Atalhos de Teclado (Power Users)
+-Overlay acessível via `?` ou `Shift+/`:
+-
+-| Atalho | Ação |
+-|---|---|
+-| `j` / `k` | Próxima/Anterior seção no documento |
+-| `J` / `K` | Próximo/Anterior resultado de busca |
+-| `/` | Focar campo de busca |
+-| `t` | Toggle TOC (Table of Contents) |
+-| `f` | Ciclar tamanho de fonte (sm → md → lg → xl) |
+-| `Escape` | Fechar sheets/modais |
+-| `?` | Mostrar overlay de atalhos |
+-
+-Implementação: Hook `useKeyboardShortcuts` com `event.key` e checagem de `event.target` não sendo input/textarea.
+-
+----
+-
+-## 8. Roadmap de Implementação
+-
+-### Fase 0a — Foundation Core (Dias 1-5)
+-- [ ] Setup Vite + React 18 + TypeScript strict
+-- [ ] Design tokens: dark theme (default) + CSS custom properties tipados
+-- [ ] Tipografia: preload IBM Plex Sans + Literata (swap), CLS mitigation
+-- [ ] ESLint + Prettier + Stylelint (proíbe cores fora de tokens, z-index raw)
+-- [ ] AppShell skeleton com landmarks
+-- [ ] size-limit configurado (budgets realistas por chunk)
+-
+-### Fase 0b — Qualidade & Tooling (Dias 6-10)
+-- [ ] Light theme + High-contrast theme
+-- [ ] Zustand setup com IndexedDB adapter + schema version
+-- [ ] TanStack Query setup
+-- [ ] ErrorBoundary global
+-- [ ] Vitest + Testing Library
+-- [ ] Ladle configurado
+-- [ ] Sentry + web-vitals (Fase 0b, não 0a)
+-
+-### Fase 1 — Leitura & Streaming (Semanas 3-4)
+-- [ ] DocumentViewer com virtualização e streaming via `contentLoader` (AbortSignal)
+-- [ ] Tratamento de erro parcial: inline error state entre seções carregadas
+-- [ ] Suporte a conteúdo rico: imagens, tabelas, assinaturas
+-- [ ] BottomSheet implementado com vaul (API correta)
+-- [ ] Persistência de preferências (fontSize) via Zustand + IndexedDB
+-- [ ] Progresso de leitura via URL hash (não Zustand)
+-- [ ] TOC sidebar colapsável
+-- [ ] Keyboard shortcuts (j/k, /, t, f)
+-
+-### Fase 2 — Busca Avançada (Semanas 5-6)
+-- [ ] SearchSurface com AbortController para race conditions
+-- [ ] Estados finitos: idle, debouncing, searching, success, error, empty
+-- [ ] Paginação/infinite scroll
+-- [ ] ResultCard com chunks de highlight
+-- [ ] Filtros por seção, data, órgão
+-- [ ] FlexSearch para busca intra-documento (lazy load)
+-- [ ] scrollToMatch implementado (compute → scrollToIndex → highlight)
+-
+-### Fase 3 — Dashboard & Polish (Semana 7)
+-- [ ] Dashboard com métricas
+-- [ ] Toast/Notification system
+-- [ ] Transições entre rotas (Framer Motion)
+-- [ ] Testes e2e dos fluxos críticos (Playwright + axe-playwright)
+-- [ ] Auditoria final de a11y com NVDA
+-
+-### Fase 4 — PWA & Offline (Semanas 8-9)
+-- [ ] Manifest.json e ícones
+-- [ ] Service Worker com Workbox
+-- [ ] Estratégia de cache para documentos imutáveis
+-- [ ] i18n: migração para react-intl apenas se necessário (atualmente pt-BR typed dictionary)
+-
+----
+-
+-## 9. Architecture Decision Records (ADRs)
+-
+-### ADR-001: BottomSheet Implementation
+-**Decisão:** Usar `vaul` (emilkowalski/vaul) em vez de Framer Motion custom.
+-**Rationale:** 
+-- vaul é específico para sheets, <5KB gzip, implementa focus trap, snap points e gestures nativamente
+-- Usa primitives próprios baseados em patterns WAI-ARIA, sem dependência de Radix Dialog
+-- Compatível com a stack pois shadcn/ui também usa Radix primitives independentes
+-- Framer Motion reservado apenas para layout animations e page transitions
+-
+-### ADR-002: Estratégia de Temas
+-**Decisão:** Definir dark, light e high-contrast em Fase 0, mesmo que UI não exponha toggle inicial.
+-**Rationale:** 
+-- Evita dívida técnica de migração posterior
+-- Garante que nenhum componente use cores hardcoded
+-- Conformidade com LBI 13.146/2015 desde o início
+-- High-contrast inclui todos os tokens semânticos (danger, success, info, etc.)
+-
+-### ADR-003: Loading de Documentos
+-**Decisão:** DocumentViewer usa streaming via `contentLoader` callback + react-virtuoso, nunca carrega documento completo via prop.
+-**Rationale:**
+-- Documentos DOU podem ter centenas de artigos
+-- Virtualização de renderização é inútil se fetch é monolítico
+-- Suporta lazy loading de seções e AbortSignal para cancelamento
+-- react-virtuoso escolhido sobre @tanstack/react-virtual por melhor estimativa de altura dinâmica para conteúdo misto (texto + tabelas + imagens)
+-
+-### ADR-004: Internacionalização (i18n)
+-**Decisão:** Usar typed dictionary (`messages/pt-BR.ts`) em vez de react-intl desde o início.
+-**Rationale:**
+-- Aplicação é monolíngue pt-BR por natureza regulatória (DOU)
+-- Zero runtime cost (react-intl adiciona ~10-30KB)
+-- Type-safe keys, single source of truth
+-- Trivial migração para react-intl se requisito de i18n surgir no futuro (Fase 4)
+-- Evita premature abstraction — a segunda forma mais cara de dívida técnica
+-
+-### ADR-005: Estado e Persistência
+-**Decisão:** Separação estrita entre TanStack Query (server), Zustand (client), e URL (navigation).
+-**Rationale:**
+-- Evita sincronização dupla entre caches
+-- scrollPosition/activeSection em URL permite deep-link e back/forward functional
+-- Zustand persist usa IndexedDB (async) em vez de localStorage (sync) para não bloquear main thread
+-- Schema versioning desde dia 1 para migrações de preferências do usuário
++### 4.8 useKeyboardShortcuts Hook
++```typescript
++type ShortcutAction =

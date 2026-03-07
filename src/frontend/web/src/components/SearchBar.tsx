@@ -101,13 +101,19 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   };
 
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
+    const handlePointerOutside = (e: MouseEvent | PointerEvent | TouchEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setShowSuggestions(false);
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+
+    document.addEventListener('pointerdown', handlePointerOutside);
+    document.addEventListener('touchstart', handlePointerOutside, { passive: true });
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerOutside);
+      document.removeEventListener('touchstart', handlePointerOutside);
+    };
   }, []);
 
   const panelItems = query.trim().length >= 2 ? suggestions : recentSearches;
@@ -126,14 +132,10 @@ export const SearchBar: React.FC<SearchBarProps> = ({
     updatePanelHeight();
     window.addEventListener('resize', updatePanelHeight);
     return () => window.removeEventListener('resize', updatePanelHeight);
-  }, [panelItems.length, query, recentSearches.length, showPanel, suggestions.length]);
+  }, [panelItems.length, showPanel]);
 
   return (
-    <div
-      ref={containerRef}
-      className="relative z-20 w-full"
-      style={{ paddingBottom: showPanel ? `${panelHeight}px` : undefined }}
-    >
+    <div ref={containerRef} className="relative z-20 w-full">
       <div
         className={`flex items-center gap-3 rounded-[20px] border bg-[linear-gradient(180deg,rgba(26,28,36,0.94),rgba(18,20,28,0.98))] transition-all focus-within:border-primary/90 focus-within:shadow-[0_0_0_1px_rgba(126,87,255,0.25),0_0_24px_rgba(126,87,255,0.12)]
         ${compact ? 'px-4 py-3' : 'px-5 py-4'}`}
@@ -184,7 +186,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
           <div className="border-b border-white/6 px-4 py-2.5 text-[11px] uppercase tracking-[0.16em] text-text-tertiary">
             {query.trim().length >= 2 ? 'Sugestões' : 'Pesquisas recentes'}
           </div>
-          <ul role="listbox">
+          <ul role="listbox" className="max-h-[min(18rem,42vh)] overflow-y-auto">
             {panelItems.map((item, i) => (
               <li
                 key={`${item}-${i}`}
@@ -192,7 +194,8 @@ export const SearchBar: React.FC<SearchBarProps> = ({
                 aria-selected={i === selectedIdx}
                 className={`flex min-h-[48px] cursor-pointer items-center gap-3 px-4 py-3 text-sm transition-colors
                 ${i === selectedIdx ? 'bg-white/[0.05] text-foreground' : 'text-secondary-foreground hover:bg-white/[0.04]'}`}
-                onMouseDown={() => {
+                onPointerDown={(event) => {
+                  event.preventDefault();
                   setQuery(item);
                   submit(item);
                 }}
@@ -205,6 +208,8 @@ export const SearchBar: React.FC<SearchBarProps> = ({
           </ul>
         </div>
       )}
+
+      {showPanel ? <div aria-hidden="true" style={{ height: `${panelHeight}px` }} /> : null}
     </div>
   );
 };

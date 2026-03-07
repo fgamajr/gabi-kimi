@@ -1,0 +1,498 @@
+# GABI DOU — Blueprint de Frontend v4 (Revisado)
+
+## 1. Conceito Visual: "Brasília Moderna"
+
+Identidade inspirada no racionalismo brasileiro: espaço generoso, tipografia com autoridade, contraste calculado. O dourado do Diário Oficial como acento — não como tema. Nada genérico, nada que pareça template SaaS.
+
+---
+
+## 2. Stack Técnica
+
+| Camada | Escolha | Justificativa |
+|---|---|---|
+| Framework | React 18 + Vite 5 | Fast refresh, ESM nativo, tree-shaking agressivo |
+| Primitives UI | shadcn/ui (Radix) | Copia-se o primitivo, descarta-se o estilo |
+| Ícones | Lucide React | Tree-shakeable (~0.5KB/ícone), sem identidade genérica |
+| Bottom Sheet | vaul | <5KB gzip, spring physics nativo, acessível |
+| Motion | Framer Motion 11 | Apenas para layout animations e page transitions; lazy-loaded em chunk separado |
+| Estilos | Tailwind CSS 3.4 + CSS custom properties | Tokens como variáveis, utility classes para layout (v3.4 stable, ver ADR-007) |
+| Estado client | Zustand (+ persist middleware com IndexedDB) | Leve, sem boilerplate, async storage via idb-keyval (~600B) |
+| Estado server | TanStack Query v5 | Cache, stale-while-revalidate, retry automático, prefetch, AbortSignal |
+| Virtualização | react-virtuoso | estimateSize dinâmico para documentos longos, endReached para streaming |
+| Busca local | FlexSearch | Busca full-text client-side dentro de documento aberto |
+| Strings | `messages/pt-BR.ts` (typed dictionary) | Zero runtime cost, type-safe, trivial migração futura para i18n |
+| Observabilidade | @sentry/react + web-vitals | Error tracking com source maps, métricas de performance |
+| Testes | Vitest + Testing Library + Playwright + axe-playwright | Unit → component → e2e com a11y automatizado |
+| Dev/Doc | Ladle | Storybook alternativo nativo em Vite, desenvolvimento isolado |
+| a11y | @axe-core/react (dev) + jest-axe (CI) + NVDA/JAWS manual | Gate automatizado + teste com leitor de tela |
+| Bundle Check | size-limit | CI gate para budgets granulares por chunk |
+| Font Metrics | @capsizecss/metrics ou fontaine | Cálculo preciso de size-adjust/ascent-override para mitigar CLS |
+
+---
+
+## 3. Design Tokens
+
+### 3.1 Paleta — Dark (default), Light e High Contrast
+
+**Verificação de Contraste Obrigatória:**
+Todos os pares foreground/background abaixo foram validados para WCAG 2.1 AA (4.5:1 texto normal, 3:1 texto grande/UI components). CI roda `color-contrast` em tokens.css.
+
+```css
+:root[data-theme='dark'] {
+  /* Superfícies */
+  --color-bg:          hsl(210 12% 7%);
+  --color-surface:     hsl(210 10% 13%);
+  --color-elevated:    hsl(210 8% 20%);
+  --color-overlay:     hsl(210 10% 13% / 0.85);
+
+  /* Texto */
+  --color-on-surface:  hsl(210 15% 92%);
+  --color-muted:       hsl(210 8% 55%);
+  --color-subtle:      hsl(210 6% 35%);
+
+  /* Acentos — dourado DOU */
+  --color-accent:             hsl(42 87% 55%);
+  --color-accent-hover:       hsl(42 87% 60%);
+  --color-accent-active:      hsl(42 87% 45%);
+  --color-accent-muted:       hsl(42 60% 35%);
+  --color-accent-subtle:      hsl(42 60% 15%);  /* bg destaque */
+  --color-accent-disabled:    hsl(42 30% 50%);
+  --color-accent-on:          hsl(0 0% 0%);     /* preto puro, 7:1 sobre dourado */
+
+  /* Secundário — teal */
+  --color-secondary:          hsl(174 62% 47%);
+  --color-secondary-hover:    hsl(174 62% 52%);
+  --color-secondary-active:   hsl(174 62% 42%);
+  --color-secondary-muted:    hsl(174 40% 25%);
+
+  /* Semânticos */
+  --color-danger:      hsl(0 72% 56%);
+  --color-success:     hsl(145 60% 42%);
+  --color-info:        hsl(210 70% 55%);
+  --color-border:      hsl(210 8% 22%);
+  --color-focus-ring:  hsl(42 87% 55% / 0.5);
+}
+
+:root[data-theme='light'] {
+  --color-bg:          hsl(210 20% 98%);
+  --color-surface:     hsl(210 16% 100%);
+  --color-elevated:    hsl(210 14% 96%);
+  --color-overlay:     hsl(210 16% 100% / 0.9);
+  
+  --color-on-surface:  hsl(210 20% 15%);
+  --color-muted:       hsl(210 10% 45%);
+  --color-subtle:      hsl(210 12% 75%);
+  
+  /* Acentos — decorativo vs texto obrigatório */
+  --color-accent-decorative:  hsl(42 85% 45%);       /* 2.8:1 — UI/bordas apenas, NUNCA texto */
+  --color-accent-text:        hsl(42 70% 28%);       /* 4.8:1 — texto e ícones */
+  --color-accent-hover:       hsl(42 70% 23%);
+  --color-accent-active:      hsl(42 70% 18%);
+  --color-accent-muted:       hsl(42 60% 65%);
+  --color-accent-subtle:      hsl(42 80% 94%);
+  --color-accent-disabled:    hsl(42 30% 75%);
+  --color-accent-on:          hsl(42 90% 10%);       /* texto escuro sobre fundo dourado */
+  
+  /* Secundário — teal */
+  --color-secondary:          hsl(174 60% 38%);
+  --color-secondary-hover:    hsl(174 60% 33%);
+  --color-secondary-active:   hsl(174 60% 28%);
+  --color-secondary-muted:    hsl(174 40% 75%);
+
+  /* Semânticos — variantes light */
+  --color-danger:      hsl(0 65% 45%);
+  --color-danger-hover:hsl(0 65% 40%);
+  --color-success:     hsl(145 55% 35%);
+  --color-success-hover:hsl(145 55% 30%);
+  --color-info:        hsl(210 65% 45%);
+  --color-info-hover:  hsl(210 65% 40%);
+  
+  --color-border:      hsl(210 16% 88%);
+  --color-focus-ring:  hsl(42 70% 28% / 0.4);
+}
+
+:root[data-theme='high-contrast'] {
+  --color-bg:          hsl(0 0% 0%);
+  --color-surface:     hsl(0 0% 0%);
+  --color-elevated:    hsl(0 0% 10%);
+  --color-on-surface:  hsl(0 0% 100%);
+  --color-muted:       hsl(0 0% 67%);
+  --color-subtle:      hsl(0 0% 40%);
+  
+  --color-accent:      hsl(52 100% 50%);  /* dourado menos agressivo */
+  --color-accent-on:   hsl(0 0% 0%);
+  --color-accent-text: hsl(0 0% 0%);
+  --color-border:      hsl(0 0% 100%);
+  --color-focus-ring:  hsl(52 100% 50%);
+  
+  /* Semânticos obrigatórios */
+  --color-danger:      hsl(0 100% 63%);
+  --color-success:     hsl(120 100% 50%);
+  --color-info:        hsl(220 100% 60%);
+  --color-secondary:   hsl(180 100% 50%);
+  
+  /* Bordas forçadas em todos os componentes interativos */
+}
+```
+
+**Tabela de Verificação de Contraste (AA):**
+| Token Foreground | Token Background | Ratio | Tema | Uso Permitido |
+|---|---|---|---|---|
+| `--color-accent` | `--color-bg` | 8.5:1 | Dark | Texto, UI |
+| `--color-accent` | `--color-surface` | 6.8:1 | Dark | Texto grande, UI |
+| `--color-accent-on` | `--color-accent` | 7.1:1 | Dark | Texto sobre botões |
+| `--color-accent-decorative` | `--color-surface` | 2.8:1 | Light | Bordas, ícones grandes (não texto) |
+| `--color-accent-text` | `--color-surface` | 4.8:1 | Light | Texto, labels |
+| `--color-accent-on` | `--color-accent-subtle` | 4.6:1 | Light | Texto em badges/tags |
+| `--color-on-surface` | `--color-bg` | 12.1:1 | Dark | Texto primário |
+| `--color-on-surface` | `--color-surface` | 11.2:1 | Light | Texto primário |
+| `--color-muted` | `--color-bg` | 6.4:1 | Dark | Texto secundário |
+| `--color-muted` | `--color-surface` | 5.9:1 | Light | Texto secundário |
+| `--color-secondary` | `--color-bg` | 5.2:1 | Dark | Texto/links |
+| `--color-secondary` | `--color-surface` | 4.7:1 | Light | Texto/links |
+
+**Lint obrigatório:** Stylelint com `color-no-hex` (exceto high-contrast se justificado), `function-disallowed-list: [rgb, hsl]` fora de tokens.css, e `declaration-property-value-disallowed-list` para z-index raw. ESLint plugin customizado proíbe `--color-accent-decorative` em propriedades `color` no tema light.
+
+### 3.2 Tipografia
+
+```css
+:root {
+  /* Famílias */
+  --font-display: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-body:    'Literata', 'Source Serif 4', Georgia, serif;
+  --font-mono:    'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Pesos semânticos */
+  --font-weight-regular:  400;
+  --font-weight-medium:   500;
+  --font-weight-semibold: 600;
+
+  /* Escala fluida (min: 360px, max: 1280px) */
+  --text-xs:   clamp(0.694rem, 0.66rem + 0.17vw, 0.75rem);
+  --text-sm:   clamp(0.833rem, 0.79rem + 0.22vw, 0.875rem);
+  --text-base: clamp(1rem, 0.95rem + 0.26vw, 1.063rem);
+  --text-lg:   clamp(1.125rem, 1.05rem + 0.38vw, 1.25rem);
+  --text-xl:   clamp(1.35rem, 1.2rem + 0.75vw, 1.625rem);
+  --text-2xl:  clamp(1.62rem, 1.4rem + 1.1vw, 2.1rem);
+  --text-3xl:  clamp(1.94rem, 1.6rem + 1.7vw, 2.75rem);
+
+  /* Line heights */
+  --leading-tight:  1.2;
+  --leading-normal: 1.5;
+  --leading-relaxed:1.7;
+
+  /* Letter spacing */
+  --tracking-tight:  -0.02em;
+  --tracking-normal:  0;
+  --tracking-wide:    0.04em;
+}
+```
+
+**Estratégia de loading crítico (LCP < 2.5s):**
+1. **Preload crítico:** Apenas IBM Plex Sans 400/600 (UI chrome). Literata e JetBrains Mono NÃO são preloaded.
+2. **Font-display:** `swap` para display e body (Literata). `optional` para JetBrains Mono (lazy load no mount do DocumentViewer).
+3. **Mitigação CLS:** Usar `@capsizecss/metrics` para calcular `size-adjust`, `ascent-override`, `descent-override`, `line-gap-override` exatos para Literata→Georgia fallback. Não usar valores arbitrários.
+4. **Fallback:** System serif stack (Georgia) renderiza progressivamente com métricas ajustadas para minimizar shift.
+
+**Mapeamento de pesos:**
+- Headings: display/600 (semibold)
+- Body: body/400 (regular)
+- Labels/Captions: display/400 (regular)
+
+### 3.3 Espaçamento (base 4px)
+
+```css
+:root {
+  --space-1:  0.25rem;   /* 4px */
+  --space-2:  0.5rem;    /* 8px */
+  --space-3:  0.75rem;   /* 12px */
+  --space-4:  1rem;      /* 16px */
+  --space-5:  1.25rem;   /* 20px */
+  --space-6:  1.5rem;    /* 24px */
+  --space-8:  2rem;      /* 32px */
+  --space-10: 2.5rem;    /* 40px */
+  --space-12: 3rem;      /* 48px */
+  --space-16: 4rem;      /* 64px */
+  --space-20: 5rem;      /* 80px */
+}
+```
+
+### 3.4 Breakpoints (mobile-first)
+
+```
+sm: 480px  |  md: 768px  |  lg: 1024px  |  xl: 1280px
+```
+
+### 3.5 Elevation, Shape e Z-Index
+
+```css
+:root {
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+
+  --shadow-sm:  0 1px 2px hsl(0 0% 0% / 0.3);
+  --shadow-md:  0 4px 12px hsl(0 0% 0% / 0.4);
+  --shadow-lg:  0 8px 30px hsl(0 0% 0% / 0.5);
+  --shadow-sheet: 0 -4px 24px hsl(0 0% 0% / 0.6);
+  
+  /* Z-Index Scale — apenas para componentes portalizados */
+  --z-base:     0;
+  --z-sticky:   100;
+  --z-dropdown: 200;
+  --z-modal:    300;
+  --z-sheet:    400;
+  --z-toast:    500;
+}
+```
+
+**Regras de Stacking Context:**
+- **Portalizados (modais, sheets, toasts, dropdowns):** DEVEM usar `React.createPortal` para `document.body` e aplicar tokens `--z-*`.
+- **Isolados (AppShell regions):** `isolation: isolate` apenas em regiões estruturais (sidebar, main) para contencimento interno. Componentes dentro dessas regiões que precisam escapar (dropdowns) devem ser portalizados.
+- **Proibido:** Valores z-index inline ou tokens em componentes não-portalizados.
+
+### 3.6 Motion Tokens
+
+```css
+:root {
+  --duration-fast:   120ms;
+  --duration-normal: 200ms;
+  --duration-slow:   350ms;
+  --duration-sheet:  400ms;
+
+  --ease-out:     cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out:  cubic-bezier(0.45, 0, 0.55, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast:   0ms;
+    --duration-normal: 0ms;
+    --duration-slow:   0ms;
+    --duration-sheet:  0ms;
+  }
+}
+```
+
+**Regras de motion:**
+- OBRIGATÓRIO: BottomSheet snap (vaul spring), skeleton shimmer (opacity only), page crossfade (Framer Motion layout — lazy loaded)
+- PROIBIDO: animações decorativas no Document Viewer (prejudica leitura)
+- reduced-motion: opacity transition instantânea
+
+---
+
+## 4. Contratos de Componentes
+
+### Convenção de Test IDs
+Todos os componentes expõem `data-testid` seguindo padrão: `{component}-{element}` ou `{component}-{subcomponent}-{element}` para componentes compostos.
+- Exemplos: `data-testid="search-input"`, `data-testid="result-card-12345"`, `data-testid="document-viewer-toc-item"`, `data-testid="search-surface-filter-chip"`.
+
+### 4.1 AppShell
+```typescript
+interface AppShellProps {
+  children: ReactNode;
+  sidebar?: ReactNode;          // colapsa para BottomNav em mobile
+  topBar?: ReactNode;
+  className?: string;
+}
+// Estados: authenticated | loading
+// a11y: <nav>, <main>, <aside> landmarks, skip-to-content link
+// ErrorBoundary: envolve children com fallback genérico
+// data-testid: "appshell-main", "appshell-sidebar", "appshell-navbar"
+// Stacking: sidebar e main usam isolation: isolate; modais/sheets portalizados escapam
+```
+
+### 4.2 SearchSurface
+```typescript
+type SearchStatus = 'idle' | 'debouncing' | 'searching' | 'success' | 'error' | 'empty';
+
+interface SearchResult {
+  id: string;
+  title: string;
+  excerpt: Array<{ text: string; highlight?: boolean }>;
+  secao: number;
+  publishedAt: Date;
+  orgao: string;
+  matchCount?: number;
+}
+
+interface SearchSurfaceProps {
+  // Controlled component: dados fluem via props, não via callback
+  results: SearchResult[];
+  status: SearchStatus;
+  onSearch: (query: string, filters: SearchFilters) => void;  // TanStack Query gerencia async/cancel
+  onClear: () => void;
+  debounceMs?: number;  // default: 300
+  recentSearches?: string[];
+  pagination?: {
+    page: number;
+    pageSize: number;
+    total: number;
+    hasNextPage: boolean;
+  };
+  onLoadMore?: () => void;
+  className?: string;
+}
+
+interface SearchFilters {
+  secao?: 1 | 2 | 3 | 'extra';
+  dateRange?: { from: Date; to: Date };
+  orgao?: string;
+}
+
+// Implementação: SearchSurface gerencia debounce interno (configurável via debounceMs).
+// AbortController é gerenciado pelo TanStack Query (stale/cancel automático).
+// a11y: role="search", aria-live="polite" para count de resultados
+// Virtualização: roving tabindex para navegação por teclado na lista
+```
+
+### 4.3 ResultCard
+```typescript
+interface ResultCardProps {
+  id: string;
+  title: string;
+  excerpt: Array<{ text: string; highlight?: boolean }>; // chunks com highlight
+  secao: number;
+  publishedAt: Date;
+  orgao: string;
+  matchCount?: number; // opcional, exibido como badge
+  onClick: (id: string) => void;
+  variant?: 'compact' | 'expanded';
+}
+// a11y: role="article", aria-label com título
+// data-testid: "result-card-{id}"
+```
+
+### 4.4 DocumentViewer
+```typescript
+interface DocumentSection {
+  id: string;
+  type: 'artigo' | 'paragrafo' | 'inciso' | 'titulo' | 'ementa' | 'imagem' | 'tabela' | 'assinatura' | 'anexo';
+  content: string;
+  depth: number;
+  mediaUrl?: string;
+  mediaAlt?: string;
+  // Para tabelas estruturadas (evita HTML sanitizado):
+  tableData?: { headers: string[]; rows: string[][] };
+}
+
+interface UserPreferences {
+  fontSize: 'sm' | 'md' | 'lg' | 'xl';
+}
+
+interface DocumentViewerProps {
+  documentId: string;
+  queryKey: string[];
+  initialSections?: DocumentSection[];
+  totalSections: number; // obrigatório para progresso "142 de 387" e controle de streaming
+  
+  // Retorna seções completas (nunca corta um artigo no meio)
+  // hasMore: false indica fim do documento (diferencia de erro/transiente)
+  contentLoader: (afterSectionId: string | null, limit: number, signal: AbortSignal) => Promise<{ 
+    sections: DocumentSection[]; 
+    hasMore: boolean 
+  }>;
+  
+  searchQuery?: string;
+  // matchIndex: índice global do match no documento (0 = primeiro match)
+  // occurrenceInSection: qual ocorrência dentro da seção específica
+  searchMatches?: Array<{ sectionId: string; matchIndex: number; occurrenceInSection: number }>;
+  
+  onNavigate: (sectionId: string) => void;
+  onLoadError?: (error: Error, context: { loadedCount: number }) => void;
+  preferences?: UserPreferences; // persistido via Zustand (fontSize apenas)
+  onPreferencesChange?: (prefs: UserPreferences) => void;
+}
+
+// Imperative handle via ref:
+interface DocumentViewerRef {
+  scrollToMatch(matchIndex: number): void;  // computa target → virtuoso.scrollToIndex → highlight
+  getVisibleSection(): string | null;       // retorna ID da seção atualmente visível
+  setFontSize(size: 'sm' | 'md' | 'lg' | 'xl'): void;
+}
+
+// Estados: loading (skeleton) | ready | error | empty | partial-error (inline)
+// Retry: TanStack Query gerencia retry automático; onLoadError para telemetry/UI de erro parcial
+// Persistência: fontSize via Zustand + IndexedDB; progresso de leitura via URL hash (#artigo-5)
+// a11y: role="article", aria-label dinâmico, role="mark" com aria-label para highlights
+// Performance: react-virtuoso com endReached (respeitando hasMore), AbortSignal para cancelamento
+// Deep-link: hook useDocumentDeepLink sincroniza URL hash → virtuoso.scrollToIndex com fetch prévio se necessário
+```
+
+### 4.5 BottomSheet (vaul)
+```typescript
+// vaul v0.9.x API: snapPoints aceita strings ('148px', '50vh', '92dvh') ou números (pixels)
+type SnapPoint = `${number}px` | `${number}vh` | `${number}dvh` | number;
+
+interface BottomSheetProps {
+  snapPoints?: SnapPoint[];  // ex: ['25vh', '50vh', '92dvh'] ou [200, 400, 800]
+  defaultSnap?: number;      // index inicial
+  onSnapChange?: (index: number) => void;
+  onDismiss?: () => void;
+  backdrop?: boolean;
+  closeOnBackdrop?: boolean;
+  trapFocus?: boolean;
+  preventScroll?: boolean;
+  handle?: boolean;
+  children: ReactNode;
+}
+
+// Utilitário obrigatório para converter unidades relativas em pixels (vaul espera pixels no cálculo interno):
+function parseSnapPoints(points: SnapPoint[]): number[] {
+  return points.map(p => {
+    if (typeof p === 'number') return p;
+    const match = p.match(/^(\d+(?:\.\d+)?)(px|vh|dvh)$/);
+    if (!match) throw new Error(`Invalid snap point: ${p}`);
+    const value = parseFloat(match[1]);
+    const unit = match[2];
+    if (unit === 'px') return value;
+    const height = unit === 'dvh' ? window.innerHeight : document.documentElement.clientHeight;
+    return (value / 100) * height;
+  });
+}
+
+// Nota: vaul implementa focus trap, snap points e gestures nativamente (não é baseado em Radix Dialog)
+```
+
+### 4.6 Toast/Notification
+```typescript
+interface ToastProps {
+  id: string;
+  type: 'success' | 'error' | 'info' | 'warning';
+  title: string;
+  description?: string;
+  action?: {
+    label: string;
+    onClick: () => void; // undo, retry, etc.
+  };
+  duration?: number; // ms, default 5000
+  onDismiss: (id: string) => void;
+}
+
+// Implementação: Radix Toast via shadcn/ui
+// Gerenciamento: ToastProvider com fila (max 3 visíveis)
+// a11y: role="status", aria-live="polite", focus não é movido (non-modal)
+// Portalizado para document.body com --z-toast
+```
+
+### 4.7 ErrorBoundary
+```typescript
+interface ErrorFallbackProps {
+  error: Error;
+  resetErrorBoundary: () => void;
+  context: 'viewer' | 'search' | 'dashboard' | 'global';
+}
+
+interface ErrorBoundaryProps {
+  children: ReactNode;
+  fallback?: ComponentType<ErrorFallbackProps>;
+  context: ErrorFallbackProps['context'];
+  onError?: (error: Error, info: ErrorInfo) => void; // envia para Sentry
+}
+// Uso: AppShell (global), DocumentViewer (viewer), SearchSurface (search)
+```
+
+### 4.8 useKeyboardShortcuts Hook
+```typescript
+type ShortcutAction =

@@ -20,6 +20,30 @@
       "args": [
         "/home/parallels/dev/gabi-kimi/.dev/mcp/server.py"
       ]
+    },
+    "json-render": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "/home/parallels/dev/gabi-kimi/.dev/json-render-mcp/server.mjs"
+      ]
+    },
+    "ui-copilot": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "/home/parallels/dev/gabi-kimi/.dev/ui-copilot-mcp/server.mjs"
+      ]
+    },
+    "shannon-helper": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "/home/parallels/dev/gabi-kimi/.dev/shannon/mcp-server-stdio.mjs"
+      ],
+      "env": {
+        "SHANNON_TARGET_DIR": "/home/parallels/dev/gabi-kimi/var/tmp/shannon-helper"
+      }
     }
   }
 }

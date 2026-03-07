@@ -7,31 +7,32 @@ import { SkeletonBlock } from "@/components/Skeletons";
 import { getStats, getTopSearches, getSearchExamples } from "@/lib/api";
 import type { SearchExample, StatsResponse, TopSearch } from "@/lib/api";
 import { getRecentDocuments, type RecentDocumentItem } from "@/lib/history";
+import { navigateToDocument } from "@/lib/navigation";
 
 const FEATURED_DOCUMENTS = [
   {
-    title: "PORTARIA Nº 344, DE 12 DE MAIO DE 1998",
-    organ: "ANVISA",
-    snippet: "Regulamento Técnico sobre substâncias e medicamentos sujeitos a controle especial.",
+    id: "3a5b145e-80e4-4470-bea2-823bd93d05f5",
+    title: "PORTARIA Nº 344, DE 19 DE FEVEREIRO DE 2002",
+    organ: "Ministério da Saúde",
+    snippet: "Ato do Ministério da Saúde no corpus atual, publicado na Seção 1 do DOU de 20/02/2002.",
     section: "do1",
-    pubDate: "1998-05-12",
-    query: "portaria nº 344 anvisa",
+    pubDate: "2002-02-20",
   },
   {
-    title: "DECRETO Nº 10.024, DE 20 DE SETEMBRO DE 2019",
+    id: "01e8425e-aaaf-44d3-8fa9-1a8296ef11a6",
+    title: "PORTARIA Nº 1, DE 2 DE JANEIRO DE 2002",
     organ: "Presidência da República",
-    snippet: "Regulamenta a licitação, na modalidade pregão, na forma eletrônica.",
-    section: "do1",
-    pubDate: "2019-09-20",
-    query: "decreto 10024 pregão eletrônico",
+    snippet: "Portaria da Casa Civil publicada no início do corpus de 2002, útil como ponto de navegação institucional.",
+    section: "do2",
+    pubDate: "2002-01-03",
   },
   {
-    title: "IN RFB Nº 2.198, DE 17 DE JUNHO DE 2024",
-    organ: "Receita Federal do Brasil",
-    snippet: "Dispõe sobre a Declaração de Débitos e Créditos Tributários Federais (DCTF).",
-    section: "do1",
-    pubDate: "2024-06-17",
-    query: "in rfb 2198 dctf",
+    id: "9b0ad87e-fce7-4e30-b809-a7395475f82e",
+    title: "PORTARIA CONJUNTA Nº 309, DE 28 DE DEZEMBRO DE 2001",
+    organ: "Ministério da Agricultura, Pecuária e Abastecimento",
+    snippet: "Documento real do acervo atual, publicado em 02/01/2002 e útil para validar leitura e exploração do corpus.",
+    section: "do2",
+    pubDate: "2002-01-02",
   },
 ];
 
@@ -153,8 +154,12 @@ const HomePage: React.FC = () => {
               <button
                 key={term.query}
                 onClick={() => navigate(`/search?q=${encodeURIComponent(term.query)}`)}
-                className="inline-flex min-h-[40px] items-center gap-1.5 rounded-full border border-white/8 bg-white/[0.03] px-4 text-sm text-foreground transition-all hover:border-primary/20 hover:bg-white/[0.05] focus-ring"
-                style={{ animationDelay: `${index * 40}ms` }}
+                className="inline-flex min-h-[40px] items-center gap-1.5 rounded-full border border-white/8 bg-white/[0.03] px-4 text-sm text-foreground transition-all hover:border-primary/20 hover:bg-white/[0.05] focus-ring animate-float"
+                style={{
+                  animationDelay: `${index * 40}ms`,
+                  ["--float-amplitude" as string]: `${(index % 2 === 0 ? -1 : 1) * (1 + index * 0.15)}px`,
+                  ["--float-duration" as string]: `${4.5 + index * 0.35}s`,
+                }}
               >
                 <span>{term.query}</span>
                 {term.count ? <span className="text-text-tertiary">({term.count})</span> : null}
@@ -169,9 +174,9 @@ const HomePage: React.FC = () => {
             {FEATURED_DOCUMENTS.map((doc, index) => (
               <button
                 key={doc.title}
-                onClick={() => navigate(`/search?q=${encodeURIComponent(doc.query)}`)}
-                className="w-full rounded-[20px] border border-white/8 bg-[linear-gradient(180deg,rgba(22,24,33,0.9),rgba(18,20,28,0.96))] px-4 py-4 text-left transition-all hover:border-primary/18 hover:bg-white/[0.03] focus-ring"
-                style={{ animationDelay: `${index * 60}ms` }}
+                onClick={() => navigateToDocument(navigate, doc.id, "recent-document")}
+                className="w-full rounded-[20px] border border-white/8 bg-[linear-gradient(180deg,rgba(22,24,33,0.9),rgba(18,20,28,0.96))] px-4 py-4 text-left transition-all hover:border-primary/18 hover:bg-white/[0.03] focus-ring animate-lift animate-breathe"
+                style={{ animationDelay: `${index * 60}ms`, ["--breathe-delay" as string]: `${index * 180}ms` }}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -199,8 +204,8 @@ const HomePage: React.FC = () => {
                 {recentDocs.map((doc, index) => (
                   <button
                     key={doc.id}
-                    onClick={() => navigate(`/document/${encodeURIComponent(doc.id)}`)}
-                    className="flex w-full items-start justify-between gap-3 rounded-[18px] border border-white/8 bg-white/[0.03] px-4 py-4 text-left transition-all hover:border-primary/18 hover:bg-white/[0.05] focus-ring"
+                    onClick={() => navigateToDocument(navigate, doc.id, "recent-document")}
+                    className="flex w-full items-start justify-between gap-3 rounded-[18px] border border-white/8 bg-white/[0.03] px-4 py-4 text-left transition-all hover:border-primary/18 hover:bg-white/[0.05] focus-ring animate-slide-in-right animate-lift"
                     style={{ animationDelay: `${index * 50}ms` }}
                   >
                     <div className="min-w-0">
@@ -253,7 +258,7 @@ const MetricCard: React.FC<{
   series: number[];
   color: string;
 }> = ({ label, value, accent, accentTone, series, color }) => (
-  <div className="rounded-[22px] border border-white/8 bg-[linear-gradient(180deg,rgba(22,24,33,0.92),rgba(18,20,28,0.98))] px-4 py-4">
+  <div className="rounded-[22px] border border-white/8 bg-[linear-gradient(180deg,rgba(22,24,33,0.92),rgba(18,20,28,0.98))] px-4 py-4 animate-spring-in animate-lift">
     <div className="mb-3 flex items-center justify-between gap-3">
       <span className="text-[11px] uppercase tracking-[0.16em] text-text-tertiary">{label}</span>
       <span className={`text-sm ${accentTone}`}>{accent}</span>

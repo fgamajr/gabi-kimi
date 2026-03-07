@@ -1,1 +1,0 @@
-../src/backend/dbsync/bm25_schema.sql

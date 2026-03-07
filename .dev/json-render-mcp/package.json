@@ -1,0 +1,26 @@
+{
+  "name": "json-render-mcp",
+  "version": "1.0.0",
+  "description": "Local MCP Apps server for json-render experiments",
+  "main": "server.mjs",
+  "scripts": {
+    "build": "node ./build-ui.mjs",
+    "start": "node ./server.mjs",
+    "test": "node -e \"console.log('no tests')\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@json-render/core": "^0.12.0",
+    "@json-render/mcp": "^0.12.0",
+    "@json-render/react": "^0.12.0",
+    "@json-render/shadcn": "^0.12.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "esbuild": "^0.27.3",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "zod": "^4.3.6"
+  }
+}

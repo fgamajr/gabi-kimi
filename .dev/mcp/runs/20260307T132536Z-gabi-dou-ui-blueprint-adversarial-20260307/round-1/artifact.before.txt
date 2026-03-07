@@ -1,0 +1,6 @@
+# Blueprint inicial
+- Base: shadcn/ui + React Bits
+- Tema dark-first com tokens próprios
+- Componentes-chave: AppShell, Search Surface, ResultCard, Document Viewer, BottomSheet
+- Foco em mobile e leitura longa
+- Motion apenas com propósito

@@ -1,1 +1,0 @@
-Proposed direction: create src/backend and src/frontend, move implementation packages there, keep root entrypoint shims for all currently-invoked top-level scripts, defer infra/deploy renames to a later phase, and validate MCP/config/docs after path updates.

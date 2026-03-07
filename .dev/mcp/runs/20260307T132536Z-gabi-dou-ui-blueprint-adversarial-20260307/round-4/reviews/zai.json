@@ -1,0 +1,91 @@
+{
+  "agent": "zai",
+  "round": 4,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "Seção 4.2 SearchSurface interface",
+      "description": "API ambígua: `onSearch` retorna `Promise<void>` mas não define como os resultados chegam à UI. Se é via TanStack Query, o callback não deveria retornar Promise<void>. Se é via props de resultados, falta definir `results: SearchResult[]`. O padrão atual quebra o fluxo de dados.",
+      "suggested_fix": "Separar responsabilidades: SearchSurface recebe `results` e `status` como props, gerencia debounce interno, e chama `onSearch(query, filters)` (sem AbortSignal, sem Promise — TanStack Query gerencia async/cancel). OU: SearchSurface é um controlled component que recebe tudo via props, incluindo `onSearchChange: (query: string) => void`."
+    },
+    {
+      "severity": "high",
+      "location": "Seção 4.4 DocumentViewer interface",
+      "description": "Três problemas na interface: (1) `scrollToMatch` como prop sugere callback, mas descrição diz 'dispara scrollToIndex' — isso é imperativeHandle, não prop. (2) `offset/limit` para streaming pode cortar no meio de uma seção lógica (ex: artigo cortado no meio de seus incisos). (3) `matchIndex` em `searchMatches` é ambíguo — índice da seção ou índice do match dentro do documento?",
+      "suggested_fix": "(1) Expor via useImperativeHandle: `ref.current.scrollToMatch(matchIndex: number)`. (2) Usar `sectionId` como cursor em vez de offset, ou garantir que contentLoader retorne seções completas. (3) Renomear para `occurrenceIndex` ou `documentMatchIndex` com comentário explicativo."
+    },
+    {
+      "severity": "high",
+      "location": "Seção 5 Performance Budget — Shared libs",
+      "description": "Budget de ≤50KB gzip para shared libs é irrealista. Framer Motion 11 (~25-30KB gzip) + TanStack Query v5 (~13KB) + Radix primitives (Dialog ~8KB, Select ~6KB, etc) + Zustand (~3KB) = ~55-65KB mínimo antes de qualquer outra dependência. O budget vai falhar no primeiro dia.",
+      "suggested_fix": "Ajustar para ≤80KB gzip para shared libs, OU remover Framer Motion (usar CSS transitions + vaul para tudo) e manter 50KB. Documentar trade-off explícito: animações ricas vs bundle size."
+    },
+    {
+      "severity": "medium",
+      "location": "Seção 3.1 Paleta — Light theme",
+      "description": "Light theme não define variantes completas (`-hover`, `-active`, `-muted`) para `--color-secondary` e cores semânticas (`--color-danger`, `--color-success`, `--color-info`), enquanto dark theme define parcialmente. Inconsistência gera bugs quando componentes usam essas variantes.",
+      "suggested_fix": "Completar todas as variantes de cores no light theme, ou documentar explicitamente que componentes só usam variantes no dark theme e devem usar cor base em light theme (mas isso quebra consistência de código)."
+    },
+    {
+      "severity": "medium",
+      "location": "Seção 8 Roadmap — Fases 0a/0b",
+      "description": "10 dias para: Vite+React+TS strict, 3 temas completos, preload de fontes + CLS mitigation, ESLint/Prettier/Stylelint com regras custom, AppShell, Zustand+IndexedDB, TanStack Query, ErrorBoundary, Vitest, Ladle, Sentry é irrealista. Qualquer desenvolvedor real vai estourar esse prazo em 2-3x.",
+      "suggested_fix": "Quebrar em 3 semanas realistas: Semana 1 (foundation: Vite, TS, tokens dark-only, linters), Semana 2 (state management, ErrorBoundary, AppShell), Semana 3 (temas light/high-contrast, testes, Sentry). Ou reduzir escopo do MVP."
+    },
+    {
+      "severity": "medium",
+      "location": "Seção 4.5 BottomSheet — parseSnapPoints",
+      "description": "Blueprint menciona utilitário `parseSnapPoints(['25vh', '50vh', '92dvh'])` mas não o define em lugar nenhum. É código que não existe, criando dívida técnica imediata.",
+      "suggested_fix": "Adicionar implementação do utilitário em 'Seção 4.5' ou em nova seção 'Utilities': `function parseSnapPoints(points: string[]): number[] { return points.map(p => { const match = p.match(/(\\d+(?:\\.\\d+)?)(vh|dvh|px)/); if (!match) throw new Error('Invalid snap point'); const value = parseFloat(match[1]); const unit = match[2]; return unit === 'px' ? value : value * window.innerHeight / 100; }); }`"
+    },
+    {
+      "severity": "low",
+      "location": "Seção 7 Acessibilidade — Atalhos j/k",
+      "description": "Atalhos `j`/`k` para navegação de seção podem conflitar com navegação por letra em leitores de tela (JAWS/NVDA usam letras para pular para elementos). Pode quebrar a11y em vez de melhorar.",
+      "suggested_fix": "Documentar que atalhos só são ativados quando foco está no DocumentViewer (não global), ou usar modificadores: `Alt+j`/`Alt+k`. Adicionar teste manual com NVDA no roadmap da Fase 1."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "Seção 3.2 Tipografia — size-adjust",
+      "description": "Valor `size-adjust: 103%` para Literata é específico demais sem justificativa. Se foi calculado empiricamente, documente o método. Se é um chute, é melhor remover (o CLS pode ser pior com valor errado)."
+    },
+    {
+      "type": "improvement",
+      "location": "Seção 3.1 Paleta — High contrast",
+      "description": "High contrast usa cores hex diretas (`#ffdd00`) enquanto outros temas usam HSL. Para consistência e manutenabilidade, converter para HSL ou documentar que high-contrast é uma folha de estilo isolada propositalmente."
+    },
+    {
+      "type": "improvement",
+      "location": "Seção 5 Performance Budget",
+      "description": "Adicionar budget de tempo de boot: 'Time to Interactive < 3.5s (3G throttled)'. LCP sozinho não captura quando a app está realmente interativa para o usuário fazer uma busca."
+    },
+    {
+      "type": "improvement",
+      "location": "Seção 4 Contratos — Convenção de Test IDs",
+      "description": "Padrão `{component}-{element}` é bom, mas adicione regra para componentes compostos: `{component}-{subcomponent}-{element}`. Ex: `document-viewer-toc-item`, `search-surface-filter-chip`. Isso evita ambiguidade em testes e2e."
+    }
+  ],
+  "diffs": [
+    {
+      "file": "blueprint-section-4.2",
+      "hunks": "@@ -1,12 +1,15 @@\n type SearchStatus = 'idle' | 'debouncing' | 'searching' | 'success' | 'error' | 'empty';\n \n interface SearchSurfaceProps {\n-  onSearch: (query: string, filters: SearchFilters, signal: AbortSignal) => Promise<void>;\n+  onSearch: (query: string, filters: SearchFilters) => void;  // TanStack Query gerencia async\n   onClear: () => void;\n   status: SearchStatus;\n+  results: SearchResult[];  // dados vêm via props, não via callback\n   recentSearches?: string[];\n   pagination?: PaginationState;\n   onLoadMore?: () => void;\n   className?: string;\n }\n+\n+// Nota: SearchSurface gerencia debounce interno (300ms). O componente pai\n+// usa TanStack Query com AbortSignal automático em queries stale/cancelled."
+    },
+    {
+      "file": "blueprint-section-4.4",
+      "hunks": "@@ -15,8 +15,9 @@\n interface DocumentViewerProps {\n   documentId: string;\n   queryKey: string[];\n   initialSections?: DocumentSection[];\n-  contentLoader: (offset: number, limit: number, signal: AbortSignal) => Promise<DocumentSection[]>;\n+  contentLoader: (afterSectionId: string | null, limit: number, signal: AbortSignal) => Promise<DocumentSection[]>;\n   searchQuery?: string;\n-  searchMatches?: Array<{ sectionId: string; matchIndex: number }>;\n+  // matchIndex: índice global do match no documento (0 = primeiro match)\n+  searchMatches?: Array<{ sectionId: string; matchIndex: number; occurrenceInSection: number }>;\n   onNavigate: (sectionId: string) => void;\n   onLoadError?: (error: Error, context: { loadedCount: number }) => void;\n-  scrollToMatch?: (matchIndex: number) => void;\n }\n+\n+// Imperative handle via ref:\n+// ref.current?.scrollToMatch(matchIndex: number) => void\n+// ref.current?.getVisibleSection() => string | null\n+// ref.current?.setFontSize(size: 'sm' | 'md' | 'lg' | 'xl') => void"
+    },
+    {
+      "file": "blueprint-section-5",
+      "hunks": "@@ -1,7 +1,7 @@\n | Métrica | Target | Enforcement |\n |---|---|---|\n | Vendor chunk (React+ReactDOM) | ≤ 140 KB gzip | size-limit (monitorar upgrades) |\n-| Shared libs (TanStack, Zustand, Framer Motion, Radix) | ≤ 50 KB gzip | size-limit |\n+| Shared libs (TanStack, Zustand, Framer Motion, Radix) | ≤ 80 KB gzip | size-limit |\n | App initial route (excl. vendor) | ≤ 50 KB gzip | code-splitting obrigatório |\n-| Total initial transfer | ≤ 210 KB gzip | Lighthouse CI gate |\n+| Total initial transfer | ≤ 270 KB gzip | Lighthouse CI gate |\n | Lazy routes | ≤ 30 KB cada | dynamic imports documentados |"
+    }
+  ],
+  "meta": {
+    "tokens_used": 3842,
+    "latency_ms": 0,
+    "thinking_tokens": 0
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"zai\",\n  \"round\": 4,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Seção 4.2 SearchSurface interface\",\n      \"description\": \"API ambígua: `onSearch` retorna `Promise<void>` mas não define como os resultados chegam à UI. Se é via TanStack Query, o callback não deveria retornar Promise<void>. Se é via props de resultados, falta definir `results: SearchResult[]`. O padrão atual quebra o fluxo de dados.\",\n      \"suggested_fix\": \"Separar responsabilidades: SearchSurface recebe `results` e `status` como props, gerencia debounce interno, e chama `onSearch(query, filters)` (sem AbortSignal, sem Promise — TanStack Query gerencia async/cancel). OU: SearchSurface é um controlled component que recebe tudo via props, incluindo `onSearchChange: (query: string) => void`.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Seção 4.4 DocumentViewer interface\",\n      \"description\": \"Três problemas na interface: (1) `scrollToMatch` como prop sugere callback, mas descrição diz 'dispara scrollToIndex' — isso é imperativeHandle, não prop. (2) `offset/limit` para streaming pode cortar no meio de uma seção lógica (ex: artigo cortado no meio de seus incisos). (3) `matchIndex` em `searchMatches` é ambíguo — índice da seção ou índice do match dentro do documento?\",\n      \"suggested_fix\": \"(1) Expor via useImperativeHandle: `ref.current.scrollToMatch(matchIndex: number)`. (2) Usar `sectionId` como cursor em vez de offset, ou garantir que contentLoader retorne seções completas. (3) Renomear para `occurrenceIndex` ou `documentMatchIndex` com comentário explicativo.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Seção 5 Performance Budget — Shared libs\",\n      \"description\": \"Budget de ≤50KB gzip para shared libs é irrealista. Framer Motion 11 (~25-30KB gzip) + TanStack Query v5 (~13KB) + Radix primitives (Dialog ~8KB, Select ~6KB, etc) + Zustand (~3KB) = ~55-65KB mínimo antes de qualquer outra dependência. O budget vai falhar no primeiro dia.\",\n      \"suggested_fix\": \"Ajustar para ≤80KB gzip para shared libs, OU remover Framer Motion (usar CSS transitions + vaul para tudo) e manter 50KB. Documentar trade-off explícito: animações ricas vs bundle size.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Seção 3.1 Paleta — Light theme\",\n      \"description\": \"Light theme não define variantes completas (`-hover`, `-active`, `-muted`) para `--color-secondary` e cores semânticas (`--color-danger`, `--color-success`, `--color-info`), enquanto dark theme define parcialmente. Inconsistência gera bugs quando componentes usam essas variantes.\",\n      \"suggested_fix\": \"Completar todas as variantes de cores no light theme, ou documentar explicitamente que componentes só usam variantes no dark theme e devem usar cor base em light theme (mas isso quebra consistência de código).\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Seção 8 Roadmap — Fases 0a/0b\",\n      \"description\": \"10 dias para: Vite+React+TS strict, 3 temas completos, preload de fontes + CLS mitigation, ESLint/Prettier/Stylelint com regras custom, AppShell, Zustand+IndexedDB, TanStack Query, ErrorBoundary, Vitest, Ladle, Sentry é irrealista. Qualquer desenvolvedor real vai estourar esse prazo em 2-3x.\",\n      \"suggested_fix\": \"Quebrar em 3 semanas realistas: Semana 1 (foundation: Vite, TS, tokens dark-only, linters), Semana 2 (state management, ErrorBoundary, AppShell), Semana 3 (temas light/high-contrast, testes, Sentry). Ou reduzir escopo do MVP.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Seção 4.5 BottomSheet — parseSnapPoints\",\n      \"description\": \"Blueprint menciona utilitário `parseSnapPoints(['25vh', '50vh', '92dvh'])` mas não o define em lugar nenhum. É código que não existe, criando dívida técnica imediata.\",\n      \"suggested_fix\": \"Adicionar implementação do utilitário em 'Seção 4.5' ou em nova seção 'Utilities': `function parseSnapPoints(points: string[]): number[] { return points.map(p => { const match = p.match(/(\\\\d+(?:\\\\.\\\\d+)?)(vh|dvh|px)/); if (!match) throw new Error('Invalid snap point'); const value = parseFloat(match[1]); const unit = match[2]; return unit === 'px' ? value : value * window.innerHeight / 100; }); }`\"\n    },\n    {\n      \"severity\": \"low\",\n      \"location\": \"Seção 7 Acessibilidade — Atalhos j/k\",\n      \"description\": \"Atalhos `j`/`k` para navegação de seção podem conflitar com navegação por letra em leitores de tela (JAWS/NVDA usam letras para pular para elementos). Pode quebrar a11y em vez de melhorar.\",\n      \"suggested_fix\": \"Documentar que atalhos só são ativados quando foco está no DocumentViewer (não global), ou usar modificadores: `Alt+j`/`Alt+k`. Adicionar teste manual com NVDA no roadmap da Fase 1.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Seção 3.2 Tipografia — size-adjust\",\n      \"description\": \"Valor `size-adjust: 103%` para Literata é específico demais sem justificativa. Se foi calculado empiricamente, documente o método. Se é um chute, é melhor remover (o CLS pode ser pior com valor errado).\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Seção 3.1 Paleta — High contrast\",\n      \"description\": \"High contrast usa cores hex diretas (`#ffdd00`) enquanto outros temas usam HSL. Para consistência e manutenabilidade, converter para HSL ou documentar que high-contrast é uma folha de estilo isolada propositalmente.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Seção 5 Performance Budget\",\n      \"description\": \"Adicionar budget de tempo de boot: 'Time to Interactive < 3.5s (3G throttled)'. LCP sozinho não captura quando a app está realmente interativa para o usuário fazer uma busca.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Seção 4 Contratos — Convenção de Test IDs\",\n      \"description\": \"Padrão `{component}-{element}` é bom, mas adicione regra para componentes compostos: `{component}-{subcomponent}-{element}`. Ex: `document-viewer-toc-item`, `search-surface-filter-chip`. Isso evita ambiguidade em testes e2e.\"\n    }\n  ],\n  \"diffs\": [\n    {\n      \"file\": \"blueprint-section-4.2\",\n      \"hunks\": \"@@ -1,12 +1,15 @@\\n type SearchStatus = 'idle' | 'debouncing' | 'searching' | 'success' | 'error' | 'empty';\\n \\n interface SearchSurfaceProps {\\n-  onSearch: (query: string, filters: SearchFilters, signal: AbortSignal) => Promise<void>;\\n+  onSearch: (query: string, filters: SearchFilters) => void;  // TanStack Query gerencia async\\n   onClear: () => void;\\n   status: SearchStatus;\\n+  results: SearchResult[];  // dados vêm via props, não via callback\\n   recentSearches?: string[];\\n   pagination?: PaginationState;\\n   onLoadMore?: () => void;\\n   className?: string;\\n }\\n+\\n+// Nota: SearchSurface gerencia debounce interno (300ms). O componente pai\\n+// usa TanStack Query com AbortSignal automático em queries stale/cancelled.\"\n    },\n    {\n      \"file\": \"blueprint-section-4.4\",\n      \"hunks\": \"@@ -15,8 +15,9 @@\\n interface DocumentViewerProps {\\n   documentId: string;\\n   queryKey: string[];\\n   initialSections?: DocumentSection[];\\n-  contentLoader: (offset: number, limit: number, signal: AbortSignal) => Promise<DocumentSection[]>;\\n+  contentLoader: (afterSectionId: string | null, limit: number, signal: AbortSignal) => Promise<DocumentSection[]>;\\n   searchQuery?: string;\\n-  searchMatches?: Array<{ sectionId: string; matchIndex: number }>;\\n+  // matchIndex: índice global do match no documento (0 = primeiro match)\\n+  searchMatches?: Array<{ sectionId: string; matchIndex: number; occurrenceInSection: number }>;\\n   onNavigate: (sectionId: string) => void;\\n   onLoadError?: (error: Error, context: { loadedCount: number }) => void;\\n-  scrollToMatch?: (matchIndex: number) => void;\\n }\\n+\\n+// Imperative handle via ref:\\n+// ref.current?.scrollToMatch(matchIndex: number) => void\\n+// ref.current?.getVisibleSection() => string | null\\n+// ref.current?.setFontSize(size: 'sm' | 'md' | 'lg' | 'xl') => void\"\n    },\n    {\n      \"file\": \"blueprint-section-5\",\n      \"hunks\": \"@@ -1,7 +1,7 @@\\n | Métrica | Target | Enforcement |\\n |---|---|---|\\n | Vendor chunk (React+ReactDOM) | ≤ 140 KB gzip | size-limit (monitorar upgrades) |\\n-| Shared libs (TanStack, Zustand, Framer Motion, Radix) | ≤ 50 KB gzip | size-limit |\\n+| Shared libs (TanStack, Zustand, Framer Motion, Radix) | ≤ 80 KB gzip | size-limit |\\n | App initial route (excl. vendor) | ≤ 50 KB gzip | code-splitting obrigatório |\\n-| Total initial transfer | ≤ 210 KB gzip | Lighthouse CI gate |\\n+| Total initial transfer | ≤ 270 KB gzip | Lighthouse CI gate |\\n | Lazy routes | ≤ 30 KB cada | dynamic imports documentados |\"\n    }\n  ],\n  \"meta\": {\n    \"tokens_used\": 3842,\n    \"latency_ms\": 0,\n    \"thinking_tokens\": 0\n  }\n}\n```"
+}

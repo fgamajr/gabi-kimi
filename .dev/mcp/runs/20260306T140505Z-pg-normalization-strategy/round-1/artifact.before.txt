@@ -1,1 +1,0 @@
-Normalize the benchmark so PG, ES, and hybrid are graded on comparable evidence, especially for filtered searches and semantic-paraphrase cases. Focus on query/result-shape normalization, not on changing search relevance yet.

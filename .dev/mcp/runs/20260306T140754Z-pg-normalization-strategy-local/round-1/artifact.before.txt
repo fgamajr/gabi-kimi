@@ -1,1 +1,0 @@
-Potential direction: keep search relevance untouched, but normalize benchmark evidence by hydrating benchmark results into a canonical document shape before grading; alternatively normalize per-backend response mapping. Need the best plan and acceptance criteria.
