@@ -1,0 +1,56 @@
+{
+  "agent": "kimi",
+  "round": 3,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "src/frontend/web/src/components/DocumentGraph.tsx",
+      "description": "Sanitize utility loaded via dynamic import creates TOCTOU race condition. If sanitize is code-split into a separate chunk (as implied by vite.config.ts manualChunks), the component renders unsanitized backend data while the chunk loads over the network. XSS payload executes in the window between render and chunk arrival, rendering the security control ineffective.",
+      "suggested_fix": "Remove sanitize from manualChunks; import synchronously in main bundle. Defense-in-depth cannot rely on asynchronous loading for security-critical path. Alternatively, sanitize all data server-side before transmission."
+    },
+    {
+      "severity": "high",
+      "location": "src/frontend/web/src/hooks/usePdfExport.ts",
+      "description": "html2pdf.js executes html2canvas synchronously on the main thread, blocking UI for 3-10 seconds on mobile devices (iOS Safari/Android Chrome), causing ANR (Application Not Responding) errors and tab kills. Round 2 incorrectly classified this as acceptable with minor memory concerns. This violates mobile-first requirements.",
+      "suggested_fix": "Offload PDF generation to a Web Worker using Comlink or similar. If Worker is unsupported or for devices with <4GB RAM, disable client-side export and provide server-side generation endpoint only."
+    },
+    {
+      "severity": "high",
+      "location": "src/frontend/web/src/components/DocumentGraph.tsx",
+      "description": "No cycle detection in recursive graph traversal. Backend could return cyclic relations (A→B→C→A) causing infinite recursion and stack overflow crash. This is a realistic scenario with bidirectional document references.",
+      "suggested_fix": "Maintain a Set of visited node IDs during tree traversal. Before rendering a child node, check if ID exists in visited Set; if so, render a 'circular reference' placeholder and break recursion."
+    },
+    {
+      "severity": "high",
+      "location": "src/frontend/web/src/components/DocumentGraph.tsx",
+      "description": "State architecture likely uses React Context or useState for 2000+ nodes (implied by virtualization requirement). Without atomic state management or React.memo on every TreeNode, expanding one branch triggers O(n) re-render of entire tree, causing >100ms frame drops even with virtualization.",
+      "suggested_fix": "Implement React.memo with deep comparison for TreeNode components, or migrate to Zustand/Jotai for atomic updates. Ensure state selectors only subscribe to specific node data, not the entire graph."
+    },
+    {
+      "severity": "high",
+      "location": "src/frontend/web/src/lib/api.ts",
+      "description": "Round 2 lists Zod validation as a recommendation, but given the XSS vectors and unvalidated backend data identified, runtime type validation is a mandatory security control. TypeScript types disappear at runtime and cannot prevent malformed data from reaching sanitization routines.",
+      "suggested_fix": "Add Zod schemas for all /api/document endpoints. Validate responses before they reach DocumentGraph component. Fail closed (render error state) on validation failure."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "src/frontend/web/vite.config.ts",
+      "description": "Add Content Security Policy (CSP) meta-tag or headers to mitigate XSS impact. Given the rendering vulnerabilities found, CSP is necessary defense-in-depth: default-src 'self', script-src 'self', object-src 'none'."
+    },
+    {
+      "type": "improvement",
+      "location": "src/frontend/web/src/components/CommandPalette.tsx",
+      "description": "Add debouncing (300ms) and AbortController to command palette search queries if backend-driven. Prevents request spam and race conditions on slow mobile networks."
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 0,
+    "latency_ms": 0,
+    "thinking_tokens": 0
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"kimi\",\n  \"round\": 3,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/frontend/web/src/components/DocumentGraph.tsx\",\n      \"description\": \"Sanitize utility loaded via dynamic import creates TOCTOU race condition. If sanitize is code-split into a separate chunk (as implied by vite.config.ts manualChunks), the component renders unsanitized backend data while the chunk loads over the network. XSS payload executes in the window between render and chunk arrival, rendering the security control ineffective.\",\n      \"suggested_fix\": \"Remove sanitize from manualChunks; import synchronously in main bundle. Defense-in-depth cannot rely on asynchronous loading for security-critical path. Alternatively, sanitize all data server-side before transmission.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/frontend/web/src/hooks/usePdfExport.ts\",\n      \"description\": \"html2pdf.js executes html2canvas synchronously on the main thread, blocking UI for 3-10 seconds on mobile devices (iOS Safari/Android Chrome), causing ANR (Application Not Responding) errors and tab kills. Round 2 incorrectly classified this as acceptable with minor memory concerns. This violates mobile-first requirements.\",\n      \"suggested_fix\": \"Offload PDF generation to a Web Worker using Comlink or similar. If Worker is unsupported or for devices with <4GB RAM, disable client-side export and provide server-side generation endpoint only.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/frontend/web/src/components/DocumentGraph.tsx\",\n      \"description\": \"No cycle detection in recursive graph traversal. Backend could return cyclic relations (A→B→C→A) causing infinite recursion and stack overflow crash. This is a realistic scenario with bidirectional document references.\",\n      \"suggested_fix\": \"Maintain a Set of visited node IDs during tree traversal. Before rendering a child node, check if ID exists in visited Set; if so, render a 'circular reference' placeholder and break recursion.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/frontend/web/src/components/DocumentGraph.tsx\",\n      \"description\": \"State architecture likely uses React Context or useState for 2000+ nodes (implied by virtualization requirement). Without atomic state management or React.memo on every TreeNode, expanding one branch triggers O(n) re-render of entire tree, causing >100ms frame drops even with virtualization.\",\n      \"suggested_fix\": \"Implement React.memo with deep comparison for TreeNode components, or migrate to Zustand/Jotai for atomic updates. Ensure state selectors only subscribe to specific node data, not the entire graph.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/frontend/web/src/lib/api.ts\",\n      \"description\": \"Round 2 lists Zod validation as a recommendation, but given the XSS vectors and unvalidated backend data identified, runtime type validation is a mandatory security control. TypeScript types disappear at runtime and cannot prevent malformed data from reaching sanitization routines.\",\n      \"suggested_fix\": \"Add Zod schemas for all /api/document endpoints. Validate responses before they reach DocumentGraph component. Fail closed (render error state) on validation failure.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"src/frontend/web/vite.config.ts\",\n      \"description\": \"Add Content Security Policy (CSP) meta-tag or headers to mitigate XSS impact. Given the rendering vulnerabilities found, CSP is necessary defense-in-depth: default-src 'self', script-src 'self', object-src 'none'.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"src/frontend/web/src/components/CommandPalette.tsx\",\n      \"description\": \"Add debouncing (300ms) and AbortController to command palette search queries if backend-driven. Prevents request spam and race conditions on slow mobile networks.\"\n    }\n  ],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 0,\n    \"latency_ms\": 0,\n    \"thinking_tokens\": 0\n  }\n}\n```"
+}

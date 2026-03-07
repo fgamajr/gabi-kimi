@@ -11,21 +11,21 @@ export const DocumentTOC: React.FC<DocumentTOCProps> = ({ sections, activeSectio
   if (!sections.length) return null;
 
   return (
-    <div className="rounded-2xl border border-border bg-card p-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-text-tertiary mb-3">
+    <div className="rounded-[24px] border border-white/6 bg-white/[0.02] p-4">
+      <p className="mb-4 text-xs font-semibold uppercase tracking-[0.16em] text-text-tertiary">
         Índice
       </p>
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         {sections.map((section) => {
           const active = section.id === activeSectionId;
           return (
             <button
               key={section.id}
               onClick={() => onSelect(section)}
-              className={`w-full text-left rounded-xl px-3 py-2.5 text-sm transition-colors min-h-[44px] ${
+              className={`min-h-[44px] w-full rounded-2xl px-4 py-3 text-left text-sm transition-colors ${
                 active
-                  ? "bg-primary/12 text-primary border border-primary/20"
-                  : "text-text-secondary hover:bg-secondary hover:text-foreground"
+                  ? "border border-primary/15 bg-primary/14 text-primary"
+                  : "text-text-secondary hover:bg-white/[0.04] hover:text-foreground"
               }`}
             >
               {section.label}

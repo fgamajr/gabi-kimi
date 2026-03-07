@@ -1,4 +1,28 @@
-import { Search, FileText, Home, ArrowLeft, Filter, X, ChevronRight, ChevronDown, Calendar, ExternalLink, Image, Share2, BookOpen, TrendingUp, Clock, Hash, Building, GitBranch, Command } from 'lucide-react';
+import {
+  Search,
+  FileText,
+  Home,
+  ArrowLeft,
+  Filter,
+  X,
+  ChevronRight,
+  ChevronDown,
+  Calendar,
+  ExternalLink,
+  Image,
+  Share2,
+  BookOpen,
+  TrendingUp,
+  Clock,
+  Hash,
+  Building,
+  GitBranch,
+  Command,
+  BarChart3,
+  Settings,
+  Download,
+  Star,
+} from 'lucide-react';
 
 export const Icons = {
   search: Search,
@@ -20,4 +44,8 @@ export const Icons = {
   building: Building,
   gitBranch: GitBranch,
   command: Command,
+  analytics: BarChart3,
+  settings: Settings,
+  download: Download,
+  star: Star,
 };

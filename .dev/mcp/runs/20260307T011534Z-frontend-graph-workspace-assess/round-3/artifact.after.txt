@@ -1,0 +1,224 @@
+## GABI DOU Frontend Changes — Review (Round 3)
+
+### Verdict: REQUEST_CHANGES — 12 blocking, 4 recommended
+
+---
+
+### Prior Round Context
+
+Rounds 1 and 2 identified 4 original blockers (ErrorBoundary, XSS, unbounded fetch, global warning suppression) and added 4 more (virtualization, cache eviction, per-branch errors, command palette viewport). Round 3 adversarial review surfaced 5 additional valid objections. This revision incorporates all validated findings and resolves ambiguities flagged in Round 3 feedback.
+
+---
+
+### Blocking Objections
+
+**1. [HIGH] Missing Error Boundary around lazy-loaded routes — with retry budget**
+`src/frontend/web/src/App.tsx`
+
+React.lazy chunks that fail to load (network drop, stale deploy hash, cache corruption) throw unrecoverable runtime errors. There is no Error Boundary wrapping the Suspense tree, so any chunk-load failure white-screens the entire application.
+
+**Required fix:** Add an ErrorBoundary above Suspense that catches chunk-load errors (`ChunkLoadError` / dynamic import rejection), logs to the monitoring service, and renders a retry-capable fallback shell. The retry mechanism must implement exponential backoff (1s → 2s → 4s) with a hard ceiling of 3 attempts. After 3 failures, render a terminal error state instructing the user to hard-refresh — do not loop.
+
+```
+- <Suspense fallback={null}>
+-   <Router />
+- </Suspense>
++ <ChunkErrorBoundary
++     onError={reportToMonitoring}
++     fallback={<RetryShell />}
++     maxRetries={3}
++     backoff="exponential"
++     terminalFallback={<HardRefreshPrompt />}
++ >
++   <Suspense fallback={<PageSkeleton />}>
++     <Router />
++   </Suspense>
++ </ChunkErrorBoundary>
+```
+
+**2. [HIGH] XSS vector in DocumentGraph + sanitize must be synchronous in main bundle**
+`src/frontend/web/src/components/DocumentGraph.tsx`, `src/frontend/web/src/lib/sanitize.ts`, `src/frontend/web/vite.config.ts`
+
+Backend-supplied relation labels, branch labels, and document titles are rendered as JSX children without sanitization. The `sanitize` chunk exists in the Vite `manualChunks` config but is never imported in the graph component. Worse: if sanitize remains code-split, there is a TOCTOU race — the component renders unsanitized backend data while the sanitize chunk loads over the network. Any stored XSS in document metadata executes in the window between render and chunk arrival, defeating the control entirely.
+
+React's JSX escaping covers basic string interpolation, but relation types originate from arbitrary backend data, not controlled enums. Defense-in-depth requires explicit sanitization.
+
+**Required fix (three parts):**
+1. **Remove `sanitize` from `manualChunks` in `vite.config.ts`.** Import it synchronously in the main bundle. Security-critical code cannot depend on asynchronous chunk loading. The sanitize module is small (< 5 KB); the bundle size cost is negligible.
+2. **Import `sanitize` and apply it to every backend-originated string before render** in `DocumentGraph.tsx`. Confirm no path uses `dangerouslySetInnerHTML`.
+3. **Add unit tests for `sanitize`** at `src/frontend/web/src/lib/__tests__/sanitize.test.ts` (following the existing `__tests__` convention). Use the project's existing test runner (Vitest, per `vite.config.ts`). Tests must cover: `<script>` tag injection, `onerror`/`onload` event handler attributes, `javascript:` protocol URLs, nested percent-encoding (`%3Cscript%3E`), and SVG-based XSS vectors (`<svg onload=...>`). 100% branch coverage on the sanitize module. These tests must pass before merge.
+
+**3. [HIGH] Upfront full-graph fetch will not scale — depth-limited with cancellation**
+`src/frontend/web/src/components/DocumentGraph.tsx`
+
+The component consumes `/api/document/{id}/graph` without specifying whether branch children are fetched lazily on expand or eagerly in a single payload. For documents with hundreds of relations, a single unbounded graph response causes backend latency spikes, frontend render jank, and wasted bandwidth on mobile.
+
+**Required fix:** Implement depth-limited initial fetch (`depth=1`) via `getDocumentGraph(id, { depth: 1 })`. On branch expand, fetch children incrementally with `getDocumentGraph(childId, { depth: 1 })`. The API contract in `api.ts` must expose `depth` and `offset` parameters.
+
+All incremental fetches must use `AbortController`: store a controller ref per pending node expansion, abort on branch collapse or component unmount, and deduplicate concurrent requests for the same node ID (reject if an in-flight request exists for that ID). Without this, rapid expand/collapse on mobile creates race conditions where stale responses overwrite fresh state.
+
+**4. [HIGH] Global chunk warning limit raised to 700 KB masks bloat**
+`src/frontend/web/vite.config.ts`
+
+Raising `chunkSizeWarningLimit` globally to 700 KB suppresses warnings for every chunk, not just pdf-export. This defeats code-splitting analysis and will silently accept future regressions.
+
+**Required fix:** Revert `chunkSizeWarningLimit` to 500 KB (Vite default). Suppress the pdf-export warning with a targeted Rollup `onwarn` filter:
+
+```js
+// vite.config.ts → build.rollupOptions
+onwarn(warning, defaultHandler) {
+  if (
+    warning.code === 'CHUNK_SIZE_LIMIT' &&
+    warning.message?.includes('pdf-export')
+  ) {
+    return; // Suppress known large chunk
+  }
+  defaultHandler(warning);
+}
+```
+
+Add a CI build assertion script (`scripts/check-chunks.sh` or equivalent):
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+BUILD_DIR="dist/assets"
+# Assert pdf-export chunk exists
+ls "$BUILD_DIR"/pdf-export-*.js 1>/dev/null 2>&1 || { echo "FAIL: pdf-export chunk missing"; exit 1; }
+# Assert no non-pdf chunk exceeds 500 KB
+find "$BUILD_DIR" -name '*.js' ! -name 'pdf-export-*' -size +500k -print | \
+  grep -q . && { echo "FAIL: non-pdf chunk exceeds 500KB budget"; exit 1; } || true
+echo "PASS: chunk size budgets met"
+```
+
+Integrate `rollup-plugin-visualizer` in CI for ongoing visibility.
+
+**5. [HIGH] No virtualization for wide sibling lists**
+`src/frontend/web/src/components/DocumentGraph.tsx`
+
+Depth-limited fetching solves the network problem but not the rendering problem. A node with hundreds of direct children mounts all DOM nodes simultaneously.
+
+**Severity justification:** The stated target domain includes legal document corpora and bulk imports. If production data shows max sibling counts consistently below 200, this may be downgraded to recommended. **However, absent production metrics proving otherwise, a mobile-first tree view must handle adversarial sibling counts without OOM.** The implementer may provide production sibling-count data (P99) to contest this severity.
+
+**Required fix:** Implement windowed rendering for sibling lists using `react-window` `VariableSizeList` (or equivalent). Render only visible viewport items plus overscan buffer. Activate virtualization when sibling count exceeds a threshold (e.g., > 50 children).
+
+**6. [HIGH] Unbounded client-side graph cache — memory leak**
+`src/frontend/web/src/components/DocumentGraph.tsx`
+
+The graph component accumulates fetched nodes in state without eviction. During extended sessions, this retains megabytes of stale data, eventually crashing mobile Safari tabs.
+
+**Required fix — choose one canonical strategy (do not mix):**
+
+- **Option A (recommended if TanStack Query is already a dependency):** Use TanStack Query for all graph fetches. Configure `gcTime: 5 * 60 * 1000` (5 min) and `staleTime: 60 * 1000` (1 min) per graph query key. Query cache handles eviction automatically. On eviction, collapse the corresponding UI branch (sync UI state with cache state via `onSuccess`/`onSettled` callbacks).
+- **Option B (if not using TanStack Query):** Implement a custom LRU cache with max 200 node entries. On eviction, collapse the corresponding UI branch and remove from component state.
+
+The PR author must pick one and implement it consistently. The review will reject mixed approaches.
+
+**7. [HIGH] Missing per-branch error state for expansion failures**
+`src/frontend/web/src/components/DocumentGraph.tsx`
+
+If a network request fails during branch expansion, the UI has no branch-level error handling. The likely behavior is an infinite loading spinner or a silent failure.
+
+**Required fix:** Add an `error` state to each tree node's local state (or per-query error state if using TanStack Query). On fetch rejection (that is not an `AbortError` from intentional cancellation), render an inline error message with a retry button scoped to that branch. Do not propagate branch-level fetch failures to the top-level ErrorBoundary.
+
+**8. [HIGH] Command palette viewport locking and keyboard handling on mobile**
+`src/frontend/web/src/components/CommandPalette.tsx`
+
+**Evidence required from implementer:** If the current implementation already handles body scroll lock and `visualViewport` resize, provide the code excerpts and this item is resolved. If not:
+
+- **Body scroll lock:** The palette must prevent background scroll while open. Apply `overflow: hidden` on `document.documentElement` on open, restore on close (including cleanup on unmount).
+- **Soft keyboard viewport resize:** On Android Chrome, the visual viewport shrinks when the soft keyboard appears. Without a `window.visualViewport` resize listener, the palette input field is obscured. Add a listener that adjusts the palette's max-height or position.
+
+**Verification:** Must be tested on physical iOS Safari 17+ and Android Chrome 120+. Emulators do not accurately reproduce keyboard viewport behavior. If physical device testing is not feasible pre-merge, add a manual QA checkpoint and track automated testing as a fast-follow.
+
+**9. [HIGH — NEW] Sanitize TOCTOU resolved by #2; cycle detection required**
+`src/frontend/web/src/components/DocumentGraph.tsx`
+
+Backend graph responses can contain cyclic relations (A→B→C→A). Recursive tree rendering without cycle detection causes infinite recursion and stack overflow. This is realistic with bidirectional document references.
+
+**Required fix:** Maintain a `Set<string>` of visited node IDs during tree traversal. Before rendering a child, check membership. If the ID exists in the set, render a "circular reference" placeholder node (non-expandable, visually distinct) and stop recursion for that branch.
+
+**10. [HIGH — NEW] Tree re-render performance at scale**
+`src/frontend/web/src/components/DocumentGraph.tsx`
+
+If tree node state is stored in a single React Context or top-level `useState` object, expanding one branch triggers O(n) re-renders across the entire tree. With virtualization handling the DOM, this still causes wasted reconciliation work and frame drops.
+
+**Required fix:** Wrap `TreeNode` components in `React.memo` with a comparator that checks only the node's own data and expand/collapse state. If the state architecture uses a single store (Context, Zustand, etc.), ensure components subscribe to individual node slices, not the entire graph map. Verify with React DevTools Profiler that expanding a branch re-renders only the expanded subtree.
+
+**11. [HIGH — NEW] Runtime response validation is mandatory given XSS attack surface**
+`src/frontend/web/src/lib/api.ts`
+
+Round 2 listed Zod validation as a recommendation. Given the identified XSS vectors and the fact that TypeScript types evaporate at runtime, runtime validation is a mandatory security control on all `/api/document` endpoints.
+
+**Required fix:** Add Zod schemas for the graph API response shape. Validate every response in the API layer before data reaches `DocumentGraph`. On validation failure, reject the promise with a typed error — the component renders the branch-level error state from item #7. This catches backend contract drift and malformed payloads before they reach the sanitizer.
+
+Suggested location: `src/frontend/web/src/lib/schemas/documentGraph.ts`, imported by `api.ts`.
+
+**12. [HIGH — NEW] html2pdf.js main-thread blocking violates mobile-first contract**
+`src/frontend/web/src/hooks/usePdfExport.ts`
+
+html2pdf.js executes `html2canvas` synchronously on the main thread, blocking UI for 3–10 seconds on mobile devices. This causes ANR dialogs on Android and UI freezes on iOS Safari. Round 2 incorrectly classified this as a follow-up memory concern; the main-thread blocking is the primary issue and it is incompatible with mobile-first requirements.
+
+**Required fix (choose one):**
+- **Option A (preferred):** Offload PDF generation to a Web Worker via OffscreenCanvas + Comlink. The lazy-loaded `pdf-export` chunk is already isolated, making Worker extraction straightforward.
+- **Option B:** For devices with `navigator.deviceMemory < 4` or where Worker/OffscreenCanvas is unsupported, disable client-side export entirely and route to a server-side PDF generation endpoint. Show a progress indicator with cancel capability in all cases.
+
+The chunk isolation is acceptable; the runtime execution model is not.
+
+---
+
+### Recommended Changes (non-blocking but expected before next release)
+
+**13. [MEDIUM] Suspense fallback is null — causes CLS on mobile**
+`src/frontend/web/src/App.tsx`
+
+A `null` fallback produces a blank viewport during chunk loading. On 3G/4G connections this lasts 1–3 seconds, causing layout shift.
+
+**Fix:** Provide `<PageSkeleton />` as the Suspense fallback, matching AppShell dimensions. (Already addressed in blocker #1 diff — verify it ships.)
+
+**14. [MEDIUM] Expandable tree branches lack accessibility**
+`src/frontend/web/src/components/DocumentGraph.tsx`
+
+No ARIA tree-widget semantics and no keyboard navigation. Screen readers cannot determine expand/collapse state.
+
+**Fix:** Apply `role="tree"` on the container, `role="treeitem"` with `aria-expanded` and `aria-controls` on each branch. Add keyboard handlers for Arrow keys, Enter, and Escape per WAI-ARIA Treeview pattern.
+
+**15. [MEDIUM] Command palette touch targets below 44px minimum**
+`src/frontend/web/src/components/CommandPalette.tsx`
+
+Mobile-first requirement demands 44px minimum touch targets per iOS HIG / WCAG 2.5.5.
+
+**Fix:** Audit all command palette interactive elements (result rows, action buttons, close/dismiss targets) for 44×44px minimum. Add to mobile test suite.
+
+**16. [MEDIUM] Command palette lacks focus trap, modal semantics, and search debouncing**
+`src/frontend/web/src/components/CommandPalette.tsx`
+
+Focus can escape to background elements. Android back button navigates browser history instead of closing the palette. If search is backend-driven, rapid typing on mobile creates request storms.
+
+**Fix:** Implement focus trap using `react-focus-lock` or equivalent. Add `aria-modal="true"` and `role="dialog"`. Intercept Android back button (popstate) to close the palette. Return focus to the trigger element on close. Add 300ms debounce and per-search AbortController to search input if backend-driven.
+
+---
+
+### Improvements (non-blocking, track as follow-ups)
+
+| Area | Recommendation |
+|---|---|
+| `vite.config.ts` / deployment | Add Content Security Policy headers: `default-src 'self'; script-src 'self'; object-src 'none'; style-src 'self' 'unsafe-inline'`. Configure at the CDN/server layer, not as a meta tag (meta tags cannot enforce `frame-ancestors`). |
+| `vite.config.ts` | Add `<link rel="prefetch">` for the pdf-export chunk when users enter the document graph workspace. Respect `navigator.connection.saveData` and `effectiveType` — skip prefetch on 2G/3G or data-saver mode. |
+| `api.ts` | Add request deduplication for graph API calls if not using TanStack Query (which handles this natively). |
+| `usePdfExport.ts` | For devices with `navigator.deviceMemory < 4`, prefer server-side PDF even if Worker is available. Track as fast-follow to blocker #12. |
+| `DocumentGraph.tsx` | Add performance regression tests measuring render time for graphs with 100+ nodes. Set a 100ms render budget for initial depth=1 display. |
+| CI pipeline | Integrate `source-map-explorer` with enforced per-chunk size budgets beyond the shell script in #4. |
+
+---
+
+### What's Acceptable
+
+- **Code-splitting approach:** `React.lazy` + `manualChunks` for pdf-export, query, and router is sound. The isolated pdf-export chunk containing html2pdf is acceptable as a lazy-loaded leaf — it never appears in the critical path. (Remove `sanitize` from `manualChunks` per blocker #2.)
+- **`getDocumentGraph()` API shape in `api.ts`:** Defining graph types alongside the fetch function is correct colocation. Acceptable pending depth-parameter, AbortController, and Zod validation additions.
+
+---
+
+### Summary
+
+12 high-severity issues must be resolved before merge. The 8 blockers from Round 2 stand with tightened requirements (synchronous sanitize import, canonical cache strategy, concrete CI assertions, evidence-based command palette verification). 4 new blockers are added from Round 3: cycle detection in graph traversal, tree re-render performance, mandatory Zod runtime validation, and html2pdf main-thread blocking. The 4 recommended items (CLS skeleton, tree accessibility, touch targets, focus trap + debouncing) should land in the same PR. Address all 12 blockers and this ships.

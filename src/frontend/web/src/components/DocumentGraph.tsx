@@ -69,14 +69,14 @@ export const DocumentGraph: React.FC<{ document: DocumentDetail }> = ({ document
   if (!loading && !error && branches.length === 0) return null;
 
   return (
-    <section className="rounded-2xl border border-border bg-card px-4 py-4">
-      <div className="flex items-start justify-between gap-3 mb-4">
+    <section className="rounded-[24px] border border-white/6 bg-white/[0.02] px-5 py-5">
+      <div className="mb-4 flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-text-tertiary mb-1">
-            Workspace de relações
+          <p className="mb-1 text-xs font-semibold uppercase tracking-[0.16em] text-text-tertiary">
+            Relações encontradas
           </p>
           <p className="text-xs text-text-secondary">
-            Expanda cada ramo para navegar por referências normativas, procedimentos e documentos encontrados a partir delas.
+            Saltos normativos, vínculos procedimentais e documentos recuperados a partir do ato atual.
           </p>
         </div>
         <div className="text-right">
@@ -86,7 +86,7 @@ export const DocumentGraph: React.FC<{ document: DocumentDetail }> = ({ document
       </div>
 
       <div className="space-y-3">
-        <div className="rounded-xl border border-primary/25 bg-primary/8 px-3 py-3">
+        <div className="rounded-2xl border border-primary/20 bg-primary/8 px-4 py-4">
           <div className="flex items-start gap-3">
             <span className="mt-1 h-2.5 w-2.5 rounded-full bg-primary" />
             <div className="min-w-0 flex-1">
@@ -99,13 +99,13 @@ export const DocumentGraph: React.FC<{ document: DocumentDetail }> = ({ document
         </div>
 
         {loading ? (
-          <div className="rounded-xl border border-border bg-background/60 px-4 py-4 text-sm text-text-secondary">
+          <div className="rounded-2xl border border-white/6 bg-background/60 px-4 py-4 text-sm text-text-secondary">
             Construindo a rede de relações a partir do backend…
           </div>
         ) : null}
 
         {error ? (
-          <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 px-4 py-4 text-sm text-text-secondary">
+          <div className="rounded-2xl border border-amber-500/25 bg-amber-500/5 px-4 py-4 text-sm text-text-secondary">
             Não foi possível carregar a rede agora. O leitor continua funcional e as referências seguem disponíveis no documento.
           </div>
         ) : null}
@@ -114,7 +114,7 @@ export const DocumentGraph: React.FC<{ document: DocumentDetail }> = ({ document
           const isExpanded = expanded[branch.seed.id] ?? false;
           const relationLabel = humanizeRelation(branch.seed.relation_type);
           return (
-            <div key={branch.seed.id} className="rounded-xl border border-border bg-background/60">
+            <div key={branch.seed.id} className="rounded-2xl border border-white/6 bg-background/60">
               <div className="flex items-stretch">
                 <button
                   onClick={() =>
@@ -123,7 +123,7 @@ export const DocumentGraph: React.FC<{ document: DocumentDetail }> = ({ document
                       [branch.seed.id]: !isExpanded,
                     }))
                   }
-                  className="flex-1 px-4 py-3 text-left hover:bg-secondary/40 transition-colors focus-ring rounded-l-xl"
+                  className="flex-1 rounded-l-2xl px-4 py-4 text-left transition-colors hover:bg-white/[0.03] focus-ring"
                 >
                   <div className="flex items-start gap-3">
                     <span className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] ${branchTone(branch)}`}>
@@ -147,7 +147,7 @@ export const DocumentGraph: React.FC<{ document: DocumentDetail }> = ({ document
                   {branch.seed.query ? (
                     <button
                       onClick={() => navigate(`/search?q=${encodeURIComponent(branch.seed.query || "")}`)}
-                      className="min-h-[40px] min-w-[40px] rounded-xl border border-border bg-card text-text-secondary hover:text-foreground hover:bg-secondary transition-colors focus-ring flex items-center justify-center"
+                      className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-xl border border-white/6 bg-card text-text-secondary transition-colors hover:bg-white/[0.05] hover:text-foreground focus-ring"
                       aria-label={`Buscar por ${branch.seed.title}`}
                     >
                       <Icons.search className="h-4 w-4" />
@@ -160,7 +160,7 @@ export const DocumentGraph: React.FC<{ document: DocumentDetail }> = ({ document
                         [branch.seed.id]: !isExpanded,
                       }))
                     }
-                    className="min-h-[40px] min-w-[40px] rounded-xl border border-border bg-card text-text-secondary hover:text-foreground hover:bg-secondary transition-colors focus-ring flex items-center justify-center"
+                    className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-xl border border-white/6 bg-card text-text-secondary transition-colors hover:bg-white/[0.05] hover:text-foreground focus-ring"
                     aria-label={isExpanded ? "Recolher ramo" : "Expandir ramo"}
                   >
                     <Icons.chevronRight className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
@@ -169,13 +169,13 @@ export const DocumentGraph: React.FC<{ document: DocumentDetail }> = ({ document
               </div>
 
               {isExpanded ? (
-                <div className="border-t border-border px-4 py-3 space-y-2">
-                  <div className="ml-2 border-l border-border pl-4 space-y-2">
+                <div className="space-y-2 border-t border-white/6 px-4 py-3">
+                  <div className="ml-2 space-y-2 border-l border-white/6 pl-4">
                     {branch.related_documents.map((result) => (
                       <button
                         key={`${branch.seed.id}-${result.id}`}
                         onClick={() => navigate(`/document/${encodeURIComponent(result.id)}`)}
-                        className="w-full rounded-xl border border-border bg-card px-3 py-3 text-left hover:bg-secondary/50 transition-colors focus-ring"
+                        className="w-full rounded-2xl border border-white/6 bg-card px-4 py-4 text-left transition-colors hover:bg-white/[0.04] focus-ring"
                       >
                         <div className="flex items-start gap-3">
                           <span className="mt-1 inline-flex rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">
@@ -196,7 +196,7 @@ export const DocumentGraph: React.FC<{ document: DocumentDetail }> = ({ document
                     ))}
 
                     {branch.related_documents.length === 0 ? (
-                      <div className="rounded-lg border border-dashed border-border px-3 py-3 text-xs text-text-tertiary">
+                      <div className="rounded-xl border border-dashed border-white/8 px-3 py-3 text-xs text-text-tertiary">
                         Nenhum documento adicional foi encontrado para este ramo, mas a consulta correlata continua disponível para exploração manual.
                       </div>
                     ) : null}

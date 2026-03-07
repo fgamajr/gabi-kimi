@@ -1,0 +1,61 @@
+{
+  "agent": "qwen",
+  "round": 2,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "src/frontend/web/src/components/DocumentGraph.tsx",
+      "description": "Round 1 review correctly identified XSS risk but missed that sanitize utility itself is untested. No unit tests exist for the sanitize chunk, meaning the proposed fix introduces unverified security code.",
+      "suggested_fix": "Add unit tests for sanitize utility covering XSS vectors (script tags, event handlers, javascript: URLs) before relying on it for security-critical rendering."
+    },
+    {
+      "severity": "high",
+      "location": "src/frontend/web/src/App.tsx",
+      "description": "ErrorBoundary proposal lacks retry state persistence. If chunk fails twice due to deploy hash mismatch, infinite retry loop occurs. No exponential backoff or max-retry logic specified.",
+      "suggested_fix": "Implement retry counter with exponential backoff (1s, 2s, 4s) and hard fail after 3 attempts with clear user messaging to hard-refresh."
+    },
+    {
+      "severity": "high",
+      "location": "src/frontend/web/src/components/DocumentGraph.tsx",
+      "description": "Depth-limited fetch proposal ignores race conditions. Rapid expand/collapse on mobile causes overlapping requests with no request cancellation. Memory leak on unmount.",
+      "suggested_fix": "Use AbortController for fetch cancellation on branch collapse or component unmount. Track pending requests per node ID to prevent duplicates."
+    },
+    {
+      "severity": "medium",
+      "location": "src/frontend/web/vite.config.ts",
+      "description": "Rollup onwarn filter for pdf-export chunk is fragile. Chunk naming can change during build optimization, causing the suppression to silently fail and CI to break.",
+      "suggested_fix": "Use chunk file path pattern matching (includes 'pdf-export') rather than exact name match. Add CI assertion that warning suppression is active."
+    },
+    {
+      "severity": "medium",
+      "location": "src/frontend/web/src/components/CommandPalette.tsx",
+      "description": "Round 1 marked command palette as acceptable without verifying touch target sizes. Mobile-first requirement demands 44px minimum touch targets per iOS HIG.",
+      "suggested_fix": "Audit all command palette interactive elements for 44px minimum height/width. Add viewport-based touch target tests to mobile test suite."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "src/frontend/web/src/lib/api.ts",
+      "description": "Add request deduplication cache for graph API calls. Multiple components may request same document graph simultaneously during navigation."
+    },
+    {
+      "type": "improvement",
+      "location": "src/frontend/web/vite.config.ts",
+      "description": "Enable build-time chunk hash verification to detect stale cache scenarios before runtime. Compare expected vs actual chunk hashes during build."
+    },
+    {
+      "type": "testing",
+      "location": "src/frontend/web/src/components/DocumentGraph.tsx",
+      "description": "Add performance regression tests measuring render time for graphs with 100+ nodes. Set 100ms render budget for initial depth=1 fetch."
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 847,
+    "latency_ms": 234,
+    "thinking_tokens": 512
+  },
+  "raw_text": "{\n  \"agent\": \"qwen\",\n  \"round\": 2,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/frontend/web/src/components/DocumentGraph.tsx\",\n      \"description\": \"Round 1 review correctly identified XSS risk but missed that sanitize utility itself is untested. No unit tests exist for the sanitize chunk, meaning the proposed fix introduces unverified security code.\",\n      \"suggested_fix\": \"Add unit tests for sanitize utility covering XSS vectors (script tags, event handlers, javascript: URLs) before relying on it for security-critical rendering.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/frontend/web/src/App.tsx\",\n      \"description\": \"ErrorBoundary proposal lacks retry state persistence. If chunk fails twice due to deploy hash mismatch, infinite retry loop occurs. No exponential backoff or max-retry logic specified.\",\n      \"suggested_fix\": \"Implement retry counter with exponential backoff (1s, 2s, 4s) and hard fail after 3 attempts with clear user messaging to hard-refresh.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/frontend/web/src/components/DocumentGraph.tsx\",\n      \"description\": \"Depth-limited fetch proposal ignores race conditions. Rapid expand/collapse on mobile causes overlapping requests with no request cancellation. Memory leak on unmount.\",\n      \"suggested_fix\": \"Use AbortController for fetch cancellation on branch collapse or component unmount. Track pending requests per node ID to prevent duplicates.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"src/frontend/web/vite.config.ts\",\n      \"description\": \"Rollup onwarn filter for pdf-export chunk is fragile. Chunk naming can change during build optimization, causing the suppression to silently fail and CI to break.\",\n      \"suggested_fix\": \"Use chunk file path pattern matching (includes 'pdf-export') rather than exact name match. Add CI assertion that warning suppression is active.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"src/frontend/web/src/components/CommandPalette.tsx\",\n      \"description\": \"Round 1 marked command palette as acceptable without verifying touch target sizes. Mobile-first requirement demands 44px minimum touch targets per iOS HIG.\",\n      \"suggested_fix\": \"Audit all command palette interactive elements for 44px minimum height/width. Add viewport-based touch target tests to mobile test suite.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"src/frontend/web/src/lib/api.ts\",\n      \"description\": \"Add request deduplication cache for graph API calls. Multiple components may request same document graph simultaneously during navigation.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"src/frontend/web/vite.config.ts\",\n      \"description\": \"Enable build-time chunk hash verification to detect stale cache scenarios before runtime. Compare expected vs actual chunk hashes during build.\"\n    },\n    {\n      \"type\": \"testing\",\n      \"location\": \"src/frontend/web/src/components/DocumentGraph.tsx\",\n      \"description\": \"Add performance regression tests measuring render time for graphs with 100+ nodes. Set 100ms render budget for initial depth=1 fetch.\"\n    }\n  ],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 847,\n    \"latency_ms\": 234,\n    \"thinking_tokens\": 512\n  }\n}"
+}
