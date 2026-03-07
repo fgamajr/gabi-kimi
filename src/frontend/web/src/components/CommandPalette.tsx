@@ -15,6 +15,12 @@ import { getRecentDocuments, getRecentSearches } from "@/lib/history";
 import { searchDocuments } from "@/lib/api";
 import type { SearchResult } from "@/lib/api";
 
+export const COMMAND_PALETTE_EVENT = "gabi:open-command-palette";
+
+export function openCommandPalette() {
+  window.dispatchEvent(new CustomEvent(COMMAND_PALETTE_EVENT));
+}
+
 export const CommandPalette: React.FC = () => {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -28,8 +34,14 @@ export const CommandPalette: React.FC = () => {
         setOpen((current) => !current);
       }
     };
+    const handleOpenEvent = () => setOpen(true);
+
     window.addEventListener("keydown", handleShortcut);
-    return () => window.removeEventListener("keydown", handleShortcut);
+    window.addEventListener(COMMAND_PALETTE_EVENT, handleOpenEvent as EventListener);
+    return () => {
+      window.removeEventListener("keydown", handleShortcut);
+      window.removeEventListener(COMMAND_PALETTE_EVENT, handleOpenEvent as EventListener);
+    };
   }, []);
 
   useEffect(() => {
@@ -59,105 +71,90 @@ export const CommandPalette: React.FC = () => {
   };
 
   return (
-    <>
-      <button
-        onClick={() => setOpen(true)}
-        className="hidden md:inline-flex items-center gap-2 rounded-2xl border border-border bg-card px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-secondary transition-colors focus-ring"
-        aria-label="Abrir pesquisa rápida"
-      >
-        <Icons.search className="w-4 h-4" />
-        Pesquisa rápida
-        <span className="rounded-md border border-border bg-background px-1.5 py-0.5 text-[11px] text-text-tertiary">
-          ⌘K
-        </span>
-      </button>
+    <CommandDialog open={open} onOpenChange={setOpen}>
+      <CommandInput
+        placeholder="Buscar documentos, órgãos, tipos de ato ou atalhos..."
+        value={query}
+        onValueChange={setQuery}
+      />
+      <CommandList>
+        <CommandEmpty>Nenhum resultado encontrado.</CommandEmpty>
 
-      <CommandDialog open={open} onOpenChange={setOpen}>
-        <CommandInput
-          placeholder="Buscar documentos, órgãos, tipos de ato ou atalhos..."
-          value={query}
-          onValueChange={setQuery}
-        />
-        <CommandList>
-          <CommandEmpty>Nenhum resultado encontrado.</CommandEmpty>
+        {query.trim().length === 0 ? (
+          <>
+            <CommandGroup heading="Ir para">
+              <CommandItem onSelect={() => closeAndNavigate("/")}>
+                <Icons.home className="mr-2 h-4 w-4 text-text-tertiary" />
+                Início
+              </CommandItem>
+              <CommandItem onSelect={() => closeAndNavigate("/search")}>
+                <Icons.search className="mr-2 h-4 w-4 text-text-tertiary" />
+                Busca estruturada
+              </CommandItem>
+            </CommandGroup>
 
-          {query.trim().length === 0 ? (
-            <>
-              <CommandGroup heading="Ir para">
-                <CommandItem onSelect={() => closeAndNavigate("/")}>
-                  <Icons.home className="mr-2 h-4 w-4 text-text-tertiary" />
-                  Início
+            {recentSearches.length > 0 ? (
+              <>
+                <CommandSeparator />
+                <CommandGroup heading="Pesquisas recentes">
+                  {recentSearches.map((search) => (
+                    <CommandItem key={search} onSelect={() => closeAndNavigate(`/search?q=${encodeURIComponent(search)}`)}>
+                      <Icons.clock className="mr-2 h-4 w-4 text-text-tertiary" />
+                      {search}
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </>
+            ) : null}
+
+            {recentDocs.length > 0 ? (
+              <>
+                <CommandSeparator />
+                <CommandGroup heading="Documentos recentes">
+                  {recentDocs.map((doc) => (
+                    <CommandItem key={doc.id} onSelect={() => closeAndNavigate(`/document/${encodeURIComponent(doc.id)}`)}>
+                      <Icons.document className="mr-2 h-4 w-4 text-text-tertiary" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate">{doc.title}</p>
+                        <p className="text-xs text-text-tertiary truncate">
+                          {[doc.section?.toUpperCase(), doc.issuingOrgan].filter(Boolean).join(" · ")}
+                        </p>
+                      </div>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </>
+            ) : null}
+          </>
+        ) : null}
+
+        {results.length > 0 ? (
+          <>
+            <CommandSeparator />
+            <CommandGroup heading="Resultados">
+              {results.map((result) => (
+                <CommandItem
+                  key={result.id}
+                  onSelect={() => closeAndNavigate(`/document/${encodeURIComponent(result.id)}`)}
+                >
+                  <Icons.document className="mr-2 h-4 w-4 text-text-tertiary" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate">{result.title}</p>
+                    <p className="text-xs text-text-tertiary truncate">
+                      {[result.issuing_organ, result.pub_date].filter(Boolean).join(" · ")}
+                    </p>
+                  </div>
                 </CommandItem>
-                <CommandItem onSelect={() => closeAndNavigate("/search")}>
-                  <Icons.search className="mr-2 h-4 w-4 text-text-tertiary" />
-                  Busca estruturada
-                </CommandItem>
-              </CommandGroup>
-
-              {recentSearches.length > 0 ? (
-                <>
-                  <CommandSeparator />
-                  <CommandGroup heading="Pesquisas recentes">
-                    {recentSearches.map((search) => (
-                      <CommandItem key={search} onSelect={() => closeAndNavigate(`/search?q=${encodeURIComponent(search)}`)}>
-                        <Icons.clock className="mr-2 h-4 w-4 text-text-tertiary" />
-                        {search}
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                </>
-              ) : null}
-
-              {recentDocs.length > 0 ? (
-                <>
-                  <CommandSeparator />
-                  <CommandGroup heading="Documentos recentes">
-                    {recentDocs.map((doc) => (
-                      <CommandItem key={doc.id} onSelect={() => closeAndNavigate(`/document/${encodeURIComponent(doc.id)}`)}>
-                        <Icons.document className="mr-2 h-4 w-4 text-text-tertiary" />
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate">{doc.title}</p>
-                          <p className="text-xs text-text-tertiary truncate">
-                            {[doc.section?.toUpperCase(), doc.issuingOrgan].filter(Boolean).join(" · ")}
-                          </p>
-                        </div>
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                </>
-              ) : null}
-            </>
-          ) : null}
-
-          {results.length > 0 ? (
-            <>
-              <CommandSeparator />
-              <CommandGroup heading="Resultados">
-                {results.map((result) => (
-                  <CommandItem
-                    key={result.id}
-                    onSelect={() => closeAndNavigate(`/document/${encodeURIComponent(result.id)}`)}
-                  >
-                    <Icons.document className="mr-2 h-4 w-4 text-text-tertiary" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate">{result.title}</p>
-                      <p className="text-xs text-text-tertiary truncate">
-                        {[result.issuing_organ, result.pub_date].filter(Boolean).join(" · ")}
-                      </p>
-                    </div>
-                  </CommandItem>
-                ))}
-                <CommandItem onSelect={() => closeAndNavigate(`/search?q=${encodeURIComponent(query.trim())}`)}>
-                  <Icons.search className="mr-2 h-4 w-4 text-primary" />
-                  <span className="text-primary">Ver todos os resultados para “{query.trim()}”</span>
-                  <CommandShortcut>Enter</CommandShortcut>
-                </CommandItem>
-              </CommandGroup>
-            </>
-          ) : null}
-        </CommandList>
-      </CommandDialog>
-    </>
+              ))}
+              <CommandItem onSelect={() => closeAndNavigate(`/search?q=${encodeURIComponent(query.trim())}`)}>
+                <Icons.search className="mr-2 h-4 w-4 text-primary" />
+                <span className="text-primary">Ver todos os resultados para “{query.trim()}”</span>
+                <CommandShortcut>Enter</CommandShortcut>
+              </CommandItem>
+            </CommandGroup>
+          </>
+        ) : null}
+      </CommandList>
+    </CommandDialog>
   );
 };
-
