@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Icons } from "@/components/Icons";
 import { getDocumentGraph } from "@/lib/api";
 import type { DocumentDetail, DocumentGraphBranch, DocumentGraphResponse } from "@/lib/api";
+import { navigateToDocument } from "@/lib/navigation";
 
 const RELATION_LABELS: Record<string, string> = {
   cita: "Cita",
@@ -69,7 +70,7 @@ export const DocumentGraph: React.FC<{ document: DocumentDetail }> = ({ document
   if (!loading && !error && branches.length === 0) return null;
 
   return (
-    <section className="rounded-[24px] border border-white/6 bg-white/[0.02] px-5 py-5">
+    <section className="overflow-hidden rounded-[24px] border border-white/6 bg-white/[0.02] px-3 py-4 sm:px-5 sm:py-5">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <p className="mb-1 text-xs font-semibold uppercase tracking-[0.16em] text-text-tertiary">
@@ -86,7 +87,7 @@ export const DocumentGraph: React.FC<{ document: DocumentDetail }> = ({ document
       </div>
 
       <div className="space-y-3">
-        <div className="rounded-2xl border border-primary/20 bg-primary/8 px-4 py-4">
+        <div className="rounded-2xl border border-primary/20 bg-primary/8 px-3 py-3 sm:px-4 sm:py-4">
           <div className="flex items-start gap-3">
             <span className="mt-1 h-2.5 w-2.5 rounded-full bg-primary" />
             <div className="min-w-0 flex-1">
@@ -123,16 +124,16 @@ export const DocumentGraph: React.FC<{ document: DocumentDetail }> = ({ document
                       [branch.seed.id]: !isExpanded,
                     }))
                   }
-                  className="flex-1 rounded-l-2xl px-4 py-4 text-left transition-colors hover:bg-white/[0.03] focus-ring"
+                  className="min-w-0 flex-1 rounded-l-2xl px-3 py-3 text-left transition-colors hover:bg-white/[0.03] focus-ring sm:px-4 sm:py-4"
                 >
-                  <div className="flex items-start gap-3">
-                    <span className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] ${branchTone(branch)}`}>
+                  <div className="flex flex-col items-start gap-2 sm:flex-row sm:gap-3">
+                    <span className={`inline-flex max-w-full self-start rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] ${branchTone(branch)}`}>
                       {relationLabel}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-foreground truncate">{branch.seed.title}</p>
+                      <p className="break-words text-sm font-medium text-foreground sm:truncate">{branch.seed.title}</p>
                       {branch.seed.subtitle ? (
-                        <p className="text-xs text-text-secondary mt-1 line-clamp-2">{branch.seed.subtitle}</p>
+                        <p className="mt-1 break-words text-xs text-text-secondary line-clamp-3">{branch.seed.subtitle}</p>
                       ) : null}
                       <p className="text-[11px] text-text-tertiary mt-2">
                         {branch.related_documents.length > 0
@@ -143,7 +144,7 @@ export const DocumentGraph: React.FC<{ document: DocumentDetail }> = ({ document
                   </div>
                 </button>
 
-                <div className="flex items-center gap-1 px-2">
+                <div className="flex shrink-0 items-center gap-1 px-2">
                   {branch.seed.query ? (
                     <button
                       onClick={() => navigate(`/search?q=${encodeURIComponent(branch.seed.query || "")}`)}
@@ -169,28 +170,28 @@ export const DocumentGraph: React.FC<{ document: DocumentDetail }> = ({ document
               </div>
 
               {isExpanded ? (
-                <div className="space-y-2 border-t border-white/6 px-4 py-3">
-                  <div className="ml-2 space-y-2 border-l border-white/6 pl-4">
+                <div className="space-y-2 border-t border-white/6 px-3 py-3 sm:px-4">
+                  <div className="ml-1 space-y-2 border-l border-white/6 pl-3 sm:ml-2 sm:pl-4">
                     {branch.related_documents.map((result) => (
                       <button
                         key={`${branch.seed.id}-${result.id}`}
-                        onClick={() => navigate(`/document/${encodeURIComponent(result.id)}`)}
-                        className="w-full rounded-2xl border border-white/6 bg-card px-4 py-4 text-left transition-colors hover:bg-white/[0.04] focus-ring"
+                        onClick={() => navigateToDocument(navigate, result.id, "document-graph")}
+                        className="w-full overflow-hidden rounded-2xl border border-white/6 bg-card px-3 py-3 text-left transition-colors hover:bg-white/[0.04] focus-ring sm:px-4 sm:py-4"
                       >
-                        <div className="flex items-start gap-3">
-                          <span className="mt-1 inline-flex rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">
+                        <div className="flex flex-col items-start gap-2 sm:flex-row sm:gap-3">
+                          <span className="inline-flex self-start rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">
                             Encontrado por
                           </span>
                           <div className="min-w-0 flex-1">
-                            <p className="text-sm text-foreground truncate">{result.title}</p>
-                            <p className="text-xs text-text-secondary mt-1 truncate">
+                            <p className="break-words text-sm text-foreground sm:truncate">{result.title}</p>
+                            <p className="mt-1 break-words text-xs text-text-secondary sm:truncate">
                               {[result.issuing_organ, result.pub_date, result.section?.toUpperCase()].filter(Boolean).join(" · ")}
                             </p>
                             {result.snippet ? (
-                              <p className="text-xs text-text-tertiary mt-2 line-clamp-2">{result.snippet}</p>
+                              <p className="mt-2 break-words text-xs text-text-tertiary line-clamp-3">{result.snippet}</p>
                             ) : null}
                           </div>
-                          <Icons.chevronRight className="h-4 w-4 text-text-tertiary shrink-0 mt-1" />
+                          <Icons.chevronRight className="mt-1 hidden h-4 w-4 shrink-0 text-text-tertiary sm:block" />
                         </div>
                       </button>
                     ))}

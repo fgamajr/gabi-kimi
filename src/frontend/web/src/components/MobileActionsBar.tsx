@@ -17,7 +17,7 @@ export const MobileActionsBar: React.FC<MobileActionsBarProps> = ({
   hasSections,
 }) => {
   return (
-    <div className="md:hidden fixed bottom-0 inset-x-0 z-40 border-t border-border bg-background/95 backdrop-blur-xl px-3 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2">
+    <div className="document-mobile-actions md:hidden fixed bottom-0 inset-x-0 z-40 border-t border-border bg-background/95 backdrop-blur-xl px-3 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2">
       <div className="grid grid-cols-4 gap-2">
         <ActionButton icon={<Icons.back className="w-4 h-4" />} label="Voltar" onClick={onBack} />
         <ActionButton icon={<Icons.share className="w-4 h-4" />} label="Compartilhar" onClick={onShare} />

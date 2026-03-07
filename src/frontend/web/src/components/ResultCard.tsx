@@ -2,6 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { SearchResult } from '@/lib/api';
 import { SectionBadge } from './Badges';
+import { navigateToDocument } from '@/lib/navigation';
 
 function sanitizeSnippet(html: string) {
   return html
@@ -27,9 +28,9 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, index = 0 }) => 
     <article
       role="link"
       tabIndex={0}
-      onClick={() => navigate(`/document/${encodeURIComponent(result.id)}`)}
-      onKeyDown={(e) => e.key === 'Enter' && navigate(`/document/${encodeURIComponent(result.id)}`)}
-      className="group rounded-lg bg-card border border-border p-4 cursor-pointer transition-all hover:border-primary/30 hover:shadow-[var(--shadow-md)] press-effect focus-ring animate-fade-in"
+      onClick={() => navigateToDocument(navigate, result.id, "search-result")}
+      onKeyDown={(e) => e.key === 'Enter' && navigateToDocument(navigate, result.id, "search-result")}
+      className="group rounded-lg bg-card border border-border p-4 cursor-pointer transition-all hover:border-primary/30 hover:shadow-[var(--shadow-md)] press-effect focus-ring animate-fade-in animate-lift"
       style={{ animationDelay: `${index * 50}ms` }}
     >
       {/* Meta row */}

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { SectionBadge } from "@/components/Badges";
 import { BottomSheet } from "@/components/BottomSheet";
@@ -14,13 +14,14 @@ import { SkeletonDocument } from "@/components/Skeletons";
 import { getDocument } from "@/lib/api";
 import type { DocumentDetail } from "@/lib/api";
 import { addRecentDocument } from "@/lib/history";
-import { exportDocumentPdf } from "@/lib/pdfExport";
+import { downloadServerPdf, exportDocumentPdf, prefersPrintPdfFallback } from "@/lib/pdfExport";
 import { parseSections, type Section } from "@/lib/sectionParser";
 import { generateShareUrl, useDeepLink } from "@/hooks/useDeepLink";
 import { useReadingPosition } from "@/hooks/useReadingPosition";
 
 const DocumentPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
   const navigate = useNavigate();
   const [doc, setDoc] = useState<DocumentDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -106,6 +107,8 @@ const DocumentPage: React.FC = () => {
   }, [doc, savedPosition, scrollToSaved]);
 
   const trailingMedia = useMemo(() => doc?.media?.filter((item) => item.position_in_doc == null) || [], [doc]);
+  const transitionOrigin = (location.state as { documentTransitionOrigin?: string } | null)?.documentTransitionOrigin;
+  const continuousEntry = Boolean(transitionOrigin);
 
   const activeSectionLabel = useMemo(
     () => sections.find((section) => section.id === activeSectionId)?.label,
@@ -168,6 +171,24 @@ const DocumentPage: React.FC = () => {
 
   const handlePdf = async () => {
     if (!contentRef.current || !doc) return;
+    if (prefersPrintPdfFallback()) {
+      window.print();
+      toast("Exportacao PDF no mobile", {
+        description: "A exportacao direta ainda nao esta confiavel no mobile. Use o dialogo de impressao para salvar como PDF.",
+      });
+      return;
+    }
+    try {
+      await downloadServerPdf(doc.id, {
+        title: doc.title,
+        section: doc.section,
+        pubDate: doc.pub_date,
+      });
+      toast("PDF exportado", { description: "Versão gerada no servidor baixada com sucesso." });
+      return;
+    } catch {
+      // Fall back to client-side rendering below.
+    }
     try {
       await exportDocumentPdf(contentRef.current, {
         title: doc.title,
@@ -201,8 +222,8 @@ const DocumentPage: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background pb-24 md:pb-0">
-      <header className="sticky top-0 z-40 border-b border-white/6 bg-background/85 backdrop-blur-xl">
+    <div className="min-h-screen bg-background pb-40 md:pb-0">
+      <header className={`document-chrome sticky top-0 z-40 border-b border-white/6 bg-background/85 backdrop-blur-xl ${continuousEntry ? "animate-route-settle" : ""}`}>
         <div className="mx-auto flex max-w-[1180px] items-center justify-between px-6 py-4 md:px-10">
           <button
             onClick={() => navigate(-1)}
@@ -234,11 +255,13 @@ const DocumentPage: React.FC = () => {
         </div>
       </header>
 
-      <ReadingProgress progress={scrollPercent} activeLabel={activeSectionLabel} />
+      <div className="reading-progress">
+        <ReadingProgress progress={scrollPercent} activeLabel={activeSectionLabel} />
+      </div>
 
-      <div className="mx-auto grid max-w-[1180px] gap-10 px-6 py-8 md:px-10 lg:grid-cols-[minmax(0,1fr)_16rem]">
+      <div className={`mx-auto grid max-w-[1180px] gap-10 px-6 py-8 md:px-10 lg:grid-cols-[minmax(0,1fr)_16rem] ${continuousEntry ? "animate-route-settle" : ""}`}>
         <div className="min-w-0">
-          <section className="animate-fade-in border-b border-white/6 pb-8">
+          <section className={`${continuousEntry ? "document-origin-glow" : "animate-fade-in"} border-b border-white/6 pb-8`}>
             <div className="mb-5 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.2em] text-text-tertiary">
               <div className="h-px w-6 bg-white/10" />
               Diário Oficial da União
@@ -274,7 +297,11 @@ const DocumentPage: React.FC = () => {
             ) : null}
           </section>
 
-          <main ref={contentRef} className="animate-fade-in pt-8" style={{ animationDelay: "60ms" }}>
+          <main
+            ref={contentRef}
+            className={`${continuousEntry ? "animate-route-settle" : "animate-fade-in"} pt-8`}
+            style={{ animationDelay: "60ms" }}
+          >
             <DocumentBody doc={doc} />
 
             {trailingMedia.map((media, index) => (
@@ -309,7 +336,7 @@ const DocumentPage: React.FC = () => {
             ) : null}
           </main>
 
-          <section className="mt-12 grid gap-8 border-t border-white/6 pt-8 lg:grid-cols-[0.9fr_1.1fr]">
+          <section className="document-secondary-panels mt-12 grid gap-8 border-t border-white/6 pt-8 lg:grid-cols-[0.9fr_1.1fr]">
             <div>
               <p className="mb-5 text-xs font-semibold uppercase tracking-[0.18em] text-text-tertiary">
                 Rastro editorial

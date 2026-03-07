@@ -12,6 +12,7 @@ __pycache__/
 .venv/
 venv/
 var/
+.dev/shannon
 
 # Environment / secrets
 .env
