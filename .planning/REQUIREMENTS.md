@@ -75,38 +75,38 @@ Deferred to future release. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INFRA-01 | Phase ? | Pending |
-| INFRA-02 | Phase ? | Pending |
-| INFRA-03 | Phase ? | Pending |
-| INFRA-04 | Phase ? | Pending |
-| UPLD-01 | Phase ? | Pending |
-| UPLD-02 | Phase ? | Pending |
-| UPLD-03 | Phase ? | Pending |
-| UPLD-04 | Phase ? | Pending |
-| UPLD-05 | Phase ? | Pending |
-| UPLD-06 | Phase ? | Pending |
-| UPLD-07 | Phase ? | Pending |
-| UPLD-08 | Phase ? | Pending |
-| PROC-01 | Phase ? | Pending |
-| PROC-02 | Phase ? | Pending |
-| PROC-03 | Phase ? | Pending |
-| PROC-04 | Phase ? | Pending |
-| PROC-05 | Phase ? | Pending |
-| PROC-06 | Phase ? | Pending |
-| PROC-07 | Phase ? | Pending |
-| JOBS-01 | Phase ? | Pending |
-| JOBS-02 | Phase ? | Pending |
-| JOBS-03 | Phase ? | Pending |
-| JOBS-04 | Phase ? | Pending |
-| JOBS-05 | Phase ? | Pending |
-| JOBS-06 | Phase ? | Pending |
-| CLEN-01 | Phase ? | Pending |
+| INFRA-01 | Phase 1 | Pending |
+| INFRA-02 | Phase 2 | Pending |
+| INFRA-03 | Phase 4 | Pending |
+| INFRA-04 | Phase 4 | Pending |
+| UPLD-01 | Phase 7 | Pending |
+| UPLD-02 | Phase 7 | Pending |
+| UPLD-03 | Phase 3 | Pending |
+| UPLD-04 | Phase 3 | Pending |
+| UPLD-05 | Phase 3 | Pending |
+| UPLD-06 | Phase 7 | Pending |
+| UPLD-07 | Phase 7 | Pending |
+| UPLD-08 | Phase 7 | Pending |
+| PROC-01 | Phase 5 | Pending |
+| PROC-02 | Phase 6 | Pending |
+| PROC-03 | Phase 5 | Pending |
+| PROC-04 | Phase 5 | Pending |
+| PROC-05 | Phase 6 | Pending |
+| PROC-06 | Phase 6 | Pending |
+| PROC-07 | Phase 5 | Pending |
+| JOBS-01 | Phase 8 | Pending |
+| JOBS-02 | Phase 8 | Pending |
+| JOBS-03 | Phase 8 | Pending |
+| JOBS-04 | Phase 9 | Pending |
+| JOBS-05 | Phase 9 | Pending |
+| JOBS-06 | Phase 8 | Pending |
+| CLEN-01 | Phase 10 | Pending |
 
 **Coverage:**
 - v1 requirements: 26 total
-- Mapped to phases: 0
-- Unmapped: 26 ⚠️
+- Mapped to phases: 26
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-08*
-*Last updated: 2026-03-08 after initial definition*
+*Last updated: 2026-03-08 after roadmap creation*
