@@ -81,6 +81,10 @@ None.
 
 - Phase 3 (Upload API) can create jobs via create_job() and write blobs to Tigris; worker (Phase 4/5) will use claim_job_for_processing and update_job_status.
 
+## Self-Check: PASSED
+
+- 02-01-SUMMARY.md, worker_jobs_schema.sql, worker_jobs.py exist. Commits c58e439, 702ef47, 80b4c15 present.
+
 ---
 *Phase: 02-job-control-schema*
 *Completed: 2026-03-08*
