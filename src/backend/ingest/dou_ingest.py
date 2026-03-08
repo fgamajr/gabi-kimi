@@ -72,6 +72,8 @@ class ZIPIngestResult:
     image_count: int = 0
     articles_found: int = 0  # article count after merge/filter (for worker_jobs)
     documents_inserted: int = 0
+    documents_dup: int = 0    # skipped (ON CONFLICT id_materia)
+    documents_failed: int = 0 # per-article insert/parse errors (PROC-05)
     media_inserted: int = 0
     signatures_inserted: int = 0
     norm_refs_inserted: int = 0
@@ -170,6 +172,13 @@ class DOUIngestor:
                     if info.is_dir():
                         continue
                     name = info.filename
+                    # ZIP Slip (PROC-06): reject path traversal and absolute paths
+                    if name.startswith("/") or ".." in name:
+                        result.errors.append(f"ZIP Slip rejected: {name}")
+                        result.success = False
+                        result.elapsed_ms = int((time.monotonic() - t0) * 1000)
+                        _cleanup_dir(extract_dir)
+                        return result
                     suffix = Path(name).suffix.lower()
                     target = extract_dir / Path(name).name
                     try:
@@ -265,6 +274,8 @@ class DOUIngestor:
                     )
                     if counts.get("inserted"):
                         result.documents_inserted += 1
+                    else:
+                        result.documents_dup += 1
                     result.media_inserted += counts["media"]
                     result.signatures_inserted += counts["signatures"]
                     result.norm_refs_inserted += counts["norm_refs"]
@@ -273,6 +284,7 @@ class DOUIngestor:
                     result.images_missing += counts["images_missing"]
                     result.images_unknown += counts["images_unknown"]
                 except Exception as ex:
+                    result.documents_failed += 1
                     result.errors.append(
                         f"insert doc {ma.base_id_materia}: {ex}"
                     )
@@ -356,6 +368,8 @@ class DOUIngestor:
                     )
                     if counts.get("inserted"):
                         result.documents_inserted += 1
+                    else:
+                        result.documents_dup += 1
                     result.media_inserted += counts["media"]
                     result.signatures_inserted += counts["signatures"]
                     result.norm_refs_inserted += counts["norm_refs"]
@@ -364,6 +378,7 @@ class DOUIngestor:
                     result.images_missing += counts.get("images_missing", 0)
                     result.images_unknown += counts.get("images_unknown", 0)
                 except Exception as ex:
+                    result.documents_failed += 1
                     result.errors.append(f"insert doc {ma.base_id_materia}: {ex}")
             conn.commit()
         except Exception as ex:
