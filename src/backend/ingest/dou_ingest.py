@@ -65,11 +65,12 @@ from src.backend.ingest.xml_parser import DOUArticle, INLabsXMLParser, is_index_
 
 @dataclass(slots=True)
 class ZIPIngestResult:
-    """Result of ingesting one ZIP into dou.* schema."""
+    """Result of ingesting one ZIP or single XML into dou.* schema."""
     zip_path: Path
     success: bool = True
     xml_count: int = 0
     image_count: int = 0
+    articles_found: int = 0  # article count after merge/filter (for worker_jobs)
     documents_inserted: int = 0
     media_inserted: int = 0
     signatures_inserted: int = 0
@@ -234,6 +235,7 @@ class DOUIngestor:
             else:
                 filtered.append(ma)
         merged_articles = filtered
+        result.articles_found = len(merged_articles)
 
         # --- ZIP metadata ---
         zip_sha = _sha256_file(zip_path)
@@ -285,6 +287,91 @@ class DOUIngestor:
 
         # Cleanup temp dir
         _cleanup_dir(extract_dir)
+
+        result.elapsed_ms = int((time.monotonic() - t0) * 1000)
+        return result
+
+    def ingest_single_xml(self, xml_path: Path) -> ZIPIngestResult:
+        """Ingest a single XML file (e.g. admin upload). Same pipeline as one-XML ZIP, no images."""
+        import psycopg2  # lazy import
+
+        t0 = time.monotonic()
+        result = ZIPIngestResult(zip_path=xml_path)
+        result.xml_count = 1
+        result.image_count = 0
+
+        parser = INLabsXMLParser()
+        try:
+            article = parser.parse_file(xml_path)
+        except Exception as ex:
+            result.success = False
+            result.parse_errors = 1
+            result.errors.append(f"parse {xml_path.name}: {ex}")
+            result.elapsed_ms = int((time.monotonic() - t0) * 1000)
+            return result
+
+        parsed: list[tuple[DOUArticle, Path]] = [(article, xml_path)]
+        merged_articles = group_and_merge(parsed)
+        merged_articles = merge_page_fragments(merged_articles)
+
+        filtered: list[MergedArticle] = []
+        for ma in merged_articles:
+            if is_index_document(ma.article):
+                _log(f"  skipping index doc {ma.base_id_materia}")
+                continue
+            segments = split_blob_acts(ma.article, base_id_materia=ma.base_id_materia)
+            if len(segments) > 1:
+                for seg in segments:
+                    filtered.append(MergedArticle(
+                        article=seg,
+                        xml_paths=ma.xml_paths,
+                        is_multipart=ma.is_multipart,
+                        part_count=ma.part_count,
+                        base_id_materia=seg.id_materia,
+                    ))
+            else:
+                filtered.append(ma)
+        merged_articles = filtered
+        result.articles_found = len(merged_articles)
+
+        file_sha = _sha256_file(xml_path)
+        file_size = xml_path.stat().st_size
+        file_filename = xml_path.name
+        file_month, file_section = _infer_zip_meta(file_filename)
+
+        image_lookup: dict[str, Path] = {}
+
+        conn = psycopg2.connect(self.dsn)
+        try:
+            conn.autocommit = False
+            cur = conn.cursor()
+            source_zip_id = self._upsert_source_zip(
+                cur, file_filename, file_month, file_section, file_sha,
+                file_size, 1, 0,
+            )
+            for ma in merged_articles:
+                try:
+                    counts = self._insert_document(
+                        cur, ma, source_zip_id, image_lookup,
+                    )
+                    if counts.get("inserted"):
+                        result.documents_inserted += 1
+                    result.media_inserted += counts["media"]
+                    result.signatures_inserted += counts["signatures"]
+                    result.norm_refs_inserted += counts["norm_refs"]
+                    result.proc_refs_inserted += counts["proc_refs"]
+                    result.images_available += counts.get("images_available", 0)
+                    result.images_missing += counts.get("images_missing", 0)
+                    result.images_unknown += counts.get("images_unknown", 0)
+                except Exception as ex:
+                    result.errors.append(f"insert doc {ma.base_id_materia}: {ex}")
+            conn.commit()
+        except Exception as ex:
+            conn.rollback()
+            result.success = False
+            result.errors.append(f"transaction: {ex}")
+        finally:
+            conn.close()
 
         result.elapsed_ms = int((time.monotonic() - t0) * 1000)
         return result
