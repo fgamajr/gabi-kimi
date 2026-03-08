@@ -132,10 +132,10 @@ Plans:
   2. Clicking a job opens a detail view showing per-article breakdown (ingested, skipped/duplicate, failed)
   3. Error messages are human-readable (e.g., "Duplicate article", "Invalid XML at line 42", "Missing field: artType")
   4. Upload history is immutable and serves as an audit log of who uploaded what, when, and the outcome
-**Plans**: TBD
+**Plans**: 08-01 done
 
 Plans:
-- [ ] 08-01: TBD
+- [x] 08-01: Job list table + detail dialog, audit log (read-only)
 
 ### Phase 9: Live Status and Retry
 **Goal**: Admins see processing progress in real time and can retry failed jobs
