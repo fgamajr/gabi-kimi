@@ -118,10 +118,10 @@ Plans:
   3. Admin sees a progress indicator during file upload
   4. Before uploading an XML file, admin can preview detected article count, date range, and DOU sections
   5. Admin can switch to a "paste" tab and submit raw XML content for single-article ingestion
-**Plans**: TBD
+**Plans**: 07-01 done
 
 Plans:
-- [ ] 07-01: TBD
+- [x] 07-01: Admin upload page (drag-drop, file picker, progress, XML preview, paste tab)
 
 ### Phase 8: Job Dashboard
 **Goal**: Admins can monitor and audit all upload jobs with detailed per-article breakdowns
