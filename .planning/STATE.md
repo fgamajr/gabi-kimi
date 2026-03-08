@@ -4,14 +4,14 @@ milestone: v1.0
 milestone_name: milestone
 current_plan: 1
 status: executing
-stopped_at: Completed 07-01-SUMMARY.md
-last_updated: "2026-03-08T23:34:19.732Z"
+stopped_at: Completed 08-01-SUMMARY.md
+last_updated: "2026-03-08T23:36:04.810Z"
 last_activity: 2026-03-08
 progress:
   total_phases: 10
   completed_phases: 0
   total_plans: 0
-  completed_plans: 7
+  completed_plans: 8
   percent: 50
 ---
 
@@ -60,6 +60,7 @@ Progress: [█████░░░░░] 50%
 | Phase 05-single-xml-processing P01 | 18 | 3 tasks | 3 files |
 | Phase 06-zip-processing P01 | 15 | 1 tasks | 2 files |
 | Phase 07-upload-ui P01 | 25 | 1 tasks | 5 files |
+| Phase 08-job-dashboard P01 | 20 | 1 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -73,6 +74,7 @@ Recent decisions affecting current work:
 - [Roadmap]: ARQ + Redis for task queue (Redis already deployed for search caching)
 - [Phase 06-zip-processing]: ZIP Slip: reject path traversal/absolute paths before extract; abort entire ZIP. Partial success: per-article exceptions do not rollback; commit at end.
 - [Phase 07-upload-ui]: Upload progress via XHR; paste tab sends Blob as pasted.xml; XML preview best-effort client-side.
+- [Phase 08-job-dashboard]: Job detail as modal; audit log read-only, no delete.
 
 ### Pending Todos
 
@@ -86,6 +88,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-08T23:34:19.702Z
-Stopped at: Completed 07-01-SUMMARY.md
+Last session: 2026-03-08T23:36:04.788Z
+Stopped at: Completed 08-01-SUMMARY.md
 Resume file: None
