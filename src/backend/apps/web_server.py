@@ -102,12 +102,10 @@ DASHSCOPE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completi
 QWEN_API_KEY = os.getenv("QWEN_API_KEY", "")
 QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen-plus")
 
-# Try new frontend first, fallback to old
+# React SPA only (Phase 10: legacy Alpine.js frontend removed)
 _ROOT_DIR = Path(__file__).resolve().parents[3]
-_FRONTEND_WEB_DIR = _ROOT_DIR / "src" / "frontend" / "web"
-_LEGACY_WEB_DIR = _ROOT_DIR / "web"
-WEB_DIR = _FRONTEND_WEB_DIR if _FRONTEND_WEB_DIR.exists() else _LEGACY_WEB_DIR
-SPA_INDEX = WEB_DIR / "dist" / "index.html" if (WEB_DIR / "dist" / "index.html").exists() else WEB_DIR / "index.html"
+WEB_DIR = _ROOT_DIR / "src" / "frontend" / "web"
+SPA_INDEX = (WEB_DIR / "dist" / "index.html") if (WEB_DIR / "dist" / "index.html").exists() else (WEB_DIR / "index.html")
 DIST_DIR = (WEB_DIR / "dist").resolve()
 ASSETS_DIR = (DIST_DIR / "assets").resolve()
 MEDIA_ROOT = Path(

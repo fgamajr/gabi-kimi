@@ -9,7 +9,7 @@
 **Key Characteristics:**
 - Backend-heavy Python system for ingesting Brazilian government legal publications (Diario Oficial da Uniao / DOU)
 - Multi-phase data pipeline: discover -> download -> parse -> normalize -> ingest -> index -> search
-- Dual frontend: a standalone single-file Alpine.js landing page (`web/index.html`) and a Vite+React SPA (`src/frontend/web/`)
+- Single frontend: Vite+React SPA at `src/frontend/web/` (legacy Alpine.js removed in Phase 10)
 - PostgreSQL as primary data store, Elasticsearch as search index, Redis for query analytics caching
 - MCP (Model Context Protocol) servers expose search tools for AI assistants
 - Cryptographic commitment chain (CRSS-1) for data integrity verification
@@ -53,8 +53,8 @@
 
 **Frontend Layer (UI):**
 - Purpose: User-facing search and document reading interface
-- Location: `src/frontend/web/` (React SPA) and `web/index.html` (standalone Alpine.js page)
-- Contains: React pages (Home, Search, Document, Analytics, Chat), shadcn/ui components, Tailwind styling
+- Location: `src/frontend/web/` (React SPA only)
+- Contains: React pages (Home, Search, Document, Analytics, Chat, Admin Upload/Jobs), shadcn/ui components, Tailwind styling
 - Depends on: FastAPI backend `/api/*` endpoints
 - Used by: End users via browser
 
@@ -96,7 +96,6 @@
 **State Management:**
 - Server-side: PostgreSQL is the authoritative data store; Elasticsearch is a derived search index; Redis holds ephemeral query analytics
 - Frontend React SPA: React Query (`@tanstack/react-query`) for server state caching
-- Frontend standalone: Alpine.js reactive state in `web/index.html`
 
 ## Key Abstractions
 

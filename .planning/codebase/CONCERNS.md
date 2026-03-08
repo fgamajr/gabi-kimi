@@ -34,11 +34,8 @@
 - Impact: Production risk if environment variables are missing -- silently connects with dev credentials. No fail-fast for misconfiguration.
 - Fix approach: Remove default password values. Require explicit environment variable or fail with a clear error message at startup.
 
-**Legacy standalone HTML frontend:**
-- Issue: `web/index.html` is a 2643-line self-contained HTML file loading Tailwind from CDN. The new React frontend lives in `src/frontend/web/`. Both are served by the backend with a fallback mechanism.
-- Files: `web/index.html`, `src/backend/apps/web_server.py:87-92`
-- Impact: Two frontends to maintain. Confusion about which is canonical. CDN-loaded Tailwind in legacy version is not production-grade.
-- Fix approach: Remove `web/index.html` once React frontend is feature-complete. Remove fallback logic from web_server.py.
+**Legacy standalone HTML frontend (resolved Phase 10):**
+- Was: `web/index.html` (Alpine.js) and fallback in web_server. React SPA is now the only frontend; `web/` and legacy fallback removed.
 
 ## Known Bugs
 

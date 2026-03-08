@@ -128,8 +128,6 @@ gabi-kimi/
 │   ├── test_image_checker.py
 │   ├── test_search_adapters.py
 │   └── test_dou_ingest.py
-├── web/
-│   └── index.html               # Standalone Alpine.js landing page (122KB)
 ├── docs/                        # Documentation
 ├── var/                         # Runtime variable data
 ├── .env                         # Environment variables (DO NOT read)
@@ -184,11 +182,6 @@ gabi-kimi/
 **`tests/`:**
 - Purpose: Python test suite
 - Contains: 6 test files covering commitment, pipeline, search, and ingestion
-
-**`web/`:**
-- Purpose: Standalone single-file frontend (Alpine.js + Tailwind CDN)
-- Contains: One large `index.html` (~122KB) with embedded JavaScript and styles
-- Note: This is separate from and predates the React SPA in `src/frontend/web/`
 
 ## Key File Locations
 
@@ -323,12 +316,6 @@ gabi-kimi/
 - Generated: No
 - Committed: Partially
 
-**`web/`:**
-- Purpose: Standalone Alpine.js frontend (single HTML file, predates React SPA)
-- Generated: No
-- Committed: Yes
-- Note: This is a separate, self-contained frontend independent of `src/frontend/web/`
-
 ---
 
-*Structure analysis: 2026-03-08*
+*Structure analysis: 2026-03-08. Legacy web/ (Alpine.js) removed Phase 10.*
