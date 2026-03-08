@@ -1,0 +1,84 @@
+{
+  "agent": "zai",
+  "round": 1,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "Execution order steps 3 and 5",
+      "description": "Sequencing error: filter redesign (step 3) depends on bottom-sheet patterns (step 5), but sheets come after. Mobile filter editing specifically calls for bottom sheets, creating a dependency inversion that will cause rework.",
+      "suggested_fix": "Move bottom-sheet standardization to step 2, parallel with app shell work. Filters and document viewer can then build on stable sheet primitives."
+    },
+    {
+      "severity": "high",
+      "location": "Document viewer section",
+      "description": "No performance strategy for long-document workflows. DOU documents can exceed 100+ pages with nested sections. Missing: virtualization approach, lazy TOC rendering, progressive loading, memory management for relationship graphs.",
+      "suggested_fix": "Add explicit performance constraints: document virtualization threshold, TOC lazy-load strategy, graph node limit with pagination. Specify whether react-window or custom solution."
+    },
+    {
+      "severity": "high",
+      "location": "Visual direction / typography",
+      "description": "Claims 'stronger typography' and 'denser information hierarchy' for mobile-first reading but provides no concrete decisions: base size, line-height, measure, scale ratio, or how density works on 375px viewport without horizontal scroll.",
+      "suggested_fix": "Specify: minimum readable size (16px floor for body), optimal measure (65-80 characters), line-height for long-form (1.6-1.8), and how denser hierarchy manifests on mobile (collapsible sections, not smaller text)."
+    },
+    {
+      "severity": "medium",
+      "location": "Document viewer / reading resume",
+      "description": "Reading resume feature mentioned without persistence strategy. Cross-device? LocalStorage only? Backend sync? Impacts both UX and technical scope significantly.",
+      "suggested_fix": "Specify persistence layer: start with localStorage for MVP, define schema {documentId, scrollProgress, lastSection, timestamp}, plan backend sync as follow-up."
+    },
+    {
+      "severity": "medium",
+      "location": "Search / zero-result recovery",
+      "description": "'Better zero-result recovery' is stated as a goal but no concrete UX or logic is defined. What happens when corpus returns nothing? Suggestions? Corpus overview? Query relaxation hints?",
+      "suggested_fix": "Define zero-result UX: (1) show interpreted query with visible relaxations, (2) offer 'search in [related corpus]', (3) display corpus coverage metrics, (4) suggest removing least selective filter."
+    },
+    {
+      "severity": "medium",
+      "location": "DocumentGraph component",
+      "description": "Component is mentioned as existing but no UX detail provided for how it serves reading workflows. Is it navigation? Contextual awareness? Both? How does it behave on mobile where viewport is limited?",
+      "suggested_fix": "Define graph purpose: primary navigation (click to jump) vs contextual awareness (where am I). On mobile: consider bottom-sheet presentation with simplified node view, or hide behind gesture."
+    },
+    {
+      "severity": "medium",
+      "location": "Accessibility (entire plan)",
+      "description": "Professional document reading app for DOU (government use) has no accessibility considerations. Missing: screen reader support, keyboard navigation for CommandPalette, focus management for sheets, color contrast for warmer dark neutrals.",
+      "suggested_fix": "Add accessibility checkpoint in step 1: WCAG 2.1 AA floor, define focus-visible states, test CommandPalette with keyboard-only navigation, verify contrast ratios for new neutrals."
+    },
+    {
+      "severity": "low",
+      "location": "MCP usage / gabi-es",
+      "description": "Mentions 'corpus-grounded search/viewer/filter UX' but provides no specific queries or validation criteria. What questions will gabi-es answer? What corpus coverage is expected?",
+      "suggested_fix": "Define specific gabi-es queries: 'What filter combinations are most common?', 'What document structures appear in DOU?', 'What section types exist and their frequency?'"
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "Dashboard/Home section",
+      "description": "Add 'onboarding state' consideration: what does home show for a user with no reading history, no saved searches? Empty states are critical for new user retention."
+    },
+    {
+      "type": "improvement",
+      "location": "Bottom sheets / snapping",
+      "description": "Specify snap points explicitly: 0.4 (preview), 0.7 (primary actions), 1.0 (expanded). Define handle affordance and dismiss gesture vs scroll conflict resolution."
+    },
+    {
+      "type": "improvement",
+      "location": "Execution order",
+      "description": "Add validation checkpoint after step 1: test token system on one representative component (e.g., a search result card) before rolling out to shell. Catches contrast/hierarchy issues early."
+    },
+    {
+      "type": "improvement",
+      "location": "Search / filters",
+      "description": "Consider filter persistence: should selected filters survive session? URL-synced for shareability? This impacts both UX and technical implementation."
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 0,
+    "latency_ms": 0,
+    "thinking_tokens": 0
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"zai\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Execution order steps 3 and 5\",\n      \"description\": \"Sequencing error: filter redesign (step 3) depends on bottom-sheet patterns (step 5), but sheets come after. Mobile filter editing specifically calls for bottom sheets, creating a dependency inversion that will cause rework.\",\n      \"suggested_fix\": \"Move bottom-sheet standardization to step 2, parallel with app shell work. Filters and document viewer can then build on stable sheet primitives.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Document viewer section\",\n      \"description\": \"No performance strategy for long-document workflows. DOU documents can exceed 100+ pages with nested sections. Missing: virtualization approach, lazy TOC rendering, progressive loading, memory management for relationship graphs.\",\n      \"suggested_fix\": \"Add explicit performance constraints: document virtualization threshold, TOC lazy-load strategy, graph node limit with pagination. Specify whether react-window or custom solution.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Visual direction / typography\",\n      \"description\": \"Claims 'stronger typography' and 'denser information hierarchy' for mobile-first reading but provides no concrete decisions: base size, line-height, measure, scale ratio, or how density works on 375px viewport without horizontal scroll.\",\n      \"suggested_fix\": \"Specify: minimum readable size (16px floor for body), optimal measure (65-80 characters), line-height for long-form (1.6-1.8), and how denser hierarchy manifests on mobile (collapsible sections, not smaller text).\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Document viewer / reading resume\",\n      \"description\": \"Reading resume feature mentioned without persistence strategy. Cross-device? LocalStorage only? Backend sync? Impacts both UX and technical scope significantly.\",\n      \"suggested_fix\": \"Specify persistence layer: start with localStorage for MVP, define schema {documentId, scrollProgress, lastSection, timestamp}, plan backend sync as follow-up.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Search / zero-result recovery\",\n      \"description\": \"'Better zero-result recovery' is stated as a goal but no concrete UX or logic is defined. What happens when corpus returns nothing? Suggestions? Corpus overview? Query relaxation hints?\",\n      \"suggested_fix\": \"Define zero-result UX: (1) show interpreted query with visible relaxations, (2) offer 'search in [related corpus]', (3) display corpus coverage metrics, (4) suggest removing least selective filter.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"DocumentGraph component\",\n      \"description\": \"Component is mentioned as existing but no UX detail provided for how it serves reading workflows. Is it navigation? Contextual awareness? Both? How does it behave on mobile where viewport is limited?\",\n      \"suggested_fix\": \"Define graph purpose: primary navigation (click to jump) vs contextual awareness (where am I). On mobile: consider bottom-sheet presentation with simplified node view, or hide behind gesture.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Accessibility (entire plan)\",\n      \"description\": \"Professional document reading app for DOU (government use) has no accessibility considerations. Missing: screen reader support, keyboard navigation for CommandPalette, focus management for sheets, color contrast for warmer dark neutrals.\",\n      \"suggested_fix\": \"Add accessibility checkpoint in step 1: WCAG 2.1 AA floor, define focus-visible states, test CommandPalette with keyboard-only navigation, verify contrast ratios for new neutrals.\"\n    },\n    {\n      \"severity\": \"low\",\n      \"location\": \"MCP usage / gabi-es\",\n      \"description\": \"Mentions 'corpus-grounded search/viewer/filter UX' but provides no specific queries or validation criteria. What questions will gabi-es answer? What corpus coverage is expected?\",\n      \"suggested_fix\": \"Define specific gabi-es queries: 'What filter combinations are most common?', 'What document structures appear in DOU?', 'What section types exist and their frequency?'\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Dashboard/Home section\",\n      \"description\": \"Add 'onboarding state' consideration: what does home show for a user with no reading history, no saved searches? Empty states are critical for new user retention.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Bottom sheets / snapping\",\n      \"description\": \"Specify snap points explicitly: 0.4 (preview), 0.7 (primary actions), 1.0 (expanded). Define handle affordance and dismiss gesture vs scroll conflict resolution.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Execution order\",\n      \"description\": \"Add validation checkpoint after step 1: test token system on one representative component (e.g., a search result card) before rolling out to shell. Catches contrast/hierarchy issues early.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Search / filters\",\n      \"description\": \"Consider filter persistence: should selected filters survive session? URL-synced for shareability? This impacts both UX and technical implementation.\"\n    }\n  ],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 0,\n    \"latency_ms\": 0,\n    \"thinking_tokens\": 0\n  }\n}\n```"
+}

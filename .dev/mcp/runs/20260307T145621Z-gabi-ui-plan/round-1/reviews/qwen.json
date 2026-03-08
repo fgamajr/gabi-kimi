@@ -1,0 +1,61 @@
+{
+  "agent": "qwen",
+  "round": 1,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "Plano inicial - Telas",
+      "description": "Plano por tela está genérico. Não especifica quais componentes shadcn para cada tela (ex: quais componentes para Document Viewer? ScrollArea? Table? Tabs?)",
+      "suggested_fix": "Detalhar mapeamento tela->componentes: Home (Card, Chart, Skeleton), Search (Command, Input, Badge), Document Viewer (ScrollArea, Separator, Tooltip), Bottom Sheet (Sheet, Form)"
+    },
+    {
+      "severity": "high",
+      "location": "Regras de tipografia",
+      "description": "Ausência total de regras de tipografia e densidade para documentos longos - requisito explícito do task não atendido",
+      "suggested_fix": "Definir escala tipográfica (base 16px, ratio 1.25), line-height (1.6 para corpo), max-width de leitura (65-75ch), spacing scale para densidade"
+    },
+    {
+      "severity": "medium",
+      "location": "Restrições - performance mobile",
+      "description": "Sem estratégia concreta para performance mobile (virtualização, lazy loading, bundle splitting)",
+      "suggested_fix": "Adicionar: virtualização com @tanstack/react-virtual para listas longas, code-splitting por rota, image optimization com Vite"
+    },
+    {
+      "severity": "medium",
+      "location": "Checklist de validação",
+      "description": "Checklist mencionado mas não detalhado - impossível executar rollout incremental sem critérios de aceite",
+      "suggested_fix": "Criar checklist com: Lighthouse score >90, WCAG 2.1 AA, tempo de interação <100ms, teste em 3 viewports mobile"
+    },
+    {
+      "severity": "high",
+      "location": "Riscos e mitigação",
+      "description": "Seção de riscos completamente ausente apesar de ser requisito explícito (item 4 do task)",
+      "suggested_fix": "Documentar riscos: regressão de a11y (mitigar com axe-core CI), motion sickness (respeitar prefers-reduced-motion), token drift (Storybook como single source of truth)"
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "Motion - React Bits",
+      "description": "Especificar gatilhos de motion: fade-in on scroll (IntersectionObserver), hover states com duration <200ms, desabilitar em reduced-motion"
+    },
+    {
+      "type": "improvement",
+      "location": "Dark-first",
+      "description": "Definir estratégia de tokens CSS: CSS variables com prefixo --gabi-, dark mode via class strategy não media query para controle JS"
+    },
+    {
+      "type": "improvement",
+      "location": "Rollout incremental",
+      "description": "Sugerir feature flags com Vite env vars, deploy por tela (Home -> Search -> Document Viewer), monitoring com Sentry"
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 847,
+    "latency_ms": 124,
+    "thinking_tokens": 0
+  },
+  "raw_text": "{\n  \"agent\": \"qwen\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Plano inicial - Telas\",\n      \"description\": \"Plano por tela está genérico. Não especifica quais componentes shadcn para cada tela (ex: quais componentes para Document Viewer? ScrollArea? Table? Tabs?)\",\n      \"suggested_fix\": \"Detalhar mapeamento tela->componentes: Home (Card, Chart, Skeleton), Search (Command, Input, Badge), Document Viewer (ScrollArea, Separator, Tooltip), Bottom Sheet (Sheet, Form)\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Regras de tipografia\",\n      \"description\": \"Ausência total de regras de tipografia e densidade para documentos longos - requisito explícito do task não atendido\",\n      \"suggested_fix\": \"Definir escala tipográfica (base 16px, ratio 1.25), line-height (1.6 para corpo), max-width de leitura (65-75ch), spacing scale para densidade\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Restrições - performance mobile\",\n      \"description\": \"Sem estratégia concreta para performance mobile (virtualização, lazy loading, bundle splitting)\",\n      \"suggested_fix\": \"Adicionar: virtualização com @tanstack/react-virtual para listas longas, code-splitting por rota, image optimization com Vite\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Checklist de validação\",\n      \"description\": \"Checklist mencionado mas não detalhado - impossível executar rollout incremental sem critérios de aceite\",\n      \"suggested_fix\": \"Criar checklist com: Lighthouse score >90, WCAG 2.1 AA, tempo de interação <100ms, teste em 3 viewports mobile\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Riscos e mitigação\",\n      \"description\": \"Seção de riscos completamente ausente apesar de ser requisito explícito (item 4 do task)\",\n      \"suggested_fix\": \"Documentar riscos: regressão de a11y (mitigar com axe-core CI), motion sickness (respeitar prefers-reduced-motion), token drift (Storybook como single source of truth)\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Motion - React Bits\",\n      \"description\": \"Especificar gatilhos de motion: fade-in on scroll (IntersectionObserver), hover states com duration <200ms, desabilitar em reduced-motion\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Dark-first\",\n      \"description\": \"Definir estratégia de tokens CSS: CSS variables com prefixo --gabi-, dark mode via class strategy não media query para controle JS\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Rollout incremental\",\n      \"description\": \"Sugerir feature flags com Vite env vars, deploy por tela (Home -> Search -> Document Viewer), monitoring com Sentry\"\n    }\n  ],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 847,\n    \"latency_ms\": 124,\n    \"thinking_tokens\": 0\n  }\n}"
+}

@@ -14,6 +14,7 @@ import psycopg2
 from dotenv import load_dotenv
 
 from src.backend.ingest.embedding_pipeline import _create_embedder, _load_embed_config
+from src.backend.search.norm_queries import NormQuery, detect_legal_norm
 
 load_dotenv()
 
@@ -160,6 +161,7 @@ def _search_context_payload(
     applied_section: str | None,
     applied_art_type: str | None,
     applied_issuing_organ: str | None,
+    norm_query: NormQuery | None = None,
 ) -> dict[str, Any]:
     inferred: dict[str, str] = {}
     if not requested_section and applied_section:
@@ -171,6 +173,7 @@ def _search_context_payload(
     return {
         "interpreted_query": interpreted_query,
         "query_normalized": interpreted_query != _query_text(original_query),
+        "norm_query": norm_query.to_payload() if norm_query else None,
         "applied_filters": {
             "section": applied_section,
             "art_type": applied_art_type,
@@ -380,7 +383,50 @@ def _is_hard_filter_query(
     return active >= 2
 
 
-def _lexical_query_clause(query: str) -> dict[str, Any]:
+def _norm_clause_should(norm_query: NormQuery) -> list[dict[str, Any]]:
+    should: list[dict[str, Any]] = []
+    if norm_query.norm_type:
+        should.append(
+            {"term": {"art_type.keyword": {"value": norm_query.norm_type, "boost": 10.0}}}
+        )
+    for variant in norm_query.number_variants:
+        should.append(
+            {"term": {"document_number": {"value": variant, "boost": 24.0}}}
+        )
+        if norm_query.norm_type:
+            should.append(
+                {
+                    "bool": {
+                        "must": [
+                            {"term": {"art_type.keyword": {"value": norm_query.norm_type}}},
+                            {"term": {"document_number": {"value": variant}}},
+                        ],
+                        "boost": 36.0,
+                    }
+                }
+            )
+        for field, boost in (("identifica", 14.0), ("ementa", 10.0), ("body_plain", 8.0)):
+            should.append({"match_phrase": {field: {"query": variant, "boost": boost}}})
+            if norm_query.norm_type:
+                should.append(
+                    {
+                        "match_phrase": {
+                            field: {
+                                "query": f"{norm_query.norm_type} {variant}",
+                                "boost": boost + 2.0,
+                            }
+                        }
+                    }
+                )
+    if norm_query.year is not None:
+        should.append({"term": {"document_year": {"value": norm_query.year, "boost": 9.0}}})
+    for alias in norm_query.normalized_aliases:
+        for field, boost in (("identifica", 16.0), ("ementa", 11.0), ("body_plain", 7.0)):
+            should.append({"match_phrase": {field: {"query": alias, "boost": boost}}})
+    return should
+
+
+def _lexical_query_clause(query: str, norm_query: NormQuery | None = None) -> dict[str, Any]:
     phrase_query = _normalized_phrase_query(query)
     should: list[dict[str, Any]] = [
         {
@@ -423,12 +469,29 @@ def _lexical_query_clause(query: str) -> dict[str, Any]:
                 {"match_phrase": {"body_plain": {"query": phrase_query, "boost": 28.0}}},
             ]
         )
+    if norm_query is not None:
+        should.extend(_norm_clause_should(norm_query))
     return {
         "bool": {
             "should": should,
             "minimum_should_match": 1,
         }
     }
+
+
+def _merge_ranked_rows(
+    primary_rows: list[dict[str, Any]],
+    secondary_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in primary_rows + secondary_rows:
+        doc_id = str(row.get("doc_id") or "")
+        if not doc_id or doc_id in seen:
+            continue
+        seen.add(doc_id)
+        merged.append(row)
+    return merged
 
 
 class PGSearchAdapter:
@@ -442,6 +505,122 @@ class PGSearchAdapter:
         cur.execute(f"SET statement_timeout = {timeout_ms}")
         cur.close()
         return conn
+
+    def _norm_rows(
+        self,
+        cur,
+        *,
+        norm_query: NormQuery,
+        limit: int,
+        date_from: str | None,
+        date_to: str | None,
+        section: str | None,
+        art_type: str | None,
+        issuing_organ: str | None,
+    ) -> list[dict[str, Any]]:
+        where_parts = ["1=1"]
+        params: list[Any] = []
+        if date_from:
+            where_parts.append("e.publication_date >= %s::date")
+            params.append(date_from)
+        if date_to:
+            where_parts.append("e.publication_date <= %s::date")
+            params.append(date_to)
+        if section:
+            where_parts.append("e.section = %s")
+            params.append(section)
+        if art_type:
+            where_parts.append("d.art_type = %s")
+            params.append(art_type)
+        if issuing_organ:
+            where_parts.append("d.issuing_organ = %s")
+            params.append(issuing_organ)
+
+        alias_exacts = [alias.casefold() for alias in norm_query.normalized_aliases]
+        alias_patterns = [f"%{alias.casefold()}%" for alias in norm_query.normalized_aliases if len(alias) >= 4]
+        direct_number_variants = list(norm_query.number_variants)
+        reference_variants = list(dict.fromkeys([*norm_query.number_variants, norm_query.number_digits]))
+
+        sql = f"""
+            SELECT
+                d.id AS doc_id,
+                MAX(
+                    CASE
+                        WHEN d.document_number = ANY(%s)
+                             AND (%s::text IS NULL OR d.art_type = %s)
+                             AND (%s::int IS NULL OR d.document_year = %s)
+                            THEN 500.0
+                        WHEN d.document_number = ANY(%s)
+                             AND (%s::text IS NULL OR d.art_type = %s)
+                            THEN 420.0
+                        WHEN d.document_number = ANY(%s)
+                            THEN 360.0
+                        WHEN %s::text[] <> '{{}}'::text[] AND lower(coalesce(d.identifica, '')) = ANY(%s)
+                            THEN 240.0
+                        WHEN %s::text[] <> '{{}}'::text[] AND lower(coalesce(d.identifica, '')) LIKE ANY(%s)
+                            THEN 210.0
+                        WHEN %s::text[] <> '{{}}'::text[] AND lower(coalesce(d.ementa, '')) LIKE ANY(%s)
+                            THEN 180.0
+                        WHEN nr.reference_number = ANY(%s)
+                             AND (%s::text IS NULL OR nr.reference_type = %s)
+                            THEN 120.0
+                        ELSE 0.0
+                    END
+                ) AS score,
+                d.identifica,
+                d.ementa,
+                d.art_type,
+                e.publication_date AS pub_date,
+                e.section AS edition_section,
+                left(d.body_plain, 200) AS snippet
+            FROM dou.document d
+            JOIN dou.edition e ON e.id = d.edition_id
+            LEFT JOIN dou.normative_reference nr ON nr.document_id = d.id
+            WHERE {' AND '.join(where_parts)}
+              AND (
+                    d.document_number = ANY(%s)
+                    OR (%s::text[] <> '{{}}'::text[] AND lower(coalesce(d.identifica, '')) = ANY(%s))
+                    OR (%s::text[] <> '{{}}'::text[] AND lower(coalesce(d.identifica, '')) LIKE ANY(%s))
+                    OR (%s::text[] <> '{{}}'::text[] AND lower(coalesce(d.ementa, '')) LIKE ANY(%s))
+                    OR nr.reference_number = ANY(%s)
+                  )
+            GROUP BY d.id, d.identifica, d.ementa, d.art_type, e.publication_date, e.section, d.body_plain
+            ORDER BY score DESC, e.publication_date DESC
+            LIMIT %s
+        """
+        params.extend(
+            [
+                direct_number_variants,
+                norm_query.norm_type,
+                norm_query.norm_type,
+                norm_query.year,
+                norm_query.year,
+                direct_number_variants,
+                norm_query.norm_type,
+                norm_query.norm_type,
+                direct_number_variants,
+                alias_exacts,
+                alias_exacts,
+                alias_patterns,
+                alias_patterns,
+                alias_patterns,
+                alias_patterns,
+                reference_variants,
+                norm_query.norm_type,
+                norm_query.norm_type,
+                direct_number_variants,
+                alias_exacts,
+                alias_exacts,
+                alias_patterns,
+                alias_patterns,
+                alias_patterns,
+                alias_patterns,
+                reference_variants,
+                limit,
+            ]
+        )
+        cur.execute(sql, params)
+        return _rows(cur)
 
     def search(
         self,
@@ -465,6 +644,7 @@ class PGSearchAdapter:
             art_type=art_type,
             issuing_organ=issuing_organ,
         )
+        norm_query = detect_legal_norm(q, inferred_type=art_type)
         offset_results = page_size * page
 
         conn = self._conn()
@@ -519,15 +699,29 @@ class PGSearchAdapter:
                 """
                 params_list.append(offset_results)
                 cur.execute(sql, params_list)
+                all_rows = _rows(cur)
             else:
+                norm_rows: list[dict[str, Any]] = []
+                if norm_query is not None:
+                    norm_rows = self._norm_rows(
+                        cur,
+                        norm_query=norm_query,
+                        limit=offset_results,
+                        date_from=date_from,
+                        date_to=date_to,
+                        section=section,
+                        art_type=art_type,
+                        issuing_organ=issuing_organ,
+                    )
                 cur.execute(
                     "SELECT doc_id, score, identifica, ementa, art_type, "
                     "pub_date, edition_section, snippet "
                     "FROM dou.bm25_search_filtered(%s, %s, %s, %s, %s, %s, %s)",
                     (q, offset_results, date_from, date_to, section, art_type, issuing_organ),
                 )
+                bm25_rows = _rows(cur)
+                all_rows = _merge_ranked_rows(norm_rows, bm25_rows)
 
-            all_rows = _rows(cur)
             cur.close()
         finally:
             conn.close()
@@ -548,6 +742,7 @@ class PGSearchAdapter:
                 applied_section=section,
                 applied_art_type=art_type,
                 applied_issuing_organ=issuing_organ,
+                norm_query=norm_query,
             ),
             "results": [{k: _serialize(v) for k, v in r.items()} for r in page_rows],
         }
@@ -632,6 +827,7 @@ class ESSearchAdapter:
             art_type=art_type,
             issuing_organ=issuing_organ,
         )
+        norm_query = detect_legal_norm(query, inferred_type=art_type)
         filters: list[dict[str, Any]] = []
         if date_from or date_to:
             rng: dict[str, Any] = {}
@@ -653,7 +849,7 @@ class ESSearchAdapter:
             highlight = None
         else:
             must_clause = [
-                _lexical_query_clause(q)
+                _lexical_query_clause(q, norm_query)
             ]
             highlight = {
                 "max_analyzed_offset": 999999,
@@ -680,6 +876,8 @@ class ESSearchAdapter:
                 "edition_section",
                 "body_plain",
                 "issuing_organ",
+                "document_number",
+                "document_year",
             ],
         }
         if highlight is not None:
@@ -712,6 +910,8 @@ class ESSearchAdapter:
                     "edition_section": src.get("edition_section"),
                     "body_plain": src.get("body_plain"),
                     "snippet": snippet,
+                    "document_number": src.get("document_number"),
+                    "document_year": src.get("document_year"),
                 }
             )
 
@@ -738,6 +938,7 @@ class ESSearchAdapter:
                 applied_section=section,
                 applied_art_type=art_type,
                 applied_issuing_organ=issuing_organ,
+                norm_query=norm_query,
             ),
             "results": rows,
         }
@@ -833,8 +1034,11 @@ class HybridSearchAdapter(ESSearchAdapter):
         section: str | None,
         art_type: str | None,
         issuing_organ: str | None,
+        norm_query: NormQuery | None = None,
     ) -> bool:
         if _is_exact_phrase_query(query):
+            return True
+        if norm_query is not None:
             return True
         if _is_hard_filter_query(section=section, art_type=art_type, issuing_organ=issuing_organ):
             return True
@@ -856,6 +1060,7 @@ class HybridSearchAdapter(ESSearchAdapter):
         self,
         *,
         query: str,
+        norm_query: NormQuery | None,
         size: int,
         date_from: str | None,
         date_to: str | None,
@@ -876,7 +1081,7 @@ class HybridSearchAdapter(ESSearchAdapter):
             "track_total_hits": True,
             "query": {
                 "bool": {
-                    "must": [_lexical_query_clause(query)],
+                    "must": [_lexical_query_clause(query, norm_query)],
                     "filter": filters,
                 }
             },
@@ -889,6 +1094,8 @@ class HybridSearchAdapter(ESSearchAdapter):
                 "edition_section",
                 "body_plain",
                 "issuing_organ",
+                "document_number",
+                "document_year",
             ],
             "highlight": {
                 "max_analyzed_offset": 999999,
@@ -928,6 +1135,8 @@ class HybridSearchAdapter(ESSearchAdapter):
                     "pub_date": src.get("pub_date"),
                     "edition_section": src.get("edition_section"),
                     "issuing_organ": src.get("issuing_organ"),
+                    "document_number": src.get("document_number"),
+                    "document_year": src.get("document_year"),
                     "snippet": snippet,
                 }
             )
@@ -1019,7 +1228,7 @@ class HybridSearchAdapter(ESSearchAdapter):
                 out[doc_id] = src
         return out
 
-    def _basic_rerank(self, query: str, row: dict[str, Any]) -> float:
+    def _basic_rerank(self, query: str, row: dict[str, Any], norm_query: NormQuery | None = None) -> float:
         q = query.strip()
         if not q:
             return 0.0
@@ -1056,12 +1265,23 @@ class HybridSearchAdapter(ESSearchAdapter):
             score -= 0.5
         if coverage < 0.34:
             score -= 0.35
+        if norm_query is not None:
+            row_number = str(row.get("document_number") or "").strip()
+            row_year = row.get("document_year")
+            row_type = str(row.get("art_type") or "").strip()
+            if row_number and row_number in norm_query.number_variants:
+                score += 4.5
+            if norm_query.year is not None and row_year == norm_query.year:
+                score += 1.25
+            if norm_query.norm_type and row_type == norm_query.norm_type:
+                score += 1.0
         return score
 
     def _merge(
         self,
         *,
         query: str,
+        norm_query: NormQuery | None,
         lexical_rows: list[dict[str, Any]],
         lexical_total: int,
         vector_rows: list[dict[str, Any]],
@@ -1089,6 +1309,8 @@ class HybridSearchAdapter(ESSearchAdapter):
             row.setdefault("edition_section", src.get("edition_section"))
             row.setdefault("issuing_organ", src.get("issuing_organ"))
             row.setdefault("body_plain", src.get("body_plain"))
+            row.setdefault("document_number", src.get("document_number"))
+            row.setdefault("document_year", src.get("document_year"))
             row.setdefault("snippet", row.get("vector_snippet") or (src.get("body_plain") or "")[:220])
             row["rrf_score"] = 0.0
             if row.get("bm25_rank"):
@@ -1118,7 +1340,7 @@ class HybridSearchAdapter(ESSearchAdapter):
             top_n = min(len(ranked), self._rerank_top_n)
             reranked: list[dict[str, Any]] = []
             for row in ranked[:top_n]:
-                row["rerank_score"] = self._basic_rerank(query, row)
+                row["rerank_score"] = self._basic_rerank(query, row, norm_query)
                 reranked.append(row)
             reranked.sort(
                 key=lambda row: (
@@ -1165,6 +1387,7 @@ class HybridSearchAdapter(ESSearchAdapter):
             art_type=art_type,
             issuing_organ=issuing_organ,
         )
+        norm_query = detect_legal_norm(q, inferred_type=art_type)
         if q == "*" or not q:
             out = super().search(
                 query=q or query,
@@ -1188,6 +1411,7 @@ class HybridSearchAdapter(ESSearchAdapter):
                     applied_section=section,
                     applied_art_type=art_type,
                     applied_issuing_organ=issuing_organ,
+                    norm_query=norm_query,
                 )
             )
             return out
@@ -1195,6 +1419,7 @@ class HybridSearchAdapter(ESSearchAdapter):
         merge_window = max(page * page_size * 4, self._lexical_k, self._vector_k)
         lexical_rows, lexical_total = self._lexical_candidates(
             query=q,
+            norm_query=norm_query,
             size=merge_window,
             date_from=date_from,
             date_to=date_to,
@@ -1208,6 +1433,7 @@ class HybridSearchAdapter(ESSearchAdapter):
             section=section,
             art_type=art_type,
             issuing_organ=issuing_organ,
+            norm_query=norm_query,
         ):
             vector_rows = self._vector_candidates(
                 query=q,
@@ -1220,6 +1446,7 @@ class HybridSearchAdapter(ESSearchAdapter):
             )
         merged = self._merge(
             query=q,
+            norm_query=norm_query,
             lexical_rows=lexical_rows,
             lexical_total=lexical_total,
             vector_rows=vector_rows,
@@ -1243,6 +1470,7 @@ class HybridSearchAdapter(ESSearchAdapter):
                 applied_section=section,
                 applied_art_type=art_type,
                 applied_issuing_organ=issuing_organ,
+                norm_query=norm_query,
             ),
             "rrf_k": self._rrf_k,
             "lexical_candidates": len(lexical_rows),

@@ -1,0 +1,342 @@
+# DOU Search & Reading App — UI/Product Execution Plan v2
+
+---
+
+## 0. Prerequisite: Backend Capability Audit
+
+**Blocking gate. No feature work begins until this is complete.**
+
+Use gabi-es to answer these specific questions about the current Elasticsearch backend:
+
+- What fields exist on a DOU document? (title, body, organ, section, type, date, hierarchy structure)
+- Does the API return faceted aggregation counts for organ, type, section, date range?
+- What does the document body look like — flat HTML, structured JSON with article/paragraph/inciso nesting, or raw text?
+- What is the maximum document size in the corpus (word count, node count)?
+- Does search return highlight fragments with matched terms?
+- What query relaxation or "did you mean" capabilities exist?
+
+**Output:** A `docs/backend-capabilities.md` file with two columns: "Available today" and "Requires backend work." Every subsequent step references this file, not assumptions.
+
+**Timebox:** 1 day.
+**MCP:** gabi-es exclusively.
+**Done when:** The capabilities doc exists, is reviewed, and search/viewer UX tiers (below) are assigned.
+
+---
+
+## 1. Foundation Layer
+
+Keep shadcn/ui as the structural layer. Use React Bits only for targeted motion (page transitions, sheet entrances). Do not adopt Tailark. Ground every decision in existing components: SearchPage, DocumentPage, BottomSheet, CommandPalette, DocumentGraph, MobileActionsBar.
+
+---
+
+## 2. Auth Model & Persistence Strategy
+
+**State the model now because it shapes every feature's scope.**
+
+**MVP is unauthenticated.** All user state lives in localStorage.
+
+Reading position schema:
+```
+{
+  documentId: string,
+  scrollPercent: number,
+  lastSectionId: string | null,
+  timestamp: number
+}
+```
+
+Saved searches schema:
+```
+{
+  query: string,
+  filters: Record<string, string[]>,
+  createdAt: number
+}
+```
+
+Cap localStorage entries at 100 reading positions (LRU eviction) and 50 saved searches.
+
+**Post-MVP:** Backend user service enables cross-device sync. Design the unauthenticated experience so it feels complete, not degraded.
+
+---
+
+## 3. Visual Direction — Concrete Specification
+
+Not mood-board language. Engineering decisions that ship as `src/styles/design-tokens.ts` and corresponding CSS custom properties.
+
+### Typography
+- **UI typeface:** Inter (already likely bundled via shadcn). Weights: 400, 500, 600.
+- **Reading typeface:** Source Serif 4 (variable, loaded on document route only). Weights: 400, 600.
+- **Type scale (rem):** 0.75 / 0.8125 / 0.875 / 1.0 / 1.125 / 1.25 / 1.5 / 2.0 — 8 stops, no freestyle sizes.
+- **Body reading:** 1rem (16px floor enforced), line-height 1.7, max-width 38rem (~65 characters on mobile at 16px).
+- **Mobile density:** Achieved through collapsible sections and tighter vertical padding — never by reducing font size below 14px for any interactive element.
+- **User controls (document viewer only):** Font size (3 stops: 16/18/20px), line-height (1.6/1.7/1.8), stored in localStorage.
+
+### Color — Dark-first
+- **Neutral scale:** Warm gray anchored at `hsl(30, 4%, N%)` where N ranges 4% (background-deepest) to 85% (foreground-primary). 10 stops. This gives an amber-warm tone without drifting into sepia territory.
+- **Accent:** Teal — `hsl(172, 50%, 42%)` primary, `hsl(172, 40%, 32%)` muted, `hsl(172, 55%, 52%)` bright. Replaces purple entirely. Used only for: interactive element focus, active filter chips, reading progress indicator, and primary CTAs. No accent in body text or structural borders.
+- **Semantic colors:** Error `hsl(0, 65%, 55%)`, warning `hsl(38, 80%, 55%)`, success `hsl(145, 50%, 45%)`.
+- **WCAG AA enforcement:** Every token pair (foreground on background) must pass 4.5:1 for text, 3:1 for large text and interactive borders. Validated in token file with computed contrast ratios as comments. Warm neutrals at low lightness are notorious for failing — the 4% base background against 85% foreground gives ~13:1, which is safe, but mid-range combinations (30% on 12%) will fail and must be flagged.
+
+### Deliverable
+`src/styles/design-tokens.ts` exporting all values. Corresponding CSS custom properties in `src/styles/tokens.css`. This file is the source of truth — no hardcoded color/size values in components.
+
+**Timebox:** 2 days (tokens + one representative component — search result card — as contrast/hierarchy validation).
+**MCP:** ui-copilot for typeface pairing validation.
+**Done when:** Token file exists, CSS vars are wired, one search result card is rendered with the new tokens, contrast ratios pass automated check.
+
+---
+
+## 4. Bottom Sheet Primitives
+
+**Sequenced before search and viewer because both depend on sheets.** Three variants with explicit, non-negotiable behaviors:
+
+### 4a. Selector Sheet (TOC, single-filter pickers)
+- **Snap points:** 40% / 85% viewport height.
+- **Behavior:** Selecting an item dismisses sheet to 0% and triggers navigation (scroll-to-section, apply single filter). No sticky footer.
+- **Gesture:** Drag on handle zone (top 48px) controls sheet position. Below handle, internal content scrolls normally. Pull-down past 40% snap dismisses entirely.
+
+### 4b. Editor Sheet (multi-filter editing, saved search config)
+- **Snap points:** 60% / 95% viewport height.
+- **Behavior:** Sticky footer with Apply / Reset buttons, always visible. Internal content scrolls independently of sheet drag. Apply dismisses sheet and triggers search. Reset clears sheet state but keeps sheet open.
+- **Gesture:** Same handle zone rule. Apply button is pinned to visual bottom of sheet, not of viewport.
+
+### 4c. Action Sheet (share, bookmark, report issue)
+- **Snap points:** Auto-height only (content-fit, max 50% viewport).
+- **Behavior:** No internal scroll. Tap action → execute → dismiss. Tap outside → dismiss.
+- **Gesture:** Pull-down anywhere dismisses.
+
+### All sheets
+- **Focus trapping:** On open, focus moves to first interactive element. Tab cycles within sheet. Escape dismisses.
+- **Screen reader:** `role="dialog"`, `aria-modal="true"`, `aria-label` describing context ("Table of Contents", "Filter Documents").
+- **Backdrop:** `rgba(0,0,0,0.5)`, tap-to-dismiss.
+- **Animation:** Spring-based entrance (React Bits `useSpring` or CSS `transition: transform 300ms cubic-bezier(0.32, 0.72, 0, 1)`).
+
+**Files touched:** `src/components/BottomSheet.tsx` (refactor into `SelectorSheet`, `EditorSheet`, `ActionSheet` or a single component with `variant` prop).
+
+**Timebox:** 3 days.
+**MCP:** ui-copilot for gesture conflict patterns.
+**Done when:** All three variants render correctly on 375px viewport, gesture conflicts are tested manually, focus trapping works with keyboard only.
+
+---
+
+## 5. Document Viewer — The Core Product
+
+**This is where users spend 80% of their time. Sequenced as the first feature workstream.**
+
+### 5a. Legal Hierarchy Rendering
+
+DOU documents contain nested legal structure: Artigos → Parágrafos → Incisos → Alíneas.
+
+**If backend returns structured JSON (articles/paragraphs as nested objects):**
+- Render as indented tree with left-border depth indicators (1px accent-muted per nesting level).
+- Each article is a discrete block with an anchor ID: `section-art-5`, `section-art-5-p-3`.
+- Collapse paragraphs/incisos under article headers on initial load for documents over 50 articles. Expand on tap.
+
+**If backend returns flat HTML:**
+- Parse server-side or client-side using regex/DOM parsing for `Art.`, `§`, Roman numeral incisos, letter alíneas.
+- Wrap parsed segments in semantic elements with generated IDs.
+- Degrade gracefully: if parsing fails, render as plain formatted text. Never break the page.
+
+### 5b. Table of Contents
+
+Generated from document structure, NOT from generic `<h1>`–`<h6>` extraction.
+
+- On mobile: Selector Sheet (variant 4a) triggered from MobileActionsBar.
+- On desktop: Collapsible sidebar, 240px wide, sticky.
+- Active section highlighted based on scroll position (IntersectionObserver on each article anchor).
+- TOC items show: article number + first 60 characters of article text. No truncation that hides the article number.
+
+### 5c. Search Term Highlighting
+
+If the user arrived from search and the backend returned highlight fragments:
+- Highlight all matching terms in the document body using `<mark>` elements with accent-bright background at 20% opacity.
+- Add "N matches found" indicator in the sticky header with previous/next navigation arrows.
+- Highlighting persists during scroll. Dismissed explicitly by a "Clear highlights" action.
+- If backend does NOT return highlight data: perform client-side term matching from the query string. Acceptable for single-term queries; skip for complex queries.
+
+### 5d. Cross-Reference Linking
+
+For patterns like `Art. 5° da Lei 8.666/93`, `conforme a Portaria nº 123`:
+- Parse with regex for known DOU reference patterns.
+- If the referenced document exists in the corpus (check via gabi-es lookup or precomputed link table): render as a tappable link opening in a new viewer instance or in-context preview (Action Sheet showing title + first paragraph).
+- If not resolvable: render as styled but non-interactive text (subtle underline, no pointer cursor).
+
+### 5e. URL Deep Linking
+
+Route schema: `/document/:id#section-:sectionId`
+
+- On load: if hash is present, scroll to that section after render.
+- Share button generates URL with current section's hash.
+- Browser back/forward navigates between section anchors within the document.
+
+### 5f. Progressive Rendering & Performance
+
+DOU documents can exceed 50,000 words.
+
+- **Threshold:** Documents under 5,000 words render fully. Documents over 5,000 words use chunked rendering.
+- **Strategy:** Render first 3 sections immediately. Remaining sections render as the user scrolls within 2 sections of them (IntersectionObserver with rootMargin). No react-window — legal documents need contiguous DOM for Ctrl+F browser search to work. Chunked append is the right tradeoff.
+- **DOM budget:** Alert in dev mode if document exceeds 5,000 DOM nodes. Log to monitoring in production.
+- **DocumentGraph:** On desktop, rendered as a compact node map (max 50 nodes, paginated) in the sidebar below TOC showing related documents. Purpose: contextual awareness ("this regulation relates to these 4 others"). Clicking a node navigates to that document. On mobile: hidden by default, accessible via Action Sheet from MobileActionsBar. Simplified to a flat list of related document titles — no force-directed graph on 375px viewport.
+
+### 5g. Reading Mode & Progress
+
+- **Mobile:** Reading mode is the default — no sidebar chrome, full-width content within the 38rem max-width.
+- **Desktop/Tablet:** Toggle via keyboard shortcut (Alt+R) or header button. Hides sidebar, centers content, increases max-width to 42rem.
+- **Progress indicator:** 2px-tall fixed bar at the very top of viewport, accent-primary color, width proportional to scroll percentage. Does not consume layout space. Also shown as percentage in sticky header.
+- **Reading resume:** On navigating away, save position to localStorage (schema from §2). On returning to the same document, show a non-modal toast: "Resume from Art. 15?" with Jump / Dismiss. Toast auto-dismisses after 5 seconds.
+
+### 5h. Typography Controls
+
+Accessible from MobileActionsBar (Action Sheet variant) or sticky header dropdown on desktop.
+
+- Font size: 16 / 18 / 20px (3 stops).
+- Line height: 1.6 / 1.7 / 1.8.
+- Persisted to localStorage per user (not per document).
+
+**Files touched:** `src/pages/DocumentPage.tsx`, new `src/components/DocumentRenderer.tsx`, `src/components/DocumentTOC.tsx`, `src/components/DocumentGraph.tsx` (refactor), `src/components/ReadingProgress.tsx`, `src/components/TypographyControls.tsx`, `src/components/SearchHighlight.tsx`.
+
+**Timebox:** 8 days.
+**MCP:** gabi-es for document structure audit and cross-reference patterns. ui-copilot for reading layout component selection. json-render for viewer layout prototyping.
+**Done when:** A real DOU document (>10,000 words) renders on a 375px viewport with: TOC navigation working, search highlights visible, progress bar accurate, resume prompt functional, font controls operational. Lighthouse performance score ≥ 80 on mobile throttling.
+
+---
+
+## 6. Search — The Acquisition Loop
+
+### 6a. Tier 1: Available Backend Capabilities (ship first)
+
+Based on the §0 audit, implement UX only for what gabi-es actually returns today. Likely:
+
+- Full-text keyword search with highlight fragments.
+- Date range filtering.
+- Basic type/section filtering (if indexed as fields).
+
+**Result card redesign:**
+- Show: document title (Source Serif 4, 600 weight), organ tag, publication date, section badge, 2-line snippet with highlighted terms.
+- Density: ~4 results visible on 375px viewport without scrolling.
+- Virtualized list using `@tanstack/react-virtual` for result sets over 50 items.
+
+**Filter UI:**
+- Date range: inline date picker in sticky search header (collapsed to "Date: All" chip).
+- Type/Section: chip bar below search input showing active filters. Tap chip → Selector Sheet.
+- All active filters encoded in URL query parameters for shareability and browser back support.
+
+### 6b. Tier 2: Requires Backend Work (design now, ship when ready)
+
+- Faceted aggregation counts on filter options ("Portaria (2,341)").
+- Query interpretation display ("Showing results for 'licitação' in Seção 3, Ministério da Economia").
+- Zero-result recovery:
+  1. Show the interpreted query with each filter's impact: "No results. 'licitação' has 4,521 results without the Seção 3 filter."
+  2. Suggest removing the least selective filter (the one with fewest remaining results).
+  3. Show corpus coverage: "The DOU index contains 2.1M documents from Jan 2020 to present."
+  4. If query looks misspelled, show "Did you mean: [corrected term]?" (requires backend suggest endpoint).
+
+### 6c. Empty State & First Visit
+
+When there is no search query and no reading history (new user):
+- Show today's DOU publication count: "234 new publications today."
+- Show 5 most recent publications from each section (Seção 1, 2, 3, Extra) as collapsible groups.
+- Prominent search input with placeholder: "Buscar no Diário Oficial da União."
+- No decorative hero, no marketing copy.
+
+When there is reading history but no active query:
+- Show "Continue reading" row (last 3 documents from localStorage).
+- Then recent publications below.
+
+**Files touched:** `src/pages/SearchPage.tsx`, new `src/components/SearchResultCard.tsx`, `src/components/FilterChipBar.tsx`, `src/components/ZeroResultState.tsx`, `src/components/EmptyHomeState.tsx`.
+
+**Timebox:** 6 days (Tier 1 only).
+**MCP:** gabi-es for response schema and available aggregations. json-render for result card density prototyping.
+**Done when:** Search returns and displays results using only confirmed backend capabilities. Filters are URL-synced. Empty state renders for new users. Virtual scrolling handles 500+ results without jank on mid-range Android.
+
+---
+
+## 7. App Shell & Home
+
+**Sequenced after viewer and search because tokens will have been battle-tested on real components by now.**
+
+- Extract finalized design tokens from viewer/search work into the shell.
+- Home page becomes the §6c empty state + reading history. Not a separate "dashboard" design — it IS the search page with no active query.
+- Remove separate "Home" route if it exists. Search IS home. One route: `/`. Entering a query adds `?q=...` to the URL without a page navigation.
+- Navigation: bottom tab bar on mobile with 2 items: Search (home) and Saved (bookmarked documents + saved searches from localStorage). That's it. No analytics tab. No settings tab (settings are contextual — typography controls live in the viewer, not in a settings page).
+- CommandPalette: keyboard shortcut (Cmd+K / Ctrl+K) for power users. Must be fully keyboard-navigable. Focus trapping. Recent searches + document titles as suggestion sources.
+
+**Files touched:** `src/App.tsx` (routing), `src/components/AppShell.tsx`, `src/pages/SearchPage.tsx` (absorbs Home), `src/components/MobileActionsBar.tsx` (simplify to 2 tabs), `src/components/CommandPalette.tsx` (accessibility audit).
+
+**Timebox:** 4 days.
+**Done when:** App has one primary route that serves as both home and search. Navigation is 2-tab on mobile. CommandPalette passes keyboard-only navigation test.
+
+---
+
+## 8. Analytics
+
+**Removed from navigation. Hidden behind feature flag `VITE_ENABLE_ANALYTICS=true`.**
+
+Do not ship a placeholder page. When backend analytics endpoints exist (publication frequency, most-accessed documents, user search patterns), build the page then. Until that point, the analytics route returns a 404 or redirects to home.
+
+**Files touched:** `src/pages/AnalyticsPage.tsx` (add feature flag gate), routing config.
+
+**Timebox:** 0.5 days.
+
+---
+
+## 9. Performance Budget — Non-Negotiable Constraints
+
+These are checked in CI and block merges when violated.
+
+| Metric | Target | Measured By |
+|---|---|---|
+| LCP (mobile, 4G throttle) | < 1.5s | Lighthouse CI |
+| Initial route bundle (gzip) | < 200kb | Vite bundle analyzer |
+| Search results render (after network) | < 300ms | Custom performance mark |
+| Document viewer FCP | < 2.0s | Lighthouse CI |
+| Document DOM nodes (>10k word doc) | < 5,000 | Dev-mode runtime check |
+| Cumulative Layout Shift | < 0.1 | Lighthouse CI |
+
+Source Serif 4 is loaded only on the document route via dynamic import to keep the initial bundle under budget. Use `font-display: swap`.
+
+---
+
+## 10. Accessibility — WCAG 2.1 AA Floor
+
+Not a nice-to-have. This is a government data product.
+
+- **Contrast:** Automated check in design-tokens.ts. Every foreground/background pair annotated with computed ratio. CI fails if any text pair is below 4.5:1 or any interactive element border is below 3:1.
+- **Focus management:** Visible focus ring (2px accent-primary outline, 2px offset) on all interactive elements. Bottom sheets trap focus on open, restore on close. CommandPalette same.
+- **Screen readers:** Bottom sheets use `role="dialog"` + `aria-modal`. Search results use `role="list"` + `role="listitem"`. Document sections use `aria-label` with article numbers. Progress bar uses `role="progressbar"` + `aria-valuenow`.
+- **Keyboard navigation:** All features usable without a mouse. Tab order follows visual order. Escape closes any overlay. Arrow keys navigate TOC items and search results.
+- **Reduced motion:** Respect `prefers-reduced-motion`. Disable sheet spring animations and page transitions. Instant snap instead.
+
+---
+
+## Execution Summary
+
+| Step | What | Timebox | Depends On | Key Files |
+|---|---|---|---|---|
+| 0 | Backend capability audit | 1 day | — | `docs/backend-capabilities.md` |
+| 3 | Design tokens | 2 days | — | `src/styles/design-tokens.ts`, `tokens.css` |
+| 4 | Bottom sheet primitives | 3 days | Tokens | `src/components/BottomSheet.tsx` → 3 variants |
+| 5 | Document viewer | 8 days | Tokens, Sheets, Audit | `DocumentPage`, `DocumentRenderer`, `DocumentTOC`, `ReadingProgress`, + 4 new components |
+| 6 | Search (Tier 1) | 6 days | Tokens, Sheets, Audit | `SearchPage`, `SearchResultCard`, `FilterChipBar`, `ZeroResultState` |
+| 7 | App shell & home | 4 days | Viewer, Search | `App.tsx`, `AppShell`, `MobileActionsBar`, `CommandPalette` |
+| 8 | Analytics removal | 0.5 days | — | `AnalyticsPage`, routing |
+
+Steps 0 and 3 can run in parallel (different people). Steps 4 depends on 3. Steps 5 and 6 can overlap once sheets are stable (different feature branches). Step 7 comes last because it integrates the pieces.
+
+**Total estimated timeline: ~18 working days with 2 developers, ~24 days solo.**
+
+---
+
+## MCP Tool Mapping
+
+| Tool | Step | Purpose |
+|---|---|---|
+| gabi-es | 0 (blocking) | Schema audit, aggregation capabilities, document structure analysis |
+| gabi-es | 5 | Cross-reference pattern frequency, max document sizes, section type taxonomy |
+| gabi-es | 6 | Confirm available filter fields, test highlight fragment quality |
+| ui-copilot | 3 | Typeface pairing validation, component library assessment |
+| ui-copilot | 4 | Gesture conflict patterns for sheets |
+| ui-copilot | 5 | Reading layout component selection |
+| json-render | 5 | Viewer layout prototyping with real DOU document JSON |
+| json-render | 6 | Result card density testing across viewport sizes |

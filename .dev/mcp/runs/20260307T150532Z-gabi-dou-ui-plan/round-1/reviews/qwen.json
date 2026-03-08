@@ -1,0 +1,49 @@
+{
+  "agent": "qwen",
+  "round": 1,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "docs/execution-plan.md:Execution Order",
+      "description": "Critical sequencing error: Step 5 (Standardize bottom-sheet patterns) occurs after Steps 3 and 4 which rely on bottom sheets for filters and TOC. This guarantees rework and inconsistent UX patterns during implementation.",
+      "suggested_fix": "Move Bottom Sheet standardization to Step 1 or 2. Define the primitive component before building features that depend on it."
+    },
+    {
+      "severity": "high",
+      "location": "src/pages/DocumentPage.tsx:Reading Ergonomics",
+      "description": "Plan lacks specific handling for dense legal text workflows. 'Section jumps' and 'TOC' are insufficient for DOU documents which require citation linking, text selection preservation, and virtualization for performance.",
+      "suggested_fix": "Add explicit requirements for citation parsing, deep-linking to specific clauses, and windowing/virtualization strategies for long documents."
+    },
+    {
+      "severity": "medium",
+      "location": "docs/execution-plan.md:Visual Direction",
+      "description": "Visual direction relies on subjective terms ('warmer neutrals', 'editorial') without a concrete token mapping strategy. Developers will drift back to default shadcn dark theme without strict constraints.",
+      "suggested_fix": "Require a concrete token mapping table (CSS variables) in Step 1 before any shell refactoring begins."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "src/components/BottomSheet.tsx",
+      "description": "Define snap points and backdrop behavior explicitly in the design token phase to ensure consistency across Search Filters and Document TOC."
+    },
+    {
+      "type": "improvement",
+      "location": "src/pages/DocumentPage.tsx",
+      "description": "Implement a performance budget for document rendering (e.g., max DOM nodes) to prevent mobile jank on lengthy DOU entries."
+    }
+  ],
+  "diffs": [
+    {
+      "file": "docs/execution-plan.md",
+      "hunks": "@@ -15,11 +15,11 @@ Execution order:\n 1. Define design tokens and visual direction.\n-2. Refactor the app shell, home, and search header into a more coherent product frame.\n-3. Redesign results list and filter interactions.\n-4. Redesign document viewer reading ergonomics and mobile controls.\n-5. Standardize bottom-sheet patterns.\n+2. Standardize bottom-sheet patterns (primitive components).\n+3. Refactor the app shell, home, and search header into a more coherent product frame.\n+4. Redesign results list and filter interactions.\n+5. Redesign document viewer reading ergonomics and mobile controls.\n 6. Revisit analytics only after real data backing exists."
+    }
+  ],
+  "meta": {
+    "tokens_used": 450,
+    "latency_ms": 120,
+    "thinking_tokens": 300
+  },
+  "raw_text": "{\n  \"agent\": \"qwen\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"docs/execution-plan.md:Execution Order\",\n      \"description\": \"Critical sequencing error: Step 5 (Standardize bottom-sheet patterns) occurs after Steps 3 and 4 which rely on bottom sheets for filters and TOC. This guarantees rework and inconsistent UX patterns during implementation.\",\n      \"suggested_fix\": \"Move Bottom Sheet standardization to Step 1 or 2. Define the primitive component before building features that depend on it.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/pages/DocumentPage.tsx:Reading Ergonomics\",\n      \"description\": \"Plan lacks specific handling for dense legal text workflows. 'Section jumps' and 'TOC' are insufficient for DOU documents which require citation linking, text selection preservation, and virtualization for performance.\",\n      \"suggested_fix\": \"Add explicit requirements for citation parsing, deep-linking to specific clauses, and windowing/virtualization strategies for long documents.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"docs/execution-plan.md:Visual Direction\",\n      \"description\": \"Visual direction relies on subjective terms ('warmer neutrals', 'editorial') without a concrete token mapping strategy. Developers will drift back to default shadcn dark theme without strict constraints.\",\n      \"suggested_fix\": \"Require a concrete token mapping table (CSS variables) in Step 1 before any shell refactoring begins.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"src/components/BottomSheet.tsx\",\n      \"description\": \"Define snap points and backdrop behavior explicitly in the design token phase to ensure consistency across Search Filters and Document TOC.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"src/pages/DocumentPage.tsx\",\n      \"description\": \"Implement a performance budget for document rendering (e.g., max DOM nodes) to prevent mobile jank on lengthy DOU entries.\"\n    }\n  ],\n  \"diffs\": [\n    {\n      \"file\": \"docs/execution-plan.md\",\n      \"hunks\": \"@@ -15,11 +15,11 @@ Execution order:\\n 1. Define design tokens and visual direction.\\n-2. Refactor the app shell, home, and search header into a more coherent product frame.\\n-3. Redesign results list and filter interactions.\\n-4. Redesign document viewer reading ergonomics and mobile controls.\\n-5. Standardize bottom-sheet patterns.\\n+2. Standardize bottom-sheet patterns (primitive components).\\n+3. Refactor the app shell, home, and search header into a more coherent product frame.\\n+4. Redesign results list and filter interactions.\\n+5. Redesign document viewer reading ergonomics and mobile controls.\\n 6. Revisit analytics only after real data backing exists.\"\n    }\n  ],\n  \"meta\": {\n    \"tokens_used\": 450,\n    \"latency_ms\": 120,\n    \"thinking_tokens\": 300\n  }\n}"
+}

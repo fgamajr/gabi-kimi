@@ -1,0 +1,101 @@
+{
+  "agent": "qwen",
+  "round": 2,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "Section 5f: Progressive Rendering & Performance",
+      "description": "Chunked append rendering while maintaining Ctrl+F browser search is technically contradictory. Browser find only works on rendered DOM nodes. If you render 3 sections initially for a 50,000-word document, Ctrl+F will not find matches in unrendered sections. This is a fundamental UX break for legal research workflows where users need to search within documents.",
+      "suggested_fix": "Either commit to full rendering with virtualization that supports search (react-virtual with getItemKey), or implement a custom search index that searches the full document text and scrolls to matches (loading chunks as needed). Document this tradeoff explicitly in backend-capabilities.md."
+    },
+    {
+      "severity": "high",
+      "location": "Section 5f: DOM budget",
+      "description": "5,000 DOM node budget for 50,000-word documents is mathematically impossible without losing semantic structure. A single article with nested parágrafos/incisos/alíneas can easily exceed 50 nodes. At 5,000 nodes, you can render approximately 100 articles maximum. This constraint will force you to either break legal hierarchy rendering or exceed the budget.",
+      "suggested_fix": "Recalculate based on actual DOU document samples from gabi-es audit. Set node budget per-section rather than per-document, or increase budget to 15,000 nodes with aggressive CSS containment and will-change optimizations."
+    },
+    {
+      "severity": "high",
+      "location": "Section 3: Color — Dark-first",
+      "description": "Warm gray at hsl(30, 4%, N%) with N=4% for background-deepest will appear indistinguishable from pure black on most OLED mobile displays. The claimed 13:1 contrast ratio against 85% foreground needs verification - standard WCAG calculators show hsl(30, 4%, 4%) vs hsl(30, 4%, 85%) yields approximately 12.5:1, but this varies by display calibration. More critically, mid-range combinations flagged as potentially failing have no remediation plan.",
+      "suggested_fix": "Add a token validation script that runs in CI and fails the build if any text pair falls below 4.5:1. Specify fallback color pairs for each token that are guaranteed to pass. Test on actual iOS/Android devices, not just Chrome DevTools."
+    },
+    {
+      "severity": "high",
+      "location": "Section 5d: Cross-Reference Linking",
+      "description": "Real-time gabi-es lookup for every cross-reference pattern on document render will destroy performance. A single DOU document can contain 200+ cross-references. Making 200 API calls per document load is not viable. The plan mentions 'precomputed link table' as an option but doesn't commit to it or specify who builds it.",
+      "suggested_fix": "Make precomputed cross-reference resolution a backend prerequisite (add to Section 0 audit). If backend cannot provide this, disable interactive cross-references in MVP and render as styled text only. Do not attempt client-side resolution."
+    },
+    {
+      "severity": "medium",
+      "location": "Section 2: Auth Model & Persistence Strategy",
+      "description": "No migration strategy when auth is added post-MVP. Users will lose all reading positions and saved searches when moving from localStorage to backend sync. This creates a degraded experience for early adopters, contradicting the goal to 'design the unauthenticated experience so it feels complete, not degraded.'",
+      "suggested_fix": "Add a localStorage-to-backend migration hook that runs on first authenticated session. Preserve all existing reading positions and saved searches by uploading them during the auth handshake. Document this in the auth service spec."
+    },
+    {
+      "severity": "medium",
+      "location": "Section 4: Bottom Sheet Primitives",
+      "description": "3 days for three sheet variants with gesture conflict resolution is aggressive. iOS Safari's dynamic address bar and viewport height inconsistencies (100vh vs 100dvh) will break sheet positioning. No mention of testing on iOS 15-17 or Android Chrome's address bar behavior.",
+      "suggested_fix": "Add 2 days to timebox for cross-browser sheet testing. Use CSS custom property --webkit-fill-available or JavaScript viewport height detection. Add explicit iOS Safari testing to the 'Done when' criteria."
+    },
+    {
+      "severity": "medium",
+      "location": "Section 9: Performance Budget",
+      "description": "LCP < 1.5s on mobile 4G with Source Serif 4 variable font is unrealistic. Variable fonts are 50-100kb minimum. With font-display: swap, you get FOUT on document navigation. With font-display: block, you block rendering. The initial bundle < 200kb gzip is also tight for React + shadcn/ui + multiple pages.",
+      "suggested_fix": "Relax LCP target to < 2.5s for document routes (where font loads). Preload Source Serif 4 on search page with low priority. Use font subsetting to reduce variable font size. Add font loading state UI to prevent layout shift."
+    },
+    {
+      "severity": "medium",
+      "location": "Section 6b: Tier 2 Search Features",
+      "description": "Zero-result recovery logic requires backend aggregation counts that may not exist. The plan says 'design now, ship when ready' but doesn't specify what the UI shows in the interim. Empty zero-result states will frustrate users during the gap between design and backend readiness.",
+      "suggested_fix": "Define a fallback zero-result state for Tier 1 that works without aggregations: show query spelling suggestions (client-side), show broadest filter option ('Search all sections'), and show contact/support link. Upgrade to Tier 2 UI when backend supports it."
+    },
+    {
+      "severity": "low",
+      "location": "Section 10: Accessibility",
+      "description": "Automated contrast checks do not catch semantic accessibility issues. No mention of testing with actual screen readers (NVDA, VoiceOver, TalkBack). Legal document structure (artigos, parágrafos, incisos) needs proper ARIA landmarks that automated tools won't validate.",
+      "suggested_fix": "Add manual screen reader testing to 'Done when' criteria for Document Viewer. Include at least one test session with VoiceOver (iOS) and TalkBack (Android). Document expected screen reader output for article navigation."
+    },
+    {
+      "severity": "low",
+      "location": "Execution Summary Timeline",
+      "description": "18 days with 2 developers assumes no backend delays, no QA time, and no integration issues. Step 0 (backend audit) is marked as 1 day but depends on gabi-es availability and backend team responsiveness. No buffer for tool conflicts or MCP tool failures.",
+      "suggested_fix": "Add 5-day buffer to timeline. Explicitly define escalation path if gabi-es cannot answer audit questions within the timebox. Add QA pass (2 days) after Step 7 before considering the plan complete."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "Section 0: Backend Capability Audit",
+      "description": "Add specific questions about rate limiting, API response times for large documents, and whether the backend supports streaming responses for progressive document loading."
+    },
+    {
+      "type": "improvement",
+      "location": "Section 5: Document Viewer",
+      "description": "Add error state handling: what happens when a document fails to load, when cross-reference lookups timeout, or when the document structure is corrupted? Define retry logic and user-facing error messages."
+    },
+    {
+      "type": "improvement",
+      "location": "Section 2: Auth Model",
+      "description": "Add localStorage quota monitoring. When approaching the 5MB limit, warn users and offer to export their reading history. Some users may have hundreds of saved searches."
+    },
+    {
+      "type": "improvement",
+      "location": "Section 7: App Shell",
+      "description": "Consider adding a minimal settings context for global preferences (default search section, default font size) even without a dedicated settings page. Store in localStorage with the same schema as viewer preferences."
+    },
+    {
+      "type": "improvement",
+      "location": "Section 9: Performance Budget",
+      "description": "Add bundle size monitoring per-route, not just initial route. Document route with Source Serif 4 should have its own budget. Add CI check that fails if any route exceeds 300kb gzip."
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 2847,
+    "latency_ms": 1243,
+    "thinking_tokens": 2100
+  },
+  "raw_text": "{\n  \"agent\": \"qwen\",\n  \"round\": 2,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 5f: Progressive Rendering & Performance\",\n      \"description\": \"Chunked append rendering while maintaining Ctrl+F browser search is technically contradictory. Browser find only works on rendered DOM nodes. If you render 3 sections initially for a 50,000-word document, Ctrl+F will not find matches in unrendered sections. This is a fundamental UX break for legal research workflows where users need to search within documents.\",\n      \"suggested_fix\": \"Either commit to full rendering with virtualization that supports search (react-virtual with getItemKey), or implement a custom search index that searches the full document text and scrolls to matches (loading chunks as needed). Document this tradeoff explicitly in backend-capabilities.md.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 5f: DOM budget\",\n      \"description\": \"5,000 DOM node budget for 50,000-word documents is mathematically impossible without losing semantic structure. A single article with nested parágrafos/incisos/alíneas can easily exceed 50 nodes. At 5,000 nodes, you can render approximately 100 articles maximum. This constraint will force you to either break legal hierarchy rendering or exceed the budget.\",\n      \"suggested_fix\": \"Recalculate based on actual DOU document samples from gabi-es audit. Set node budget per-section rather than per-document, or increase budget to 15,000 nodes with aggressive CSS containment and will-change optimizations.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 3: Color — Dark-first\",\n      \"description\": \"Warm gray at hsl(30, 4%, N%) with N=4% for background-deepest will appear indistinguishable from pure black on most OLED mobile displays. The claimed 13:1 contrast ratio against 85% foreground needs verification - standard WCAG calculators show hsl(30, 4%, 4%) vs hsl(30, 4%, 85%) yields approximately 12.5:1, but this varies by display calibration. More critically, mid-range combinations flagged as potentially failing have no remediation plan.\",\n      \"suggested_fix\": \"Add a token validation script that runs in CI and fails the build if any text pair falls below 4.5:1. Specify fallback color pairs for each token that are guaranteed to pass. Test on actual iOS/Android devices, not just Chrome DevTools.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 5d: Cross-Reference Linking\",\n      \"description\": \"Real-time gabi-es lookup for every cross-reference pattern on document render will destroy performance. A single DOU document can contain 200+ cross-references. Making 200 API calls per document load is not viable. The plan mentions 'precomputed link table' as an option but doesn't commit to it or specify who builds it.\",\n      \"suggested_fix\": \"Make precomputed cross-reference resolution a backend prerequisite (add to Section 0 audit). If backend cannot provide this, disable interactive cross-references in MVP and render as styled text only. Do not attempt client-side resolution.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Section 2: Auth Model & Persistence Strategy\",\n      \"description\": \"No migration strategy when auth is added post-MVP. Users will lose all reading positions and saved searches when moving from localStorage to backend sync. This creates a degraded experience for early adopters, contradicting the goal to 'design the unauthenticated experience so it feels complete, not degraded.'\",\n      \"suggested_fix\": \"Add a localStorage-to-backend migration hook that runs on first authenticated session. Preserve all existing reading positions and saved searches by uploading them during the auth handshake. Document this in the auth service spec.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Section 4: Bottom Sheet Primitives\",\n      \"description\": \"3 days for three sheet variants with gesture conflict resolution is aggressive. iOS Safari's dynamic address bar and viewport height inconsistencies (100vh vs 100dvh) will break sheet positioning. No mention of testing on iOS 15-17 or Android Chrome's address bar behavior.\",\n      \"suggested_fix\": \"Add 2 days to timebox for cross-browser sheet testing. Use CSS custom property --webkit-fill-available or JavaScript viewport height detection. Add explicit iOS Safari testing to the 'Done when' criteria.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Section 9: Performance Budget\",\n      \"description\": \"LCP < 1.5s on mobile 4G with Source Serif 4 variable font is unrealistic. Variable fonts are 50-100kb minimum. With font-display: swap, you get FOUT on document navigation. With font-display: block, you block rendering. The initial bundle < 200kb gzip is also tight for React + shadcn/ui + multiple pages.\",\n      \"suggested_fix\": \"Relax LCP target to < 2.5s for document routes (where font loads). Preload Source Serif 4 on search page with low priority. Use font subsetting to reduce variable font size. Add font loading state UI to prevent layout shift.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Section 6b: Tier 2 Search Features\",\n      \"description\": \"Zero-result recovery logic requires backend aggregation counts that may not exist. The plan says 'design now, ship when ready' but doesn't specify what the UI shows in the interim. Empty zero-result states will frustrate users during the gap between design and backend readiness.\",\n      \"suggested_fix\": \"Define a fallback zero-result state for Tier 1 that works without aggregations: show query spelling suggestions (client-side), show broadest filter option ('Search all sections'), and show contact/support link. Upgrade to Tier 2 UI when backend supports it.\"\n    },\n    {\n      \"severity\": \"low\",\n      \"location\": \"Section 10: Accessibility\",\n      \"description\": \"Automated contrast checks do not catch semantic accessibility issues. No mention of testing with actual screen readers (NVDA, VoiceOver, TalkBack). Legal document structure (artigos, parágrafos, incisos) needs proper ARIA landmarks that automated tools won't validate.\",\n      \"suggested_fix\": \"Add manual screen reader testing to 'Done when' criteria for Document Viewer. Include at least one test session with VoiceOver (iOS) and TalkBack (Android). Document expected screen reader output for article navigation.\"\n    },\n    {\n      \"severity\": \"low\",\n      \"location\": \"Execution Summary Timeline\",\n      \"description\": \"18 days with 2 developers assumes no backend delays, no QA time, and no integration issues. Step 0 (backend audit) is marked as 1 day but depends on gabi-es availability and backend team responsiveness. No buffer for tool conflicts or MCP tool failures.\",\n      \"suggested_fix\": \"Add 5-day buffer to timeline. Explicitly define escalation path if gabi-es cannot answer audit questions within the timebox. Add QA pass (2 days) after Step 7 before considering the plan complete.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 0: Backend Capability Audit\",\n      \"description\": \"Add specific questions about rate limiting, API response times for large documents, and whether the backend supports streaming responses for progressive document loading.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 5: Document Viewer\",\n      \"description\": \"Add error state handling: what happens when a document fails to load, when cross-reference lookups timeout, or when the document structure is corrupted? Define retry logic and user-facing error messages.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 2: Auth Model\",\n      \"description\": \"Add localStorage quota monitoring. When approaching the 5MB limit, warn users and offer to export their reading history. Some users may have hundreds of saved searches.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 7: App Shell\",\n      \"description\": \"Consider adding a minimal settings context for global preferences (default search section, default font size) even without a dedicated settings page. Store in localStorage with the same schema as viewer preferences.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Section 9: Performance Budget\",\n      \"description\": \"Add bundle size monitoring per-route, not just initial route. Document route with Source Serif 4 should have its own budget. Add CI check that fails if any route exceeds 300kb gzip.\"\n    }\n  ],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 2847,\n    \"latency_ms\": 1243,\n    \"thinking_tokens\": 2100\n  }\n}"
+}

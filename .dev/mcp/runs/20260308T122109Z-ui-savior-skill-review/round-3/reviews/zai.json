@@ -1,0 +1,87 @@
+{
+  "agent": "zai",
+  "round": 3,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "Anti-Patterns table (end of document)",
+      "description": "Document is truncated mid-table. The Anti-Patterns section cuts off at 'reserve hamburger for' leaving the table incomplete and denying users critical guidance on what to avoid.",
+      "suggested_fix": "Complete the Anti-Patterns table with at minimum: carousel alternatives, hamburger menu guidance, modal overuse, auto-playing video, infinite scroll without landmarks, placeholder-as-label, and generic stock photos. Ensure the document ends cleanly."
+    },
+    {
+      "severity": "high",
+      "location": "Step 5 Code Patterns",
+      "description": "Quick Pattern Reference lists 12 categories but Step 5 only provides code for 5 (Nav, Hero, Feature Card, CTA, Reveal). Missing: Pricing, Forms, States (empty/error/loading), Testimonials, Auth, Footer. This creates a broken promise — users referenced to patterns that have no implementation guidance.",
+      "suggested_fix": "Either add code examples for all 12 categories, or reduce the Quick Pattern Reference to match what's actually covered and note that other categories follow the same Tailwind patterns shown. Prioritize: Pricing (SaaS common), Empty/Error states (UX critical), Forms (conversion critical)."
+    },
+    {
+      "severity": "high",
+      "location": "CTA Band code example, focus ring offset",
+      "description": "The secondary button has `focus-visible:ring-offset-slate-900` but the section uses `dark:bg-white`. In dark mode, the ring offset color would be wrong (dark offset on white background creates visible gap). Same issue exists in the primary button.",
+      "suggested_fix": "Add dark mode variant for ring offset: `focus-visible:ring-offset-slate-900 dark:focus-visible:ring-offset-white` on both buttons in the CTA Band. Audit all code examples for similar dark mode focus ring offset mismatches."
+    },
+    {
+      "severity": "medium",
+      "location": "Skip link in StickyNav example",
+      "description": "The skip link uses `focus:bg-white` without a dark variant. In dark mode with a dark header background, a white-focused skip link would create jarring contrast and potentially low contrast against the page background.",
+      "suggested_fix": "Change to: `focus:bg-white dark:focus:bg-slate-900 focus:text-slate-900 dark:focus:text-white` for proper dark mode support."
+    },
+    {
+      "severity": "medium",
+      "location": "MCP Tool Policy section",
+      "description": "The policy states 'The parameter schemas shown in this skill are illustrative' but no parameter schemas are actually shown anywhere in the document. This creates confusion about what's illustrative.",
+      "suggested_fix": "Either remove the sentence about illustrative schemas, or add example MCP tool call patterns showing expected parameters for `recommend_ui_sources`, `plan_ui_execution`, and `generate_ui_agent_prompt`."
+    },
+    {
+      "severity": "medium",
+      "location": "Z-Index Scale section",
+      "description": "The table shows arbitrary values like `z-[60]` but then the config extension example creates named classes `z-60`. This is inconsistent — the table should show what to use BEFORE extension (arbitrary) vs AFTER extension (named), not mix guidance.",
+      "suggested_fix": "Split the table or clarify: 'Without config extension, use arbitrary values (z-[60]). After adding the config below, use named classes (z-60).' Update the table to show both options or clearly indicate which is which."
+    },
+    {
+      "severity": "medium",
+      "location": "Step 2, package.json detection list",
+      "description": "The responsive strategy section mentions `@tailwindcss/container-queries` plugin for v3, but Step 2's package.json detection list doesn't include it. This means the skill won't know if container queries are available when making recommendations.",
+      "suggested_fix": "Add `@tailwindcss/container-queries` to the package.json detection list in Step 2, item 3 (Plugins)."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "Step 2, monorepo detection",
+      "description": "The file structure recommendation assumes a single-project repo. Add detection for monorepo patterns (packages/, apps/, workspaces in package.json) and guidance on where components should live in that structure."
+    },
+    {
+      "type": "improvement",
+      "location": "Animation section, performance rules",
+      "description": "The keyframe examples use `forwards` fill mode but don't mention that this can cause the element to remain in a composed layer. For one-time entrance animations that won't be reversed, consider mentioning that `forwards` is correct, but for repeated animations, the default fill mode may be more performant."
+    },
+    {
+      "type": "improvement",
+      "location": "Reveal component",
+      "description": "The Reveal component sets `visible` in a useEffect, which means content flashes invisible on initial render before hydration. Consider adding a `data-js` class approach or note this limitation for SSR scenarios."
+    }
+  ],
+  "diffs": [
+    {
+      "file": "ui-savior.md",
+      "hunks": "@@ -CTA Band section (approximate line location)\n         <button className=\"rounded-lg bg-blue-600 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-500 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-600 focus-visible:ring-offset-slate-900 dark:focus-visible:ring-offset-white\">\n           Start Free Trial\n         </button>\n-        <button className=\"rounded-lg px-6 py-3 text-sm font-semibold text-white ring-1 ring-slate-600 hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-600 focus-visible:ring-offset-slate-900 dark:text-slate-900 dark:ring-slate-300 dark:hover:bg-slate-100\">\n+        <button className=\"rounded-lg px-6 py-3 text-sm font-semibold text-white ring-1 ring-slate-600 hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-600 focus-visible:ring-offset-slate-900 dark:text-slate-900 dark:ring-slate-300 dark:hover:bg-slate-100 dark:focus-visible:ring-offset-white\">\n           Talk to Sales\n         </button>"
+    },
+    {
+      "file": "ui-savior.md",
+      "hunks": "@@ -Skip link in StickyNav\n-      <a href=\"#main\" className=\"sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-white focus:px-4 focus:py-2\">\n+      <a href=\"#main\" className=\"sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-white dark:focus:bg-slate-900 focus:text-slate-900 dark:focus:text-white focus:px-4 focus:py-2\">\n         Skip to content\n       </a>"
+    },
+    {
+      "file": "ui-savior.md",
+      "hunks": "@@ -Z-Index Scale section\n ## Z-Index Scale\n \n-Establish this scale and never deviate. Values above `z-50` require Tailwind config extension:\n+Establish this scale and never deviate. Values above `z-50` require Tailwind config extension.\n+\n+**Without config extension**, use arbitrary values:\n \n | Layer | Value | Tailwind class |\n |-------|-------|---------------|\n | Base content | 0 | `z-0` |\n@@ -offset,12 +offset,12 @@\n | Dropdowns/popovers | 50 | `z-50` |\n | Modals/dialogs | 60 | `z-[60]` |\n | Toast notifications | 70 | `z-[70]` |\n | Tooltips | 80 | `z-[80]` |\n \n-To use named classes instead of arbitrary values, extend Tailwind config:\n+**With config extension** (below), use named classes: `z-60`, `z-70`, `z-80`.\n \n Tailwind v3:"
+    }
+  ],
+  "meta": {
+    "tokens_used": 847,
+    "review_duration_ms": 124,
+    "latency_ms": 86219,
+    "thinking_tokens": 1923
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"zai\",\n  \"round\": 3,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Anti-Patterns table (end of document)\",\n      \"description\": \"Document is truncated mid-table. The Anti-Patterns section cuts off at 'reserve hamburger for' leaving the table incomplete and denying users critical guidance on what to avoid.\",\n      \"suggested_fix\": \"Complete the Anti-Patterns table with at minimum: carousel alternatives, hamburger menu guidance, modal overuse, auto-playing video, infinite scroll without landmarks, placeholder-as-label, and generic stock photos. Ensure the document ends cleanly.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Step 5 Code Patterns\",\n      \"description\": \"Quick Pattern Reference lists 12 categories but Step 5 only provides code for 5 (Nav, Hero, Feature Card, CTA, Reveal). Missing: Pricing, Forms, States (empty/error/loading), Testimonials, Auth, Footer. This creates a broken promise — users referenced to patterns that have no implementation guidance.\",\n      \"suggested_fix\": \"Either add code examples for all 12 categories, or reduce the Quick Pattern Reference to match what's actually covered and note that other categories follow the same Tailwind patterns shown. Prioritize: Pricing (SaaS common), Empty/Error states (UX critical), Forms (conversion critical).\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"CTA Band code example, focus ring offset\",\n      \"description\": \"The secondary button has `focus-visible:ring-offset-slate-900` but the section uses `dark:bg-white`. In dark mode, the ring offset color would be wrong (dark offset on white background creates visible gap). Same issue exists in the primary button.\",\n      \"suggested_fix\": \"Add dark mode variant for ring offset: `focus-visible:ring-offset-slate-900 dark:focus-visible:ring-offset-white` on both buttons in the CTA Band. Audit all code examples for similar dark mode focus ring offset mismatches.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Skip link in StickyNav example\",\n      \"description\": \"The skip link uses `focus:bg-white` without a dark variant. In dark mode with a dark header background, a white-focused skip link would create jarring contrast and potentially low contrast against the page background.\",\n      \"suggested_fix\": \"Change to: `focus:bg-white dark:focus:bg-slate-900 focus:text-slate-900 dark:focus:text-white` for proper dark mode support.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"MCP Tool Policy section\",\n      \"description\": \"The policy states 'The parameter schemas shown in this skill are illustrative' but no parameter schemas are actually shown anywhere in the document. This creates confusion about what's illustrative.\",\n      \"suggested_fix\": \"Either remove the sentence about illustrative schemas, or add example MCP tool call patterns showing expected parameters for `recommend_ui_sources`, `plan_ui_execution`, and `generate_ui_agent_prompt`.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Z-Index Scale section\",\n      \"description\": \"The table shows arbitrary values like `z-[60]` but then the config extension example creates named classes `z-60`. This is inconsistent — the table should show what to use BEFORE extension (arbitrary) vs AFTER extension (named), not mix guidance.\",\n      \"suggested_fix\": \"Split the table or clarify: 'Without config extension, use arbitrary values (z-[60]). After adding the config below, use named classes (z-60).' Update the table to show both options or clearly indicate which is which.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Step 2, package.json detection list\",\n      \"description\": \"The responsive strategy section mentions `@tailwindcss/container-queries` plugin for v3, but Step 2's package.json detection list doesn't include it. This means the skill won't know if container queries are available when making recommendations.\",\n      \"suggested_fix\": \"Add `@tailwindcss/container-queries` to the package.json detection list in Step 2, item 3 (Plugins).\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Step 2, monorepo detection\",\n      \"description\": \"The file structure recommendation assumes a single-project repo. Add detection for monorepo patterns (packages/, apps/, workspaces in package.json) and guidance on where components should live in that structure.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Animation section, performance rules\",\n      \"description\": \"The keyframe examples use `forwards` fill mode but don't mention that this can cause the element to remain in a composed layer. For one-time entrance animations that won't be reversed, consider mentioning that `forwards` is correct, but for repeated animations, the default fill mode may be more performant.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Reveal component\",\n      \"description\": \"The Reveal component sets `visible` in a useEffect, which means content flashes invisible on initial render before hydration. Consider adding a `data-js` class approach or note this limitation for SSR scenarios.\"\n    }\n  ],\n  \"diffs\": [\n    {\n      \"file\": \"ui-savior.md\",\n      \"hunks\": \"@@ -CTA Band section (approximate line location)\\n         <button className=\\\"rounded-lg bg-blue-600 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-500 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-600 focus-visible:ring-offset-slate-900 dark:focus-visible:ring-offset-white\\\">\\n           Start Free Trial\\n         </button>\\n-        <button className=\\\"rounded-lg px-6 py-3 text-sm font-semibold text-white ring-1 ring-slate-600 hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-600 focus-visible:ring-offset-slate-900 dark:text-slate-900 dark:ring-slate-300 dark:hover:bg-slate-100\\\">\\n+        <button className=\\\"rounded-lg px-6 py-3 text-sm font-semibold text-white ring-1 ring-slate-600 hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-600 focus-visible:ring-offset-slate-900 dark:text-slate-900 dark:ring-slate-300 dark:hover:bg-slate-100 dark:focus-visible:ring-offset-white\\\">\\n           Talk to Sales\\n         </button>\"\n    },\n    {\n      \"file\": \"ui-savior.md\", \n      \"hunks\": \"@@ -Skip link in StickyNav\\n-      <a href=\\\"#main\\\" className=\\\"sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-white focus:px-4 focus:py-2\\\">\\n+      <a href=\\\"#main\\\" className=\\\"sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-white dark:focus:bg-slate-900 focus:text-slate-900 dark:focus:text-white focus:px-4 focus:py-2\\\">\\n         Skip to content\\n       </a>\"\n    },\n    {\n      \"file\": \"ui-savior.md\",\n      \"hunks\": \"@@ -Z-Index Scale section\\n ## Z-Index Scale\\n \\n-Establish this scale and never deviate. Values above `z-50` require Tailwind config extension:\\n+Establish this scale and never deviate. Values above `z-50` require Tailwind config extension.\\n+\\n+**Without config extension**, use arbitrary values:\\n \\n | Layer | Value | Tailwind class |\\n |-------|-------|---------------|\\n | Base content | 0 | `z-0` |\\n@@ -offset,12 +offset,12 @@\\n | Dropdowns/popovers | 50 | `z-50` |\\n | Modals/dialogs | 60 | `z-[60]` |\\n | Toast notifications | 70 | `z-[70]` |\\n | Tooltips | 80 | `z-[80]` |\\n \\n-To use named classes instead of arbitrary values, extend Tailwind config:\\n+**With config extension** (below), use named classes: `z-60`, `z-70`, `z-80`.\\n \\n Tailwind v3:\"\n    }\n  ],\n  \"meta\": {\n    \"tokens_used\": 847,\n    \"review_duration_ms\": 124\n  }\n}\n```"
+}

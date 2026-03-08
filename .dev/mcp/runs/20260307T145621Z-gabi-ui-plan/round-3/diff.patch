@@ -1,0 +1,533 @@
+--- before
++++ after
+@@ -1,4 +1,4 @@
+-GABI DOU — Plano de Execução UI (v2.0)
++GABI DOU — Plano de Execução UI (v3.0)
+ 
+ ═══════════════════════════════════════════════════════════════
+ 
+@@ -10,20 +10,37 @@
+ 
+ ═══════════════════════════════════════════════════════════════
+ 
+-1. FUNDAÇÃO: TEMA, TOKENS & STATE MANAGEMENT (dark-first)
++1. FUNDAÇÃO: TEMA, TOKENS, ROUTING & STATE MANAGEMENT (dark-first)
+ 
+ 1.1 Estratégia de tema
+ - tailwind.config: darkMode: 'class'
+ - Provider de tema: hook customizado com localStorage + matchMedia(prefers-color-scheme). Sem dependência de next-themes (app é Vite puro). Classe .dark no <html> como padrão inicial (dark-first).
+-- Flash prevention: script bloqueante inline no <head> que lê localStorage antes do primeiro paint, ANTES de qualquer <link> de CSS:
+-
+-  <script>
++
++Flash prevention: script bloqueante inline no <head> que lê localStorage antes do primeiro paint, ANTES de qualquer <link> de CSS. Inclui nonce placeholder para CSP e try-catch para private browsing / localStorage desabilitado.
++
++Sincronização com Zustand: a store Zustand usa chave dedicada 'gabi-app' via persist. O tema é TAMBÉM escrito em chave isolada 'gabi-theme-value' (string pura: 'dark' | 'light' | null) toda vez que o usuário altera tema. O script inline lê APENAS 'gabi-theme-value', evitando parsing de JSON da store.
++
++  <script nonce="__CSP_NONCE__">
+     (function(){
+-      var t = localStorage.getItem('gabi-theme');
+-      var d = t === 'dark' || (!t && matchMedia('(prefers-color-scheme:dark)').matches);
++      try {
++        var t = localStorage.getItem('gabi-theme-value');
++        var d = t === 'dark' || (!t && matchMedia('(prefers-color-scheme:dark)').matches);
++      } catch(e) {
++        var d = matchMedia('(prefers-color-scheme:dark)').matches;
++      }
+       document.documentElement.classList.toggle('dark', d);
+     })();
+   </script>
++
++Zustand side-effect (em useThemeStore):
++
++  subscribe(
++    (state) => state.theme,
++    (theme) => {
++      try { localStorage.setItem('gabi-theme-value', theme); } catch {}
++      document.documentElement.classList.toggle('dark', theme === 'dark');
++    }
++  );
+ 
+ 1.2 Paleta customizada (globals.css, formato HSL)
+ 
+@@ -65,25 +82,102 @@
+ 
+ Uso de --highlight-search: sempre via Tailwind com opacidade variável — bg-highlight-search/15 para resultado normal, bg-highlight-search/30 para hover. NUNCA embutir alpha no token.
+ 
+-Regra: NÃO usar branco puro (#fff / text-white) para texto em dark mode — máximo zinc-200 para body, zinc-300 para texto legal longo. Isso reduz fadiga visual.
++Regra: NÃO usar branco puro (#fff / text-white) para texto em dark mode — máximo zinc-200 para body, zinc-300 para texto legal longo. Reduz fadiga visual.
+ 
+ 1.3 Contraste
+ - Todos os pares foreground/background devem passar WCAG 2.1 AA (4.5:1 texto normal, 3:1 texto grande).
+-- Validar com ferramenta automatizada (axe-core) em CI para ambos os temas.
++- Validar com @axe-core/playwright em CI para ambos os temas, com assertions nos pares de tokens HSL específicos.
++- Testar com simulação de daltonismo via Chrome DevTools (protanopia, deuteranopia, tritanopia) antes de cada release.
+ 
+ 1.4 State Management (decisão arquitetural obrigatória)
+ 
+ - Server state (documentos, busca, publicações): TanStack Query (React Query). Cache, dedup, retry, stale-while-revalidate — tudo embutido. NENHUM fetch manual com useEffect.
+-- Client state global (tema, preferências de fonte, sidebar aberta/colapsada): Zustand. Store única src/stores/app-store.ts, persisted via zustand/middleware persist para localStorage.
+-- Client state local (form inputs, UI transiente): useState/useReducer no componente. Não precisa de store global.
++- Client state global (tema, preferências de fonte, sidebar aberta/colapsada): Zustand. Store única src/stores/app-store.ts, persisted via zustand/middleware persist para localStorage (name: 'gabi-app').
++- Client state local (form inputs, UI transiente): useState/useReducer no componente.
+ - Regra: se o estado precisa sobreviver a navegação entre rotas → Zustand. Se vem do servidor → TanStack Query. Se é efêmero → local state. Zero ambiguidade.
+ 
++1.4.1 Padrão para Mutations (TanStack Query)
++
++Toda mutation que afeta dados visíveis ao usuário (favoritar, compartilhar, marcar como lido) segue o padrão de optimistic update:
++
++  useMutation({
++    mutationFn: toggleFavorite,
++    onMutate: async (docId) => {
++      await queryClient.cancelQueries({ queryKey: ['publications'] });
++      const previous = queryClient.getQueryData(['publications']);
++      queryClient.setQueryData(['publications'], (old) =>
++        optimisticallyToggleFavorite(old, docId)
++      );
++      return { previous };
++    },
++    onError: (_err, _docId, context) => {
++      queryClient.setQueryData(['publications'], context.previous);
++      toast.error('Falha ao atualizar. Tente novamente.');
++    },
++    onSettled: () => {
++      queryClient.invalidateQueries({ queryKey: ['publications'] });
++    },
++  });
++
++Regra: onMutate faz rollback otimista, onError restaura snapshot anterior, onSettled invalida para sincronizar com servidor. Toast de erro sempre visível.
++
+ 1.5 Error Boundaries
+ 
+-- ErrorBoundary (via react-error-boundary) wrapping CADA rota no router.
++- ErrorBoundary (via react-error-boundary) wrapping CADA rota no router (via errorElement — ver seção 1.6).
+ - Fallback UI: componente <RouteErrorFallback> com Alert do shadcn, botão retry, e log automático para Sentry.
+ - ErrorBoundary adicional no Document Viewer envolvendo o container de seções virtualizadas (crash de virtualização não derruba TOC nem shell).
+ - Implementação: src/components/error/RouteErrorFallback.tsx e src/components/error/SectionErrorFallback.tsx.
++- Fallback UI: role="alert", aria-live="assertive" para leitores de tela.
++
++Sentry:
++- Dependência: @sentry/react (~15KB gzipped, tree-shaken).
++- Inicialização: em src/main.tsx, ANTES de createRoot(). Sentry.init({ dsn, environment, release }).
++- Source maps: upload via @sentry/vite-plugin no build de produção.
++- Integração com ErrorBoundary: Sentry.withScope + captureException no onError callback do react-error-boundary.
++
++1.6 Routing
++
++Biblioteca: React Router v6.4+ com createBrowserRouter. Justificativa: ecossistema maduro, loader/action pattern disponível para futuro (não obrigatório agora), errorElement nativo por rota, ampla adoção da comunidade.
++
++Árvore de rotas (src/router.tsx):
++
++  const router = createBrowserRouter([
++    {
++      path: '/',
++      element: <Shell />,        // layout raiz com Outlet
++      errorElement: <RouteErrorFallback />,
++      children: [
++        {
++          index: true,
++          lazy: () => import('./pages/home'),   // export default Component
++        },
++        {
++          path: 'search',
++          lazy: () => import('./pages/search'),
++        },
++        {
++          path: 'document/:documentId',
++          lazy: () => import('./pages/document-viewer'),
++        },
++        {
++          path: 'favorites',
++          lazy: () => import('./pages/favorites'),
++        },
++        {
++          path: 'profile',
++          lazy: () => import('./pages/profile'),
++        },
++        {
++          path: '*',
++          lazy: () => import('./pages/not-found'),
++        },
++      ],
++    },
++  ]);
++
++Cada rota usa lazy() do React Router v6.4 (não React.lazy) — carrega Component, loader e errorElement em um único dynamic import. Vite faz code-splitting automático por chunk.
++
++ErrorBoundary por rota: cada módulo lazy pode exportar ErrorBoundary que sobrescreve o errorElement do Shell. Se não exportar, usa o RouteErrorFallback do layout raiz.
+ 
+ ═══════════════════════════════════════════════════════════════
+ 
+@@ -95,27 +189,38 @@
+ - UI (menus, labels, botões): Inter Variable, system-ui, sans-serif
+ - Corpo de documento legal: Opcional serif — Literata Variable, Georgia, serif. Configurável via toggle do usuário (armazenado via Zustand persist).
+ 
++Subsetting (obrigatório para performance):
++- Inter Variable: subset para Latin + Latin Extended (cobre pt-BR completo). Usar pyftsubset ou glyphhanger em CI:
++  npx glyphhanger --subset=Inter-Variable.woff2 --formats=woff2 --LATIN
++- Resultado esperado: ~30-35KB (vs ~95KB full). Alternativa: @fontsource/inter com split por subset.
++- Literata: mesmo subsetting, aplicado no momento do build.
++
+ Carregamento (crítico para LCP e CLS):
+-- Inter: <link rel="preload" href="/fonts/inter-variable.woff2" as="font" type="font/woff2" crossorigin> no <head>, antes do CSS.
+-- @font-face com font-display: swap E size-adjust/ascent-override para system-ui fallback matching:
++- Inter (subsetted): <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin> no <head>, antes do CSS.
++- @font-face com font-display: swap E fallback com ascent-override para métricas matching:
+ 
+   @font-face {
+     font-family: 'Inter Variable';
+-    src: url('/fonts/inter-variable.woff2') format('woff2');
++    src: url('/fonts/inter-latin.woff2') format('woff2');
+     font-display: swap;
+   }
+   @font-face {
+     font-family: 'Inter Fallback';
+-    src: local('system-ui');
++    src: local('Segoe UI'), local('SF Pro Text'), local('Ubuntu'),
++         local('Roboto'), local('Helvetica Neue'), local('Arial');
+     ascent-override: 90%;
+     descent-override: 22%;
+     line-gap-override: 0%;
+     size-adjust: 107%;
++    font-display: swap;
+   }
+ 
+ - Literata: NÃO preload. Carregada via lazy @font-face injetado somente quando usuário ativa toggle serif (import dinâmico do CSS). Fallback: Georgia imediato.
+ 
+ 2.2 Escala tipográfica (mobile-first → desktop)
++
++Nota: valores usam vw que referencia viewport completo. No layout de 3 colunas do Document Viewer, o texto legal atinge o valor máximo do clamp em desktop — aceitável, pois a coluna de 68ch limita a largura e o max do clamp é calibrado para essa coluna.
++
+   --text-xs:    clamp(0.75rem,  0.7rem  + 0.25vw, 0.8125rem)   / line-height 1.5
+   --text-sm:    clamp(0.8125rem,0.78rem + 0.25vw, 0.875rem)     / line-height 1.5
+   --text-base:  clamp(1rem,     0.95rem + 0.3vw,  1.125rem)     / line-height 1.625 (mobile) → 1.7 (desktop)
+@@ -131,7 +236,7 @@
+ - Padding lateral do container de leitura: px-4 mobile, px-6 tablet, px-0 desktop (conteúdo centralizado).
+ - Headings dentro de documento: margin-top de 2em, margin-bottom de 0.75em para criar ritmo vertical claro.
+ 
+-2.4 Classe utilitária .prose-legal — stub CSS mínimo
++2.4 Classe utilitária .prose-legal
+ 
+ .prose-legal {
+   font-family: var(--font-legal, 'Inter Variable', 'Inter Fallback', system-ui, sans-serif);
+@@ -171,6 +276,46 @@
+   margin-bottom: 1rem;
+ }
+ .prose-legal li { margin-bottom: 0.25rem; }
++.prose-legal ul ul, .prose-legal ol ol,
++.prose-legal ul ol, .prose-legal ol ul {
++  margin-top: 0.5rem;
++  margin-bottom: 0;
++}
++.prose-legal table {
++  width: 100%;
++  border-collapse: collapse;
++  margin-bottom: 1rem;
++  font-size: var(--text-sm);
++}
++.prose-legal th, .prose-legal td {
++  border: 1px solid hsl(var(--border));
++  padding: 0.5rem 0.75rem;
++  text-align: left;
++}
++.prose-legal th {
++  background: hsl(var(--muted));
++  font-weight: 600;
++}
++.prose-legal code {
++  font-family: ui-monospace, monospace;
++  background: hsl(var(--muted));
++  padding: 0.125rem 0.25rem;
++  border-radius: 0.25rem;
++  font-size: 0.875em;
++}
++.prose-legal hr {
++  border: none;
++  border-top: 1px solid hsl(var(--border));
++  margin: 2rem 0;
++}
++.prose-legal figure {
++  margin: 1.5rem 0;
++}
++.prose-legal figcaption {
++  font-size: var(--text-sm);
++  color: hsl(var(--text-legal-muted));
++  margin-top: 0.5rem;
++}
+ 
+ Quando toggle serif ativo, JS altera --font-legal para 'Literata Variable', Georgia, serif.
+ 
+@@ -188,13 +333,16 @@
+ - Easing padrão: cubic-bezier(0.16, 1, 0.3, 1) para entradas; cubic-bezier(0.4, 0, 0.2, 1) para saídas.
+ - prefers-reduced-motion: media query respeitada. Hook useReducedMotion() wrapa todo uso de React Bits — se ativo, render estático sem animação. Zero exceções.
+ 
+-Implementação mínima do hook:
++Implementação do hook (SSR-safe):
+ 
+   function useReducedMotion(): boolean {
+     const [reduced, setReduced] = useState(() =>
+-      window.matchMedia('(prefers-reduced-motion: reduce)').matches
++      typeof window === 'undefined'
++        ? false
++        : window.matchMedia('(prefers-reduced-motion: reduce)').matches
+     );
+     useEffect(() => {
++      if (typeof window === 'undefined') return;
+       const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+       const handler = (e: MediaQueryListEvent) => setReduced(e.matches);
+       mq.addEventListener('change', handler);
+@@ -208,7 +356,7 @@
+ - Criar wrappers em src/components/motion/: AnimatedCard, RevealSection, StaggerList.
+ - Cada wrapper aceita prop animate={boolean} (default: true, override por useReducedMotion).
+ - Se React Bits for descontinuado, substituímos apenas esses wrappers.
+-- Snapshot tests nos wrappers em CI para detectar breaking changes do React Bits antes de atingir telas.
++- Testes de integração (NÃO snapshot) nos wrappers: validar presença/ausência de classes CSS de animação conforme prop animate. Snapshot tests são flaky com timing de animação em CI.
+ 
+ 3.3 Onde usar (e onde NÃO usar)
+ - SIM: entrada de cards no dashboard (stagger), reveal de seções no Document Viewer (fade-up ao scroll), transição de abertura de Sheet/Bottom Sheet.
+@@ -222,7 +370,7 @@
+ 4.1 SHELL (Layout raiz)
+ ──────────────────────────────────
+ Layout:
+-  Mobile (< 768px): coluna única, bottom navigation fixa (4 ícones: Home, Busca, Favoritos, Perfil). Bottom nav com padding-bottom: env(safe-area-inset-bottom) para dispositivos com home indicator (iPhone X+, Android gesture nav).
++  Mobile (< 768px): coluna única, bottom navigation fixa (4 ícones: Home, Busca, Favoritos, Perfil). Bottom nav com padding-bottom: env(safe-area-inset-bottom) para dispositivos com home indicator.
+   Tablet (768px–1279px): sidebar colapsável (64px ícones → 240px expandida) + área principal.
+   Desktop (≥ 1280px): sidebar fixa 240px + área principal com max-width 1440px centralizado.
+ 
+@@ -233,10 +381,18 @@
+   - Sheet com Vaul (menu mobile — swipe-to-dismiss)
+   - Button (ícones de nav)
+   - Tooltip (labels de ícone no sidebar colapsado)
+-  - CommandDialog (Command Palette global — ⌘K / Ctrl+K, para navegação rápida e atalhos)
++  - CommandDialog (Command Palette global — ⌘K / Ctrl+K)
+   - Skeleton (loading state global)
+ 
+-ErrorBoundary: wrapping do <Outlet> (ou equivalente do router) com <RouteErrorFallback>.
++CommandDialog — comandos mínimos:
++  - "Ir para Home"
++  - "Buscar no DOU →" (ao digitar query, opção para navegar a /search?q=[query])
++  - "Alternar tema"
++  - "Favoritos"
++  - "Ajuda (? = atalhos)"
++  - Comportamento: ⌘K novamente fecha (toggle). Escape fecha.
++
++ErrorBoundary: via errorElement no layout raiz do router (ver seção 1.6).
+ 
+ RB: nenhum no shell — estabilidade > animação.
+ 
+@@ -253,7 +409,7 @@
+ Componentes shadcn/ui:
+   - Card + CardHeader + CardContent + CardFooter (métricas, publicações recentes, alertas)
+   - Badge (status de publicação: novo, lido, favorito)
+-  - Tabs (alternar entre "Hoje", "Semana", "Favoritos")
++  - Tabs (alternar entre "Hoje", "Semana", "Favoritos") — sincronizado com URL via useSearchParams: ?tab=today|week|favorites. Default: today. Refresh preserva tab ativo.
+   - ScrollArea (lista de publicações recentes na sidebar)
+   - Separator (entre grupos de cards)
+   - Skeleton (placeholder durante fetch)
+@@ -288,13 +444,17 @@
+   - Button (limpar filtros, carregar mais)
+   - Skeleton (resultados carregando)
+ 
+-Data fetching: TanStack Query — queryKey ['search', { query, filters }], enabled: query.length >= 2, keepPreviousData: true para UX sem flash entre queries.
++Data fetching: TanStack Query — queryKey ['search', { query, filters }], enabled: query.length >= 2, placeholderData: keepPreviousData para UX sem flash entre queries.
++
++Announcer de acessibilidade: <div role="status" aria-live="polite" class="sr-only">{resultsCount} resultados encontrados para "{query}"</div> — atualizado a cada resposta do servidor.
+ 
+ RB:
+   - Nenhum nos resultados (performance > estética em lista que pode ter centenas de itens).
+   - AnimatedCard apenas no primeiro carregamento dos filtros (fade-in, 200ms).
+ 
+-Virtualização: @tanstack/react-virtual para lista de resultados quando estimatedTotalHeight > 3x viewportHeight. Scroll infinito com IntersectionObserver no último item.
++Virtualização: decisão tomada NO PRIMEIRO RENDER baseada em total_count da resposta da API. Se total_count * estimatedRowHeight > viewportHeight * 2, virtualizar desde o início com @tanstack/react-virtual. NUNCA trocar de estratégia de renderização mid-scroll (causa CLS). Se total_count não disponível na primeira página, virtualizar por default (overhead de @tanstack/react-virtual em lista curta é ~0.5ms — negligível).
++
++Scroll infinito: IntersectionObserver no último item visível para fetch da próxima página.
+ 
+ Estados: loading (Skeleton list), empty (ilustração "Nenhum resultado para [query]"), error (Alert), initial (sugestões de busca recente armazenadas em Zustand).
+ 
+@@ -321,155 +481,34 @@
+ 
+ Data fetching: TanStack Query — queryKey ['document', documentId], com select para transformar resposta em estrutura de seções.
+ 
+-TOC interativa — estratégia dual para seção ativa:
+-
+-  Seções não-virtualizadas (primeiras 20, renderizadas no DOM):
+-  - UM ÚNICO IntersectionObserver (não um por heading) observando todos os headings renderizados, com rootMargin "-10% 0px -80% 0px" para detectar heading no topo do viewport.
+-
+-  Seções virtualizadas (restantes):
+-  - Scroll position tracker: getScrollElement() do virtualizer + array pré-computado de offsets acumulados por seção. Binary search no array para determinar seção ativa com O(log n). Latência de atualização da TOC: < 100ms.
+-
+-  Navegação TOC → seção virtualizada:
+-  - virtualizer.scrollToIndex(sectionIndex, { align: 'start' }) — o react-virtual renderiza a seção-alvo antes de scrollar. NÃO usar anchor links nativos para seções virtualizadas (nó não existe no DOM).
+-  - Anchor links nativos apenas para as primeiras 20 seções (sempre no DOM).
+-
+-  Teste obrigatório: teste automatizado (Playwright) que valida highlight correto da TOC ao scrollar até seção 50+, 100+, e última seção.
+-
+-Progressive rendering para documentos longos (500+ seções):
+-  - Paginação por seção: carregar inicialmente as primeiras 20 seções renderizadas no DOM.
+-  - @tanstack/react-virtual com measureElement para seções restantes (alturas variáveis). Overscan de 5 itens para scroll suave.
+-  - Critério de ativação: virtualizar quando itemCount * estimatedAverageHeight > viewportHeight * 3 (não threshold arbitrário de contagem).
+-  - Fallback: botão "Carregar mais seções" se virtualização falhar em device low-end (detectado via navigator.deviceMemory < 4 ou fallback após crash no ErrorBoundary de seções).
+-
+-ErrorBoundary específico: envolve APENAS o container de seções virtualizadas. Crash de virtualização mostra <SectionErrorFallback> ("Erro ao renderizar seções. Tentando modo simplificado...") e fallback para paginação estática. TOC e shell continuam funcionais.
+-
+-Busca in-doc:
+-  - Atalho: / (slash) para abrir busca in-doc (padrão de readers como PDF.js). NÃO interceptar Ctrl+F/⌘F — deixar busca nativa do browser funcionando como fallback. Usuários power-user esperam o comportamento nativo.
+-  - UI: Input flutuante no topo do documento com contagem de matches e setas prev/next.
+-  - Highlight: bg-highlight-search/15 nos matches, bg-highlight-search/40 no match ativo.
+-
+-RB:
+-  - RevealSection: fade-up suave (200ms) ao scrollar para seções novas. Aplicar APENAS nas primeiras 20 seções renderizadas; seções virtualizadas entram sem animação.
+-  - Nenhuma animação em texto legal — legibilidade absoluta.
+-
+-Classe .prose-legal aplicada no container de texto do documento (ver seção 2.4).
+-
+-Estados: loading (Skeleton com layout simulado do documento), error (RouteErrorFallback fullscreen com retry), 404 (página dedicada "Documento não encontrado").
+-
+-──────────────────────────────────
+-4.5 BOTTOM SHEETS (Contextuais)
+-──────────────────────────────────
+-Usados em: filtros mobile, TOC mobile, detalhes rápidos de documento, ações de compartilhamento.
+-
+-Componentes shadcn/ui:
+-  - Sheet (base) com Vaul para snap points e drag-to-dismiss.
+-  - Snap points: 3 níveis — peek (30vh), half (55vh), full (90vh).
+-  - Form components internos conforme contexto: Input, Select, Calendar, Checkbox.
+-  - Button (ações primária/secundária no footer do sheet).
+-  - ScrollArea (conteúdo interno scrollável).
+-
+-RB:
+-  - Transição de abertura/fechamento via Vaul (não React Bits — Vaul já anima nativamente).
+-  - Nenhum React Bits adicional dentro de sheets.
+-
+-Regra: todo Sheet deve fechar com Escape (teclado) e swipe-down (touch). Focus trap ativo enquanto aberto.
+-
+-═══════════════════════════════════════════════════════════════
+-
+-5. PERFORMANCE MOBILE
+-
+-5.1 Bundle budget com estimativa por dependência
+-
+-Dependência              | Estimativa gzipped
+-─────────────────────────┼────────────────────
+-React + ReactDOM         | ~42KB
+-React Router             | ~12KB
+-TanStack Query           | ~12KB
+-Zustand                  | ~1KB
+-shadcn/ui (tree-shaken)  | ~25-35KB (varia por tela)
+-@tanstack/react-virtual  | ~5KB
+-Vaul                     | ~4KB
+-React Bits (wrappers)    | ~8KB
+-Inter Variable (woff2)   | ~95KB (preloaded, não conta no JS budget)
+-App code por rota        | ~15-30KB
+-─────────────────────────┼────────────────────
+-Shared chunk (framework) | ~70KB
+-Shell chunk              | ~40KB
+-─────────────────────────┴────────────────────
+-
+-Targets por chunk (gzipped):
+-  - Shared (React, router, query, zustand): ~70KB
+-  - Shell (layout, nav, theme, command): ~40KB
+-  - Home rota: ~50KB
+-  - Search rota: ~55KB
+-  - Document Viewer rota: ~80KB (exceção documentada: inclui virtualizer + vaul + lógica de seções)
+-  - Motion wrappers (lazy, Fase 5): ~10KB
+-
+-Total no carregamento inicial (shell + rota ativa): < 200KB gzipped para Home/Search, < 210KB para Document Viewer.
+-
+-5.2 Otimizações
+-- Code-splitting por rota via React.lazy + Suspense (Vite dynamic import).
+-- Imagens: formato WebP/AVIF via vite-plugin-image-optimizer. Lazy loading nativo (loading="lazy").
+-- LCP target: < 2.5s em 4G throttled.
+-- CLS target: < 0.1 (crítico com font loading — mitigado por size-adjust na seção 2.1).
+-- INP target: < 200ms.
+-- will-change: aplicar APENAS durante animação ativa, remover após transitionend. Nunca will-change: transform permanente.
+-- Virtualização: @tanstack/react-virtual quando estimatedTotalHeight > viewportHeight * 3.
+-- Monitoramento: Sentry para erros de runtime + Web Vitals (via web-vitals lib reportando para analytics).
+-
+-═══════════════════════════════════════════════════════════════
+-
+-6. ACESSIBILIDADE (a11y)
+-
+-- Skip-to-content: <a href="#main-content"> como primeiro elemento focável no Shell (ver seção 4.1).
+-- Navegação por teclado: Tab entre elementos interativos; Escape fecha modais/sheets/command; Arrow keys dentro de Command, Select, NavigationMenu.
+-- Focus visible: outline customizado (2px solid hsl(var(--ring)), offset 2px). Nunca outline: none sem substituto.
+-- Aria labels: todo ícone sem texto recebe aria-label. Toda região recebe role ou landmark semântico.
+-- Leitor de tela: testar com VoiceOver (macOS/iOS) e NVDA (Windows) antes de cada release.
+-- prefers-reduced-motion: respeitado globalmente (ver seção 3.1).
+-- prefers-color-scheme: respeitado na escolha inicial de tema (pode ser sobrescrito pelo usuário).
+-- Error boundaries: fallback UI sempre acessível (role="alert", aria-live="assertive").
+-
+-═══════════════════════════════════════════════════════════════
+-
+-7. CHECKLIST DE VALIDAÇÃO (gates de qualidade)
+-
+-Cada fase do rollout deve passar TODOS os itens antes de merge na main:
+-
+-  [ ] Lighthouse Performance ≥ 90 (mobile throttled)
+-  [ ] Lighthouse Accessibility ≥ 95
+-  [ ] CLS < 0.1 (Lighthouse)
+-  [ ] axe-core: zero violações critical ou serious (rodando em CI via @axe-core/playwright)
+-  [ ] prefers-reduced-motion testado manualmente (animações React Bits desabilitadas)
+-  [ ] Tema dark E light funcionais sem flash no carregamento
+-  [ ] Navegação completa por teclado (Tab, Escape, Arrows) na tela em questão
+-  [ ] Skip-to-content funcional
+-  [ ] Bundle size do chunk da rota conforme targets da seção 5.1 (verificado via vite-bundle-analyzer)
+-  [ ] Testado em 3 viewports: 375px (iPhone SE), 768px (iPad), 1440px (desktop)
+-  [ ] Testado em Android low-end real ou emulado (Moto G Power, Chrome)
+-  [ ] Nenhum console.error ou warning em runtime
+-  [ ] Contraste WCAG AA verificado para ambos os temas nos pares de cor usados
+-  [ ] ErrorBoundary testado (forçar throw em componente filho, validar fallback UI)
+-  [ ] TOC highlight correto para seção 50+ (apenas Fase 2b+)
+-
+-═══════════════════════════════════════════════════════════════
+-
+-8. ROLLOUT INCREMENTAL
+-
+-Feature flags — modelo híbrido:
+-
+-  Build-time (VITE_FEATURE_*): usados para excluir código inteiro de features do bundle em builds de produção. Requer rebuild+redeploy para alterar. Tempo estimado de rollback via revert+CI: ~5 minutos.
+-
+-  Runtime (/config/features.json): JSON estático servido via CDN, fetched no boot do app (antes do primeiro render, com cache de 60s). Para toggle instantâneo sem rebuild. Estrutura:
+-    { "viewer": true, "search": true, "motion": true }
+-  Hook: useFeatureFlag('viewer') lê desse JSON (cacheado em memória via TanStack Query, staleTime Infinity, refetch manual).
+-  Override de debug: query param ?ff_viewer=false para QA.
+-
+-  Regra: build-time flags controlam se o código EXISTE no bundle. Runtime flags controlam se a feature está ATIVA. Ambos devem estar "on" para a feature funcionar.
+-
+-─────────────────────────────────
+-
+-Fase 1 — SHELL + TEMA + COMMAND PALETTE [Esforço: M — ~1 semana]
+-  Escopo: layout raiz, sidebar/bottom nav (com safe-area-inset), toggle de tema, CommandDialog global, tokens customizados, .prose-legal CSS, skip-to-content, ErrorBoundary global, Zustand store, TanStack Query provider.
+-  Dependências: nenhuma.
+-  Critério de aceite: navegação funcional em 3 breakpoints, tema sem flash, ⌘K abrindo, skip-to-content funcional, ErrorBoundary capturando erro forçado.
++Prefetch inteligente: quando usuário está idle por 3s no Document Viewer, prefetch do próximo documento na lista de publicações:
++  queryClient.prefetchQuery({ queryKey: ['document', nextDocId], queryFn: fetchDocument })
++
++Progresso de carregamento: para documentos com 500+ seções, barra de progresso sutil (NProgress-style) no topo do viewer mostrando % de seções carregadas.
++
++TOC interativa — modelo unificado de seção ativa:
++
++  Estado: activeSectionIndex armazenado em useRef<number> (não useState — evitar re-renders da TOC a cada scroll frame). TOC lê via useSyncExternalStore ou callback subscrito ao ref.
++
++  Fonte de verdade unificada:
++  - Seções 0–19 (renderizadas no DOM): UM ÚNICO IntersectionObserver observando todos os headings, com rootMargin "-10% 0px -80% 0px". Callback atualiza activeSectionIndex.
++  - Seções 20+ (virtualizadas): usar virtualizer.range.startIndex exposto por @tanstack/react-virtual. Debounce de 100ms no onScroll callback antes de atualizar activeSectionIndex.
++
++  Reconciliação na zona de transição (seções 18–22):
++  - Quando scrollTop está dentro de ±80px do offset da seção 20 (boundary de virtualização), APENAS o scroll-offset tracker é autoritativo. IntersectionObserver é temporariamente ignorado para índices nessa faixa.
++  - Regra de prioridade: scroll-offset > IntersectionObserver quando ambos emitem dentro de 100ms.
++  - Isso elimina flickering de TOC na transição entre estratégias.
++
++  Navegação TOC → seção:
++  - Seções 0–19 (no DOM): anchor links nativos com scroll-behavior: smooth.
++  - Seções 20+ (virtualizadas):
++    1. Chamar virtualizer.measure() para forçar cálculo de offsets.
++    2. virtualizer.scrollToIndex(sectionIndex, { align: 'start' }).
++    3. Após scroll e renderização, chamar focus() no heading-alvo via ref (heading tem tabIndex={-1} para receber focus programático — necessário para keyboard users).
++    4. Se diff entre seção atual e alvo > overscan * 3, mostrar indicador de loading temporário na TOC ("Navegando...") até seção estar visível no DOM.
++
++  Focus management (a11y): após navegação TOC → seção virtualizada, focus é movido para o heading da seção-alvo. Isso garante que keyboard users e leitores de tela acompanham a navegação.
++
++  Teste obrigatório: Playwright — validar highlight correto da TOC ao scrollar para seções 19→21 (zona de transição), seção 50+, 100+, e última seção. Validar que focus move para heading após click na TOC.
++
++Progressive rendering para documentos longos:

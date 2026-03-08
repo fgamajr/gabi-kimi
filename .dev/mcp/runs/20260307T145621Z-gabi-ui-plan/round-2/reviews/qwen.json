@@ -1,0 +1,61 @@
+{
+  "agent": "qwen",
+  "round": 2,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "Seção 1.2 - Paleta customizada",
+      "description": "Token `--highlight-search` usa sintaxe inválida para CSS custom properties. HSL com alpha requer `hsl(50 100% 50% / 0.15)` ou `hsla()`, não pode ser armazenado como string solta em variável CSS sem a função envolvente. Isso quebrará em runtime.",
+      "suggested_fix": "Definir como `--highlight-search-hsl: 50 100% 50%` e `--highlight-search-alpha: 0.15`, depois usar `hsl(var(--highlight-search-hsl) / var(--highlight-search-alpha))` inline onde necessário."
+    },
+    {
+      "severity": "high",
+      "location": "Seção 4.4 - DOCUMENT VIEWER",
+      "description": "IntersectionObserver com threshold 0.3 em CADA heading de documento com 500+ seções criará 500+ observers simultâneos. Isso é anti-pattern de performance e causará jank em mobile, contradizendo a Seção 5.",
+      "suggested_fix": "Usar single IntersectionObserver com rootMargin para trackear heading ativo, ou implementar debounced scroll listener com binary search no array de offsets dos headings."
+    },
+    {
+      "severity": "medium",
+      "location": "Seção 9 - Riscos, R5",
+      "description": "Mitigação para hydration mismatch está incorreta. Lazy-loading componentes NÃO previne hydration mismatch em SSR - isso é causado por divergência entre HTML server e client. A diretiva 'use client' já é obrigatória para componentes com hooks, não é mitigação.",
+      "suggested_fix": "Remover R5 ou reescrever: mitigação real é garantir que tema seja determinado antes do primeiro render (script inline no <head> já cobre isso), e componentes de motion devem ter fallback estático inicial com mesma estrutura DOM."
+    },
+    {
+      "severity": "medium",
+      "location": "Seção 2.1 - Font stack",
+      "description": "Sem estratégia de font-loading para variáveis (Inter, Literata). Font-display swap causará FOUT/FOIT e layout shift, especialmente em 4G. Não há menção a preload ou fontfaceobserver.",
+      "suggested_fix": "Adicionar `<link rel='preload' as='font' type='font/woff2' crossorigin>` no index.html para variáveis principais, e definir `font-display: swap` com size-adjust para minimizar CLS."
+    },
+    {
+      "severity": "low",
+      "location": "Seção 8 - Rollout, Feature flags",
+      "description": "Variáveis VITE_* são build-time, não runtime. Não é possível togglear features sem rebuild. Para rollout incremental real, precisa de solução runtime (ex: remote config ou localStorage flag com refresh).",
+      "suggested_fix": "Clarificar que flags VITE são para build-time gating apenas. Para runtime, implementar hook `useFeatureFlag()` que lê de localStorage + endpoint opcional de config remoto."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "Seção 3.2 - Isolamento de React Bits",
+      "description": "Adicionar teste de snapshot nos wrappers de motion para detectar breaking changes do React Bits antes de atingir telas. Integrar no CI da Fase 5."
+    },
+    {
+      "type": "improvement",
+      "location": "Seção 4.4 - DOCUMENT VIEWER",
+      "description": "Adicionar métrica específica para TOC: 'active section update latency < 100ms' para garantir que highlight do TOC não lag durante scroll rápido."
+    },
+    {
+      "type": "improvement",
+      "location": "Seção 7 - Checklist",
+      "description": "Adicionar verificação de CLS (Cumulative Layout Shift) < 0.1 no Lighthouse, crítico para documentos longos com font loading."
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 847,
+    "latency_ms": 234,
+    "thinking_tokens": 0
+  },
+  "raw_text": "{\n  \"agent\": \"qwen\",\n  \"round\": 2,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Seção 1.2 - Paleta customizada\",\n      \"description\": \"Token `--highlight-search` usa sintaxe inválida para CSS custom properties. HSL com alpha requer `hsl(50 100% 50% / 0.15)` ou `hsla()`, não pode ser armazenado como string solta em variável CSS sem a função envolvente. Isso quebrará em runtime.\",\n      \"suggested_fix\": \"Definir como `--highlight-search-hsl: 50 100% 50%` e `--highlight-search-alpha: 0.15`, depois usar `hsl(var(--highlight-search-hsl) / var(--highlight-search-alpha))` inline onde necessário.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Seção 4.4 - DOCUMENT VIEWER\",\n      \"description\": \"IntersectionObserver com threshold 0.3 em CADA heading de documento com 500+ seções criará 500+ observers simultâneos. Isso é anti-pattern de performance e causará jank em mobile, contradizendo a Seção 5.\",\n      \"suggested_fix\": \"Usar single IntersectionObserver com rootMargin para trackear heading ativo, ou implementar debounced scroll listener com binary search no array de offsets dos headings.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Seção 9 - Riscos, R5\",\n      \"description\": \"Mitigação para hydration mismatch está incorreta. Lazy-loading componentes NÃO previne hydration mismatch em SSR - isso é causado por divergência entre HTML server e client. A diretiva 'use client' já é obrigatória para componentes com hooks, não é mitigação.\",\n      \"suggested_fix\": \"Remover R5 ou reescrever: mitigação real é garantir que tema seja determinado antes do primeiro render (script inline no <head> já cobre isso), e componentes de motion devem ter fallback estático inicial com mesma estrutura DOM.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Seção 2.1 - Font stack\",\n      \"description\": \"Sem estratégia de font-loading para variáveis (Inter, Literata). Font-display swap causará FOUT/FOIT e layout shift, especialmente em 4G. Não há menção a preload ou fontfaceobserver.\",\n      \"suggested_fix\": \"Adicionar `<link rel='preload' as='font' type='font/woff2' crossorigin>` no index.html para variáveis principais, e definir `font-display: swap` com size-adjust para minimizar CLS.\"\n    },\n    {\n      \"severity\": \"low\",\n      \"location\": \"Seção 8 - Rollout, Feature flags\",\n      \"description\": \"Variáveis VITE_* são build-time, não runtime. Não é possível togglear features sem rebuild. Para rollout incremental real, precisa de solução runtime (ex: remote config ou localStorage flag com refresh).\",\n      \"suggested_fix\": \"Clarificar que flags VITE são para build-time gating apenas. Para runtime, implementar hook `useFeatureFlag()` que lê de localStorage + endpoint opcional de config remoto.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Seção 3.2 - Isolamento de React Bits\",\n      \"description\": \"Adicionar teste de snapshot nos wrappers de motion para detectar breaking changes do React Bits antes de atingir telas. Integrar no CI da Fase 5.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Seção 4.4 - DOCUMENT VIEWER\",\n      \"description\": \"Adicionar métrica específica para TOC: 'active section update latency < 100ms' para garantir que highlight do TOC não lag durante scroll rápido.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Seção 7 - Checklist\",\n      \"description\": \"Adicionar verificação de CLS (Cumulative Layout Shift) < 0.1 no Lighthouse, crítico para documentos longos com font loading.\"\n    }\n  ],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 847,\n    \"latency_ms\": 234,\n    \"thinking_tokens\": 0\n  }\n}"
+}

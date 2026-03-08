@@ -1,0 +1,72 @@
+{
+  "agent": "kimi",
+  "round": 2,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "Step 3, Step 5, Step 6",
+      "description": "References fictional MCP tools (mcp__ui-copilot__recommend_ui_sources, plan_ui_execution, generate_ui_agent_prompt) using non-existent invocation syntax. Claude Code does not use double-underscore notation for MCP tools; they are invoked via XML tags or native function calling. These tools appear to be hypothetical infrastructure presented as conditional features, creating impossible execution branches that will confuse the model when the tools inevitably don't exist.",
+      "suggested_fix": "Remove all MCP tool references. Replace with: 'Analyze the task using the pattern reference tables below. If complex implementation is needed, provide a structured plan in Step 5.' Do not invent tool-calling syntax or hypothetical external dependencies."
+    },
+    {
+      "severity": "high",
+      "location": "Reference code exemplars, Z-Index Scale section, Animation section",
+      "description": "Uses Tailwind classes requiring undeclared plugins or custom configuration: 'animate-in fade-in slide-in-from-bottom-4' (requires tailwindcss-animate plugin), 'z-60 z-70 z-80' (exceeds default Tailwind z-index scale of 50), '@container' (requires @tailwindcss/container-queries plugin in v3). The code exemplars will fail in a stock Vite+React+Tailwind project.",
+      "suggested_fix": "Add a 'Prerequisites' section after the description listing required dependencies: tailwindcss-animate plugin, container-queries plugin, and tailwind.config extensions for z-index (60-80) and semantic colors. Alternatively, replace with standard Tailwind classes (e.g., 'opacity-0 animate-[fadeIn_0.5s_ease-out]' for animations)."
+    },
+    {
+      "severity": "high",
+      "location": "Reference code exemplars",
+      "description": "Assumes shadcn/ui-specific semantic color tokens (bg-background, text-primary, border-border, text-destructive, bg-muted) without verification. These tokens do not exist in default Tailwind CSS and will render as transparent or black. The skill claims to work with 'zero additional dependencies' but requires shadcn/ui's specific tailwind.config theme extension.",
+      "suggested_fix": "Replace semantic tokens with standard Tailwind utilities using arbitrary values or standard scales: 'bg-white dark:bg-slate-900' instead of 'bg-background', 'text-slate-900 dark:text-slate-100' instead of 'text-foreground'. Or add explicit requirement: 'This skill assumes shadcn/ui color tokens are configured.'"
+    },
+    {
+      "severity": "medium",
+      "location": "Process flow: Step 1 (Scope check) and Step 8 (Deliver)",
+      "description": "Conflicting output format instructions. Step 1 directs single-component requests to 'skip directly to Step 3 with a condensed Layout + Pattern + Code output', but Step 3 is 'Consult MCP UI Copilot' (which should be removed). Step 8 then defines different output formats for single vs multi-component tasks, creating ambiguity about which path produces which format.",
+      "suggested_fix": "Consolidate output logic: If single component → use condensed format in Step 8. If multi-component → use full format. Remove the Step 1 'skip to Step 3' instruction and replace with: 'If single component, skip to Step 7 (Code Patterns) and use the condensed output format specified in Step 8.'"
+    },
+    {
+      "severity": "medium",
+      "location": "Step 2 - Gather Context",
+      "description": "No error handling for missing files. In a fresh Vite project, src/components/ may not exist, tailwind.config may be tailwind.config.cjs or tailwind.config.ts, and package.json reading is prescribed without fallback for monorepos or non-standard structures.",
+      "suggested_fix": "Add: 'If tailwind.config.* is not found at root, check for tailwind.config.cjs, tailwind.config.mjs, or postcss.config.js with tailwind plugin. If src/components/ does not exist, recommend creating the directory structure as part of the implementation plan.'"
+    },
+    {
+      "severity": "medium",
+      "location": "Responsive Strategy section",
+      "description": "Recommends fluid typography with 'clamp(1rem, 2.5vw, 1.25rem)' but provides no guidance on where to place this (Tailwind config vs inline style). Also recommends '<picture> with srcset' without noting that Vite's image handling requires @vitejs/plugin-legacy or explicit public directory configuration for image assets.",
+      "suggested_fix": "Clarify: 'Add to tailwind.config theme.extend.fontSize as fluid-base: ['clamp(1rem, 2.5vw, 1.25rem)', { lineHeight: '1.5' }]'. For images, specify: 'Place images in public/ directory for direct serving or use import for Vite-processed assets with query params for responsive sizing.'"
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "Anti-Patterns section",
+      "description": "Clarify the carousel distinction: 'Auto-advancing carousels for critical content' is the anti-pattern. Manual tabbed carousels or static testimonial grids are acceptable. Current wording implies all carousels are acceptable for testimonials, which is ambiguous."
+    },
+    {
+      "type": "improvement",
+      "location": "Step 7 - Code Patterns",
+      "description": "Add TypeScript interfaces for all props and include 'use client' directive at top of file examples since these components use client-side interactions (hover states, transitions). Currently missing explicit React imports and type definitions."
+    },
+    {
+      "type": "improvement",
+      "location": "Design Pattern Sources table",
+      "description": "Add a disclaimer that these galleries require licensing for direct asset use, and that the skill only extracts patterns (layout, spacing, typography) not visual assets. Current disclaimer is weak and legal risk remains."
+    },
+    {
+      "type": "improvement",
+      "location": "Process Steps 1-8",
+      "description": "The 8-step process is too long for effective single-shot execution in Claude Code. Consider splitting into two skills: /ui-savior-analyze (Steps 1-4) and /ui-savior-build (Steps 5-8), or condense to 4 steps: Analyze, Design, Code, Deliver."
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 0,
+    "latency_ms": 0,
+    "thinking_tokens": 0
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"kimi\",\n  \"round\": 2,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Step 3, Step 5, Step 6\",\n      \"description\": \"References fictional MCP tools (mcp__ui-copilot__recommend_ui_sources, plan_ui_execution, generate_ui_agent_prompt) using non-existent invocation syntax. Claude Code does not use double-underscore notation for MCP tools; they are invoked via XML tags or native function calling. These tools appear to be hypothetical infrastructure presented as conditional features, creating impossible execution branches that will confuse the model when the tools inevitably don't exist.\",\n      \"suggested_fix\": \"Remove all MCP tool references. Replace with: 'Analyze the task using the pattern reference tables below. If complex implementation is needed, provide a structured plan in Step 5.' Do not invent tool-calling syntax or hypothetical external dependencies.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Reference code exemplars, Z-Index Scale section, Animation section\",\n      \"description\": \"Uses Tailwind classes requiring undeclared plugins or custom configuration: 'animate-in fade-in slide-in-from-bottom-4' (requires tailwindcss-animate plugin), 'z-60 z-70 z-80' (exceeds default Tailwind z-index scale of 50), '@container' (requires @tailwindcss/container-queries plugin in v3). The code exemplars will fail in a stock Vite+React+Tailwind project.\",\n      \"suggested_fix\": \"Add a 'Prerequisites' section after the description listing required dependencies: tailwindcss-animate plugin, container-queries plugin, and tailwind.config extensions for z-index (60-80) and semantic colors. Alternatively, replace with standard Tailwind classes (e.g., 'opacity-0 animate-[fadeIn_0.5s_ease-out]' for animations).\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Reference code exemplars\",\n      \"description\": \"Assumes shadcn/ui-specific semantic color tokens (bg-background, text-primary, border-border, text-destructive, bg-muted) without verification. These tokens do not exist in default Tailwind CSS and will render as transparent or black. The skill claims to work with 'zero additional dependencies' but requires shadcn/ui's specific tailwind.config theme extension.\",\n      \"suggested_fix\": \"Replace semantic tokens with standard Tailwind utilities using arbitrary values or standard scales: 'bg-white dark:bg-slate-900' instead of 'bg-background', 'text-slate-900 dark:text-slate-100' instead of 'text-foreground'. Or add explicit requirement: 'This skill assumes shadcn/ui color tokens are configured.'\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Process flow: Step 1 (Scope check) and Step 8 (Deliver)\",\n      \"description\": \"Conflicting output format instructions. Step 1 directs single-component requests to 'skip directly to Step 3 with a condensed Layout + Pattern + Code output', but Step 3 is 'Consult MCP UI Copilot' (which should be removed). Step 8 then defines different output formats for single vs multi-component tasks, creating ambiguity about which path produces which format.\",\n      \"suggested_fix\": \"Consolidate output logic: If single component → use condensed format in Step 8. If multi-component → use full format. Remove the Step 1 'skip to Step 3' instruction and replace with: 'If single component, skip to Step 7 (Code Patterns) and use the condensed output format specified in Step 8.'\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Step 2 - Gather Context\",\n      \"description\": \"No error handling for missing files. In a fresh Vite project, src/components/ may not exist, tailwind.config may be tailwind.config.cjs or tailwind.config.ts, and package.json reading is prescribed without fallback for monorepos or non-standard structures.\",\n      \"suggested_fix\": \"Add: 'If tailwind.config.* is not found at root, check for tailwind.config.cjs, tailwind.config.mjs, or postcss.config.js with tailwind plugin. If src/components/ does not exist, recommend creating the directory structure as part of the implementation plan.'\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Responsive Strategy section\",\n      \"description\": \"Recommends fluid typography with 'clamp(1rem, 2.5vw, 1.25rem)' but provides no guidance on where to place this (Tailwind config vs inline style). Also recommends '<picture> with srcset' without noting that Vite's image handling requires @vitejs/plugin-legacy or explicit public directory configuration for image assets.\",\n      \"suggested_fix\": \"Clarify: 'Add to tailwind.config theme.extend.fontSize as fluid-base: ['clamp(1rem, 2.5vw, 1.25rem)', { lineHeight: '1.5' }]'. For images, specify: 'Place images in public/ directory for direct serving or use import for Vite-processed assets with query params for responsive sizing.'\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Anti-Patterns section\",\n      \"description\": \"Clarify the carousel distinction: 'Auto-advancing carousels for critical content' is the anti-pattern. Manual tabbed carousels or static testimonial grids are acceptable. Current wording implies all carousels are acceptable for testimonials, which is ambiguous.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Step 7 - Code Patterns\",\n      \"description\": \"Add TypeScript interfaces for all props and include 'use client' directive at top of file examples since these components use client-side interactions (hover states, transitions). Currently missing explicit React imports and type definitions.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Design Pattern Sources table\",\n      \"description\": \"Add a disclaimer that these galleries require licensing for direct asset use, and that the skill only extracts patterns (layout, spacing, typography) not visual assets. Current disclaimer is weak and legal risk remains.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Process Steps 1-8\",\n      \"description\": \"The 8-step process is too long for effective single-shot execution in Claude Code. Consider splitting into two skills: /ui-savior-analyze (Steps 1-4) and /ui-savior-build (Steps 5-8), or condense to 4 steps: Analyze, Design, Code, Deliver.\"\n    }\n  ],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 0,\n    \"latency_ms\": 0,\n    \"thinking_tokens\": 0\n  }\n}\n```"
+}

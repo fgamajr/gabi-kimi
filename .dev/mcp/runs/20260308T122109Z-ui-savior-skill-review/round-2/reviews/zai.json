@@ -1,0 +1,96 @@
+{
+  "agent": "zai",
+  "round": 2,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "Step 7 — Code Patterns (Reference code exemplar — Hero)",
+      "description": "The hero code example claims to be 'raw Tailwind + React that works with zero additional dependencies' but uses shadcn/ui semantic color tokens (bg-background, text-foreground, text-muted-foreground, bg-card, text-card-foreground, ring-border) that do NOT exist in vanilla Tailwind. This code will fail without shadcn setup, misleading developers.",
+      "suggested_fix": "Either: (1) Use actual Tailwind color utilities (bg-white, text-slate-900, text-slate-500) for zero-dependency examples, OR (2) Explicitly label examples as 'shadcn/ui semantic tokens' and provide the tailwind.config.js setup required to define these colors. Add a third example showing true vanilla Tailwind."
+    },
+    {
+      "severity": "high",
+      "location": "Motion & Animation section — CSS-only table",
+      "description": "The CSS-only column shows `animate-in fade-in slide-in-from-bottom-4` as a Tailwind class, but these are from the tailwindcss-animate plugin, NOT vanilla Tailwind. This directly contradicts the 'CSS-only (Tailwind)' label and the claim of zero dependencies.",
+      "suggested_fix": "Replace with actual vanilla CSS/Tailwind: `animate-[fadeSlideUp_0.3s_ease-out]` with a custom @keyframes definition, OR clearly note that tailwindcss-animate plugin is required and remove it from the 'CSS-only' column. Add a true CSS-only row using opacity/transform with utility classes."
+    },
+    {
+      "severity": "medium",
+      "location": "Step 1 → Step 2 flow",
+      "description": "Step 1 says to ask the user for clarification if input is vague, but Step 2 immediately proceeds to gather repo context without a clear pause point. The agent will barrel forward without waiting for user response, breaking the intended flow.",
+      "suggested_fix": "Add explicit halt instruction: 'If Step 1 requires user clarification, STOP and ask before proceeding to Step 2. Do not gather context until the task scope is clear.'"
+    },
+    {
+      "severity": "medium",
+      "location": "Step 3 — MCP tool integration",
+      "description": "The MCP tool calls are defined with parameter names but no guidance on handling failures. What if recommend_ui_sources returns empty? What if plan_ui_execution errors? The skill has no fallback logic.",
+      "suggested_fix": "Add explicit error handling: 'If MCP tool call fails or returns empty results, log the issue and fall back to built-in pattern knowledge. Do not halt the process—proceed with Step 4 using internal patterns.'"
+    },
+    {
+      "severity": "medium",
+      "location": "Step 4 — Missing critical UI patterns",
+      "description": "Several essential patterns have decision trees but NO implementation code: Navigation (sticky, transparent-on-scroll, mobile drawer), CTAs, Forms, Pricing, Empty states, Loading states, Error states, Toasts/notifications. The skill describes what to use but not how to build it.",
+      "suggested_fix": "Add at minimum: (1) Sticky nav with transparent-on-scroll code, (2) Toast notification with z-index, (3) Loading skeleton, (4) Form with inline validation. These are high-frequency needs that shouldn't require external lookup."
+    },
+    {
+      "severity": "medium",
+      "location": "Step 4 — Color & Dark Mode section vs Step 7 code examples",
+      "description": "Step 4 defines semantic colors as `--color-surface`, `--color-text-primary`, `--color-text-muted`, `--color-border`, but Step 7 code uses `bg-background`, `text-foreground`, `text-muted-foreground`, `bg-card`. The naming convention is inconsistent within the skill itself.",
+      "suggested_fix": "Standardize on ONE naming convention throughout. Either use Tailwind CSS v4 syntax (--color-*) or shadcn/ui convention (background, foreground), but not both. Update all references to match."
+    },
+    {
+      "severity": "low",
+      "location": "Accessibility Baseline section",
+      "description": "The accessibility principles are comprehensive but missing concrete implementation code. Developers need to see: skip-to-content link implementation, focus-visible ring in action, and aria-live region setup.",
+      "suggested_fix": "Add a compact 'Accessibility Quick-Start' code block with: (1) Skip link component, (2) Focus-visible button example, (3) Toast with aria-live. These are copy-paste ready and reinforce the non-negotiable stance."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "After Design Pattern Sources table",
+      "description": "Add a 'Required Setup' section showing the minimal tailwind.config.js content needed for semantic colors, zIndex scale, and dark mode—so developers can actually run the code examples."
+    },
+    {
+      "type": "improvement",
+      "location": "Step 7 — Code Patterns",
+      "description": "Add a 'Component File Structure' suggestion (e.g., components/ui/, components/sections/, lib/utils.ts for cn helper) so developers know where to place generated code."
+    },
+    {
+      "type": "improvement",
+      "location": "Performance rules section",
+      "description": "Add concrete Web Vitals measurement guidance for Vite: `vite-plugin-web-vitals` or `web-vitals` npm package integration example."
+    },
+    {
+      "type": "improvement",
+      "location": "Anti-patterns section",
+      "description": "For 'Modal stacking' anti-pattern, add the alternative: 'Use a stepper within a single modal, or redesign as a multi-page flow with progress persistence.'"
+    }
+  ],
+  "diffs": [
+    {
+      "file": ".claude/commands/ui-savior.md",
+      "hunks": ""
+    },
+    {
+      "file": ".claude/commands/ui-savior.md",
+      "hunks": ""
+    },
+    {
+      "file": ".claude/commands/ui-savior.md",
+      "hunks": ""
+    },
+    {
+      "file": ".claude/commands/ui-savior.md",
+      "hunks": ""
+    }
+  ],
+  "meta": {
+    "tokens_used": 2847,
+    "review_duration_ms": 180,
+    "latency_ms": 94643,
+    "thinking_tokens": 1093
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"zai\",\n  \"round\": 2,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Step 7 — Code Patterns (Reference code exemplar — Hero)\",\n      \"description\": \"The hero code example claims to be 'raw Tailwind + React that works with zero additional dependencies' but uses shadcn/ui semantic color tokens (bg-background, text-foreground, text-muted-foreground, bg-card, text-card-foreground, ring-border) that do NOT exist in vanilla Tailwind. This code will fail without shadcn setup, misleading developers.\",\n      \"suggested_fix\": \"Either: (1) Use actual Tailwind color utilities (bg-white, text-slate-900, text-slate-500) for zero-dependency examples, OR (2) Explicitly label examples as 'shadcn/ui semantic tokens' and provide the tailwind.config.js setup required to define these colors. Add a third example showing true vanilla Tailwind.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Motion & Animation section — CSS-only table\",\n      \"description\": \"The CSS-only column shows `animate-in fade-in slide-in-from-bottom-4` as a Tailwind class, but these are from the tailwindcss-animate plugin, NOT vanilla Tailwind. This directly contradicts the 'CSS-only (Tailwind)' label and the claim of zero dependencies.\",\n      \"suggested_fix\": \"Replace with actual vanilla CSS/Tailwind: `animate-[fadeSlideUp_0.3s_ease-out]` with a custom @keyframes definition, OR clearly note that tailwindcss-animate plugin is required and remove it from the 'CSS-only' column. Add a true CSS-only row using opacity/transform with utility classes.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Step 1 → Step 2 flow\",\n      \"description\": \"Step 1 says to ask the user for clarification if input is vague, but Step 2 immediately proceeds to gather repo context without a clear pause point. The agent will barrel forward without waiting for user response, breaking the intended flow.\",\n      \"suggested_fix\": \"Add explicit halt instruction: 'If Step 1 requires user clarification, STOP and ask before proceeding to Step 2. Do not gather context until the task scope is clear.'\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Step 3 — MCP tool integration\",\n      \"description\": \"The MCP tool calls are defined with parameter names but no guidance on handling failures. What if recommend_ui_sources returns empty? What if plan_ui_execution errors? The skill has no fallback logic.\",\n      \"suggested_fix\": \"Add explicit error handling: 'If MCP tool call fails or returns empty results, log the issue and fall back to built-in pattern knowledge. Do not halt the process—proceed with Step 4 using internal patterns.'\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Step 4 — Missing critical UI patterns\",\n      \"description\": \"Several essential patterns have decision trees but NO implementation code: Navigation (sticky, transparent-on-scroll, mobile drawer), CTAs, Forms, Pricing, Empty states, Loading states, Error states, Toasts/notifications. The skill describes what to use but not how to build it.\",\n      \"suggested_fix\": \"Add at minimum: (1) Sticky nav with transparent-on-scroll code, (2) Toast notification with z-index, (3) Loading skeleton, (4) Form with inline validation. These are high-frequency needs that shouldn't require external lookup.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Step 4 — Color & Dark Mode section vs Step 7 code examples\",\n      \"description\": \"Step 4 defines semantic colors as `--color-surface`, `--color-text-primary`, `--color-text-muted`, `--color-border`, but Step 7 code uses `bg-background`, `text-foreground`, `text-muted-foreground`, `bg-card`. The naming convention is inconsistent within the skill itself.\",\n      \"suggested_fix\": \"Standardize on ONE naming convention throughout. Either use Tailwind CSS v4 syntax (--color-*) or shadcn/ui convention (background, foreground), but not both. Update all references to match.\"\n    },\n    {\n      \"severity\": \"low\",\n      \"location\": \"Accessibility Baseline section\",\n      \"description\": \"The accessibility principles are comprehensive but missing concrete implementation code. Developers need to see: skip-to-content link implementation, focus-visible ring in action, and aria-live region setup.\",\n      \"suggested_fix\": \"Add a compact 'Accessibility Quick-Start' code block with: (1) Skip link component, (2) Focus-visible button example, (3) Toast with aria-live. These are copy-paste ready and reinforce the non-negotiable stance.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"After Design Pattern Sources table\",\n      \"description\": \"Add a 'Required Setup' section showing the minimal tailwind.config.js content needed for semantic colors, zIndex scale, and dark mode—so developers can actually run the code examples.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Step 7 — Code Patterns\",\n      \"description\": \"Add a 'Component File Structure' suggestion (e.g., components/ui/, components/sections/, lib/utils.ts for cn helper) so developers know where to place generated code.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Performance rules section\",\n      \"description\": \"Add concrete Web Vitals measurement guidance for Vite: `vite-plugin-web-vitals` or `web-vitals` npm package integration example.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Anti-patterns section\",\n      \"description\": \"For 'Modal stacking' anti-pattern, add the alternative: 'Use a stepper within a single modal, or redesign as a multi-page flow with progress persistence.'\"\n    }\n  ],\n  \"diffs\": [\n    {\n      \"file\": \".claude/commands/ui-savior.md\",\n      \"unified_diff\": \"--- a/.claude/commands/ui-savior.md\\n+++ b/.claude/commands/ui-savior.md\\n@@ -85,6 +85,10 @@ If no arguments provided, prompt with structured options:\\n \\n **Scope check:** For single-component requests (a button, a card, a nav), deliver a compact recommendation — skip directly to Step 3 with a condensed Layout + Pattern + Code output. Reserve the full multi-step process for page-level or multi-component work.\\n \\n+**IMPORTANT:** If Step 1 requires user clarification (vague input, missing scope), **STOP and ask before proceeding to Step 2**. Do not gather repo context until the task scope is clear. Wait for user response.\\n+\\n ### Step 2 — Gather Context\\n \\n Before making any design recommendations, gather repo context:\\n\"\n    },\n    {\n      \"file\": \".claude/commands/ui-savior.md\",\n      \"unified_diff\": \"--- a/.claude/commands/ui-savior.md\\n+++ b/.claude/commands/ui-savior.md\\n@@ -105,12 +109,18 @@ This context informs every recommendation below.\\n ### Step 3 — Consult MCP UI Copilot (If Available)\\n \\n **If MCP ui-copilot tools are available**, call `mcp__ui-copilot__recommend_ui_sources` with:\\n - `goal`: the user's task description\\n - `stack`: `\\\"vite-react\\\"`\\n-- `needsAnimation`: based on task\\n-- `needsMarketing`: based on task\\n-- `needsAuth`: based on task\\n+- `needsAnimation`: boolean, true if motion/animation is relevant to the task\\n+- `needsMarketing`: boolean, true for landing pages, hero sections, CTAs\\n+- `needsAuth`: boolean, true for forms, dashboards, protected routes\\n \\n Incorporate the tool's output to prioritize and weight the pattern recommendations in Step 4.\\n \\n+**Error handling:** If the MCP tool call fails, times out, or returns empty/unusable results, log the issue briefly and proceed with Step 4 using built-in pattern knowledge. Never halt the recommendation process due to MCP unavailability.\\n+\\n **If MCP tools are unavailable**, proceed using the built-in pattern knowledge above. Do NOT ask the user to install anything — deliver the recommendation with what you have.\\n \\n ### Step 4 — Design Analysis\\n\"\n    },\n    {\n      \"file\": \".claude/commands/ui-savior.md\",\n      \"unified_diff\": \"--- a/.claude/commands/ui-savior.md\\n+++ b/.claude/commands/ui-savior.md\\n@@ -182,7 +192,7 @@ All recommendations must meet WCAG 2.1 AA:\\n | Technique | CSS-only (Tailwind) | framer-motion |\\n |-----------|---------------------|---------------|\\n-| Entrance fade-up | `animate-in fade-in slide-in-from-bottom-4` | `initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}` |\\n+| Entrance fade-up | `animate-[fadeSlideUp_0.3s_ease-out]` + custom keyframes* | `initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}` |\\n | Hover scale | `hover:scale-[1.02] transition-transform` | `whileHover={{ scale: 1.02 }}` |\\n | Skeleton loader | `animate-pulse bg-muted rounded` | not needed |\\n | Page transition | View Transitions API | `AnimatePresence` + `motion.div` |\\n@@ -191,6 +201,10 @@ All recommendations must meet WCAG 2.1 AA:\\n \\n **Performance rules:**\\n - Only animate `transform` and `opacity` (GPU-composited properties)\\n+\\n+*For CSS-only fade-up, add to tailwind.config.js:\\n+```js\\n+theme: { extend: { keyframes: { fadeSlideUp: { '0%': { opacity: '0', transform: 'translateY(16px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } } } } }\\n+```\\n - Avoid `will-change` unless profiling shows jank — it causes memory overhead; if used, add via JS before animation and remove after\\n\"\n    },\n    {\n      \"file\": \".claude/commands/ui-savior.md\",\n      \"unified_diff\": \"--- a/.claude/commands/ui-savior.md\\n+++ b/.claude/commands/ui-savior.md\\n@@ -236,10 +256,32 @@ Use the returned execution plan to sequence implementation.\\n \\n ### Step 7 — Code Patterns\\n \\n-Provide concrete Tailwind + React code for the recommended patterns. **Default to raw Tailwind + React implementations that work with zero additional dependencies.**\\n+Provide concrete Tailwind + React code for the recommended patterns. **Default to vanilla Tailwind using standard color utilities (slate, gray, zinc, neutral).**\\n \\n **Library detection from Step 2:**\\n-- If `@radix-ui/*` or `components.json` (shadcn config) detected → use **shadcn/ui** components (`npx shadcn@latest add [component]`)\\n-- If `framer-motion` in `package.json` → use motion components for animation\\n-- If neither is present → provide pure Tailwind + React. Mention shadcn/ui and framer-motion as optional accelerators, not requirements.\\n+- If `@radix-ui/*` or `components.json` (shadcn config) detected → use **shadcn/ui semantic tokens** (bg-background, text-foreground, text-muted-foreground)\\n+- If `framer-motion` in `package.json` → use motion components for animation\\n+- If neither is present → use **vanilla Tailwind colors** (bg-white dark:bg-slate-900, text-slate-900 dark:text-slate-100)\\n+\\n+**Critical:** Code examples using semantic tokens (bg-background, text-foreground) require shadcn/ui setup. Code using vanilla Tailwind colors works immediately with zero setup.\\n+\\n+**Reference code exemplar — Sticky Nav with transparent-on-scroll:**\\n+\\n+```tsx\\n+import { useState, useEffect } from 'react';\\n+\\n+export function StickyNav() {\\n+  const [scrolled, setScrolled] = useState(false);\\n+\\n+  useEffect(() => {\\n+    const handleScroll = () => setScrolled(window.scrollY > 20);\\n+    window.addEventListener('scroll', handleScroll, { passive: true });\\n+    return () => window.removeEventListener('scroll', handleScroll);\\n+  }, []);\\n+\\n+  return (\\n+    <header className={`fixed top-0 left-0 right-0 z-40 transition-all duration-300 ${scrolled ? 'bg-white/90 backdrop-blur-md shadow-sm dark:bg-slate-900/90' : 'bg-transparent'}`}>\\n+      <nav className=\\\"container mx-auto flex items-center justify-between px-4 py-4\\\">\\n+        <a href=\\\"#\\\" className=\\\"text-xl font-bold text-slate-900 dark:text-white\\\">Brand</a>\\n+        <div className=\\\"hidden gap-6 md:flex\\\">\\n+          <a href=\\\"#features\\\" className=\\\"text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white\\\">Features</a>\\n+          <a href=\\\"#pricing\\\" className=\\\"text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white\\\">Pricing</a>\\n+        </div>\\n+        <button className=\\\"rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900\\\">\\n+          Get Started\\n+        </button>\\n+      </nav>\\n+    </header>\\n+  );\\n+}\\n+```\\n \\n **Reference code exemplar — Hero (split layout):**\\n\"\n    }\n  ],\n  \"meta\": {\n    \"tokens_used\": 2847,\n    \"review_duration_ms\": 180\n  }\n}\n```"
+}

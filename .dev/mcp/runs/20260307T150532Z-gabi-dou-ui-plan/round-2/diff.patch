@@ -1,0 +1,583 @@
+--- before
++++ after
+@@ -1,4 +1,4 @@
+-# DOU Search & Reading App — UI/Product Execution Plan v2
++# DOU Search & Reading App — UI/Product Execution Plan v3
+ 
+ ---
+ 
+@@ -8,159 +8,191 @@
+ 
+ Use gabi-es to answer these specific questions about the current Elasticsearch backend:
+ 
++**Document structure:**
+ - What fields exist on a DOU document? (title, body, organ, section, type, date, hierarchy structure)
++- What does the document body look like — flat HTML, structured JSON with article/paragraph/inciso nesting, or raw text?
++- What is the document size distribution? Measure P50, P90, P99 word counts and maximum nesting depth (articles, parágrafos, incisos, alíneas).
++- Are cross-references pre-indexed as a field, or must they be extracted from body text?
++
++**Search capabilities:**
+ - Does the API return faceted aggregation counts for organ, type, section, date range?
+-- What does the document body look like — flat HTML, structured JSON with article/paragraph/inciso nesting, or raw text?
+-- What is the maximum document size in the corpus (word count, node count)?
+ - Does search return highlight fragments with matched terms?
+ - What query relaxation or "did you mean" capabilities exist?
+-
+-**Output:** A `docs/backend-capabilities.md` file with two columns: "Available today" and "Requires backend work." Every subsequent step references this file, not assumptions.
++- What is the pagination model — cursor-based, offset-based, or unbounded result sets?
++- Are there rate limits? What are typical response times for large-corpus queries (P50, P95)?
++
++**Content endpoints:**
++- Does a "recent publications" or "daily publication count" endpoint exist?
++- Does the backend support streaming responses for large documents?
++
++**Output:** A `docs/backend-capabilities.md` file with three columns: "Available today", "Requires backend work", and "Impact on frontend scope." Every subsequent step references this file, not assumptions.
++
++**Critical dependency:** If §0 reveals flat text bodies with no field-level filtering, the viewer timebox increases by 3 days for parser development and the search timebox decreases by 2 days (fewer filter features). If no recent-publications endpoint exists, the empty state degrades to a static search prompt. These contingencies are reflected in the risk register (§12).
+ 
+ **Timebox:** 1 day.
+ **MCP:** gabi-es exclusively.
+-**Done when:** The capabilities doc exists, is reviewed, and search/viewer UX tiers (below) are assigned.
++**Done when:** The capabilities doc exists, is reviewed, search/viewer UX tiers are assigned, and document size distribution data is recorded.
+ 
+ ---
+ 
+ ## 1. Foundation Layer
+ 
++### Component Framework
+ Keep shadcn/ui as the structural layer. Use React Bits only for targeted motion (page transitions, sheet entrances). Do not adopt Tailark. Ground every decision in existing components: SearchPage, DocumentPage, BottomSheet, CommandPalette, DocumentGraph, MobileActionsBar.
+ 
++### State Management
++URL is the source of truth for search state (query, filters, pagination). Zustand for client-side ephemeral state (sheet open/closed, reading mode toggle, active section). localStorage for persistence (reading positions, saved searches, typography preferences). No React Context for anything that crosses more than two component levels — Zustand stores are cheaper and debuggable.
++
++**Deliverable:** `src/stores/` directory with `searchStore.ts`, `readingStore.ts`, `preferencesStore.ts`. URL sync via a custom `useURLSearchParams` hook that bidirectionally syncs Zustand search state with `window.location.search`.
++
+ ---
+ 
+ ## 2. Auth Model & Persistence Strategy
+ 
+-**State the model now because it shapes every feature's scope.**
+-
+ **MVP is unauthenticated.** All user state lives in localStorage.
+ 
+-Reading position schema:
++### Reading Position Schema (v1)
+ ```
+ {
++  _schemaVersion: 1,
+   documentId: string,
+-  scrollPercent: number,
+-  lastSectionId: string | null,
++  documentHash: string,          // publication date + ID, for staleness detection
++  lastSectionId: string,         // primary resume mechanism — non-nullable for structured docs
++  scrollOffsetWithinSection: number,  // px offset within the section for precise resume
++  scrollPercentFallback: number, // fallback for documents where parsing failed
+   timestamp: number
+ }
+ ```
+ 
+-Saved searches schema:
++### Saved Searches Schema (v1)
+ ```
+ {
++  _schemaVersion: 1,
+   query: string,
+   filters: Record<string, string[]>,
+   createdAt: number
+ }
+ ```
+ 
+-Cap localStorage entries at 100 reading positions (LRU eviction) and 50 saved searches.
+-
+-**Post-MVP:** Backend user service enables cross-device sync. Design the unauthenticated experience so it feels complete, not degraded.
++### Persistence Rules
++- Cap at 100 reading positions (LRU eviction) and 50 saved searches.
++- All localStorage operations wrapped in try/catch. On `QuotaExceededError`: evict oldest 20% of reading positions, retry. If still fails, degrade to sessionStorage for current session with a non-modal toast: "Storage full. Reading position will not be saved."
++- Schema migration utility runs on app init: reads `_schemaVersion`, applies migrations sequentially. Unknown versions are discarded with a console warning.
++- Staleness detection: if `documentHash` doesn't match current document metadata, discard the reading position and don't show the resume prompt.
++
++### Post-MVP Migration Path
++When backend user service ships: a `migrateLocalStorageToBackend()` function runs on first authenticated session, uploads all reading positions and saved searches, then clears localStorage copies. Design the unauthenticated experience so it feels complete, not degraded.
+ 
+ ---
+ 
+ ## 3. Visual Direction — Concrete Specification
+ 
+-Not mood-board language. Engineering decisions that ship as `src/styles/design-tokens.ts` and corresponding CSS custom properties.
++Engineering decisions that ship as `src/styles/design-tokens.ts` and corresponding CSS custom properties.
+ 
+ ### Typography
+ - **UI typeface:** Inter (already likely bundled via shadcn). Weights: 400, 500, 600.
+-- **Reading typeface:** Source Serif 4 (variable, loaded on document route only). Weights: 400, 600.
++- **Reading typeface:** Source Serif 4 (variable, loaded on document route only via dynamic import). Subset to Latin Extended for Brazilian Portuguese. Use `font-display: swap`. Preload with `<link rel="preload">` at low priority on the search page to warm the cache before document navigation. Weights: 400, 600.
+ - **Type scale (rem):** 0.75 / 0.8125 / 0.875 / 1.0 / 1.125 / 1.25 / 1.5 / 2.0 — 8 stops, no freestyle sizes.
+-- **Body reading:** 1rem (16px floor enforced), line-height 1.7, max-width 38rem (~65 characters on mobile at 16px).
+-- **Mobile density:** Achieved through collapsible sections and tighter vertical padding — never by reducing font size below 14px for any interactive element.
+-- **User controls (document viewer only):** Font size (3 stops: 16/18/20px), line-height (1.6/1.7/1.8), stored in localStorage.
+-
+-### Color — Dark-first
+-- **Neutral scale:** Warm gray anchored at `hsl(30, 4%, N%)` where N ranges 4% (background-deepest) to 85% (foreground-primary). 10 stops. This gives an amber-warm tone without drifting into sepia territory.
+-- **Accent:** Teal — `hsl(172, 50%, 42%)` primary, `hsl(172, 40%, 32%)` muted, `hsl(172, 55%, 52%)` bright. Replaces purple entirely. Used only for: interactive element focus, active filter chips, reading progress indicator, and primary CTAs. No accent in body text or structural borders.
++- **Document body text:** User-controllable at 16 / 18 / 20px (3 stops). 16px is the minimum. Line-height: 1.6 / 1.7 / 1.8 (user-controllable). Max-width: 38rem (~65 characters at 16px).
++- **UI chrome text:** Minimum 14px for interactive elements (buttons, chips, tabs). Minimum 12px for non-interactive metadata (timestamps, badges). These are not user-controllable.
++- **Mobile density:** Achieved through collapsible sections and tighter vertical padding (8px → 4px on compact elements) — never by reducing font size.
++
++### Color — Dark-first with Light Mode Token Architecture
++- **Dark theme neutral scale:** Warm gray anchored at `hsl(30, 4%, N%)` where N ranges 6% (background-deepest — raised from 4% for OLED distinguishability from true black) to 85% (foreground-primary). 10 stops.
++- **Light theme neutral scale:** Defined in the same token file but shipped dark-only in MVP. Anchored at `hsl(30, 4%, N%)` where N ranges 98% (background-deepest) to 15% (foreground-primary). Semantic mapping reverses: what's `surface-1` in dark maps to the equivalent elevation in light. Defining both scales now prevents painful retrofitting later.
++- **Accent:** Teal — `hsl(172, 50%, 42%)` primary, `hsl(172, 40%, 32%)` muted, `hsl(172, 55%, 52%)` bright. Used only for: interactive element focus, active filter chips, reading progress indicator, primary CTAs. No accent in body text or structural borders.
+ - **Semantic colors:** Error `hsl(0, 65%, 55%)`, warning `hsl(38, 80%, 55%)`, success `hsl(145, 50%, 45%)`.
+-- **WCAG AA enforcement:** Every token pair (foreground on background) must pass 4.5:1 for text, 3:1 for large text and interactive borders. Validated in token file with computed contrast ratios as comments. Warm neutrals at low lightness are notorious for failing — the 4% base background against 85% foreground gives ~13:1, which is safe, but mid-range combinations (30% on 12%) will fail and must be flagged.
++- **WCAG AA enforcement:** Every token pair (foreground on background) annotated with computed contrast ratio as a comment in the token file. CI validation script (`scripts/validate-contrast.ts`) fails the build if any text pair < 4.5:1 or any interactive element border < 3:1. Mid-range combinations (e.g., muted text on elevated surface) must be explicitly validated — warm neutrals at low saturation are failure-prone.
+ 
+ ### Deliverable
+-`src/styles/design-tokens.ts` exporting all values. Corresponding CSS custom properties in `src/styles/tokens.css`. This file is the source of truth — no hardcoded color/size values in components.
+-
+-**Timebox:** 2 days (tokens + one representative component — search result card — as contrast/hierarchy validation).
++`src/styles/design-tokens.ts` exporting all values for both dark and light scales. `src/styles/tokens.css` with CSS custom properties. `scripts/validate-contrast.ts` runnable in CI.
++
++**Timebox:** 2 days (tokens + contrast validation script + one representative component — search result card — as hierarchy validation).
+ **MCP:** ui-copilot for typeface pairing validation.
+-**Done when:** Token file exists, CSS vars are wired, one search result card is rendered with the new tokens, contrast ratios pass automated check.
++**Done when:** Token file exists, CSS vars are wired, one search result card renders with new tokens, contrast validation passes in CI, both dark and light scales are defined (only dark is applied).
+ 
+ ---
+ 
+ ## 4. Bottom Sheet Primitives
+ 
+-**Sequenced before search and viewer because both depend on sheets.** Three variants with explicit, non-negotiable behaviors:
++**Sequenced before search and viewer because both depend on sheets.**
++
++### Implementation Strategy
++Start with a custom implementation using the variant prop pattern. If gesture handling on iOS Safari proves fragile within 2 days, fall back to [vaul](https://github.com/emilkowalski/vaul) which handles overscroll edge cases. This is a named decision, not a hope.
+ 
+ ### 4a. Selector Sheet (TOC, single-filter pickers)
+-- **Snap points:** 40% / 85% viewport height.
+-- **Behavior:** Selecting an item dismisses sheet to 0% and triggers navigation (scroll-to-section, apply single filter). No sticky footer.
+-- **Gesture:** Drag on handle zone (top 48px) controls sheet position. Below handle, internal content scrolls normally. Pull-down past 40% snap dismisses entirely.
++- **Snap points:** 50% / 85% viewport height (raised from 40% — 150px on a 375px screen is unusable for TOC).
++- **Behavior:** Selecting an item dismisses sheet to 0% and triggers navigation. No sticky footer.
+ 
+ ### 4b. Editor Sheet (multi-filter editing, saved search config)
+ - **Snap points:** 60% / 95% viewport height.
+-- **Behavior:** Sticky footer with Apply / Reset buttons, always visible. Internal content scrolls independently of sheet drag. Apply dismisses sheet and triggers search. Reset clears sheet state but keeps sheet open.
+-- **Gesture:** Same handle zone rule. Apply button is pinned to visual bottom of sheet, not of viewport.
+-
+-### 4c. Action Sheet (share, bookmark, report issue)
++- **Behavior:** Sticky footer with Apply / Reset buttons, always visible. Apply dismisses and triggers search. Reset clears sheet state but keeps sheet open.
++- **Keyboard handling:** When a sheet contains an input and the virtual keyboard appears, auto-snap to maximum height and scroll to the focused input. Use `visualViewport` API for keyboard detection on mobile.
++
++### 4c. Action Sheet (share, bookmark, typography controls)
+ - **Snap points:** Auto-height only (content-fit, max 50% viewport).
+ - **Behavior:** No internal scroll. Tap action → execute → dismiss. Tap outside → dismiss.
+-- **Gesture:** Pull-down anywhere dismisses.
+-
+-### All sheets
+-- **Focus trapping:** On open, focus moves to first interactive element. Tab cycles within sheet. Escape dismisses.
+-- **Screen reader:** `role="dialog"`, `aria-modal="true"`, `aria-label` describing context ("Table of Contents", "Filter Documents").
++
++### All Sheets — Non-Negotiable Behaviors
++- **Handle zone:** 56px (increased for motor accessibility). Drag on handle controls sheet position. Below handle, internal content scrolls normally.
++- **Overscroll containment:** `overscroll-behavior: contain` on inner scroll containers. `touch-action: none` on handle zone. These are the two CSS properties that prevent the "sheet moves when inner scroll hits boundary" jank on iOS Safari.
++- **Viewport units:** Use `dvh` (dynamic viewport height) with `vh` fallback for browsers that don't support it. This handles iOS Safari's collapsing address bar.
++- **Focus trapping:** On open, focus moves to first interactive element. Tab cycles within sheet. Escape dismisses. Focus restored to trigger element on close.
++- **Screen reader:** `role="dialog"`, `aria-modal="true"`, `aria-label` describing context.
+ - **Backdrop:** `rgba(0,0,0,0.5)`, tap-to-dismiss.
+-- **Animation:** Spring-based entrance (React Bits `useSpring` or CSS `transition: transform 300ms cubic-bezier(0.32, 0.72, 0, 1)`).
+-
+-**Files touched:** `src/components/BottomSheet.tsx` (refactor into `SelectorSheet`, `EditorSheet`, `ActionSheet` or a single component with `variant` prop).
+-
+-**Timebox:** 3 days.
++- **Animation:** `transition: transform 300ms cubic-bezier(0.32, 0.72, 0, 1)`. Respects `prefers-reduced-motion` (instant snap, no spring).
++- **Reduced motion:** All spring animations replaced with instant transitions.
++
++**Files touched:** `src/components/BottomSheet.tsx` → refactor into single component with `variant` prop (`selector | editor | action`).
++
++**Timebox:** 5 days (increased from 3 to account for iOS Safari/Chrome Android cross-browser debugging).
+ **MCP:** ui-copilot for gesture conflict patterns.
+-**Done when:** All three variants render correctly on 375px viewport, gesture conflicts are tested manually, focus trapping works with keyboard only.
++**Done when:** All three variants render correctly on 375px viewport. Tested manually on iOS Safari 16+ and Chrome Android 120+. Gesture conflicts resolved (inner scroll doesn't move sheet). Focus trapping works with keyboard only. Virtual keyboard doesn't break editor sheet.
+ 
+ ---
+ 
+ ## 5. Document Viewer — The Core Product
+ 
+-**This is where users spend 80% of their time. Sequenced as the first feature workstream.**
++**This is where users spend 80% of their time. Sequenced as the first feature workstream. Implementation design for §5a is finalized AFTER §0 audit completes — the two paths below are contingency plans, not parallel work.**
+ 
+ ### 5a. Legal Hierarchy Rendering
+ 
+-DOU documents contain nested legal structure: Artigos → Parágrafos → Incisos → Alíneas.
+-
+-**If backend returns structured JSON (articles/paragraphs as nested objects):**
++**Path A — Backend returns structured JSON:**
+ - Render as indented tree with left-border depth indicators (1px accent-muted per nesting level).
+ - Each article is a discrete block with an anchor ID: `section-art-5`, `section-art-5-p-3`.
+-- Collapse paragraphs/incisos under article headers on initial load for documents over 50 articles. Expand on tap.
+-
+-**If backend returns flat HTML:**
+-- Parse server-side or client-side using regex/DOM parsing for `Art.`, `§`, Roman numeral incisos, letter alíneas.
+-- Wrap parsed segments in semantic elements with generated IDs.
+-- Degrade gracefully: if parsing fails, render as plain formatted text. Never break the page.
++- Collapse parágrafos/incisos under article headers on initial load for documents over 50 articles. Expand on tap.
++
++**Path B — Backend returns flat HTML/text:**
++- Build a dedicated parsing service (`src/services/douParser.ts`) that produces an AST, not inline regex replacements.
++- **Before writing the parser:** Pull 20 diverse real documents via gabi-es (varying organs, decades, sections 1/2/3) and create `tests/fixtures/dou-structure/` directory with expected parse outputs.
++- Parser must handle: `Art.` / `ART.` / `Artigo`, `§` / `Parágrafo único`, Roman numerals (I–L, upper and lowercase), letter alíneas (a–z), suffixed articles (`Art. 5º-A`), and editorial notes (retificações).
++- **Acceptance threshold:** Parser correctly identifies article boundaries in ≥90% of the 20 test fixtures. Documents that fail parsing render as plain formatted text with a visible "Visualização estruturada indisponível" indicator — not silent degradation.
++- Add 2 days to the viewer timebox for parser development and test fixture creation.
+ 
+ ### 5b. Table of Contents
+ 
+-Generated from document structure, NOT from generic `<h1>`–`<h6>` extraction.
++Generated from document structure (parsed AST or structured JSON), not from generic heading extraction.
+ 
+ - On mobile: Selector Sheet (variant 4a) triggered from MobileActionsBar.
+ - On desktop: Collapsible sidebar, 240px wide, sticky.
+ - Active section highlighted based on scroll position (IntersectionObserver on each article anchor).
+-- TOC items show: article number + first 60 characters of article text. No truncation that hides the article number.
++- TOC items show: article number + first 60 characters of article text. Article number is never truncated.
+ 
+ ### 5c. Search Term Highlighting
+ 
+-If the user arrived from search and the backend returned highlight fragments:
+-- Highlight all matching terms in the document body using `<mark>` elements with accent-bright background at 20% opacity.
+-- Add "N matches found" indicator in the sticky header with previous/next navigation arrows.
+-- Highlighting persists during scroll. Dismissed explicitly by a "Clear highlights" action.
+-- If backend does NOT return highlight data: perform client-side term matching from the query string. Acceptable for single-term queries; skip for complex queries.
++If the user arrived from search:
++
++**Backend provides highlight data:** Highlight all matching terms using `<mark>` elements with accent-bright background at 20% opacity. "N matches found" indicator in sticky header with previous/next arrows. Highlighting dismissed explicitly via "Clear highlights" action.
++
++**Backend does NOT provide highlight data:** Attempt client-side matching ONLY for single-term queries (no phrases, no boolean operators, no stemming). For multi-term or complex queries, show a toast: "Destaques indisponíveis para esta busca." This avoids misleading match counts and O(n) DOM traversal on large documents.
+ 
+ ### 5d. Cross-Reference Linking
+ 
+-For patterns like `Art. 5° da Lei 8.666/93`, `conforme a Portaria nº 123`:
+-- Parse with regex for known DOU reference patterns.
+-- If the referenced document exists in the corpus (check via gabi-es lookup or precomputed link table): render as a tappable link opening in a new viewer instance or in-context preview (Action Sheet showing title + first paragraph).
+-- If not resolvable: render as styled but non-interactive text (subtle underline, no pointer cursor).
++**MVP: Non-interactive styling only.** Parse reference patterns (`Art. N`, `Lei nº X/Y`, `Portaria nº Z`) with regex and render as visually distinct text (subtle underline, muted accent color) but non-interactive.
++
++**Post-MVP (requires backend work):** Cross-reference resolution is precomputed at index time and stored as a field on the document. Add "Does the backend precompute cross-reference links?" to §0 audit. If available, render as tappable links. If the backend cannot precompute: extract all references client-side, fire a single `_msearch` batch query after initial render, then asynchronously upgrade styled text to links. Never block initial render on cross-reference resolution.
++
++**Intra-document references** (e.g., "conforme o Art. 12 acima") are linked to section anchors within the same document. These are safe to resolve client-side since the section IDs are already in the DOM.
+ 
+ ### 5e. URL Deep Linking
+ 
+@@ -172,33 +204,62 @@
+ 
+ ### 5f. Progressive Rendering & Performance
+ 
+-DOU documents can exceed 50,000 words.
+-
+-- **Threshold:** Documents under 5,000 words render fully. Documents over 5,000 words use chunked rendering.
+-- **Strategy:** Render first 3 sections immediately. Remaining sections render as the user scrolls within 2 sections of them (IntersectionObserver with rootMargin). No react-window — legal documents need contiguous DOM for Ctrl+F browser search to work. Chunked append is the right tradeoff.
+-- **DOM budget:** Alert in dev mode if document exceeds 5,000 DOM nodes. Log to monitoring in production.
+-- **DocumentGraph:** On desktop, rendered as a compact node map (max 50 nodes, paginated) in the sidebar below TOC showing related documents. Purpose: contextual awareness ("this regulation relates to these 4 others"). Clicking a node navigates to that document. On mobile: hidden by default, accessible via Action Sheet from MobileActionsBar. Simplified to a flat list of related document titles — no force-directed graph on 375px viewport.
++DOU documents can exceed 50,000 words. The rendering strategy is tiered based on the §0 document size distribution data.
++
++**Tier 1 — Documents under 5,000 words (~P50):**
++Full render. No chunking. Browser Ctrl+F works completely.
++
++**Tier 2 — Documents 5,000–20,000 words (~P50–P90):**
++Chunked append via IntersectionObserver. Render first 5 sections immediately; append remaining sections as user scrolls within 2 sections of them. Accept DOM node counts up to 8,000. Browser Ctrl+F works for rendered content; unrendered sections hydrate quickly enough on forward scroll that most Ctrl+F "find next" operations work. Log node counts to monitoring but do not alert.
++
++**Tier 3 — Documents over 20,000 words (~P90+):**
++Windowed rendering: render visible sections ±2, unmount sections more than 4 screens away. Browser Ctrl+F is explicitly degraded for these documents. Replace with an **in-app document search bar** (`src/components/DocumentSearch.tsx`) that searches the raw text/JSON model (kept in memory, never in DOM) and scrolls to matches, hydrating target sections on demand. The in-app search bar is shown automatically for Tier 3 documents and available via Cmd+F override (intercept the keyboard shortcut) or a search icon in the sticky header.
++
++- Show a subtle banner on Tier 3 documents: "Documento extenso — use a busca interna (Ctrl+F) para localizar termos."
++- **Memory management:** Unmounted sections release their DOM nodes. The raw text model (~1 byte per character) for a 50,000-word document is ~300KB — acceptable to keep in memory.
++- **CSS containment:** All section wrappers use `contain: content` to isolate layout/paint costs.
++
++**DocumentGraph (related documents):**
++- Desktop: compact node map (max 50 nodes, paginated) in sidebar below TOC.
++- Mobile: hidden by default, accessible via Action Sheet from MobileActionsBar. Simplified to a flat list of related document titles — no force-directed graph on 375px viewport.
+ 
+ ### 5g. Reading Mode & Progress
+ 
+-- **Mobile:** Reading mode is the default — no sidebar chrome, full-width content within the 38rem max-width.
+-- **Desktop/Tablet:** Toggle via keyboard shortcut (Alt+R) or header button. Hides sidebar, centers content, increases max-width to 42rem.
+-- **Progress indicator:** 2px-tall fixed bar at the very top of viewport, accent-primary color, width proportional to scroll percentage. Does not consume layout space. Also shown as percentage in sticky header.
+-- **Reading resume:** On navigating away, save position to localStorage (schema from §2). On returning to the same document, show a non-modal toast: "Resume from Art. 15?" with Jump / Dismiss. Toast auto-dismisses after 5 seconds.
++- **Mobile:** Reading mode is the default — full-width content within 38rem max-width.
++- **Desktop/Tablet:** Toggle via keyboard shortcut (Shift+Alt+R — avoids Alt+R browser conflicts) or header button. Hides sidebar, centers content, increases max-width to 42rem.
++- **Keyboard shortcut reference:** All shortcuts (Cmd+K, Shift+Alt+R, Escape, arrow keys) are discoverable inside CommandPalette as a "Keyboard Shortcuts" tab.
++- **Progress indicator:** 2px-tall fixed bar at top of viewport, accent-primary color, width proportional to scroll percentage. Also shown as percentage in sticky header. Uses `role="progressbar"` + `aria-valuenow`.
++- **Reading resume:** On navigating away, save position to localStorage (schema from §2, using `lastSectionId` as primary mechanism). On returning: if `documentHash` matches, show a non-modal toast: "Continuar do Art. 15?" with Ir / Dispensar. Toast auto-dismisses after 5 seconds. If `documentHash` doesn't match (document was republished), discard stale position silently.
+ 
+ ### 5h. Typography Controls
+ 
+ Accessible from MobileActionsBar (Action Sheet variant) or sticky header dropdown on desktop.
+ 
+-- Font size: 16 / 18 / 20px (3 stops).
++- Font size: 16 / 18 / 20px (3 stops). Applies only to document body text, not UI chrome.
+ - Line height: 1.6 / 1.7 / 1.8.
+ - Persisted to localStorage per user (not per document).
+-
+-**Files touched:** `src/pages/DocumentPage.tsx`, new `src/components/DocumentRenderer.tsx`, `src/components/DocumentTOC.tsx`, `src/components/DocumentGraph.tsx` (refactor), `src/components/ReadingProgress.tsx`, `src/components/TypographyControls.tsx`, `src/components/SearchHighlight.tsx`.
+-
+-**Timebox:** 8 days.
+-**MCP:** gabi-es for document structure audit and cross-reference patterns. ui-copilot for reading layout component selection. json-render for viewer layout prototyping.
+-**Done when:** A real DOU document (>10,000 words) renders on a 375px viewport with: TOC navigation working, search highlights visible, progress bar accurate, resume prompt functional, font controls operational. Lighthouse performance score ≥ 80 on mobile throttling.
++- **Discoverability:** On first document open (checked via localStorage flag), show a subtle dot badge on the typography action in MobileActionsBar. Badge clears on first tap.
++
++### 5i. Copy with Citation
++
++Text selection in the document body enhances the clipboard:
++- On copy (intercept `copy` event): append citation metadata after the selected text: `\n— Art. 5, § 3º · DOU Seção 1, 15/03/2024`.
++- Citation includes: article/section reference (if determinable from selection position), DOU section, publication date.
++- If section reference can't be determined, fall back to document title + date.
++- Plain text copy only (no HTML in clipboard) to avoid formatting issues in destination apps.
++
++### 5j. Error States
++
++- **Document fetch failure (network error, 500):** Full-page error state with retry button. Message: "Não foi possível carregar o documento. Verifique sua conexão." Retry uses exponential backoff (1s, 2s, 4s, max 3 attempts).
++- **Document not found (404):** Error state with "Documento não encontrado" and link back to search.
++- **Section parse failure (Path B):** Inline error placeholder within document body: "Esta seção não pôde ser processada" in a muted callout box. Surrounding sections render normally.
++- **Network loss during reading:** Continue showing already-rendered content. Show a non-dismissable banner at top: "Sem conexão — conteúdo já carregado permanece disponível." Hide banner when connection restores.
++
++**Files touched:** `src/pages/DocumentPage.tsx`, new `src/components/DocumentRenderer.tsx`, `src/components/DocumentTOC.tsx`, `src/components/DocumentGraph.tsx` (refactor), `src/components/ReadingProgress.tsx`, `src/components/TypographyControls.tsx`, `src/components/SearchHighlight.tsx`, `src/components/DocumentSearch.tsx` (in-app search for Tier 3), `src/components/DocumentError.tsx`, `src/services/douParser.ts` (Path B only), `tests/fixtures/dou-structure/` (Path B only).
++
++**Timebox:** 10 days (8 base + 2 for parser/test fixtures if Path B). Add 2 days for integration testing and bug fixes = **12 days total.**
++**MCP:** gabi-es for document structure audit and cross-reference patterns. ui-copilot for reading layout. json-render for viewer layout prototyping.
++**Done when:** A real DOU document (>10,000 words) renders on a 375px viewport with: TOC navigation working, search highlights visible (backend-provided), progress bar accurate, resume prompt functional, font controls operational, in-app search functional for Tier 3 documents. One VoiceOver test session completed for article navigation. Lighthouse performance score ≥ 80 on mobile throttling.
+ 
+ ---
+ 
+@@ -206,66 +267,91 @@
+ 
+ ### 6a. Tier 1: Available Backend Capabilities (ship first)
+ 
+-Based on the §0 audit, implement UX only for what gabi-es actually returns today. Likely:
+-
+-- Full-text keyword search with highlight fragments.
+-- Date range filtering.
+-- Basic type/section filtering (if indexed as fields).
++Based on the §0 audit, implement UX only for what gabi-es actually returns today.
++
++**Pagination model (determined by §0 audit):**
++- If server-side paginated (expected): render the page directly — no virtualization needed. Page/cursor encoded in URL params (`?q=...&page=2`). 20 results per page.
++- If unbounded result sets (unlikely): use `@tanstack/react-virtual`, but add this as a contingency, not a default. Note: virtualized lists break browser Ctrl+F — acceptable for search results since the in-page search use case is less critical here than in document viewing.
+ 
+ **Result card redesign:**
+ - Show: document title (Source Serif 4, 600 weight), organ tag, publication date, section badge, 2-line snippet with highlighted terms.
+ - Density: ~4 results visible on 375px viewport without scrolling.
+-- Virtualized list using `@tanstack/react-virtual` for result sets over 50 items.
++- Skeleton cards shown within 300ms of query submission (before results return). 4 skeleton cards matching result card dimensions.
+ 
+ **Filter UI:**
+-- Date range: inline date picker in sticky search header (collapsed to "Date: All" chip).
++- Date range: inline date picker in sticky search header (collapsed to "Data: Todas" chip).
+ - Type/Section: chip bar below search input showing active filters. Tap chip → Selector Sheet.
+ - All active filters encoded in URL query parameters for shareability and browser back support.
++- URL is the source of truth for filter state — Zustand syncs bidirectionally.
++
++**Loading states:**
++- Query in flight: skeleton result cards.
++- Filters disabled (visual opacity reduction) during query execution.
++- Search input retains focus and shows a subtle spinner.
+ 
+ ### 6b. Tier 2: Requires Backend Work (design now, ship when ready)
+ 
+-- Faceted aggregation counts on filter options ("Portaria (2,341)").
+-- Query interpretation display ("Showing results for 'licitação' in Seção 3, Ministério da Economia").
+-- Zero-result recovery:
+-  1. Show the interpreted query with each filter's impact: "No results. 'licitação' has 4,521 results without the Seção 3 filter."
+-  2. Suggest removing the least selective filter (the one with fewest remaining results).
+-  3. Show corpus coverage: "The DOU index contains 2.1M documents from Jan 2020 to present."
+-  4. If query looks misspelled, show "Did you mean: [corrected term]?" (requires backend suggest endpoint).
+-
+-### 6c. Empty State & First Visit
+-
+-When there is no search query and no reading history (new user):
+-- Show today's DOU publication count: "234 new publications today."
+-- Show 5 most recent publications from each section (Seção 1, 2, 3, Extra) as collapsible groups.
+-- Prominent search input with placeholder: "Buscar no Diário Oficial da União."
+-- No decorative hero, no marketing copy.
+-
+-When there is reading history but no active query:
+-- Show "Continue reading" row (last 3 documents from localStorage).
+-- Then recent publications below.
+-
+-**Files touched:** `src/pages/SearchPage.tsx`, new `src/components/SearchResultCard.tsx`, `src/components/FilterChipBar.tsx`, `src/components/ZeroResultState.tsx`, `src/components/EmptyHomeState.tsx`.
+-
+-**Timebox:** 6 days (Tier 1 only).
++- Faceted aggregation counts on filter options ("Portaria (2.341)").
++- Query interpretation display ("Mostrando resultados para 'licitação' em Seção 3, Ministério da Economia").
++- Enhanced zero-result recovery (see below).
++- "Did you mean" suggestions (requires backend suggest endpoint).
++
++### 6c. Zero-Result States
++
++**Tier 1 (ships now, no backend dependencies):**
++- "Nenhum resultado encontrado para '[query]'."
++- Client-side spelling suggestions using Levenshtein distance against recent successful queries from localStorage (cheap, imperfect, better than nothing).
++- "Remover filtros" button that clears all active filters and re-runs the query.
++- Static corpus description: "O índice do DOU contém publicações das Seções 1, 2 e 3."
++- No dynamic data that requires additional API calls.
++
++**Tier 2 (ships when backend supports aggregations):**
++- Show each filter's impact: "Sem resultados. 'licitação' tem 4.521 resultados sem o filtro de Seção 3."
++- Suggest removing the least selective filter.
++- Show corpus coverage with actual counts.
++
++### 6d. Empty State & First Visit
++
++**If "recent publications" endpoint exists (confirmed in §0):**
++- Show latest publication count with date: "127 publicações em 14/03/2024."
++- Show 5 most recent from each section (Seção 1, 2, 3) as collapsible groups.
++- If no publications today (weekend/holiday): fall back to "Publicações mais recentes" without a date qualifier, showing the actual date of each publication.
++
++**If "recent publications" endpoint does NOT exist:**
++- Show only the search input with placeholder: "Buscar no Diário Oficial da União."
++- No decorative hero, no marketing copy, no placeholder data.
++
++**When reading history exists (any visit):**
++- Show "Continuar lendo" row (last 3 documents from localStorage) above publications/search prompt.
++
++**Files touched:** `src/pages/SearchPage.tsx`, new `src/components/SearchResultCard.tsx`, `src/components/SearchResultSkeleton.tsx`, `src/components/FilterChipBar.tsx`, `src/components/ZeroResultState.tsx`, `src/components/EmptyHomeState.tsx`.
++
++**Timebox:** 6 days (Tier 1 only). Add 2 days for integration testing = **8 days total.**
+ **MCP:** gabi-es for response schema and available aggregations. json-render for result card density prototyping.
+-**Done when:** Search returns and displays results using only confirmed backend capabilities. Filters are URL-synced. Empty state renders for new users. Virtual scrolling handles 500+ results without jank on mid-range Android.
+-
+----
+-
+-## 7. App Shell & Home
+-
+-**Sequenced after viewer and search because tokens will have been battle-tested on real components by now.**
+-
+-- Extract finalized design tokens from viewer/search work into the shell.
+-- Home page becomes the §6c empty state + reading history. Not a separate "dashboard" design — it IS the search page with no active query.
+-- Remove separate "Home" route if it exists. Search IS home. One route: `/`. Entering a query adds `?q=...` to the URL without a page navigation.
+-- Navigation: bottom tab bar on mobile with 2 items: Search (home) and Saved (bookmarked documents + saved searches from localStorage). That's it. No analytics tab. No settings tab (settings are contextual — typography controls live in the viewer, not in a settings page).
+-- CommandPalette: keyboard shortcut (Cmd+K / Ctrl+K) for power users. Must be fully keyboard-navigable. Focus trapping. Recent searches + document titles as suggestion sources.
+-
+-**Files touched:** `src/App.tsx` (routing), `src/components/AppShell.tsx`, `src/pages/SearchPage.tsx` (absorbs Home), `src/components/MobileActionsBar.tsx` (simplify to 2 tabs), `src/components/CommandPalette.tsx` (accessibility audit).
++**Done when:** Search returns and displays results using only confirmed backend capabilities. Filters are URL-synced. Empty state renders appropriately for both new users and returning users. Skeleton cards appear within 300ms of query. Zero-result state works without backend aggregations.
++
++---
++
++## 7. App Shell & Navigation
++
++**Sequenced after viewer and search because tokens and sheets have been battle-tested on real components.**
++
++### Navigation Model
++- Home page IS the search page. One route: `/`. Entering a query adds `?q=...&page=1` to the URL without a page navigation.
++- Bottom tab bar on mobile: 2 items — Busca (home) and Salvos (bookmarked documents + saved searches from localStorage).
++- **Document viewer route** (`/document/:id`): bottom tab bar remains visible. Search tab acts as home button (saves reading position to localStorage first, then navigates). Back arrow in document header returns to search with scroll position preserved (search results page scroll position stored in sessionStorage).
++- No analytics tab. No settings tab. Typography controls are contextual in the viewer; there is no global settings page.
++
++### CommandPalette
++- Keyboard shortcut: Cmd+K / Ctrl+K. Fully keyboard-navigable. Focus trapping.
++- On mobile: triggered via search icon in header, opens as full-screen sheet.
++- Suggestion sources: recent searches + recently read document titles.
++- Includes a "Atalhos de teclado" tab listing all keyboard shortcuts.
++
++**Files touched:** `src/App.tsx` (routing), `src/components/AppShell.tsx`, `src/pages/SearchPage.tsx` (absorbs Home), `src/components/MobileActionsBar.tsx` (2 tabs), `src/components/CommandPalette.tsx` (accessibility audit + shortcuts tab).
+ 
+ **Timebox:** 4 days.
+-**Done when:** App has one primary route that serves as both home and search. Navigation is 2-tab on mobile. CommandPalette passes keyboard-only navigation test.
++**Done when:** App has one primary route serving as both home and search. Navigation is 2-tab on mobile. CommandPalette passes keyboard-only navigation test. Document viewer back-navigation preserves search scroll position.
+ 
+ ---
+ 
+@@ -273,7 +359,7 @@
+ 
+ **Removed from navigation. Hidden behind feature flag `VITE_ENABLE_ANALYTICS=true`.**
+ 
+-Do not ship a placeholder page. When backend analytics endpoints exist (publication frequency, most-accessed documents, user search patterns), build the page then. Until that point, the analytics route returns a 404 or redirects to home.
++Do not ship a placeholder page. When backend analytics endpoints exist, build the page then. Until that point, the analytics route returns a 404 or redirects to home.
+ 
+ **Files touched:** `src/pages/AnalyticsPage.tsx` (add feature flag gate), routing config.
+ 
+@@ -281,20 +367,24 @@
+ 
+ ---
+ 
+-## 9. Performance Budget — Non-Negotiable Constraints
++## 9. Performance Budget
+ 
+ These are checked in CI and block merges when violated.
++
++| Metric | Home/Empty State | Search Results | Document Viewer | Measured By |
++|---|---|---|---|---|
++| LCP (mobile, 4G) | < 1.5s | < 2.5s | < 2.0s (first section) | Lighthouse CI |
++| Skeleton/loading visible | — | < 500ms | < 500ms | Custom perf mark |
++| CLS | < 0.1 | < 0.1 | < 0.1 | Lighthouse CI |
+ 
+ | Metric | Target | Measured By |
+ |---|---|---|
+-| LCP (mobile, 4G throttle) | < 1.5s | Lighthouse CI |
+ | Initial route bundle (gzip) | < 200kb | Vite bundle analyzer |
+-| Search results render (after network) | < 300ms | Custom performance mark |
+-| Document viewer FCP | < 2.0s | Lighthouse CI |
+-| Document DOM nodes (>10k word doc) | < 5,000 | Dev-mode runtime check |
+-| Cumulative Layout Shift | < 0.1 | Lighthouse CI |
+-
+-Source Serif 4 is loaded only on the document route via dynamic import to keep the initial bundle under budget. Use `font-display: swap`.
++| Document route bundle (gzip) | < 300kb (incl. Source Serif 4 subset) | Vite bundle analyzer |
++| Document DOM nodes (Tier 2, <20k words) | < 8,000 | Runtime monitoring |
++| Document DOM nodes (Tier 3, >20k words) | < 5,000 (windowed) | Runtime monitoring |
++
++**Font strategy:** Source Serif 4 subset (Latin Extended, ~40KB woff2) loaded via dynamic import on document route. `font-display: swap` to avoid blocking render. Low-priority `<link rel="preload">` injected on search page to warm cache. Font loading state: body text renders in Inter until Source Serif loads — no layout shift because both fonts are sized to the same metrics container.
+ 
+ ---
+ 
+@@ -302,41 +392,20 @@
+ 
+ Not a nice-to-have. This is a government data product.
+ 
+-- **Contrast:** Automated check in design-tokens.ts. Every foreground/background pair annotated with computed ratio. CI fails if any text pair is below 4.5:1 or any interactive element border is below 3:1.
+-- **Focus management:** Visible focus ring (2px accent-primary outline, 2px offset) on all interactive elements. Bottom sheets trap focus on open, restore on close. CommandPalette same.
+-- **Screen readers:** Bottom sheets use `role="dialog"` + `aria-modal`. Search results use `role="list"` + `role="listitem"`. Document sections use `aria-label` with article numbers. Progress bar uses `role="progressbar"` + `aria-valuenow`.
+-- **Keyboard navigation:** All features usable without a mouse. Tab order follows visual order. Escape closes any overlay. Arrow keys navigate TOC items and search results.
+-- **Reduced motion:** Respect `prefers-reduced-motion`. Disable sheet spring animations and page transitions. Instant snap instead.
+-
+----
+-
+-## Execution Summary
++- **Contrast:** Automated CI validation via `scripts/validate-contrast.ts`. Every foreground/background token pair annotated with computed ratio. Build fails if any text pair < 4.5:1 or interactive border < 3:1.
++- **Focus management:** Visible focus ring (2px accent-primary outline, 2px offset) on all interactive elements. Bottom sheets and CommandPalette trap focus on open, restore on close.
++- **Screen readers:** Bottom sheets: `role="dialog"` + `aria-modal`. Search results: `role="list"` + `role="listitem"`. Document sections: `aria-label` with article numbers. Progress bar: `role="progressbar"` + `aria-valuenow`. Legal hierarchy: articles use `<article>` element, nested lists use `<ol>` with `aria-label` for context.
++- **Keyboard navigation:** All features usable without mouse. Tab order follows visual order. Escape closes any overlay. Arrow keys navigate TOC items and search results.
++- **Reduced motion:** `prefers-reduced-motion` disables all spring animations and page transitions. Instant snap for sheets.
++- **Manual testing:** At least one VoiceOver (iOS) and one TalkBack (Android) test session for the document viewer. Document expected screen reader output for article navigation in `docs/accessibility-testing.md`.
++
++---
++
++## 11. Execution Summary
+ 
+ | Step | What | Timebox | Depends On | Key Files |
+ |---|---|---|---|---|
+ | 0 | Backend capability audit | 1 day | — | `docs/backend-capabilities.md` |
+-| 3 | Design tokens | 2 days | — | `src/styles/design-tokens.ts`, `tokens.css` |
+-| 4 | Bottom sheet primitives | 3 days | Tokens | `src/components/BottomSheet.tsx` → 3 variants |
+-| 5 | Document viewer | 8 days | Tokens, Sheets, Audit | `DocumentPage`, `DocumentRenderer`, `DocumentTOC`, `ReadingProgress`, + 4 new components |
+-| 6 | Search (Tier 1) | 6 days | Tokens, Sheets, Audit | `SearchPage`, `SearchResultCard`, `FilterChipBar`, `ZeroResultState` |
+-| 7 | App shell & home | 4 days | Viewer, Search | `App.tsx`, `AppShell`, `MobileActionsBar`, `CommandPalette` |
+-| 8 | Analytics removal | 0.5 days | — | `AnalyticsPage`, routing |
+-
+-Steps 0 and 3 can run in parallel (different people). Steps 4 depends on 3. Steps 5 and 6 can overlap once sheets are stable (different feature branches). Step 7 comes last because it integrates the pieces.
+-
+-**Total estimated timeline: ~18 working days with 2 developers, ~24 days solo.**
+-
+----
+-
+-## MCP Tool Mapping
+-
+-| Tool | Step | Purpose |
+-|---|---|---|
+-| gabi-es | 0 (blocking) | Schema audit, aggregation capabilities, document structure analysis |
+-| gabi-es | 5 | Cross-reference pattern frequency, max document sizes, section type taxonomy |
+-| gabi-es | 6 | Confirm available filter fields, test highlight fragment quality |
+-| ui-copilot | 3 | Typeface pairing validation, component library assessment |
+-| ui-copilot | 4 | Gesture conflict patterns for sheets |
+-| ui-copilot | 5 | Reading layout component selection |
+-| json-render | 5 | Viewer layout prototyping with real DOU document JSON |
+-| json-render | 6 | Result card density testing across viewport sizes |
++| 1 | State management setup | 1 day | — | `src/stores/` |
++| 3 | Design tokens + contrast CI | 2 days | — | `src/styles/design-tokens.ts`, `tokens.css`, `scripts/validate-contrast.ts` |
++| 4 | Bottom sheet primitives | 5 days

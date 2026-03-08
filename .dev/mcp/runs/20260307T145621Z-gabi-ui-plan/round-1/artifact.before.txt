@@ -1,0 +1,12 @@
+Plano inicial:
+- Base: shadcn/ui para shell, superfícies, formulários, filtros, tabelas e command palette.
+- Motion: React Bits apenas em entradas de cards, reveals de seção e transições focais.
+- Telas: Home (dashboard), Search, Document Viewer, Bottom Sheets.
+- Restrições: preservar tokens CSS e semântica de cores; acessibilidade (foco, teclado, reduced motion); performance mobile; evitar visual genérico.
+- Ordem: auditar superfície mínima -> escolher base -> integrar motion onde agrega -> validar build/runtime/a11y.
+
+Preciso de versão final com:
+1) plano por tela (o que usar de shadcn e onde usar React Bits)
+2) regras de tipografia e densidade para documentos longos
+3) checklist de validação e rollout incremental
+4) riscos e mitigação

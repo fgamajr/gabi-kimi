@@ -1,0 +1,66 @@
+{
+  "agent": "claude",
+  "round": 1,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "artifact:section:plano-por-tela",
+      "description": "O plano lista telas (Home, Search, Document Viewer, Bottom Sheets) mas não especifica nenhum componente shadcn/ui concreto por tela, nenhum breakpoint mobile-first, nenhuma hierarquia de layout. Isso não é um plano de execução — é uma lista de desejos. Um dev pegando isso não sabe O QUE construir primeiro nem COMO cada tela se compõe.",
+      "suggested_fix": "Para cada tela, especificar: (1) componentes shadcn/ui exatos (ex: Home usa Card, Tabs, Command; Search usa CommandDialog + Input + ScrollArea; Document Viewer usa ScrollArea + Sheet + NavigationMenu para TOC; Bottom Sheets usa Sheet com snap points via Vaul), (2) grid/layout (ex: CSS Grid 1-col mobile, 2-col md:768px, 3-col lg:1280px), (3) pontos exatos onde React Bits entra (ex: AnimatedList para cards do dashboard, RevealOnScroll para seções do viewer)."
+    },
+    {
+      "severity": "high",
+      "location": "artifact:section:tipografia-densidade",
+      "description": "O requisito pede 'regras de tipografia e densidade para documentos longos' mas o artefato não contém NENHUMA especificação tipográfica. Para um app chamado 'GABI DOU' (Diário Oficial da União), legibilidade de texto longo é o feature principal. Sem isso, o produto falha no caso de uso primário.",
+      "suggested_fix": "Definir: (1) escala tipográfica (ex: body 16px/1.625 mobile, 18px/1.7 desktop; headings usando clamp()), (2) max-width de leitura (65-75ch), (3) espaçamento entre parágrafos e seções (ex: space-y-4 para parágrafos, space-y-8 para seções), (4) tokens de cor para texto longo em dark mode (ex: text-zinc-300 sobre bg-zinc-950, não branco puro para evitar fadiga), (5) font-family com fallback (ex: Inter Variable para UI, serif opcional para corpo de documento legal)."
+    },
+    {
+      "severity": "high",
+      "location": "artifact:section:checklist-validacao",
+      "description": "O artefato menciona 'validar build/runtime/a11y' como um passo genérico, mas não tem checklist concreto nem estratégia de rollout incremental. Sem gates de qualidade definidos, regressões visuais e de acessibilidade vão escapar.",
+      "suggested_fix": "Adicionar checklist explícito: (1) Lighthouse Performance ≥90, Accessibility ≥95, (2) axe-core zero violations critical/serious em CI, (3) prefers-reduced-motion testado e respeitado (React Bits animations desabilitadas), (4) prefers-color-scheme dark/light sem flash, (5) keyboard navigation completa (Tab, Escape em modais/sheets, Arrow keys em Command), (6) bundle size budget (ex: <200KB gzipped JS inicial), (7) rollout: fase 1 = shell + theme + Command, fase 2 = telas read-only (Viewer), fase 3 = telas interativas (Search, Filters), fase 4 = motion polish."
+    },
+    {
+      "severity": "medium",
+      "location": "artifact:section:riscos",
+      "description": "Riscos e mitigação estão completamente ausentes do artefato. O plano menciona 'React Bits' que não é uma lib consolidada — não há análise de bundle size, manutenção, ou fallback se a lib quebrar. Também não há risco de conflito de estilos entre shadcn/ui e React Bits.",
+      "suggested_fix": "Documentar riscos: (1) React Bits pode ter breaking changes ou ser abandonada → mitigação: isolar em componentes wrapper, nunca importar diretamente em telas, (2) conflito de CSS entre Tailwind (shadcn) e eventuais estilos inline de React Bits → mitigação: testar em Storybook isolado antes de integrar, (3) performance de animações em dispositivos Android low-end → mitigação: will-change controlado, IntersectionObserver para lazy animation, threshold de FPS com fallback estático, (4) hydration mismatch se usar SSR futuro → mitigação: marcar componentes animados com 'use client' desde já."
+    },
+    {
+      "severity": "medium",
+      "location": "artifact:section:dark-first",
+      "description": "O plano diz 'dark-first' mas não define tokens de cor, estratégia de tema, nem como o tema escuro é implementado concretamente. shadcn/ui suporta dark mode via class strategy do Tailwind, mas isso precisa ser declarado e os tokens customizados para o GABI DOU (não os defaults genéricos do shadcn).",
+      "suggested_fix": "Especificar: (1) usar darkMode: 'class' no tailwind.config, (2) definir paleta customizada em globals.css (ex: --background: 240 10% 3.9%; --foreground: 0 0% 93%;) com variantes semânticas para superfícies de documento (--surface-document, --text-legal), (3) provider de tema com next-themes ou solução própria com localStorage + matchMedia, (4) testar WCAG AA contrast ratios em AMBOS os temas."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "artifact:section:plano-por-tela:document-viewer",
+      "description": "Para o Document Viewer (caso de uso principal do DOU), considerar: sticky TOC lateral em desktop (ScrollArea + anchor links com IntersectionObserver para highlight ativo), search-in-document com Command+K scoped ao documento aberto, e progressive rendering de documentos longos (virtualização com tanstack-virtual ou pagination por seção) para não travar mobile com DOUs de 500+ páginas."
+    },
+    {
+      "type": "improvement",
+      "location": "artifact:section:motion",
+      "description": "Definir um 'motion budget' explícito: máximo de 2 animações simultâneas visíveis, duração máxima de 300ms para micro-interações e 500ms para transições de página, easing padrão cubic-bezier(0.16, 1, 0.3, 1) para entradas. Isso evita que o app fique 'theme park' em vez de ferramenta profissional."
+    },
+    {
+      "type": "improvement",
+      "location": "artifact:general",
+      "description": "O output deve ser em pt-BR conforme solicitado. O artefato atual está parcialmente em português mas termos técnicos estão misturados sem consistência. Padronizar: termos técnicos em inglês (shadcn, React Bits, dark mode) mas descrições e ações em pt-BR."
+    },
+    {
+      "type": "improvement",
+      "location": "artifact:section:ordem",
+      "description": "Adicionar estimativas de esforço por fase (ex: T-shirt sizing S/M/L) e dependências entre fases. Sem isso, não dá para priorizar tradeoffs quando o prazo apertar."
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 1580,
+    "latency_ms": 0,
+    "thinking_tokens": 0
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"claude\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"artifact:section:plano-por-tela\",\n      \"description\": \"O plano lista telas (Home, Search, Document Viewer, Bottom Sheets) mas não especifica nenhum componente shadcn/ui concreto por tela, nenhum breakpoint mobile-first, nenhuma hierarquia de layout. Isso não é um plano de execução — é uma lista de desejos. Um dev pegando isso não sabe O QUE construir primeiro nem COMO cada tela se compõe.\",\n      \"suggested_fix\": \"Para cada tela, especificar: (1) componentes shadcn/ui exatos (ex: Home usa Card, Tabs, Command; Search usa CommandDialog + Input + ScrollArea; Document Viewer usa ScrollArea + Sheet + NavigationMenu para TOC; Bottom Sheets usa Sheet com snap points via Vaul), (2) grid/layout (ex: CSS Grid 1-col mobile, 2-col md:768px, 3-col lg:1280px), (3) pontos exatos onde React Bits entra (ex: AnimatedList para cards do dashboard, RevealOnScroll para seções do viewer).\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"artifact:section:tipografia-densidade\",\n      \"description\": \"O requisito pede 'regras de tipografia e densidade para documentos longos' mas o artefato não contém NENHUMA especificação tipográfica. Para um app chamado 'GABI DOU' (Diário Oficial da União), legibilidade de texto longo é o feature principal. Sem isso, o produto falha no caso de uso primário.\",\n      \"suggested_fix\": \"Definir: (1) escala tipográfica (ex: body 16px/1.625 mobile, 18px/1.7 desktop; headings usando clamp()), (2) max-width de leitura (65-75ch), (3) espaçamento entre parágrafos e seções (ex: space-y-4 para parágrafos, space-y-8 para seções), (4) tokens de cor para texto longo em dark mode (ex: text-zinc-300 sobre bg-zinc-950, não branco puro para evitar fadiga), (5) font-family com fallback (ex: Inter Variable para UI, serif opcional para corpo de documento legal).\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"artifact:section:checklist-validacao\",\n      \"description\": \"O artefato menciona 'validar build/runtime/a11y' como um passo genérico, mas não tem checklist concreto nem estratégia de rollout incremental. Sem gates de qualidade definidos, regressões visuais e de acessibilidade vão escapar.\",\n      \"suggested_fix\": \"Adicionar checklist explícito: (1) Lighthouse Performance ≥90, Accessibility ≥95, (2) axe-core zero violations critical/serious em CI, (3) prefers-reduced-motion testado e respeitado (React Bits animations desabilitadas), (4) prefers-color-scheme dark/light sem flash, (5) keyboard navigation completa (Tab, Escape em modais/sheets, Arrow keys em Command), (6) bundle size budget (ex: <200KB gzipped JS inicial), (7) rollout: fase 1 = shell + theme + Command, fase 2 = telas read-only (Viewer), fase 3 = telas interativas (Search, Filters), fase 4 = motion polish.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"artifact:section:riscos\",\n      \"description\": \"Riscos e mitigação estão completamente ausentes do artefato. O plano menciona 'React Bits' que não é uma lib consolidada — não há análise de bundle size, manutenção, ou fallback se a lib quebrar. Também não há risco de conflito de estilos entre shadcn/ui e React Bits.\",\n      \"suggested_fix\": \"Documentar riscos: (1) React Bits pode ter breaking changes ou ser abandonada → mitigação: isolar em componentes wrapper, nunca importar diretamente em telas, (2) conflito de CSS entre Tailwind (shadcn) e eventuais estilos inline de React Bits → mitigação: testar em Storybook isolado antes de integrar, (3) performance de animações em dispositivos Android low-end → mitigação: will-change controlado, IntersectionObserver para lazy animation, threshold de FPS com fallback estático, (4) hydration mismatch se usar SSR futuro → mitigação: marcar componentes animados com 'use client' desde já.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"artifact:section:dark-first\",\n      \"description\": \"O plano diz 'dark-first' mas não define tokens de cor, estratégia de tema, nem como o tema escuro é implementado concretamente. shadcn/ui suporta dark mode via class strategy do Tailwind, mas isso precisa ser declarado e os tokens customizados para o GABI DOU (não os defaults genéricos do shadcn).\",\n      \"suggested_fix\": \"Especificar: (1) usar darkMode: 'class' no tailwind.config, (2) definir paleta customizada em globals.css (ex: --background: 240 10% 3.9%; --foreground: 0 0% 93%;) com variantes semânticas para superfícies de documento (--surface-document, --text-legal), (3) provider de tema com next-themes ou solução própria com localStorage + matchMedia, (4) testar WCAG AA contrast ratios em AMBOS os temas.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"artifact:section:plano-por-tela:document-viewer\",\n      \"description\": \"Para o Document Viewer (caso de uso principal do DOU), considerar: sticky TOC lateral em desktop (ScrollArea + anchor links com IntersectionObserver para highlight ativo), search-in-document com Command+K scoped ao documento aberto, e progressive rendering de documentos longos (virtualização com tanstack-virtual ou pagination por seção) para não travar mobile com DOUs de 500+ páginas.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"artifact:section:motion\",\n      \"description\": \"Definir um 'motion budget' explícito: máximo de 2 animações simultâneas visíveis, duração máxima de 300ms para micro-interações e 500ms para transições de página, easing padrão cubic-bezier(0.16, 1, 0.3, 1) para entradas. Isso evita que o app fique 'theme park' em vez de ferramenta profissional.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"artifact:general\",\n      \"description\": \"O output deve ser em pt-BR conforme solicitado. O artefato atual está parcialmente em português mas termos técnicos estão misturados sem consistência. Padronizar: termos técnicos em inglês (shadcn, React Bits, dark mode) mas descrições e ações em pt-BR.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"artifact:section:ordem\",\n      \"description\": \"Adicionar estimativas de esforço por fase (ex: T-shirt sizing S/M/L) e dependências entre fases. Sem isso, não dá para priorizar tradeoffs quando o prazo apertar.\"\n    }\n  ],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 1580,\n    \"latency_ms\": 0,\n    \"thinking_tokens\": 0\n  }\n}\n```"
+}

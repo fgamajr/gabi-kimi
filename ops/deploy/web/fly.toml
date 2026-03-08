@@ -11,18 +11,31 @@ primary_region = 'gru'
   # DB connection — internal Fly networking (6PN)
   PG_DSN = 'host=gabi-dou-db.internal port=5432 dbname=gabi user=gabi'
   # PG password comes from fly secrets
+  GABI_SERVE_FRONTEND = 'false'
+  GABI_SESSION_SAMESITE = 'none'
+  GABI_ALLOWED_HOSTS = 'gabi-dou-web.fly.dev'
+  GABI_CORS_ORIGINS = 'https://gabi-dou-frontend.fly.dev'
+  REDIS_URL = 'redis://gabi-dou-redis.internal:6379/0'
 
 [http_service]
   internal_port = 8000
   force_https = true
   auto_stop_machines = 'stop'
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
 
   [http_service.concurrency]
-    type = 'connections'
-    hard_limit = 100
-    soft_limit = 80
+    type = 'requests'
+    hard_limit = 40
+    soft_limit = 30
+
+  [[http_service.checks]]
+    grace_period = '20s'
+    interval = '30s'
+    method = 'GET'
+    path = '/api/stats'
+    protocol = 'http'
+    timeout = '5s'
 
 [[vm]]
   size = 'shared-cpu-2x'

@@ -1,0 +1,95 @@
+{
+  "agent": "qwen",
+  "round": 3,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "Seção 1.1 - Flash Prevention Script",
+      "description": "Script inline não tem try-catch para localStorage. Em private browsing ou com localStorage desabilitado, o script throwa e bloqueia renderização inicial.",
+      "suggested_fix": "Envolver acesso a localStorage em try-catch com fallback para prefers-color-scheme apenas."
+    },
+    {
+      "severity": "high",
+      "location": "Seção 4.4 - TOC Interativa (Seções Virtualizadas)",
+      "description": "Estratégia dual (20 seções DOM + resto virtualizado) com binary search para scroll tracking é complexa demais. Não há spec de como sincronizar highlight da TOC quando seções virtualizadas mudam de altura dinâmica (conteúdo legal varia muito).",
+      "suggested_fix": "Documentar algoritmo exato de sincronização TOC↔scroll para seções virtualizadas, incluindo teste de borda com seções de 1 linha vs 50 linhas."
+    },
+    {
+      "severity": "high",
+      "location": "Seção 5.1 - Bundle Budget",
+      "description": "Estimativa de shadcn/ui 25-35KB tree-shaken é otimista demais para app com 5+ telas usando Card, Sheet, Command, NavigationMenu, ScrollArea, etc. Risk de estouro de budget na Document Viewer rota (80KB já está no limite).",
+      "suggested_fix": "Adicionar budget buffer de 20% e plano de contingência (lazy-load de componentes shadcn menos críticos como Popover, Tooltip)."
+    },
+    {
+      "severity": "medium",
+      "location": "Seção 1.4 - State Management",
+      "description": "Regras claras, mas não menciona optimistic updates para ações do usuário (favoritar, compartilhar). TanStack Query tem mutate com onMutate/onError/onSettled - precisa de spec.",
+      "suggested_fix": "Adicionar subsection 1.4.1 definindo padrão para mutations: onMutante atualiza cache otimisticamente, onError faz rollback, onSettled invalida query."
+    },
+    {
+      "severity": "medium",
+      "location": "Seção 8 - Feature Flags Runtime",
+      "description": "Fetching de /config/features.json antes do primeiro render cria blocking network request. Sem fallback documentado - se CDN falhar, app não boota?",
+      "suggested_fix": "Definir fallback: se fetch falha após 2s, usar defaults hardcoded ({viewer:true, search:true, motion:true}) e log warning para Sentry."
+    },
+    {
+      "severity": "medium",
+      "location": "Seção 4.3 - Search Virtualization",
+      "description": "Threshold estimatedTotalHeight > 3x viewportHeight pode trigger tarde demais em dispositivos com viewport pequeno (mobile). Causa jank antes da virtualização ativar.",
+      "suggested_fix": "Baixar threshold para 2x viewportHeight em mobile (<768px) ou usar itemCount > 50 como trigger alternativo."
+    },
+    {
+      "severity": "medium",
+      "location": "Seção 6 - Acessibilidade",
+      "description": "Não menciona focus management quando TOC navega para seção virtualizada. Focus não move automaticamente para seção alvo - problema crítico para keyboard users.",
+      "suggested_fix": "Adicionar: após virtualizer.scrollToIndex(), chamar focus() no heading alvo via ref. Heading deve ter tabIndex=-1 para receber focus programático."
+    },
+    {
+      "severity": "low",
+      "location": "Seção 3.2 - React Bits Wrappers",
+      "description": "Snapshot tests em wrappers de animação são flaky em CI (timing variations, diferentes render engines). Pode gerar falsos positivos/negativos.",
+      "suggested_fix": "Usar teste de integração que valida presença/ausência de classes de animação, não snapshot de output renderizado."
+    },
+    {
+      "severity": "low",
+      "location": "Seção 4.5 - Bottom Sheets",
+      "description": "Não menciona overlap com mobile keyboard. Input dentro de Sheet pode ficar escondido quando teclado abre em iOS/Android.",
+      "suggested_fix": "Adicionar: usar visualViewport API para detectar keyboard height e ajustar padding-bottom do Sheet dinamicamente."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "Seção 1.3 - Contraste",
+      "description": "Adicionar teste automatizado de contraste no CI usando @axe-core/playwright com custom rules para tokens HSL específicos do tema."
+    },
+    {
+      "type": "improvement",
+      "location": "Seção 4.4 - Document Viewer",
+      "description": "Adicionar indicador visual de progresso de loading progressivo (ex: barra no topo mostrando % de seções carregadas) para documentos 500+ seções."
+    },
+    {
+      "type": "improvement",
+      "location": "Seção 5.2 - Otimizações",
+      "description": "Adicionar strategy para pre-fetch da próxima publicação na lista quando usuário passa 3s idle na Document Viewer (TanStack Query prefetchQuery)."
+    },
+    {
+      "type": "improvement",
+      "location": "Seção 7 - Checklist",
+      "description": "Adicionar item: 'Testado com 1000+ seções no Document Viewer' para validar virtualização em cenário real extremo."
+    }
+  ],
+  "diffs": [
+    {
+      "file": "src/index.html",
+      "hunks": "@@ -1,10 +1,15 @@\n <script>\n   (function(){\n-    var t = localStorage.getItem('gabi-theme');\n-    var d = t === 'dark' || (!t && matchMedia('(prefers-color-scheme:dark)').matches);\n+    var d = false;\n+    try {\n+      var t = localStorage.getItem('gabi-theme');\n+      d = t === 'dark' || (!t && matchMedia('(prefers-color-scheme:dark)').matches);\n+    } catch (e) {\n+      d = matchMedia('(prefers-color-scheme:dark)').matches;\n+    }\n     document.documentElement.classList.toggle('dark', d);\n   })();\n </script>"
+    }
+  ],
+  "meta": {
+    "tokens_used": 1847,
+    "latency_ms": 342,
+    "thinking_tokens": 1523
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"qwen\",\n  \"round\": 3,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Seção 1.1 - Flash Prevention Script\",\n      \"description\": \"Script inline não tem try-catch para localStorage. Em private browsing ou com localStorage desabilitado, o script throwa e bloqueia renderização inicial.\",\n      \"suggested_fix\": \"Envolver acesso a localStorage em try-catch com fallback para prefers-color-scheme apenas.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Seção 4.4 - TOC Interativa (Seções Virtualizadas)\",\n      \"description\": \"Estratégia dual (20 seções DOM + resto virtualizado) com binary search para scroll tracking é complexa demais. Não há spec de como sincronizar highlight da TOC quando seções virtualizadas mudam de altura dinâmica (conteúdo legal varia muito).\",\n      \"suggested_fix\": \"Documentar algoritmo exato de sincronização TOC↔scroll para seções virtualizadas, incluindo teste de borda com seções de 1 linha vs 50 linhas.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Seção 5.1 - Bundle Budget\",\n      \"description\": \"Estimativa de shadcn/ui 25-35KB tree-shaken é otimista demais para app com 5+ telas usando Card, Sheet, Command, NavigationMenu, ScrollArea, etc. Risk de estouro de budget na Document Viewer rota (80KB já está no limite).\",\n      \"suggested_fix\": \"Adicionar budget buffer de 20% e plano de contingência (lazy-load de componentes shadcn menos críticos como Popover, Tooltip).\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Seção 1.4 - State Management\",\n      \"description\": \"Regras claras, mas não menciona optimistic updates para ações do usuário (favoritar, compartilhar). TanStack Query tem mutate com onMutate/onError/onSettled - precisa de spec.\",\n      \"suggested_fix\": \"Adicionar subsection 1.4.1 definindo padrão para mutations: onMutante atualiza cache otimisticamente, onError faz rollback, onSettled invalida query.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Seção 8 - Feature Flags Runtime\",\n      \"description\": \"Fetching de /config/features.json antes do primeiro render cria blocking network request. Sem fallback documentado - se CDN falhar, app não boota?\",\n      \"suggested_fix\": \"Definir fallback: se fetch falha após 2s, usar defaults hardcoded ({viewer:true, search:true, motion:true}) e log warning para Sentry.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Seção 4.3 - Search Virtualization\",\n      \"description\": \"Threshold estimatedTotalHeight > 3x viewportHeight pode trigger tarde demais em dispositivos com viewport pequeno (mobile). Causa jank antes da virtualização ativar.\",\n      \"suggested_fix\": \"Baixar threshold para 2x viewportHeight em mobile (<768px) ou usar itemCount > 50 como trigger alternativo.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Seção 6 - Acessibilidade\",\n      \"description\": \"Não menciona focus management quando TOC navega para seção virtualizada. Focus não move automaticamente para seção alvo - problema crítico para keyboard users.\",\n      \"suggested_fix\": \"Adicionar: após virtualizer.scrollToIndex(), chamar focus() no heading alvo via ref. Heading deve ter tabIndex=-1 para receber focus programático.\"\n    },\n    {\n      \"severity\": \"low\",\n      \"location\": \"Seção 3.2 - React Bits Wrappers\",\n      \"description\": \"Snapshot tests em wrappers de animação são flaky em CI (timing variations, diferentes render engines). Pode gerar falsos positivos/negativos.\",\n      \"suggested_fix\": \"Usar teste de integração que valida presença/ausência de classes de animação, não snapshot de output renderizado.\"\n    },\n    {\n      \"severity\": \"low\",\n      \"location\": \"Seção 4.5 - Bottom Sheets\",\n      \"description\": \"Não menciona overlap com mobile keyboard. Input dentro de Sheet pode ficar escondido quando teclado abre em iOS/Android.\",\n      \"suggested_fix\": \"Adicionar: usar visualViewport API para detectar keyboard height e ajustar padding-bottom do Sheet dinamicamente.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Seção 1.3 - Contraste\",\n      \"description\": \"Adicionar teste automatizado de contraste no CI usando @axe-core/playwright com custom rules para tokens HSL específicos do tema.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Seção 4.4 - Document Viewer\",\n      \"description\": \"Adicionar indicador visual de progresso de loading progressivo (ex: barra no topo mostrando % de seções carregadas) para documentos 500+ seções.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Seção 5.2 - Otimizações\",\n      \"description\": \"Adicionar strategy para pre-fetch da próxima publicação na lista quando usuário passa 3s idle na Document Viewer (TanStack Query prefetchQuery).\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Seção 7 - Checklist\",\n      \"description\": \"Adicionar item: 'Testado com 1000+ seções no Document Viewer' para validar virtualização em cenário real extremo.\"\n    }\n  ],\n  \"diffs\": [\n    {\n      \"file\": \"src/index.html\",\n      \"hunks\": \"@@ -1,10 +1,15 @@\\n <script>\\n   (function(){\\n-    var t = localStorage.getItem('gabi-theme');\\n-    var d = t === 'dark' || (!t && matchMedia('(prefers-color-scheme:dark)').matches);\\n+    var d = false;\\n+    try {\\n+      var t = localStorage.getItem('gabi-theme');\\n+      d = t === 'dark' || (!t && matchMedia('(prefers-color-scheme:dark)').matches);\\n+    } catch (e) {\\n+      d = matchMedia('(prefers-color-scheme:dark)').matches;\\n+    }\\n     document.documentElement.classList.toggle('dark', d);\\n   })();\\n </script>\"\n    }\n  ],\n  \"meta\": {\n    \"tokens_used\": 1847,\n    \"latency_ms\": 342,\n    \"thinking_tokens\": 1523\n  }\n}\n```"
+}

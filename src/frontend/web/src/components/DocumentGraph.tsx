@@ -9,6 +9,7 @@ const RELATION_LABELS: Record<string, string> = {
   cita: "Cita",
   altera: "Altera",
   revoga: "Revoga",
+  regulamenta: "Regulamenta",
   prorroga: "Prorroga",
   complementa: "Complementa",
   procedimento: "Procedimento",
@@ -21,9 +22,12 @@ function humanizeRelation(value?: string | null) {
 }
 
 function branchTone(branch: DocumentGraphBranch) {
+  if (branch.seed.node_type === "incoming") {
+    return "border-[#60a5fa]/25 bg-[#60a5fa]/10 text-[#93c5fd]";
+  }
   return branch.seed.node_type === "procedure"
-    ? "border-amber-400/30 bg-amber-500/5 text-amber-200"
-    : "border-primary/25 bg-primary/8 text-primary";
+    ? "border-[#a78bfa]/25 bg-[#a78bfa]/10 text-[#c4b5fd]"
+    : "border-primary/20 bg-primary/10 text-primary";
 }
 
 export const DocumentGraph: React.FC<{ document: DocumentDetail }> = ({ document }) => {
@@ -61,7 +65,7 @@ export const DocumentGraph: React.FC<{ document: DocumentDetail }> = ({ document
     };
   }, [document.id]);
 
-  const branches = graph?.branches || [];
+  const branches = useMemo(() => graph?.branches || [], [graph?.branches]);
   const relationCount = useMemo(
     () => branches.reduce((total, branch) => total + branch.related_documents.length, 0),
     [branches]
@@ -70,7 +74,7 @@ export const DocumentGraph: React.FC<{ document: DocumentDetail }> = ({ document
   if (!loading && !error && branches.length === 0) return null;
 
   return (
-    <section className="overflow-hidden rounded-[24px] border border-white/6 bg-white/[0.02] px-3 py-4 sm:px-5 sm:py-5">
+    <section className="reader-surface overflow-hidden rounded-[28px] px-3 py-4 sm:px-5 sm:py-5">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <p className="mb-1 text-xs font-semibold uppercase tracking-[0.16em] text-text-tertiary">
@@ -87,11 +91,11 @@ export const DocumentGraph: React.FC<{ document: DocumentDetail }> = ({ document
       </div>
 
       <div className="space-y-3">
-        <div className="rounded-2xl border border-primary/20 bg-primary/8 px-3 py-3 sm:px-4 sm:py-4">
+        <div className="rounded-[22px] border border-primary/15 bg-primary/10 px-3 py-3 sm:px-4 sm:py-4">
           <div className="flex items-start gap-3">
             <span className="mt-1 h-2.5 w-2.5 rounded-full bg-primary" />
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-primary truncate">{graph?.document.title || document.title}</p>
+              <p className="font-editorial text-lg leading-tight text-primary">{graph?.document.title || document.title}</p>
               <p className="text-xs text-text-secondary mt-1 truncate">
                 {[document.issuing_organ, document.pub_date, document.section?.toUpperCase()].filter(Boolean).join(" · ")}
               </p>
@@ -115,7 +119,7 @@ export const DocumentGraph: React.FC<{ document: DocumentDetail }> = ({ document
           const isExpanded = expanded[branch.seed.id] ?? false;
           const relationLabel = humanizeRelation(branch.seed.relation_type);
           return (
-            <div key={branch.seed.id} className="rounded-2xl border border-white/6 bg-background/60">
+            <div key={branch.seed.id} className="overflow-hidden rounded-[22px] border border-white/6 bg-background/55">
               <div className="flex items-stretch">
                 <button
                   onClick={() =>
@@ -124,14 +128,14 @@ export const DocumentGraph: React.FC<{ document: DocumentDetail }> = ({ document
                       [branch.seed.id]: !isExpanded,
                     }))
                   }
-                  className="min-w-0 flex-1 rounded-l-2xl px-3 py-3 text-left transition-colors hover:bg-white/[0.03] focus-ring sm:px-4 sm:py-4"
+                  className="min-w-0 flex-1 rounded-l-[22px] px-3 py-3 text-left transition-colors hover:bg-white/[0.03] focus-ring sm:px-4 sm:py-4"
                 >
                   <div className="flex flex-col items-start gap-2 sm:flex-row sm:gap-3">
-                    <span className={`inline-flex max-w-full self-start rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] ${branchTone(branch)}`}>
+                    <span className={`inline-flex max-w-full self-start rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${branchTone(branch)}`}>
                       {relationLabel}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="break-words text-sm font-medium text-foreground sm:truncate">{branch.seed.title}</p>
+                      <p className="break-words font-editorial text-lg leading-tight text-foreground sm:truncate">{branch.seed.title}</p>
                       {branch.seed.subtitle ? (
                         <p className="mt-1 break-words text-xs text-text-secondary line-clamp-3">{branch.seed.subtitle}</p>
                       ) : null}
@@ -161,8 +165,8 @@ export const DocumentGraph: React.FC<{ document: DocumentDetail }> = ({ document
                         [branch.seed.id]: !isExpanded,
                       }))
                     }
-                    className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-xl border border-white/6 bg-card text-text-secondary transition-colors hover:bg-white/[0.05] hover:text-foreground focus-ring"
-                    aria-label={isExpanded ? "Recolher ramo" : "Expandir ramo"}
+                      className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-xl border border-white/6 bg-card text-text-secondary transition-colors hover:bg-white/[0.05] hover:text-foreground focus-ring"
+                      aria-label={isExpanded ? "Recolher ramo" : "Expandir ramo"}
                   >
                     <Icons.chevronRight className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
                   </button>
@@ -176,14 +180,14 @@ export const DocumentGraph: React.FC<{ document: DocumentDetail }> = ({ document
                       <button
                         key={`${branch.seed.id}-${result.id}`}
                         onClick={() => navigateToDocument(navigate, result.id, "document-graph")}
-                        className="w-full overflow-hidden rounded-2xl border border-white/6 bg-card px-3 py-3 text-left transition-colors hover:bg-white/[0.04] focus-ring sm:px-4 sm:py-4"
+                        className="w-full overflow-hidden rounded-[20px] border border-white/6 bg-card px-3 py-3 text-left transition-colors hover:bg-white/[0.04] focus-ring sm:px-4 sm:py-4"
                       >
                         <div className="flex flex-col items-start gap-2 sm:flex-row sm:gap-3">
                           <span className="inline-flex self-start rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">
                             Encontrado por
                           </span>
                           <div className="min-w-0 flex-1">
-                            <p className="break-words text-sm text-foreground sm:truncate">{result.title}</p>
+                            <p className="break-words font-editorial text-base leading-tight text-foreground sm:truncate">{result.title}</p>
                             <p className="mt-1 break-words text-xs text-text-secondary sm:truncate">
                               {[result.issuing_organ, result.pub_date, result.section?.toUpperCase()].filter(Boolean).join(" · ")}
                             </p>

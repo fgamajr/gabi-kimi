@@ -1,0 +1,26 @@
+Foundation: keep shadcn/ui as the structural layer and use React Bits only for selective motion. Avoid introducing Tailark as a primary source. Ground decisions in the current frontend, which already has SearchPage, DocumentPage, BottomSheet, CommandPalette, DocumentGraph, and MobileActionsBar.
+
+Visual direction: move away from the current purple-default dark SaaS feel toward a more editorial and institutional dark theme with stronger typography, warmer neutrals, restrained accent usage, and denser information hierarchy.
+
+Dashboard/Home: reposition as an operational launchpad rather than a marketing-like landing page. Prioritize resumed reading, saved searches, corpus coverage, and live slices from the DOU index over decorative featured cards.
+
+Search: make search the center of the product. Keep the existing sticky search header, but redesign results around query interpretation, backend-inferred filters, corpus facets, and better zero-result recovery. Promote section, type, organ, and date filters. Use bottom sheets on mobile for deep filter editing.
+
+Document viewer: treat it like a reading environment, not a generic detail page. Strengthen reading typography, sticky context, progress, table of contents, relationship graph, and mobile actions. Keep bottom sheets for TOC and contextual tools. Add better section jumps, reading resume, and cross-document traversal.
+
+Bottom sheets: standardize them as the mobile command surface for filters, TOC, and contextual actions. Improve hierarchy, snapping behavior, and action density.
+
+Analytics: current page appears synthetic. De-prioritize visual polish there until real backend-driven analytics are available.
+
+Execution order:
+1. Define design tokens and visual direction.
+2. Refactor the app shell, home, and search header into a more coherent product frame.
+3. Redesign results list and filter interactions.
+4. Redesign document viewer reading ergonomics and mobile controls.
+5. Standardize bottom-sheet patterns.
+6. Revisit analytics only after real data backing exists.
+
+MCP usage:
+- ui-copilot for source selection and implementation planning
+- gabi-es for corpus-grounded search/viewer/filter UX
+- json-render for quick prototype validation of search-to-viewer flows

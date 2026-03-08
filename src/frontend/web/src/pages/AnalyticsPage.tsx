@@ -1,89 +1,115 @@
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Icons } from "@/components/Icons";
-
-const publicationData = [
-  { month: "Jan", do1: 110, do2: 120, do3: 40 },
-  { month: "Fev", do1: 96, do2: 132, do3: 52 },
-  { month: "Mar", do1: 84, do2: 104, do3: 48 },
-  { month: "Abr", do1: 118, do2: 138, do3: 58 },
-  { month: "Mai", do1: 124, do2: 154, do3: 66 },
-  { month: "Jun", do1: 102, do2: 126, do3: 46 },
-  { month: "Jul", do1: 76, do2: 94, do3: 36 },
-  { month: "Ago", do1: 112, do2: 140, do3: 60 },
-  { month: "Set", do1: 104, do2: 128, do3: 52 },
-  { month: "Out", do1: 138, do2: 166, do3: 72 },
-  { month: "Nov", do1: 192, do2: 238, do3: 88 },
-  { month: "Dez", do1: 214, do2: 274, do3: 104 },
-];
-
-const lineSeries = [
-  { label: "Portarias", color: "#3B82F6", points: [56, 61, 52, 63, 67, 58, 49, 65, 60, 71, 82, 78] },
-  { label: "Decretos", color: "#8B5CF6", points: [16, 15, 18, 19, 18, 16, 14, 20, 18, 21, 23, 21] },
-  { label: "Editais", color: "#2DD4BF", points: [24, 26, 22, 28, 27, 26, 20, 29, 26, 31, 34, 32] },
-  { label: "Extratos contrato", color: "#EF4444", points: [8, 9, 10, 12, 14, 11, 9, 15, 18, 22, 46, 38] },
-  { label: "Resoluções", color: "#FBBF24", points: [8, 8, 7, 9, 8, 7, 6, 8, 8, 9, 10, 9], dashed: true },
-];
-
-const heatmapRows = [
-  [1, 1, 2, 2, 2, 1, 2, 2, 2, 1, 2, 2, 3, 2, 2, 1, 1, 2, 2, 3, 3, 4, 5, 5, 5, 4, 4, 5, 5, 4, 4, 5, 4, 5, 5, 4, 5, 5, 5, 4, 3, 3, 2, 2, 1, 1, 2, 2],
-  [1, 2, 2, 3, 2, 2, 2, 2, 3, 1, 2, 2, 3, 2, 2, 1, 2, 2, 2, 3, 3, 4, 5, 5, 5, 4, 5, 5, 5, 4, 5, 5, 5, 5, 5, 4, 5, 5, 5, 5, 4, 3, 2, 2, 2, 1, 2, 2],
-  [1, 1, 2, 2, 2, 1, 2, 3, 2, 1, 2, 2, 3, 2, 2, 1, 2, 2, 2, 3, 3, 4, 4, 5, 4, 4, 5, 5, 4, 4, 4, 5, 4, 5, 5, 4, 5, 4, 5, 4, 4, 3, 2, 2, 1, 1, 2, 2],
-  [1, 1, 2, 2, 2, 1, 2, 2, 2, 1, 2, 3, 3, 2, 2, 1, 2, 2, 2, 3, 3, 4, 5, 5, 5, 4, 4, 5, 5, 4, 4, 5, 4, 5, 5, 4, 5, 5, 5, 4, 4, 3, 2, 2, 1, 1, 2, 2],
-  [1, 1, 2, 2, 2, 1, 2, 2, 2, 1, 2, 2, 3, 2, 2, 1, 2, 2, 2, 3, 3, 4, 5, 5, 5, 4, 4, 5, 5, 4, 5, 5, 5, 5, 5, 4, 5, 5, 5, 4, 4, 3, 2, 2, 1, 1, 2, 3],
-];
-
-const heatmapColors = ["bg-[#1a1630]", "bg-[#2c2057]", "bg-[#5138a0]", "bg-[#7c5cfc]", "bg-[#ef4444]"];
-const months = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+import { getAnalytics, getStats, getTopSearches } from "@/lib/api";
+import type { AnalyticsResponse, AnalyticsSectionMonthlyPoint, AnalyticsTypeSeries, StatsResponse, TopSearch } from "@/lib/api";
 
 const AnalyticsPage: React.FC = () => {
   const navigate = useNavigate();
+  const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
+  const [stats, setStats] = useState<StatsResponse | null>(null);
+  const [topSearches, setTopSearches] = useState<TopSearch[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    Promise.allSettled([getAnalytics(), getStats(), getTopSearches(8, "week")])
+      .then(([analyticsResult, statsResult, topSearchesResult]) => {
+        if (analyticsResult.status === "fulfilled") setAnalytics(analyticsResult.value);
+        if (statsResult.status === "fulfilled") setStats(statsResult.value);
+        if (topSearchesResult.status === "fulfilled") setTopSearches(topSearchesResult.value);
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  const summaryCards = useMemo(
+    () => [
+      {
+        label: "Documentos",
+        value: analytics?.overview.total_documents?.toLocaleString("pt-BR") || "0",
+        detail: analytics?.overview.date_max ? `até ${formatMonth(analytics.overview.date_max)}` : "sem corte final",
+      },
+      {
+        label: "Órgãos",
+        value: analytics?.overview.total_organs?.toLocaleString("pt-BR") || "0",
+        detail: analytics?.top_organs[0] ? `líder: ${analytics.top_organs[0].organ}` : "sem liderança",
+      },
+      {
+        label: "Tipos líderes",
+        value: analytics?.top_types_monthly.series.length?.toLocaleString("pt-BR") || "0",
+        detail: analytics?.top_types_monthly.series[0] ? analytics.top_types_monthly.series[0].label : "sem série",
+      },
+      {
+        label: "Backend",
+        value: String(stats?.search_backend || "n/d").toUpperCase(),
+        detail: stats?.cluster_status ? `cluster ${String(stats.cluster_status).toUpperCase()}` : "sem status",
+      },
+    ],
+    [analytics, stats]
+  );
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="mx-auto max-w-[1120px] px-6 py-8 md:px-10 md:py-10">
+      <div className="mx-auto max-w-[1180px] px-6 py-8 md:px-10 md:py-10">
         <header className="border-b border-white/6 pb-6">
           <button
             onClick={() => navigate(-1)}
             className="inline-flex min-h-[44px] items-center gap-3 rounded-xl text-foreground transition-colors hover:text-primary focus-ring"
           >
             <Icons.back className="h-5 w-5" />
-            <span className="text-[1.75rem] font-semibold tracking-tight">Analytics</span>
+            <span className="font-editorial text-[2rem] leading-none">Analytics</span>
           </button>
-          <p className="mt-4 max-w-2xl text-sm text-text-secondary">
-            Visualizações temporais do Diário Oficial da União para auditoria, variação operacional e detecção de padrões.
+          <p className="mt-4 max-w-3xl text-sm text-text-secondary">
+            Painéis operacionais alimentados por agregações reais do corpus: volumes por seção, tipos líderes, órgãos dominantes e sinais de uso da busca.
           </p>
         </header>
 
-        <main className="mt-10 space-y-8">
+        <main className="mt-8 space-y-8">
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {summaryCards.map((card) => (
+              <div key={card.label} className="reader-surface rounded-[24px] px-5 py-5">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-text-tertiary">{card.label}</p>
+                <p className="mt-3 font-mono text-[2rem] text-foreground">{card.value}</p>
+                <p className="mt-2 text-sm text-text-secondary">{card.detail}</p>
+              </div>
+            ))}
+          </section>
+
           <ChartCard
-            title="Volume de Publicações DOU"
-            description="Publicações mensais por seção. Anomalias em volume podem indicar eventos legislativos importantes."
-            badge="ALTA PRIORIDADE"
-            badgeTone="violet"
-            footerTags={["Audit scoping", "Detecção de anomalias", "Sazonalidade"]}
+            title="Volume mensal por seção"
+            description="Série real agregada do corpus. Cada coluna empilha Seção 1, 2, 3 e Extra."
+            badge={loading ? "CARREGANDO" : `${analytics?.section_monthly.length || 0} PONTOS`}
           >
-            <PublicationVolumeChart />
+            <PublicationVolumeChart data={analytics?.section_monthly || []} />
           </ChartCard>
 
           <ChartCard
-            title="Tipos de Atos ao Longo do Tempo"
-            description="Distribuição de portarias, decretos, editais, extratos e resoluções. Picos em extratos de contrato antes do fim do exercício fiscal são red flags."
-            badge="RED FLAGS"
-            badgeTone="red"
-            footerTags={["Detecção de fraude", "Ciclo orçamentário", "Padrão de contratação"]}
+            title="Tipos líderes ao longo do tempo"
+            description="Linhas mensais dos tipos de ato mais representativos do acervo atual."
+            badge={loading ? "SÉRIES" : `${analytics?.top_types_monthly.series.length || 0} TIPOS`}
           >
-            <ActsLineChart />
+            <ActsLineChart
+              months={analytics?.top_types_monthly.months || []}
+              series={analytics?.top_types_monthly.series || []}
+            />
           </ChartCard>
 
-          <ChartCard
-            title="Heatmap de Atividade"
-            description="Estilo GitHub contributions. Cada célula é um dia, cor = volume de publicações. Padrões visuais destacam fim de exercício e recessos."
-            badge="PATTERN DETECTION"
-            badgeTone="red"
-          >
-            <HeatmapChart />
-          </ChartCard>
+          <section className="grid gap-8 lg:grid-cols-[0.95fr_1.05fr]">
+            <ChartCard
+              title="Órgãos líderes"
+              description="Participação acumulada dos órgãos com maior volume de publicações."
+              badge={loading ? "RANKING" : `${analytics?.top_organs.length || 0} ÓRGÃOS`}
+            >
+              <TopOrgansPanel organs={analytics?.top_organs || []} />
+            </ChartCard>
+
+            <ChartCard
+              title="Consultas frequentes"
+              description="Termos mais usados na busca semanal, úteis para calibrar launchpad, autocomplete e filtros."
+              badge={loading ? "BUSCA" : `${topSearches.length} CONSULTAS`}
+            >
+              <TopSearchesPanel topSearches={topSearches} />
+            </ChartCard>
+          </section>
         </main>
       </div>
     </div>
@@ -94,207 +120,203 @@ const ChartCard: React.FC<{
   title: string;
   description: string;
   badge: string;
-  badgeTone: "violet" | "red";
-  footerTags?: string[];
   children: React.ReactNode;
-}> = ({ title, description, badge, badgeTone, footerTags = [], children }) => (
-  <section className="rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(24,27,36,0.92),rgba(18,20,28,0.96))] px-7 py-7 shadow-[0_24px_80px_rgba(0,0,0,0.24)]">
+}> = ({ title, description, badge, children }) => (
+  <section className="reader-surface rounded-[30px] px-7 py-7 shadow-[0_24px_80px_rgba(0,0,0,0.18)]">
     <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
       <div>
-        <h2 className="text-[1.65rem] font-semibold tracking-tight text-foreground">{title}</h2>
-        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-text-secondary">{description}</p>
+        <h2 className="font-editorial text-[2rem] leading-none text-foreground">{title}</h2>
+        <p className="mt-3 max-w-3xl text-sm leading-relaxed text-text-secondary">{description}</p>
       </div>
-      <span
-        className={`inline-flex rounded-full px-4 py-2 text-[11px] font-semibold tracking-[0.18em] ${
-          badgeTone === "violet" ? "bg-primary/15 text-primary" : "bg-red-500/12 text-red-400"
-        }`}
-      >
+      <span className="inline-flex rounded-full border border-white/8 bg-white/[0.03] px-4 py-2 text-[11px] font-semibold tracking-[0.18em] text-text-tertiary">
         {badge}
       </span>
     </div>
     {children}
-    {footerTags.length ? (
-      <div className="mt-6 flex flex-wrap gap-2 border-t border-white/6 pt-5">
-        {footerTags.map((tag) => (
-          <span key={tag} className="rounded-lg bg-white/[0.03] px-3 py-1.5 text-xs text-text-secondary">
-            {tag}
-          </span>
-        ))}
-      </div>
-    ) : null}
   </section>
 );
 
-const PublicationVolumeChart: React.FC = () => {
-  const maxTotal = Math.max(...publicationData.map((item) => item.do1 + item.do2 + item.do3));
+const PublicationVolumeChart: React.FC<{ data: AnalyticsSectionMonthlyPoint[] }> = ({ data }) => {
+  if (data.length === 0) {
+    return <EmptyChart text="Sem série mensal disponível para renderizar o volume por seção." />;
+  }
+
+  const maxTotal = Math.max(...data.map((item) => item.total), 1);
   const chartBottom = 244;
-  const usableHeight = 186;
-  const averagePoints = publicationData
-    .map((item, index) => {
-      const total = item.do1 + item.do2 + item.do3;
-      const x = 93 + index * 76;
-      const y = chartBottom - (total / maxTotal) * usableHeight;
-      return `${index === 0 ? "M" : "L"}${x},${y}`;
-    })
-    .join(" ");
+  const usableHeight = 184;
+  const barWidth = Math.max(18, Math.floor(720 / Math.max(1, data.length * 1.5)));
+  const gap = 10;
 
   return (
-    <div>
-      <svg viewBox="0 0 980 286" className="w-full">
+    <div className="overflow-x-auto">
+      <svg viewBox={`0 0 ${Math.max(980, data.length * (barWidth + gap) + 120)} 286`} className="w-full min-w-[900px]">
         <line x1="48" y1="26" x2="48" y2="244" stroke="rgba(255,255,255,0.08)" />
         <line x1="48" y1="244" x2="940" y2="244" stroke="rgba(255,255,255,0.08)" />
-        <line x1="48" y1="64" x2="940" y2="64" stroke="rgba(255,255,255,0.06)" strokeDasharray="5 7" />
-        <line x1="48" y1="138" x2="940" y2="138" stroke="rgba(255,255,255,0.06)" strokeDasharray="5 7" />
+        {[0.25, 0.5, 0.75].map((ratio, index) => (
+          <line key={ratio} x1="48" y1={244 - usableHeight * ratio} x2="940" y2={244 - usableHeight * ratio} stroke="rgba(255,255,255,0.05)" strokeDasharray="5 7" />
+        ))}
 
-        {[600, 300, 0].map((label, index) => (
-          <text key={label} x="36" y={index === 0 ? 30 : index === 1 ? 142 : 248} fill="#666d7d" fontSize="11" textAnchor="end">
-            {label}
+        {[maxTotal, Math.round(maxTotal / 2), 0].map((label, index) => (
+          <text key={label + index} x="36" y={index === 0 ? 30 : index === 1 ? 142 : 248} fill="#64748b" fontSize="11" textAnchor="end">
+            {label.toLocaleString("pt-BR")}
           </text>
         ))}
 
-        {publicationData.map((item, index) => {
-          const total = item.do1 + item.do2 + item.do3;
-          const x = 72 + index * 76;
-          const barWidth = 42;
+        {data.map((item, index) => {
+          const x = 72 + index * (barWidth + gap);
+          const extraHeight = (item.extra / maxTotal) * usableHeight;
           const do3Height = (item.do3 / maxTotal) * usableHeight;
           const do2Height = (item.do2 / maxTotal) * usableHeight;
           const do1Height = (item.do1 / maxTotal) * usableHeight;
-          const totalHeight = (total / maxTotal) * usableHeight;
+          const totalHeight = (item.total / maxTotal) * usableHeight;
           const top = chartBottom - totalHeight;
           return (
             <g key={item.month}>
-              <rect x={x} y={chartBottom - do3Height} width={barWidth} height={do3Height} rx="5" fill="#a73a72" opacity="0.82" />
-              <rect x={x} y={chartBottom - do3Height - do2Height} width={barWidth} height={do2Height} rx="5" fill="#6940c8" opacity="0.9" />
-              <rect x={x} y={top} width={barWidth} height={do1Height} rx="5" fill="#3f7dff" opacity="0.92" />
-              <text x={x + barWidth / 2} y="274" fill="#666d7d" fontSize="11" textAnchor="middle">
-                {item.month}
+              {item.extra > 0 ? <rect x={x} y={chartBottom - extraHeight} width={barWidth} height={extraHeight} rx="5" fill="#eab308" opacity="0.9" /> : null}
+              {item.do3 > 0 ? <rect x={x} y={chartBottom - extraHeight - do3Height} width={barWidth} height={do3Height} rx="5" fill="#ec4899" opacity="0.85" /> : null}
+              {item.do2 > 0 ? <rect x={x} y={chartBottom - extraHeight - do3Height - do2Height} width={barWidth} height={do2Height} rx="5" fill="#a78bfa" opacity="0.88" /> : null}
+              {item.do1 > 0 ? <rect x={x} y={top} width={barWidth} height={do1Height} rx="5" fill="#4b8bf5" opacity="0.92" /> : null}
+              <text x={x + barWidth / 2} y="272" fill="#64748b" fontSize="10" textAnchor="middle">
+                {new Date(item.month).toLocaleDateString("pt-BR", { month: "short" })}
               </text>
             </g>
           );
         })}
-
-        <path d={averagePoints} fill="none" stroke="#f2b82f" strokeWidth="3" strokeDasharray="10 6" />
-        <line x1="826" y1="58" x2="826" y2="146" stroke="#ef4444" strokeWidth="2" strokeDasharray="5 4" />
-        <circle cx="826" cy="56" r="5" fill="#ef4444" />
-        <text x="840" y="60" fill="#ef4444" fontSize="12" fontWeight="700">
-          ANOMALIA: +127% v/o
-        </text>
       </svg>
 
       <div className="mt-5 flex flex-wrap items-center justify-end gap-x-6 gap-y-3 text-[12px] text-text-secondary">
-        <LegendSwatch color="#3f7dff" label="DO1" />
-        <LegendSwatch color="#6940c8" label="DO2" />
-        <LegendSwatch color="#a73a72" label="DO3" />
-        <LegendSwatch color="#f2b82f" label="Média 3m" dashed />
+        <LegendSwatch color="#4b8bf5" label="DO1" />
+        <LegendSwatch color="#a78bfa" label="DO2" />
+        <LegendSwatch color="#ec4899" label="DO3" />
+        <LegendSwatch color="#eab308" label="Extra" />
       </div>
     </div>
   );
 };
 
-const ActsLineChart: React.FC = () => {
-  const maxPoint = Math.max(...lineSeries.flatMap((series) => series.points));
+const ActsLineChart: React.FC<{ months: string[]; series: AnalyticsTypeSeries[] }> = ({ months, series }) => {
+  if (months.length === 0 || series.length === 0) {
+    return <EmptyChart text="Sem séries temporais de tipos disponíveis." />;
+  }
+
+  const palette = ["#7c6cf0", "#4b8bf5", "#60a5fa", "#a78bfa", "#ec4899"];
+  const maxPoint = Math.max(...series.flatMap((item) => item.points), 1);
+  const width = Math.max(980, months.length * 64 + 90);
 
   const buildPath = (points: number[]) =>
     points
       .map((point, index) => {
-        const x = 54 + index * 75;
-        const y = 232 - (point / maxPoint) * 150;
+        const x = 54 + index * 64;
+        const y = 228 - (point / maxPoint) * 156;
         return `${index === 0 ? "M" : "L"}${x},${y}`;
       })
       .join(" ");
 
   return (
-    <div>
-      <svg viewBox="0 0 980 286" className="w-full">
+    <div className="overflow-x-auto">
+      <svg viewBox={`0 0 ${width} 286`} className="w-full min-w-[900px]">
         <line x1="48" y1="24" x2="48" y2="222" stroke="rgba(255,255,255,0.08)" />
-        <line x1="48" y1="222" x2="940" y2="222" stroke="rgba(255,255,255,0.08)" />
-        <rect x="786" y="40" width="158" height="182" rx="16" fill="rgba(239,68,68,0.08)" />
-        <text x="830" y="56" fill="#ef4444" fontSize="12" fontWeight="700">RED FLAG</text>
-        <text x="810" y="74" fill="#ef4444" fontSize="11">Pico de contratos</text>
+        <line x1="48" y1="222" x2={width - 40} y2="222" stroke="rgba(255,255,255,0.08)" />
 
-        {lineSeries.map((series) => (
+        {series.map((item, index) => (
           <path
-            key={series.label}
-            d={buildPath(series.points)}
+            key={item.key}
+            d={buildPath(item.points)}
             fill="none"
-            stroke={series.color}
+            stroke={palette[index % palette.length]}
             strokeWidth="3"
-            strokeDasharray={series.dashed ? "8 6" : undefined}
+            strokeLinecap="round"
           />
         ))}
 
-        <circle cx="866" cy="136" r="5" fill="#ef4444" />
-
         {months.map((month, index) => (
-          <text key={month} x={54 + index * 75} y="256" fill="#666d7d" fontSize="11" textAnchor="middle">
-            {month}
+          <text key={month} x={54 + index * 64} y="256" fill="#64748b" fontSize="10" textAnchor="middle">
+            {new Date(month).toLocaleDateString("pt-BR", { month: "short" })}
           </text>
         ))}
       </svg>
 
       <div className="mt-5 flex flex-wrap items-center gap-x-8 gap-y-3 text-[12px] text-text-secondary">
-        {lineSeries.map((series) => (
-          <LegendSwatch key={series.label} color={series.color} label={series.label} dashed={series.dashed} />
+        {series.map((item, index) => (
+          <LegendSwatch key={item.key} color={palette[index % palette.length]} label={`${item.label} (${item.total.toLocaleString("pt-BR")})`} />
         ))}
       </div>
     </div>
   );
 };
 
-const LegendSwatch: React.FC<{ color: string; label: string; dashed?: boolean }> = ({ color, label, dashed }) => (
+const TopOrgansPanel: React.FC<{ organs: AnalyticsResponse["top_organs"] }> = ({ organs }) => {
+  if (organs.length === 0) {
+    return <EmptyChart text="Sem ranking de órgãos disponível." />;
+  }
+
+  const max = Math.max(...organs.map((item) => item.count), 1);
+  return (
+    <div className="space-y-4">
+      {organs.map((item) => (
+        <div key={item.organ}>
+          <div className="mb-1 flex items-center justify-between gap-3">
+            <span className="truncate text-sm text-foreground">{item.organ}</span>
+            <span className="shrink-0 text-xs text-text-tertiary">{item.count.toLocaleString("pt-BR")}</span>
+          </div>
+          <div className="h-2 overflow-hidden rounded-full bg-white/[0.05]">
+            <div
+              className="h-full rounded-full bg-[linear-gradient(90deg,hsl(var(--primary)),hsl(var(--accent)))]"
+              style={{ width: `${(item.count / max) * 100}%` }}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const TopSearchesPanel: React.FC<{ topSearches: TopSearch[] }> = ({ topSearches }) => {
+  if (topSearches.length === 0) {
+    return <EmptyChart text="Sem sinais de consultas frequentes disponíveis." />;
+  }
+
+  return (
+    <div className="space-y-3">
+      {topSearches.map((item, index) => (
+        <div key={item.query} className="rounded-[18px] border border-white/8 bg-white/[0.03] px-4 py-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-text-tertiary">Consulta #{index + 1}</p>
+              <p className="mt-2 font-editorial text-xl leading-tight text-foreground">{item.query}</p>
+            </div>
+            <span className="rounded-full border border-white/8 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-text-tertiary">
+              {item.count.toLocaleString("pt-BR")}
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const LegendSwatch: React.FC<{ color: string; label: string }> = ({ color, label }) => (
   <div className="flex items-center gap-2">
     <svg width="18" height="10" viewBox="0 0 18 10" aria-hidden="true">
-      <line x1="0" y1="5" x2="18" y2="5" stroke={color} strokeWidth="3" strokeDasharray={dashed ? "7 5" : undefined} />
+      <line x1="0" y1="5" x2="18" y2="5" stroke={color} strokeWidth="3" />
     </svg>
     <span>{label}</span>
   </div>
 );
 
-const HeatmapChart: React.FC = () => (
-  <div className="overflow-x-auto">
-    <div className="min-w-[900px]">
-      <div className="mb-3 grid grid-cols-[48px_repeat(12,minmax(0,1fr))] gap-2 text-[12px] text-text-secondary">
-        <div />
-        {months.map((month) => (
-          <div key={month}>{month}</div>
-        ))}
-      </div>
-
-      <div className="space-y-2">
-        {["Seg", "Ter", "Qua", "Qui", "Sex"].map((label, rowIndex) => (
-          <div key={label} className="grid grid-cols-[48px_1fr] items-center gap-2">
-            <div className="text-[12px] text-text-secondary">{label}</div>
-            <div className="grid grid-cols-12 gap-2">
-              {Array.from({ length: 12 }).map((_, monthIndex) => (
-                <div key={`${label}-${monthIndex}`} className="grid grid-cols-4 gap-1">
-                  {heatmapRows[rowIndex].slice(monthIndex * 4, monthIndex * 4 + 4).map((value, cellIndex) => (
-                    <div
-                      key={`${label}-${monthIndex}-${cellIndex}`}
-                      className={`h-5 rounded-[4px] ${heatmapColors[Math.max(0, value - 1)]}`}
-                    />
-                  ))}
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="mt-6 flex items-center justify-between gap-4 border-t border-white/6 pt-4">
-        <div className="flex items-center gap-3 text-xs text-text-secondary">
-          <span>Menos</span>
-          {heatmapColors.map((color, index) => (
-            <span key={index} className={`h-4 w-4 rounded-[4px] ${color}`} />
-          ))}
-          <span>Mais</span>
-        </div>
-        <div className="rounded-xl bg-red-500/10 px-4 py-3 text-right text-xs text-red-400">
-          <p className="font-semibold uppercase tracking-[0.16em]">Fim do exercício</p>
-          <p>Nov-Dez: +340% vol.</p>
-        </div>
-      </div>
-    </div>
+const EmptyChart: React.FC<{ text: string }> = ({ text }) => (
+  <div className="flex min-h-[200px] items-center justify-center text-center text-sm text-text-secondary">
+    {text}
   </div>
 );
+
+function formatMonth(value?: string | null) {
+  if (!value) return "n/d";
+  try {
+    return new Date(value).toLocaleDateString("pt-BR", { month: "short", year: "numeric" });
+  } catch {
+    return value;
+  }
+}
 
 export default AnalyticsPage;

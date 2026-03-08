@@ -1,0 +1,77 @@
+{
+  "agent": "zai",
+  "round": 2,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "Seção 1.2 — Paleta customizada (globals.css)",
+      "description": "Sintaxe CSS inválida para tokens de tema. O formato '--background: 240 10% 3.9% / 0 0% 100%' não é CSS válido — variáveis CSS não suportam valores duplos separados por '/'. Isso quebrará todo o sistema de temas.",
+      "suggested_fix": "Usar blocos separados: ':root { --background: 0 0% 100%; }' e '.dark { --background: 240 10% 3.9%; }'. Alternativamente, usar next-themes ou biblioteca similar para gerenciar a troca, ou definir tokens semânticos que referenciam variáveis de tema (ex: --background: var(--bg-light) / var(--bg-dark) não funciona)."
+    },
+    {
+      "severity": "high",
+      "location": "Seção 1.2 — Token --highlight-search",
+      "description": "Token malformado: '50 100% 50% / 0.15' mistura sintaxe HSL com alpha de forma inválida. Não funcionará em CSS.",
+      "suggested_fix": "Usar 'hsl(50 100% 50% / 0.15)' com function notation, ou definir como '--highlight-search-h: 50; --highlight-search-s: 100%; --highlight-search-l: 50%; --highlight-search-a: 0.15;' e consumir via hsl(var(--highlight-search-h) var(--highlight-search-s) var(--highlight-search-l) / var(--highlight-search-a))."
+    },
+    {
+      "severity": "medium",
+      "location": "Seção 2.4 — Classe .prose-legal",
+      "description": "Documento afirma que .prose-legal 'Define todas as regras acima via @apply ou CSS direto' mas não fornece implementação concreta. Afirmativa 'não depende de @tailwindcss/typography' é arriscada sem código — recriar typography scale manualmente é trabalhoso e propenso a inconsistências.",
+      "suggested_fix": "Fornecer stub CSS mínimo de .prose-legal com pelo menos: font-family, line-height, max-width, espaçamento de parágrafos, e estilos de heading. Ou reconsiderar @tailwindcss/typography com overrides via prose-custom."
+    },
+    {
+      "severity": "medium",
+      "location": "Seção 4.4 — Document Viewer (virtualização + anchor links)",
+      "description": "Virtualização com @tanstack/react-virtual é proposta para documentos 500+ seções, mas não aborda como anchor links (TOC) saltam para conteúdo virtualizado que ainda não foi renderizado. Isso é um problema arquitetural conhecido.",
+      "suggested_fix": "Documentar estratégia: (1) scroll-to-index via virtualizer.scrollToIndex(), (2) pré-renderizar seção alvo antes do scroll, ou (3) usar range rendering com buffer amplo. Especificar como o IntersectionObserver do TOC interage com seções virtualizadas."
+    },
+    {
+      "severity": "medium",
+      "location": "Seção 5 + 7 — Virtualização threshold arbitrário",
+      "description": "Threshold de '50 itens' para ativar virtualização é arbitrário e ignora altura real dos itens. Um documento com 50 seções curtas pode não precisar de virtualização, enquanto 30 seções longas podem precisar.",
+      "suggested_fix": "Usar critério baseado em altura estimada total: virtualizar quando estimatedTotalHeight > viewportHeight * 3, ou quando itemCount * averageItemHeight > threshold (ex: 10000px)."
+    },
+    {
+      "severity": "medium",
+      "location": "Global — Error Boundaries",
+      "description": "Documento não menciona React Error Boundaries para isolamento de falhas por rota/screen. Falta em app de documentos longos pode causar crash total.",
+      "suggested_fix": "Adicionar seção 6.5 ou item em cada tela: 'ErrorBoundary wrapping cada rota com fallback UI (Alert + retry) e log para Sentry'. Usar react-error-boundary ou implementação própria."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "Seção 3.1 — useReducedMotion hook",
+      "description": "Fornecer implementação mínima do hook: 'const useReducedMotion = () => useMediaQuery(\"(prefers-reduced-motion: reduce)\");' — Documento menciona mas não mostra código."
+    },
+    {
+      "type": "improvement",
+      "location": "Seção 4.3 — Command Dialog redundante",
+      "description": "Há ambiguidade entre CommandDialog global (⌘K) e Input persistente na página de busca. Clarificar: CommandDialog é atalho global que redireciona para /search com query preenchida, ou são componentes distintos com UX diferente?"
+    },
+    {
+      "type": "improvement",
+      "location": "Seção 1.1 — Flash prevention script",
+      "description": "Script inline no <head> para flash prevention merece código de exemplo — é ponto crítico de UX. Sugerir: '<script>document.documentElement.classList.toggle(\"dark\", localStorage.getItem(\"theme\") === \"dark\" || (!localStorage.getItem(\"theme\") && matchMedia(\"(prefers-color-scheme: dark)\").matches));</script>' antes do CSS."
+    },
+    {
+      "type": "improvement",
+      "location": "Seção 8 — Ordem de rollout",
+      "description": "Fase 2 (Document Viewer, esforço L) precede Fase 3 (Home, esforço M). Sugerir inverter: Home é mais simples, valida shell/tema/componentes base antes do caso de uso complexo. Document Viewer é o core, idealmente implementado após infra validada."
+    },
+    {
+      "type": "improvement",
+      "location": "Seção 5 — Bundle budget",
+      "description": "Budget <200KB gzipped é agressivo. Adicionar breakdown estimado: React (40KB), ReactDOM (40KB), router (10KB), shadcn components usados (~30KB), react-virtual (5KB), React Bits (10KB), app code (~30KB). Total ~165KB antes de otimizações — margem apertada."
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 0,
+    "latency_ms": 0,
+    "thinking_tokens": 0
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"zai\",\n  \"round\": 2,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Seção 1.2 — Paleta customizada (globals.css)\",\n      \"description\": \"Sintaxe CSS inválida para tokens de tema. O formato '--background: 240 10% 3.9% / 0 0% 100%' não é CSS válido — variáveis CSS não suportam valores duplos separados por '/'. Isso quebrará todo o sistema de temas.\",\n      \"suggested_fix\": \"Usar blocos separados: ':root { --background: 0 0% 100%; }' e '.dark { --background: 240 10% 3.9%; }'. Alternativamente, usar next-themes ou biblioteca similar para gerenciar a troca, ou definir tokens semânticos que referenciam variáveis de tema (ex: --background: var(--bg-light) / var(--bg-dark) não funciona).\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Seção 1.2 — Token --highlight-search\",\n      \"description\": \"Token malformado: '50 100% 50% / 0.15' mistura sintaxe HSL com alpha de forma inválida. Não funcionará em CSS.\",\n      \"suggested_fix\": \"Usar 'hsl(50 100% 50% / 0.15)' com function notation, ou definir como '--highlight-search-h: 50; --highlight-search-s: 100%; --highlight-search-l: 50%; --highlight-search-a: 0.15;' e consumir via hsl(var(--highlight-search-h) var(--highlight-search-s) var(--highlight-search-l) / var(--highlight-search-a)).\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Seção 2.4 — Classe .prose-legal\",\n      \"description\": \"Documento afirma que .prose-legal 'Define todas as regras acima via @apply ou CSS direto' mas não fornece implementação concreta. Afirmativa 'não depende de @tailwindcss/typography' é arriscada sem código — recriar typography scale manualmente é trabalhoso e propenso a inconsistências.\",\n      \"suggested_fix\": \"Fornecer stub CSS mínimo de .prose-legal com pelo menos: font-family, line-height, max-width, espaçamento de parágrafos, e estilos de heading. Ou reconsiderar @tailwindcss/typography com overrides via prose-custom.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Seção 4.4 — Document Viewer (virtualização + anchor links)\",\n      \"description\": \"Virtualização com @tanstack/react-virtual é proposta para documentos 500+ seções, mas não aborda como anchor links (TOC) saltam para conteúdo virtualizado que ainda não foi renderizado. Isso é um problema arquitetural conhecido.\",\n      \"suggested_fix\": \"Documentar estratégia: (1) scroll-to-index via virtualizer.scrollToIndex(), (2) pré-renderizar seção alvo antes do scroll, ou (3) usar range rendering com buffer amplo. Especificar como o IntersectionObserver do TOC interage com seções virtualizadas.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Seção 5 + 7 — Virtualização threshold arbitrário\",\n      \"description\": \"Threshold de '50 itens' para ativar virtualização é arbitrário e ignora altura real dos itens. Um documento com 50 seções curtas pode não precisar de virtualização, enquanto 30 seções longas podem precisar.\",\n      \"suggested_fix\": \"Usar critério baseado em altura estimada total: virtualizar quando estimatedTotalHeight > viewportHeight * 3, ou quando itemCount * averageItemHeight > threshold (ex: 10000px).\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Global — Error Boundaries\",\n      \"description\": \"Documento não menciona React Error Boundaries para isolamento de falhas por rota/screen. Falta em app de documentos longos pode causar crash total.\",\n      \"suggested_fix\": \"Adicionar seção 6.5 ou item em cada tela: 'ErrorBoundary wrapping cada rota com fallback UI (Alert + retry) e log para Sentry'. Usar react-error-boundary ou implementação própria.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Seção 3.1 — useReducedMotion hook\",\n      \"description\": \"Fornecer implementação mínima do hook: 'const useReducedMotion = () => useMediaQuery(\\\"(prefers-reduced-motion: reduce)\\\");' — Documento menciona mas não mostra código.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Seção 4.3 — Command Dialog redundante\",\n      \"description\": \"Há ambiguidade entre CommandDialog global (⌘K) e Input persistente na página de busca. Clarificar: CommandDialog é atalho global que redireciona para /search com query preenchida, ou são componentes distintos com UX diferente?\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Seção 1.1 — Flash prevention script\",\n      \"description\": \"Script inline no <head> para flash prevention merece código de exemplo — é ponto crítico de UX. Sugerir: '<script>document.documentElement.classList.toggle(\\\"dark\\\", localStorage.getItem(\\\"theme\\\") === \\\"dark\\\" || (!localStorage.getItem(\\\"theme\\\") && matchMedia(\\\"(prefers-color-scheme: dark)\\\").matches));</script>' antes do CSS.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Seção 8 — Ordem de rollout\",\n      \"description\": \"Fase 2 (Document Viewer, esforço L) precede Fase 3 (Home, esforço M). Sugerir inverter: Home é mais simples, valida shell/tema/componentes base antes do caso de uso complexo. Document Viewer é o core, idealmente implementado após infra validada.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Seção 5 — Bundle budget\",\n      \"description\": \"Budget <200KB gzipped é agressivo. Adicionar breakdown estimado: React (40KB), ReactDOM (40KB), router (10KB), shadcn components usados (~30KB), react-virtual (5KB), React Bits (10KB), app code (~30KB). Total ~165KB antes de otimizações — margem apertada.\"\n    }\n  ],\n  \"meta\": {\n    \"tokens_used\": 0,\n    \"latency_ms\": 0,\n    \"thinking_tokens\": 0\n  }\n}\n```"
+}

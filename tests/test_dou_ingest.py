@@ -314,6 +314,14 @@ def test_norm_ref_multiple_types():
     _assert("portaria" in types, "has portaria")
 
 
+def test_norm_ref_filters_short_noisy_law_numbers():
+    """Short law/decree references without year/date are usually OCR/noise and should be skipped."""
+    _section("NormRef — filters short noisy numbers")
+    text = "nos termos da Lei nº 1, Lei nº 10, Lei nº 100 e Decreto nº 12"
+    refs = extract_normative_references(text)
+    _assert_eq(refs, [], "drops short noisy lei/decreto references without date/year")
+
+
 def test_norm_ref_empty():
     """No references in text."""
     _section("NormRef — empty")

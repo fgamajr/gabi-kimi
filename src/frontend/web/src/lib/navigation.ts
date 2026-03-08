@@ -4,7 +4,8 @@ export type DocumentTransitionOrigin =
   | "search-result"
   | "recent-document"
   | "document-graph"
-  | "command-palette";
+  | "command-palette"
+  | "chat-rag";
 
 export function navigateToDocument(
   navigate: NavigateFunction,

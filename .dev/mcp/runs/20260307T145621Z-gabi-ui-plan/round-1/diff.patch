@@ -1,0 +1,350 @@
+--- before
++++ after
+@@ -1,12 +1,335 @@
+-Plano inicial:
+-- Base: shadcn/ui para shell, superfícies, formulários, filtros, tabelas e command palette.
+-- Motion: React Bits apenas em entradas de cards, reveals de seção e transições focais.
+-- Telas: Home (dashboard), Search, Document Viewer, Bottom Sheets.
+-- Restrições: preservar tokens CSS e semântica de cores; acessibilidade (foco, teclado, reduced motion); performance mobile; evitar visual genérico.
+-- Ordem: auditar superfície mínima -> escolher base -> integrar motion onde agrega -> validar build/runtime/a11y.
+-
+-Preciso de versão final com:
+-1) plano por tela (o que usar de shadcn e onde usar React Bits)
+-2) regras de tipografia e densidade para documentos longos
+-3) checklist de validação e rollout incremental
+-4) riscos e mitigação
++GABI DOU — Plano de Execução UI (v1.0)
++
++═══════════════════════════════════════════════════════════════
++
++0. CONVENÇÕES DESTE DOCUMENTO
++- Termos técnicos (shadcn, React Bits, dark mode, bundle) ficam em inglês.
++- Descrições, decisões e ações em pt-BR.
++- Componentes shadcn/ui referenciados pelo nome de export (Card, Sheet, Command, etc.).
++- "RB:" = ponto de integração React Bits.
++
++═══════════════════════════════════════════════════════════════
++
++1. FUNDAÇÃO: TEMA & TOKENS (dark-first)
++
++1.1 Estratégia de tema
++- tailwind.config: darkMode: 'class'
++- Provider de tema: hook customizado com localStorage + matchMedia(prefers-color-scheme). Sem dependência de next-themes (app é Vite puro). Classe .dark no <html> como padrão inicial (dark-first).
++- Flash prevention: script bloqueante inline no <head> que lê localStorage antes do primeiro paint.
++
++1.2 Paleta customizada (globals.css, formato HSL)
++Tokens obrigatórios (dark / light):
++  --background:          240 10% 3.9%   / 0 0% 100%
++  --foreground:          0 0% 93%       / 240 10% 3.9%
++  --card:                240 10% 6%     / 0 0% 98%
++  --card-foreground:     0 0% 90%       / 240 10% 10%
++  --primary:             215 80% 58%    / 215 80% 48%
++  --primary-foreground:  0 0% 100%      / 0 0% 100%
++  --muted:               240 5% 15%     / 240 5% 92%
++  --muted-foreground:    240 5% 55%     / 240 5% 40%
++  --border:              240 5% 18%     / 240 5% 87%
++  --ring:                215 80% 58%    / 215 80% 48%
++
++Tokens semânticos adicionais (GABI-específicos):
++  --surface-document:    240 8% 5%      / 40 20% 98%
++  --text-legal:          0 0% 82%       / 0 0% 20%
++  --text-legal-muted:    0 0% 55%       / 0 0% 50%
++  --highlight-search:    50 100% 50% / 0.15   (ambos os temas, com alpha)
++
++Regra: NÃO usar branco puro (#fff / text-white) para texto em dark mode — máximo zinc-200 para body, zinc-300 para texto legal longo. Isso reduz fadiga visual.
++
++1.3 Contraste
++- Todos os pares foreground/background devem passar WCAG 2.1 AA (4.5:1 texto normal, 3:1 texto grande).
++- Validar com ferramenta automatizada (ex: axe-core) em CI para ambos os temas.
++
++═══════════════════════════════════════════════════════════════
++
++2. TIPOGRAFIA & DENSIDADE PARA DOCUMENTOS LONGOS
++
++2.1 Font stack
++- UI (menus, labels, botões): Inter Variable, system-ui, sans-serif
++- Corpo de documento legal: Opcional serif — Literata Variable, Georgia, serif. Configurável via toggle do usuário (armazenado em localStorage).
++
++2.2 Escala tipográfica (mobile-first → desktop)
++  --text-xs:    clamp(0.75rem,  0.7rem  + 0.25vw, 0.8125rem)   / line-height 1.5
++  --text-sm:    clamp(0.8125rem,0.78rem + 0.25vw, 0.875rem)     / line-height 1.5
++  --text-base:  clamp(1rem,     0.95rem + 0.3vw,  1.125rem)     / line-height 1.625 (mobile) → 1.7 (desktop)
++  --text-lg:    clamp(1.125rem, 1rem    + 0.5vw,  1.25rem)      / line-height 1.6
++  --text-xl:    clamp(1.25rem,  1.1rem  + 0.6vw,  1.5rem)       / line-height 1.4
++  --text-2xl:   clamp(1.5rem,   1.3rem  + 0.8vw,  1.875rem)     / line-height 1.3
++  --text-3xl:   clamp(1.875rem, 1.5rem  + 1vw,    2.25rem)      / line-height 1.2
++
++2.3 Densidade de leitura
++- Max-width de coluna de texto: 68ch (target 65–75ch).
++- Espaçamento entre parágrafos: space-y-4 (1rem).
++- Espaçamento entre seções/artigos do DOU: space-y-8 (2rem) + Separator do shadcn.
++- Padding lateral do container de leitura: px-4 mobile, px-6 tablet, px-0 desktop (conteúdo centralizado).
++- Headings dentro de documento: margin-top de 2em, margin-bottom de 0.75em para criar ritmo vertical claro.
++
++2.4 Classe utilitária .prose-legal
++Aplicar no container de documento. Define todas as regras acima via @apply ou CSS direto. Não depende de @tailwindcss/typography — implementação própria e controlada para não herdar opiniões genéricas.
++
++═══════════════════════════════════════════════════════════════
++
++3. MOTION BUDGET (React Bits)
++
++3.1 Regras inegociáveis
++- Máximo 2 animações simultâneas no viewport.
++- Micro-interações (hover, press, toggle): ≤200ms.
++- Transições de entrada (cards, seções): ≤300ms.
++- Transições de página/sheet: ≤500ms.
++- Easing padrão: cubic-bezier(0.16, 1, 0.3, 1) para entradas; cubic-bezier(0.4, 0, 0.2, 1) para saídas.
++- prefers-reduced-motion: media query respeitada. Hook useReducedMotion() wrapa todo uso de React Bits — se ativo, render estático sem animação. Zero exceções.
++
++3.2 Isolamento de React Bits
++- NUNCA importar React Bits diretamente em componentes de tela.
++- Criar wrappers em src/components/motion/: AnimatedCard, RevealSection, StaggerList.
++- Cada wrapper aceita prop animate={boolean} (default: true, override por useReducedMotion).
++- Se React Bits for descontinuado, substituímos apenas esses wrappers.
++
++3.3 Onde usar (e onde NÃO usar)
++- SIM: entrada de cards no dashboard (stagger), reveal de seções no Document Viewer (fade-up ao scroll), transição de abertura de Sheet/Bottom Sheet.
++- NÃO: dentro de listas virtualizadas, em tabelas de dados, em qualquer elemento que re-renderiza frequentemente, abaixo da fold em documentos longos (custo de IntersectionObserver em 500+ nós).
++
++═══════════════════════════════════════════════════════════════
++
++4. PLANO POR TELA
++
++──────────────────────────────────
++4.1 SHELL (Layout raiz)
++──────────────────────────────────
++Layout:
++  Mobile (< 768px): coluna única, bottom navigation fixa (4 ícones: Home, Busca, Favoritos, Perfil).
++  Tablet (768px–1279px): sidebar colapsável (64px ícones → 240px expandida) + área principal.
++  Desktop (≥ 1280px): sidebar fixa 240px + área principal com max-width 1440px centralizado.
++
++Componentes shadcn/ui:
++  - NavigationMenu (sidebar desktop/tablet)
++  - Sheet com Vaul (menu mobile — swipe-to-dismiss)
++  - Button (ícones de nav)
++  - Tooltip (labels de ícone no sidebar colapsado)
++  - CommandDialog (Command Palette global — ⌘K / Ctrl+K)
++  - Skeleton (loading state global)
++
++RB: nenhum no shell — estabilidade > animação.
++
++Estados: loading (Skeleton no content area), error (Alert com retry), offline (Banner fixo top).
++
++──────────────────────────────────
++4.2 HOME (Dashboard)
++──────────────────────────────────
++Layout:
++  Mobile: stack vertical, cards full-width.
++  Tablet: grid 2 colunas.
++  Desktop: grid 3 colunas (2fr main + 1fr sidebar de atividade recente).
++
++Componentes shadcn/ui:
++  - Card + CardHeader + CardContent + CardFooter (métricas, publicações recentes, alertas)
++  - Badge (status de publicação: novo, lido, favorito)
++  - Tabs (alternar entre "Hoje", "Semana", "Favoritos")
++  - ScrollArea (lista de publicações recentes na sidebar)
++  - Separator (entre grupos de cards)
++  - Skeleton (placeholder durante fetch)
++
++RB:
++  - StaggerList: entrada sequencial dos cards ao carregar (delay 50ms entre cards, duração 300ms).
++  - AnimatedCard: hover lift sutil (translateY -2px, shadow increase) em desktop.
++
++Estados: loading (grid de Skeleton cards), empty (ilustração + CTA "Nenhuma publicação hoje"), error (Alert inline com retry).
++
++──────────────────────────────────
++4.3 SEARCH (Busca)
++──────────────────────────────────
++Layout:
++  Mobile: Input fixo no topo + resultados em lista vertical full-width.
++  Tablet/Desktop: Input centralizado (max-width 640px) + resultados abaixo em lista, filtros em Popover lateral.
++
++Componentes shadcn/ui:
++  - CommandDialog (busca principal — reusa a Command Palette global, com scope "busca")
++  - Input (campo de busca persistente na página, alternativa ao ⌘K)
++  - Badge (filtros ativos: tipo de ato, órgão, data)
++  - Popover + Calendar (filtro de data)
++  - Select (filtro de tipo de ato, órgão)
++  - ScrollArea (lista de resultados)
++  - Card (cada resultado: título, trecho com highlight, metadados)
++  - Separator (entre resultados)
++  - Button (limpar filtros, carregar mais)
++  - Skeleton (resultados carregando)
++
++RB:
++  - Nenhum nos resultados (performance > estética em lista que pode ter centenas de itens).
++  - AnimatedCard apenas no primeiro carregamento dos filtros (fade-in, 200ms).
++
++Virtualização: @tanstack/react-virtual para lista de resultados quando > 50 itens. Scroll infinito com IntersectionObserver no último item.
++
++Estados: loading (Skeleton list), empty (ilustração "Nenhum resultado para [query]"), error (Alert), initial (sugestões de busca recente via Command).
++
++──────────────────────────────────
++4.4 DOCUMENT VIEWER (Visualizador de Documento)
++──────────────────────────────────
++** Tela crítica — caso de uso primário do GABI DOU. **
++
++Layout:
++  Mobile: documento full-width, TOC acessível via Sheet (bottom sheet com snap points via Vaul: 30% / 60% / 90%).
++  Tablet: documento com TOC em Sheet lateral (esquerda, 280px).
++  Desktop: grid 3 colunas — TOC sticky à esquerda (240px) + documento central (max 68ch) + painel de metadados/ações à direita (200px).
++
++Componentes shadcn/ui:
++  - ScrollArea (container principal do documento — custom scrollbar estilizado)
++  - Sheet + Vaul (TOC mobile e tablet, com snap points)
++  - NavigationMenu (TOC desktop — sticky, anchor links)
++  - Separator (entre seções/artigos do DOU)
++  - Tooltip (ações inline: copiar artigo, compartilhar, favoritar)
++  - Button (ações: voltar, favoritar, compartilhar, imprimir)
++  - Badge (tipo do ato, órgão emissor, data de publicação)
++  - Popover (menu de compartilhamento)
++  - Command (busca dentro do documento — ⌘F override customizado, scoped)
++  - Skeleton (carregamento progressivo de seções)
++
++TOC interativa:
++  - Anchor links com scroll-behavior: smooth.
++  - IntersectionObserver (threshold 0.3) em cada heading para highlight ativo no TOC.
++  - TOC colapsável por nível (Accordion do shadcn, se necessário).
++
++Progressive rendering para documentos longos (500+ seções):
++  - Paginação por seção: carregar inicialmente as primeiras 20 seções.
++  - @tanstack/react-virtual para virtualizar seções restantes.
++  - Fallback: botão "Carregar mais seções" se virtualização falhar em device low-end.
++
++RB:
++  - RevealSection: fade-up suave (200ms) ao scrollar para seções novas (via IntersectionObserver). Aplicar APENAS nas primeiras 20 seções renderizadas; seções virtualizadas entram sem animação.
++  - Nenhuma animação em texto legal — legibilidade absoluta.
++
++Classe .prose-legal aplicada no container de texto do documento (ver seção 2.4).
++
++Estados: loading (Skeleton com layout simulado do documento), error (Alert fullscreen com retry), 404 (página dedicada "Documento não encontrado").
++
++──────────────────────────────────
++4.5 BOTTOM SHEETS (Contextuais)
++──────────────────────────────────
++Usados em: filtros mobile, TOC mobile, detalhes rápidos de documento, ações de compartilhamento.
++
++Componentes shadcn/ui:
++  - Sheet (base) com Vaul para snap points e drag-to-dismiss.
++  - Snap points: 3 níveis — peek (30vh), half (55vh), full (90vh).
++  - Form components internos conforme contexto: Input, Select, Calendar, Checkbox.
++  - Button (ações primária/secundária no footer do sheet).
++  - ScrollArea (conteúdo interno scrollável).
++
++RB:
++  - Transição de abertura/fechamento via Vaul (não React Bits — Vaul já anima nativamente).
++  - Nenhum React Bits adicional dentro de sheets.
++
++Regra: todo Sheet deve fechar com Escape (teclado) e swipe-down (touch). Focus trap ativo enquanto aberto.
++
++═══════════════════════════════════════════════════════════════
++
++5. PERFORMANCE MOBILE
++
++- Bundle budget: < 200KB gzipped no chunk inicial (shell + rota ativa).
++- Code-splitting por rota via React.lazy + Suspense (Vite já faz chunk splitting automático com dynamic import).
++- Imagens: formato WebP/AVIF via plugin Vite (vite-plugin-image-optimizer). Lazy loading nativo (loading="lazy").
++- LCP target: < 2.5s em 4G throttled.
++- INP target: < 200ms.
++- will-change: aplicar APENAS durante animação ativa, remover após transitionend. Nunca will-change: transform permanente.
++- Virtualização: @tanstack/react-virtual em qualquer lista > 50 itens.
++- Monitoramento: Sentry para erros de runtime + Web Vitals (via web-vitals lib reportando para analytics).
++
++═══════════════════════════════════════════════════════════════
++
++6. ACESSIBILIDADE (a11y)
++
++- Navegação por teclado: Tab entre elementos interativos; Escape fecha modais/sheets/command; Arrow keys dentro de Command, Select, NavigationMenu.
++- Focus visible: outline customizado (2px solid var(--ring), offset 2px). Nunca outline: none sem substituto.
++- Aria labels: todo ícone sem texto recebe aria-label. Toda região recebe role ou landmark.
++- Leitor de tela: testar com VoiceOver (macOS/iOS) e NVDA (Windows) antes de cada release.
++- prefers-reduced-motion: respeitado globalmente (ver seção 3.1).
++- prefers-color-scheme: respeitado na escolha inicial de tema (pode ser sobrescrito pelo usuário).
++
++═══════════════════════════════════════════════════════════════
++
++7. CHECKLIST DE VALIDAÇÃO (gates de qualidade)
++
++Cada fase do rollout deve passar TODOS os itens antes de merge na main:
++
++  [ ] Lighthouse Performance ≥ 90 (mobile throttled)
++  [ ] Lighthouse Accessibility ≥ 95
++  [ ] axe-core: zero violações critical ou serious (rodando em CI via @axe-core/playwright ou similar)
++  [ ] prefers-reduced-motion testado manualmente (animações React Bits desabilitadas)
++  [ ] Tema dark E light funcionais sem flash no carregamento
++  [ ] Navegação completa por teclado (Tab, Escape, Arrows) na tela em questão
++  [ ] Bundle size do chunk da rota < 80KB gzipped (shell < 120KB)
++  [ ] Testado em 3 viewports: 375px (iPhone SE), 768px (iPad), 1440px (desktop)
++  [ ] Testado em Android low-end real ou emulado (ex: Moto G Power, Chrome)
++  [ ] Nenhum console.error ou warning em runtime
++  [ ] Contraste WCAG AA verificado para ambos os temas nos pares de cor usados
++
++═══════════════════════════════════════════════════════════════
++
++8. ROLLOUT INCREMENTAL
++
++Fase 1 — SHELL + TEMA + COMMAND PALETTE [Esforço: M — ~1 semana]
++  Escopo: layout raiz, sidebar/bottom nav, toggle de tema, CommandDialog global, tokens customizados, .prose-legal stub.
++  Dependências: nenhuma.
++  Critério de aceite: navegação funcional em 3 breakpoints, tema sem flash, ⌘K abrindo.
++  Rollback: revert do merge (shell é independente).
++
++Fase 2 — DOCUMENT VIEWER [Esforço: L — ~2 semanas]
++  Escopo: visualizador com .prose-legal, TOC interativa, progressive rendering, busca in-doc.
++  Dependências: Fase 1 (shell).
++  Critério de aceite: documento de 100+ seções renderiza em < 3s no mobile, TOC funcional, virtualização ativa.
++  Rollback: feature flag VITE_ENABLE_VIEWER=false → redireciona para fallback estático.
++
++Fase 3 — HOME DASHBOARD [Esforço: M — ~1 semana]
++  Escopo: cards de métricas, publicações recentes, tabs, Skeleton states.
++  Dependências: Fase 1.
++  Critério de aceite: dados mockados renderizando, estados empty/error/loading cobertos.
++  Rollback: feature flag.
++
++Fase 4 — SEARCH + FILTROS + BOTTOM SHEETS [Esforço: L — ~2 semanas]
++  Escopo: busca com filtros, resultados virtualizados, bottom sheets contextuais.
++  Dependências: Fase 1, Fase 2 (reuso de Card de resultado linkando para viewer).
++  Critério de aceite: busca retornando resultados mockados, filtros funcionais, virtualização em lista > 50.
++  Rollback: feature flag.
++
++Fase 5 — MOTION POLISH [Esforço: S — ~3 dias]
++  Escopo: integrar wrappers React Bits (StaggerList, RevealSection, AnimatedCard) nos pontos definidos nas seções 4.1–4.5.
++  Dependências: Fases 1–4 completas e estáveis.
++  Critério de aceite: motion budget respeitado, reduced-motion testado, zero regressão de performance (Lighthouse delta ≤ 2 pontos).
++  Rollback: deletar wrappers → fallback para render estático (custo zero, wrappers são opcionais por design).
++
++Feature flags: variáveis de ambiente Vite (VITE_FEATURE_*) lidas em runtime. Simples, sem dependência de serviço externo.
++
++═══════════════════════════════════════════════════════════════
++
++9. RISCOS E MITIGAÇÃO
++
++R1: React Bits descontinuado ou com breaking change
++  Impacto: médio (motion é cosmético, não funcional).
++  Mitigação: isolamento total em wrappers (seção 3.2). Substituição por CSS @keyframes ou Framer Motion leva < 1 dia.
++
++R2: Conflito de estilos entre Tailwind (shadcn) e React Bits
++  Impacto: médio (bugs visuais sutis).
++  Mitigação: testar cada wrapper em Storybook isolado ANTES de integrar em telas. React Bits não deve injetar CSS global — se injetar, forkar e remover.
++
++R3: Performance de animações em Android low-end
++  Impacto: alto (jank visível, percepção de app lento).
++  Mitigação: will-change controlado (seção 5), IntersectionObserver com threshold para ativar animação apenas quando elemento > 50% visível, fallback estático via useReducedMotion. Testar em device real (Moto G Power ou similar) em cada fase.
++
++R4: Documentos longos (500+ seções) travando mobile
++  Impacto: alto (caso de uso primário quebrado).
++  Mitigação: virtualização com @tanstack/react-virtual + paginação por seção (seção 4.4). Monitorar LCP e INP em produção via Sentry Web Vitals. Fallback: paginação server-side se client-side não for suficiente.
++
++R5: Hydration mismatch em futuro SSR
++  Impacto: baixo (app é Vite SPA hoje).
++  Mitigação: marcar componentes com animação como lazy-loaded (dynamic import). Se migrar para SSR, esses componentes já estarão isolados com 'use client' (adicionar a diretiva agora nos wrappers de motion tem custo zero).
++
++R6: Drift de tokens de design (tema diverge entre telas)
++  Impacto: médio (inconsistência visual acumulativa).
++  Mitigação: Storybook como single source of truth visual. Tokens centralizados em globals.css (seção 1.2). Code review obrigatório para qualquer adição de cor hardcoded.
++
++R7: Regressão de acessibilidade
++  Impacto: alto (compliance, usabilidade).
++  Mitigação: axe-core em CI (seção 7), teste manual com leitor de tela antes de cada release, checklist obrigatório por fase.
++
++═══════════════════════════════════════════════════════════════

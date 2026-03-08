@@ -1,0 +1,86 @@
+{
+  "agent": "zai",
+  "round": 3,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "Seção 2.1 - Font fallback @font-face",
+      "description": "O uso de `src: local('system-ui')` é tecnicamente incorreto. `system-ui` é uma keyword genérica de font-family, não um nome de fonte local válido. Isso fará o fallback falhar silenciosamente em todos os browsers, causando CLS não mitigado.",
+      "suggested_fix": "Usar uma cadeia de fontes locais específicas por SO: `src: local('Segoe UI'), local('SF Pro Text'), local('Ubuntu'), local('Roboto'), local('Helvetica Neue'), local('Arial');` — ou simplesmente confiar no fallback natural via `font-family: 'Inter Variable', system-ui, sans-serif` sem tentar hackear ascent-override em um local() inexistente."
+    },
+    {
+      "severity": "high",
+      "location": "Seção 1.1 + 1.4 - Flash prevention vs Zustand persist",
+      "description": "O script inline lê `localStorage.getItem('gabi-theme')` mas Zustand persist, por padrão, armazena estado como objeto JSON sob uma chave diferente (normalmente o nome da store). Isso cria dessincronização: o script inline lê uma chave que Zustand nunca escreve, resultando em flash ou tema incorreto após interação.",
+      "suggested_fix": "Definir explicitamente o nome da store Zustand e a estrutura persistida: `persist({ name: 'gabi-theme', partialize: (s) => ({ theme: s.theme }) })`. O script inline deve ler `JSON.parse(localStorage.getItem('gabi-theme'))?.theme`. Alternativamente, usar chave dedicada `'gabi-theme-preference'` isolada da store Zustand."
+    },
+    {
+      "severity": "medium",
+      "location": "Seção 4.4 - TOC binary search com alturas dinâmicas",
+      "description": "A estratégia de binary search em array de offsets acumulados pressupõe alturas fixas, mas as próprias seções têm alturas variáveis e são medidas dinamicamente via `measureElement`. O array de offsets fica desatualizado à medida que seções são renderizadas e medidas, podendo apontar para seção errada na TOC.",
+      "suggested_fix": "Usar `virtualizer.range` do @tanstack/react-virtual que já expõe `startIndex`/`endIndex` visíveis. Para destacar TOC: comparar `range.startIndex` com índice da seção. Adicionalmente, usar `onScroll` callback para debounce de ~100ms antes de atualizar estado ativo da TOC, evitando flicker durante scroll rápido."
+    },
+    {
+      "severity": "medium",
+      "location": "Seção 4.4 - scrollToIndex para seção não-renderizada",
+      "description": "Quando usuário clica na TOC em seção 100+ que ainda não foi virtualizada/renderizada, `scrollToIndex` pode falhar ou causar jump brusco se o virtualizer não tiver os offsets calculados.",
+      "suggested_fix": "Antes de scrollToIndex, chamar `virtualizer.measure()` para forçar cálculo de offsets. Se a seção alvo estiver muito distante (diff > overscan * 3), mostrar indicador de loading temporário: `<span class='toc-jump-loading'>Carregando seção...</span>` até `onItemsRendered` confirmar que a seção está visível."
+    },
+    {
+      "severity": "medium",
+      "location": "Seção 3.1 - useReducedMotion SSR-safe",
+      "description": "O hook acessa `window.matchMedia` no inicializador do useState, que crasha em SSR/pre-rendering. Mesmo sendo app Vite client-side, ferramentas como vite-plugin-ssr ou futuro pre-rendering quebrarão.",
+      "suggested_fix": "Adicionar guarda: `useState(() => typeof window === 'undefined' ? false : window.matchMedia('(prefers-reduced-motion: reduce)').matches)`. Mesmo guarda no useEffect antes de addEventListener."
+    },
+    {
+      "severity": "low",
+      "location": "Seção 4.4 - Busca in-doc em seções virtualizadas",
+      "description": "Highlight de busca (`bg-highlight-search/15`) não especifica como lidar com matches que cruzam fronteiras de seções virtualizadas ou matches em seções ainda não renderizadas.",
+      "suggested_fix": "Adicionar estratégia: (1) buscar apenas nas seções atualmente no DOM do virtualizer; (2) ao navegar para match em seção não-renderizada, usar scrollToIndex + aguardar renderização antes de highlight; (3) armazenar offset dos matches em metadata do documento para permitir navegação direta."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "Seção 5.1 - Bundle budget",
+      "description": "Inter Variable a ~95KB pode ser reduzido para ~30KB com subsetting. Especificar: `npx glyphhanger --subset='Inter-Variable.woff2' --formats=woff2 --whitelist='A-Za-z0-9ÁÀÂÃÉÊÍÓÔÕÚÇáàâãéêíóôõúç'` ou usar google-fonts helper com display=swap e subset=latin-ext."
+    },
+    {
+      "type": "improvement",
+      "location": "Seção 4.1 - CommandDialog",
+      "description": "Falta especificar lista de comandos mínimos: ['Ir para Home', 'Buscar no DOU', 'Alternar tema', 'Favoritos', 'Ajuda (? = atalhos)']. Também falta comportamento de conflito: se CommandDialog aberto e usuário pressiona ⌘K novamente, deve fechar (toggle)."
+    },
+    {
+      "type": "improvement",
+      "location": "Seção 6 - Acessibilidade",
+      "description": "Adicionar: (1) restauração de foco após fechar Sheet/Dialog — `lastActiveElement.focus()`; (2) announcer para conteúdo dinâmico em busca — `<div role='status' aria-live='polite' class='sr-only'>{resultsCount} resultados encontrados</div>`; (3) teste com simulação de daltonismo via Chrome DevTools ou plugin axe-cocktail."
+    },
+    {
+      "type": "improvement",
+      "location": "Seção 2.4 - .prose-legal",
+      "description": "CSS incompleto para documentos legais. Adicionar estilos para: `table` (border-collapse, th/td padding), `code` (font-mono, bg-muted), `hr` (border-border), `figure/figcaption`, e listas aninhadas com `ul ul, ol ol { margin-top: 0.5rem }`."
+    }
+  ],
+  "diffs": [
+    {
+      "file": "globals.css (seção 2.1)",
+      "hunks": "@@ -12,8 +12,9 @@\n   @font-face {\n     font-family: 'Inter Fallback';\n-    src: local('system-ui');\n+    src: local('Segoe UI'), local('SF Pro Text'), local('Ubuntu'), local('Roboto'), local('Helvetica Neue'), local('Arial');\n     ascent-override: 90%;\n     descent-override: 22%;\n     line-gap-override: 0%;\n     size-adjust: 107%;\n-  }\n+    font-display: swap;\n+  }"
+    },
+    {
+      "file": "src/hooks/useReducedMotion.ts (seção 3.1)",
+      "hunks": "@@ -1,10 +1,14 @@\n function useReducedMotion(): boolean {\n   const [reduced, setReduced] = useState(() =>\n-    window.matchMedia('(prefers-reduced-motion: reduce)').matches\n+    typeof window === 'undefined'\n+      ? false\n+      : window.matchMedia('(prefers-reduced-motion: reduce)').matches\n   );\n   useEffect(() => {\n-    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');\n+    if (typeof window === 'undefined') return;\n+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');\n     const handler = (e: MediaQueryListEvent) => setReduced(e.matches);\n     mq.addEventListener('change', handler);\n     return () => mq.removeEventListener('change', handler);"
+    },
+    {
+      "file": "index.html (seção 1.1 - flash prevention)",
+      "hunks": "@@ -5,7 +5,8 @@\n   <script>\n     (function(){\n-      var t = localStorage.getItem('gabi-theme');\n+      var stored = localStorage.getItem('gabi-theme');\n+      var t = stored ? JSON.parse(stored)?.state?.theme : null;\n       var d = t === 'dark' || (!t && matchMedia('(prefers-color-scheme:dark)').matches);\n       document.documentElement.classList.toggle('dark', d);\n     })();"
+    }
+  ],
+  "meta": {
+    "tokens_used": 0,
+    "thinking": "Identifiquei 2 problemas high-severity (font-face técnico incorreto e dessincronização Zustand/flash-script), 4 medium (virtualização TOC, scrollToIndex edge case, SSR safety, busca in-doc), e 4 sugestões de melhoria. Os diffs corrigem os pontos mais críticos. O documento é bem estruturado mas essas falhas técnicas causariam bugs reais em produção.",
+    "latency_ms": 90481,
+    "thinking_tokens": 1548
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"zai\",\n  \"round\": 3,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"Seção 2.1 - Font fallback @font-face\",\n      \"description\": \"O uso de `src: local('system-ui')` é tecnicamente incorreto. `system-ui` é uma keyword genérica de font-family, não um nome de fonte local válido. Isso fará o fallback falhar silenciosamente em todos os browsers, causando CLS não mitigado.\",\n      \"suggested_fix\": \"Usar uma cadeia de fontes locais específicas por SO: `src: local('Segoe UI'), local('SF Pro Text'), local('Ubuntu'), local('Roboto'), local('Helvetica Neue'), local('Arial');` — ou simplesmente confiar no fallback natural via `font-family: 'Inter Variable', system-ui, sans-serif` sem tentar hackear ascent-override em um local() inexistente.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Seção 1.1 + 1.4 - Flash prevention vs Zustand persist\",\n      \"description\": \"O script inline lê `localStorage.getItem('gabi-theme')` mas Zustand persist, por padrão, armazena estado como objeto JSON sob uma chave diferente (normalmente o nome da store). Isso cria dessincronização: o script inline lê uma chave que Zustand nunca escreve, resultando em flash ou tema incorreto após interação.\",\n      \"suggested_fix\": \"Definir explicitamente o nome da store Zustand e a estrutura persistida: `persist({ name: 'gabi-theme', partialize: (s) => ({ theme: s.theme }) })`. O script inline deve ler `JSON.parse(localStorage.getItem('gabi-theme'))?.theme`. Alternativamente, usar chave dedicada `'gabi-theme-preference'` isolada da store Zustand.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Seção 4.4 - TOC binary search com alturas dinâmicas\",\n      \"description\": \"A estratégia de binary search em array de offsets acumulados pressupõe alturas fixas, mas as próprias seções têm alturas variáveis e são medidas dinamicamente via `measureElement`. O array de offsets fica desatualizado à medida que seções são renderizadas e medidas, podendo apontar para seção errada na TOC.\",\n      \"suggested_fix\": \"Usar `virtualizer.range` do @tanstack/react-virtual que já expõe `startIndex`/`endIndex` visíveis. Para destacar TOC: comparar `range.startIndex` com índice da seção. Adicionalmente, usar `onScroll` callback para debounce de ~100ms antes de atualizar estado ativo da TOC, evitando flicker durante scroll rápido.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Seção 4.4 - scrollToIndex para seção não-renderizada\",\n      \"description\": \"Quando usuário clica na TOC em seção 100+ que ainda não foi virtualizada/renderizada, `scrollToIndex` pode falhar ou causar jump brusco se o virtualizer não tiver os offsets calculados.\",\n      \"suggested_fix\": \"Antes de scrollToIndex, chamar `virtualizer.measure()` para forçar cálculo de offsets. Se a seção alvo estiver muito distante (diff > overscan * 3), mostrar indicador de loading temporário: `<span class='toc-jump-loading'>Carregando seção...</span>` até `onItemsRendered` confirmar que a seção está visível.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"Seção 3.1 - useReducedMotion SSR-safe\",\n      \"description\": \"O hook acessa `window.matchMedia` no inicializador do useState, que crasha em SSR/pre-rendering. Mesmo sendo app Vite client-side, ferramentas como vite-plugin-ssr ou futuro pre-rendering quebrarão.\",\n      \"suggested_fix\": \"Adicionar guarda: `useState(() => typeof window === 'undefined' ? false : window.matchMedia('(prefers-reduced-motion: reduce)').matches)`. Mesmo guarda no useEffect antes de addEventListener.\"\n    },\n    {\n      \"severity\": \"low\",\n      \"location\": \"Seção 4.4 - Busca in-doc em seções virtualizadas\",\n      \"description\": \"Highlight de busca (`bg-highlight-search/15`) não especifica como lidar com matches que cruzam fronteiras de seções virtualizadas ou matches em seções ainda não renderizadas.\",\n      \"suggested_fix\": \"Adicionar estratégia: (1) buscar apenas nas seções atualmente no DOM do virtualizer; (2) ao navegar para match em seção não-renderizada, usar scrollToIndex + aguardar renderização antes de highlight; (3) armazenar offset dos matches em metadata do documento para permitir navegação direta.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Seção 5.1 - Bundle budget\",\n      \"description\": \"Inter Variable a ~95KB pode ser reduzido para ~30KB com subsetting. Especificar: `npx glyphhanger --subset='Inter-Variable.woff2' --formats=woff2 --whitelist='A-Za-z0-9ÁÀÂÃÉÊÍÓÔÕÚÇáàâãéêíóôõúç'` ou usar google-fonts helper com display=swap e subset=latin-ext.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Seção 4.1 - CommandDialog\",\n      \"description\": \"Falta especificar lista de comandos mínimos: ['Ir para Home', 'Buscar no DOU', 'Alternar tema', 'Favoritos', 'Ajuda (? = atalhos)']. Também falta comportamento de conflito: se CommandDialog aberto e usuário pressiona ⌘K novamente, deve fechar (toggle).\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Seção 6 - Acessibilidade\",\n      \"description\": \"Adicionar: (1) restauração de foco após fechar Sheet/Dialog — `lastActiveElement.focus()`; (2) announcer para conteúdo dinâmico em busca — `<div role='status' aria-live='polite' class='sr-only'>{resultsCount} resultados encontrados</div>`; (3) teste com simulação de daltonismo via Chrome DevTools ou plugin axe-cocktail.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"Seção 2.4 - .prose-legal\",\n      \"description\": \"CSS incompleto para documentos legais. Adicionar estilos para: `table` (border-collapse, th/td padding), `code` (font-mono, bg-muted), `hr` (border-border), `figure/figcaption`, e listas aninhadas com `ul ul, ol ol { margin-top: 0.5rem }`.\"\n    }\n  ],\n  \"diffs\": [\n    {\n      \"file\": \"globals.css (seção 2.1)\",\n      \"hunks\": \"@@ -12,8 +12,9 @@\\n   @font-face {\\n     font-family: 'Inter Fallback';\\n-    src: local('system-ui');\\n+    src: local('Segoe UI'), local('SF Pro Text'), local('Ubuntu'), local('Roboto'), local('Helvetica Neue'), local('Arial');\\n     ascent-override: 90%;\\n     descent-override: 22%;\\n     line-gap-override: 0%;\\n     size-adjust: 107%;\\n-  }\\n+    font-display: swap;\\n+  }\"\n    },\n    {\n      \"file\": \"src/hooks/useReducedMotion.ts (seção 3.1)\",\n      \"hunks\": \"@@ -1,10 +1,14 @@\\n function useReducedMotion(): boolean {\\n   const [reduced, setReduced] = useState(() =>\\n-    window.matchMedia('(prefers-reduced-motion: reduce)').matches\\n+    typeof window === 'undefined'\\n+      ? false\\n+      : window.matchMedia('(prefers-reduced-motion: reduce)').matches\\n   );\\n   useEffect(() => {\\n-    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');\\n+    if (typeof window === 'undefined') return;\\n+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');\\n     const handler = (e: MediaQueryListEvent) => setReduced(e.matches);\\n     mq.addEventListener('change', handler);\\n     return () => mq.removeEventListener('change', handler);\"\n    },\n    {\n      \"file\": \"index.html (seção 1.1 - flash prevention)\",\n      \"hunks\": \"@@ -5,7 +5,8 @@\\n   <script>\\n     (function(){\\n-      var t = localStorage.getItem('gabi-theme');\\n+      var stored = localStorage.getItem('gabi-theme');\\n+      var t = stored ? JSON.parse(stored)?.state?.theme : null;\\n       var d = t === 'dark' || (!t && matchMedia('(prefers-color-scheme:dark)').matches);\\n       document.documentElement.classList.toggle('dark', d);\\n     })();\"\n    }\n  ],\n  \"meta\": {\n    \"tokens_used\": 0,\n    \"thinking\": \"Identifiquei 2 problemas high-severity (font-face técnico incorreto e dessincronização Zustand/flash-script), 4 medium (virtualização TOC, scrollToIndex edge case, SSR safety, busca in-doc), e 4 sugestões de melhoria. Os diffs corrigem os pontos mais críticos. O documento é bem estruturado mas essas falhas técnicas causariam bugs reais em produção.\"\n  }\n}\n```"
+}

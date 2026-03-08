@@ -1,0 +1,50 @@
+{
+  "agent": "zai",
+  "round": 1,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "artifact: linha 1-11",
+      "description": "O artefato é um esboço de intenções, não o plano final solicitado. Faltam todos os quatro entregáveis explícitos: (1) detalhamento por tela com escolhas de componentes, (2) regras de tipografia/densidade, (3) checklist de validação, (4) riscos e mitigação.",
+      "suggested_fix": "Reescrever como plano executivo completo com seções numeradas para cada entregável. Cada tela deve listar: componentes shadcn específicos (ex: Card, Table, Command), pontos de integração React Bits, e comportamentos de interação."
+    },
+    {
+      "severity": "high",
+      "location": "artifact: seção 'Telas'",
+      "description": "Listagem de telas sem qualquer detalhamento técnico. Não há especificação de quais componentes shadcn usar em cada tela, nem onde React Bits seria aplicado.",
+      "suggested_fix": "Para cada tela (Home, Search, Document Viewer, Bottom Sheets): especificar componentes base (ex: Home usa Card + Sheet + Command), motion points (ex: card entrance stagger), e states (loading, error, empty)."
+    },
+    {
+      "severity": "high",
+      "location": "artifact: ausência de seção de tipografia",
+      "description": "Regras de tipografia e densidade para documentos longos completamente ausentes. O usuário explicitou isso como requisito.",
+      "suggested_fix": "Adicionar seção com: escala tipográfica (ex: 14-16px body, 20-24px headings em mobile), line-height (1.6-1.75 para legibilidade), max-width de coluna (65-75ch), padding vertical entre parágrafos, tratamento de headings em documentos longos."
+    },
+    {
+      "severity": "medium",
+      "location": "artifact: seção 'Restrições'",
+      "description": "Restrições listadas como bullet points genéricos sem tradução em decisões concretas de implementação.",
+      "suggested_fix": "Converter cada restrição em regra testável: 'tokens CSS preservados' → lista de variáveis a não modificar; 'reduced motion' → envolver React Bits em hook useReducedMotion(); 'performance mobile' → budget de JS e LCP target."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "artifact: estrutura geral",
+      "description": "Adicionar checklist de rollout incremental com fases: (F1) Shell + navegação, (F2) Home com motion básico, (F3) Document Viewer com tipografia otimizada, (F4) Search + Bottom Sheets. Cada fase com critério de aceite e rollback plan."
+    },
+    {
+      "type": "improvement",
+      "location": "artifact: seção 'Motion'",
+      "description": "Especificar threshold para React Bits: usar apenas em elementos acima da fold inicial, evitar em listas virtuais ou tabelas pesadas. Definir duração máxima (200-300ms) para manter responsividade."
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 0,
+    "latency_ms": 0,
+    "thinking_tokens": 0
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"zai\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"artifact: linha 1-11\",\n      \"description\": \"O artefato é um esboço de intenções, não o plano final solicitado. Faltam todos os quatro entregáveis explícitos: (1) detalhamento por tela com escolhas de componentes, (2) regras de tipografia/densidade, (3) checklist de validação, (4) riscos e mitigação.\",\n      \"suggested_fix\": \"Reescrever como plano executivo completo com seções numeradas para cada entregável. Cada tela deve listar: componentes shadcn específicos (ex: Card, Table, Command), pontos de integração React Bits, e comportamentos de interação.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"artifact: seção 'Telas'\",\n      \"description\": \"Listagem de telas sem qualquer detalhamento técnico. Não há especificação de quais componentes shadcn usar em cada tela, nem onde React Bits seria aplicado.\",\n      \"suggested_fix\": \"Para cada tela (Home, Search, Document Viewer, Bottom Sheets): especificar componentes base (ex: Home usa Card + Sheet + Command), motion points (ex: card entrance stagger), e states (loading, error, empty).\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"artifact: ausência de seção de tipografia\",\n      \"description\": \"Regras de tipografia e densidade para documentos longos completamente ausentes. O usuário explicitou isso como requisito.\",\n      \"suggested_fix\": \"Adicionar seção com: escala tipográfica (ex: 14-16px body, 20-24px headings em mobile), line-height (1.6-1.75 para legibilidade), max-width de coluna (65-75ch), padding vertical entre parágrafos, tratamento de headings em documentos longos.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"artifact: seção 'Restrições'\",\n      \"description\": \"Restrições listadas como bullet points genéricos sem tradução em decisões concretas de implementação.\",\n      \"suggested_fix\": \"Converter cada restrição em regra testável: 'tokens CSS preservados' → lista de variáveis a não modificar; 'reduced motion' → envolver React Bits em hook useReducedMotion(); 'performance mobile' → budget de JS e LCP target.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"artifact: estrutura geral\",\n      \"description\": \"Adicionar checklist de rollout incremental com fases: (F1) Shell + navegação, (F2) Home com motion básico, (F3) Document Viewer com tipografia otimizada, (F4) Search + Bottom Sheets. Cada fase com critério de aceite e rollback plan.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"artifact: seção 'Motion'\",\n      \"description\": \"Especificar threshold para React Bits: usar apenas em elementos acima da fold inicial, evitar em listas virtuais ou tabelas pesadas. Definir duração máxima (200-300ms) para manter responsividade.\"\n    }\n  ],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 0,\n    \"latency_ms\": 0,\n    \"thinking_tokens\": 0\n  }\n}\n```"
+}

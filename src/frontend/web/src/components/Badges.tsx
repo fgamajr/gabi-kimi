@@ -23,7 +23,9 @@ export const SectionBadge: React.FC<SectionBadgeProps> = ({ section, className =
   }
 
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium tracking-wide ${badgeClass} ${className}`}>
+    <span
+      className={`inline-flex items-center rounded-full border border-white/8 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] ${badgeClass} ${className}`}
+    >
       {label}
     </span>
   );
@@ -39,10 +41,10 @@ interface FilterChipProps {
 export const FilterChip: React.FC<FilterChipProps> = ({ label, active, onRemove, onClick }) => (
   <button
     onClick={onClick || onRemove}
-    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors press-effect focus-ring min-h-[44px] min-w-[44px] justify-center
+    className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors press-effect focus-ring
       ${active
-        ? 'bg-primary text-primary-foreground'
-        : 'bg-secondary text-secondary-foreground hover:bg-muted'
+        ? 'border border-primary/15 bg-primary/12 text-primary'
+        : 'border border-white/8 bg-secondary/65 text-secondary-foreground hover:bg-muted'
       }`}
     aria-pressed={active}
   >

@@ -1,0 +1,514 @@
+GABI DOU — Plano de Execução UI (v3.0)
+
+═══════════════════════════════════════════════════════════════
+
+0. CONVENÇÕES DESTE DOCUMENTO
+- Termos técnicos (shadcn, React Bits, dark mode, bundle) ficam em inglês.
+- Descrições, decisões e ações em pt-BR.
+- Componentes shadcn/ui referenciados pelo nome de export (Card, Sheet, Command, etc.).
+- "RB:" = ponto de integração React Bits.
+
+═══════════════════════════════════════════════════════════════
+
+1. FUNDAÇÃO: TEMA, TOKENS, ROUTING & STATE MANAGEMENT (dark-first)
+
+1.1 Estratégia de tema
+- tailwind.config: darkMode: 'class'
+- Provider de tema: hook customizado com localStorage + matchMedia(prefers-color-scheme). Sem dependência de next-themes (app é Vite puro). Classe .dark no <html> como padrão inicial (dark-first).
+
+Flash prevention: script bloqueante inline no <head> que lê localStorage antes do primeiro paint, ANTES de qualquer <link> de CSS. Inclui nonce placeholder para CSP e try-catch para private browsing / localStorage desabilitado.
+
+Sincronização com Zustand: a store Zustand usa chave dedicada 'gabi-app' via persist. O tema é TAMBÉM escrito em chave isolada 'gabi-theme-value' (string pura: 'dark' | 'light' | null) toda vez que o usuário altera tema. O script inline lê APENAS 'gabi-theme-value', evitando parsing de JSON da store.
+
+  <script nonce="__CSP_NONCE__">
+    (function(){
+      try {
+        var t = localStorage.getItem('gabi-theme-value');
+        var d = t === 'dark' || (!t && matchMedia('(prefers-color-scheme:dark)').matches);
+      } catch(e) {
+        var d = matchMedia('(prefers-color-scheme:dark)').matches;
+      }
+      document.documentElement.classList.toggle('dark', d);
+    })();
+  </script>
+
+Zustand side-effect (em useThemeStore):
+
+  subscribe(
+    (state) => state.theme,
+    (theme) => {
+      try { localStorage.setItem('gabi-theme-value', theme); } catch {}
+      document.documentElement.classList.toggle('dark', theme === 'dark');
+    }
+  );
+
+1.2 Paleta customizada (globals.css, formato HSL)
+
+Formato: valores HSL sem função envolvente, compatíveis com shadcn/ui (consumidos via hsl(var(--token)) no Tailwind). Definidos em blocos :root e .dark separados.
+
+:root {
+  --background:          0 0% 100%;
+  --foreground:          240 10% 3.9%;
+  --card:                0 0% 98%;
+  --card-foreground:     240 10% 10%;
+  --primary:             215 80% 48%;
+  --primary-foreground:  0 0% 100%;
+  --muted:               240 5% 92%;
+  --muted-foreground:    240 5% 40%;
+  --border:              240 5% 87%;
+  --ring:                215 80% 48%;
+  --surface-document:    40 20% 98%;
+  --text-legal:          0 0% 20%;
+  --text-legal-muted:    0 0% 50%;
+  --highlight-search:    50 100% 50%;
+}
+
+.dark {
+  --background:          240 10% 3.9%;
+  --foreground:          0 0% 93%;
+  --card:                240 10% 6%;
+  --card-foreground:     0 0% 90%;
+  --primary:             215 80% 58%;
+  --primary-foreground:  0 0% 100%;
+  --muted:               240 5% 15%;
+  --muted-foreground:    240 5% 55%;
+  --border:              240 5% 18%;
+  --ring:                215 80% 58%;
+  --surface-document:    240 8% 5%;
+  --text-legal:          0 0% 82%;
+  --text-legal-muted:    0 0% 55%;
+  --highlight-search:    50 100% 50%;
+}
+
+Uso de --highlight-search: sempre via Tailwind com opacidade variável — bg-highlight-search/15 para resultado normal, bg-highlight-search/30 para hover. NUNCA embutir alpha no token.
+
+Regra: NÃO usar branco puro (#fff / text-white) para texto em dark mode — máximo zinc-200 para body, zinc-300 para texto legal longo. Reduz fadiga visual.
+
+1.3 Contraste
+- Todos os pares foreground/background devem passar WCAG 2.1 AA (4.5:1 texto normal, 3:1 texto grande).
+- Validar com @axe-core/playwright em CI para ambos os temas, com assertions nos pares de tokens HSL específicos.
+- Testar com simulação de daltonismo via Chrome DevTools (protanopia, deuteranopia, tritanopia) antes de cada release.
+
+1.4 State Management (decisão arquitetural obrigatória)
+
+- Server state (documentos, busca, publicações): TanStack Query (React Query). Cache, dedup, retry, stale-while-revalidate — tudo embutido. NENHUM fetch manual com useEffect.
+- Client state global (tema, preferências de fonte, sidebar aberta/colapsada): Zustand. Store única src/stores/app-store.ts, persisted via zustand/middleware persist para localStorage (name: 'gabi-app').
+- Client state local (form inputs, UI transiente): useState/useReducer no componente.
+- Regra: se o estado precisa sobreviver a navegação entre rotas → Zustand. Se vem do servidor → TanStack Query. Se é efêmero → local state. Zero ambiguidade.
+
+1.4.1 Padrão para Mutations (TanStack Query)
+
+Toda mutation que afeta dados visíveis ao usuário (favoritar, compartilhar, marcar como lido) segue o padrão de optimistic update:
+
+  useMutation({
+    mutationFn: toggleFavorite,
+    onMutate: async (docId) => {
+      await queryClient.cancelQueries({ queryKey: ['publications'] });
+      const previous = queryClient.getQueryData(['publications']);
+      queryClient.setQueryData(['publications'], (old) =>
+        optimisticallyToggleFavorite(old, docId)
+      );
+      return { previous };
+    },
+    onError: (_err, _docId, context) => {
+      queryClient.setQueryData(['publications'], context.previous);
+      toast.error('Falha ao atualizar. Tente novamente.');
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['publications'] });
+    },
+  });
+
+Regra: onMutate faz rollback otimista, onError restaura snapshot anterior, onSettled invalida para sincronizar com servidor. Toast de erro sempre visível.
+
+1.5 Error Boundaries
+
+- ErrorBoundary (via react-error-boundary) wrapping CADA rota no router (via errorElement — ver seção 1.6).
+- Fallback UI: componente <RouteErrorFallback> com Alert do shadcn, botão retry, e log automático para Sentry.
+- ErrorBoundary adicional no Document Viewer envolvendo o container de seções virtualizadas (crash de virtualização não derruba TOC nem shell).
+- Implementação: src/components/error/RouteErrorFallback.tsx e src/components/error/SectionErrorFallback.tsx.
+- Fallback UI: role="alert", aria-live="assertive" para leitores de tela.
+
+Sentry:
+- Dependência: @sentry/react (~15KB gzipped, tree-shaken).
+- Inicialização: em src/main.tsx, ANTES de createRoot(). Sentry.init({ dsn, environment, release }).
+- Source maps: upload via @sentry/vite-plugin no build de produção.
+- Integração com ErrorBoundary: Sentry.withScope + captureException no onError callback do react-error-boundary.
+
+1.6 Routing
+
+Biblioteca: React Router v6.4+ com createBrowserRouter. Justificativa: ecossistema maduro, loader/action pattern disponível para futuro (não obrigatório agora), errorElement nativo por rota, ampla adoção da comunidade.
+
+Árvore de rotas (src/router.tsx):
+
+  const router = createBrowserRouter([
+    {
+      path: '/',
+      element: <Shell />,        // layout raiz com Outlet
+      errorElement: <RouteErrorFallback />,
+      children: [
+        {
+          index: true,
+          lazy: () => import('./pages/home'),   // export default Component
+        },
+        {
+          path: 'search',
+          lazy: () => import('./pages/search'),
+        },
+        {
+          path: 'document/:documentId',
+          lazy: () => import('./pages/document-viewer'),
+        },
+        {
+          path: 'favorites',
+          lazy: () => import('./pages/favorites'),
+        },
+        {
+          path: 'profile',
+          lazy: () => import('./pages/profile'),
+        },
+        {
+          path: '*',
+          lazy: () => import('./pages/not-found'),
+        },
+      ],
+    },
+  ]);
+
+Cada rota usa lazy() do React Router v6.4 (não React.lazy) — carrega Component, loader e errorElement em um único dynamic import. Vite faz code-splitting automático por chunk.
+
+ErrorBoundary por rota: cada módulo lazy pode exportar ErrorBoundary que sobrescreve o errorElement do Shell. Se não exportar, usa o RouteErrorFallback do layout raiz.
+
+═══════════════════════════════════════════════════════════════
+
+2. TIPOGRAFIA & DENSIDADE PARA DOCUMENTOS LONGOS
+
+2.1 Font stack & estratégia de carregamento
+
+Fontes:
+- UI (menus, labels, botões): Inter Variable, system-ui, sans-serif
+- Corpo de documento legal: Opcional serif — Literata Variable, Georgia, serif. Configurável via toggle do usuário (armazenado via Zustand persist).
+
+Subsetting (obrigatório para performance):
+- Inter Variable: subset para Latin + Latin Extended (cobre pt-BR completo). Usar pyftsubset ou glyphhanger em CI:
+  npx glyphhanger --subset=Inter-Variable.woff2 --formats=woff2 --LATIN
+- Resultado esperado: ~30-35KB (vs ~95KB full). Alternativa: @fontsource/inter com split por subset.
+- Literata: mesmo subsetting, aplicado no momento do build.
+
+Carregamento (crítico para LCP e CLS):
+- Inter (subsetted): <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin> no <head>, antes do CSS.
+- @font-face com font-display: swap E fallback com ascent-override para métricas matching:
+
+  @font-face {
+    font-family: 'Inter Variable';
+    src: url('/fonts/inter-latin.woff2') format('woff2');
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Inter Fallback';
+    src: local('Segoe UI'), local('SF Pro Text'), local('Ubuntu'),
+         local('Roboto'), local('Helvetica Neue'), local('Arial');
+    ascent-override: 90%;
+    descent-override: 22%;
+    line-gap-override: 0%;
+    size-adjust: 107%;
+    font-display: swap;
+  }
+
+- Literata: NÃO preload. Carregada via lazy @font-face injetado somente quando usuário ativa toggle serif (import dinâmico do CSS). Fallback: Georgia imediato.
+
+2.2 Escala tipográfica (mobile-first → desktop)
+
+Nota: valores usam vw que referencia viewport completo. No layout de 3 colunas do Document Viewer, o texto legal atinge o valor máximo do clamp em desktop — aceitável, pois a coluna de 68ch limita a largura e o max do clamp é calibrado para essa coluna.
+
+  --text-xs:    clamp(0.75rem,  0.7rem  + 0.25vw, 0.8125rem)   / line-height 1.5
+  --text-sm:    clamp(0.8125rem,0.78rem + 0.25vw, 0.875rem)     / line-height 1.5
+  --text-base:  clamp(1rem,     0.95rem + 0.3vw,  1.125rem)     / line-height 1.625 (mobile) → 1.7 (desktop)
+  --text-lg:    clamp(1.125rem, 1rem    + 0.5vw,  1.25rem)      / line-height 1.6
+  --text-xl:    clamp(1.25rem,  1.1rem  + 0.6vw,  1.5rem)       / line-height 1.4
+  --text-2xl:   clamp(1.5rem,   1.3rem  + 0.8vw,  1.875rem)     / line-height 1.3
+  --text-3xl:   clamp(1.875rem, 1.5rem  + 1vw,    2.25rem)      / line-height 1.2
+
+2.3 Densidade de leitura
+- Max-width de coluna de texto: 68ch (target 65–75ch).
+- Espaçamento entre parágrafos: space-y-4 (1rem).
+- Espaçamento entre seções/artigos do DOU: space-y-8 (2rem) + Separator do shadcn.
+- Padding lateral do container de leitura: px-4 mobile, px-6 tablet, px-0 desktop (conteúdo centralizado).
+- Headings dentro de documento: margin-top de 2em, margin-bottom de 0.75em para criar ritmo vertical claro.
+
+2.4 Classe utilitária .prose-legal
+
+.prose-legal {
+  font-family: var(--font-legal, 'Inter Variable', 'Inter Fallback', system-ui, sans-serif);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  max-width: 68ch;
+  color: hsl(var(--text-legal));
+}
+.prose-legal p {
+  margin-bottom: 1rem;
+}
+.prose-legal h1, .prose-legal h2, .prose-legal h3,
+.prose-legal h4, .prose-legal h5, .prose-legal h6 {
+  color: hsl(var(--foreground));
+  margin-top: 2em;
+  margin-bottom: 0.75em;
+  font-family: 'Inter Variable', 'Inter Fallback', system-ui, sans-serif;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.prose-legal h1 { font-size: var(--text-2xl); }
+.prose-legal h2 { font-size: var(--text-xl); }
+.prose-legal h3 { font-size: var(--text-lg); }
+.prose-legal a {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.prose-legal blockquote {
+  border-left: 3px solid hsl(var(--border));
+  padding-left: 1rem;
+  color: hsl(var(--text-legal-muted));
+  font-style: italic;
+}
+.prose-legal ul, .prose-legal ol {
+  padding-left: 1.5rem;
+  margin-bottom: 1rem;
+}
+.prose-legal li { margin-bottom: 0.25rem; }
+.prose-legal ul ul, .prose-legal ol ol,
+.prose-legal ul ol, .prose-legal ol ul {
+  margin-top: 0.5rem;
+  margin-bottom: 0;
+}
+.prose-legal table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1rem;
+  font-size: var(--text-sm);
+}
+.prose-legal th, .prose-legal td {
+  border: 1px solid hsl(var(--border));
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+.prose-legal th {
+  background: hsl(var(--muted));
+  font-weight: 600;
+}
+.prose-legal code {
+  font-family: ui-monospace, monospace;
+  background: hsl(var(--muted));
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+  font-size: 0.875em;
+}
+.prose-legal hr {
+  border: none;
+  border-top: 1px solid hsl(var(--border));
+  margin: 2rem 0;
+}
+.prose-legal figure {
+  margin: 1.5rem 0;
+}
+.prose-legal figcaption {
+  font-size: var(--text-sm);
+  color: hsl(var(--text-legal-muted));
+  margin-top: 0.5rem;
+}
+
+Quando toggle serif ativo, JS altera --font-legal para 'Literata Variable', Georgia, serif.
+
+NÃO depende de @tailwindcss/typography — implementação própria, controlada, sem herdar opiniões genéricas.
+
+═══════════════════════════════════════════════════════════════
+
+3. MOTION BUDGET (React Bits)
+
+3.1 Regras inegociáveis
+- Máximo 2 animações simultâneas no viewport.
+- Micro-interações (hover, press, toggle): ≤200ms.
+- Transições de entrada (cards, seções): ≤300ms.
+- Transições de página/sheet: ≤500ms.
+- Easing padrão: cubic-bezier(0.16, 1, 0.3, 1) para entradas; cubic-bezier(0.4, 0, 0.2, 1) para saídas.
+- prefers-reduced-motion: media query respeitada. Hook useReducedMotion() wrapa todo uso de React Bits — se ativo, render estático sem animação. Zero exceções.
+
+Implementação do hook (SSR-safe):
+
+  function useReducedMotion(): boolean {
+    const [reduced, setReduced] = useState(() =>
+      typeof window === 'undefined'
+        ? false
+        : window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    );
+    useEffect(() => {
+      if (typeof window === 'undefined') return;
+      const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+      const handler = (e: MediaQueryListEvent) => setReduced(e.matches);
+      mq.addEventListener('change', handler);
+      return () => mq.removeEventListener('change', handler);
+    }, []);
+    return reduced;
+  }
+
+3.2 Isolamento de React Bits
+- NUNCA importar React Bits diretamente em componentes de tela.
+- Criar wrappers em src/components/motion/: AnimatedCard, RevealSection, StaggerList.
+- Cada wrapper aceita prop animate={boolean} (default: true, override por useReducedMotion).
+- Se React Bits for descontinuado, substituímos apenas esses wrappers.
+- Testes de integração (NÃO snapshot) nos wrappers: validar presença/ausência de classes CSS de animação conforme prop animate. Snapshot tests são flaky com timing de animação em CI.
+
+3.3 Onde usar (e onde NÃO usar)
+- SIM: entrada de cards no dashboard (stagger), reveal de seções no Document Viewer (fade-up ao scroll), transição de abertura de Sheet/Bottom Sheet.
+- NÃO: dentro de listas virtualizadas, em tabelas de dados, em qualquer elemento que re-renderiza frequentemente, abaixo da fold em documentos longos (custo de IntersectionObserver em 500+ nós).
+
+═══════════════════════════════════════════════════════════════
+
+4. PLANO POR TELA
+
+──────────────────────────────────
+4.1 SHELL (Layout raiz)
+──────────────────────────────────
+Layout:
+  Mobile (< 768px): coluna única, bottom navigation fixa (4 ícones: Home, Busca, Favoritos, Perfil). Bottom nav com padding-bottom: env(safe-area-inset-bottom) para dispositivos com home indicator.
+  Tablet (768px–1279px): sidebar colapsável (64px ícones → 240px expandida) + área principal.
+  Desktop (≥ 1280px): sidebar fixa 240px + área principal com max-width 1440px centralizado.
+
+Skip-to-content: <a href="#main-content" class="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:p-4 focus:bg-background focus:text-foreground"> como PRIMEIRO elemento focável do Shell.
+
+Componentes shadcn/ui:
+  - NavigationMenu (sidebar desktop/tablet)
+  - Sheet com Vaul (menu mobile — swipe-to-dismiss)
+  - Button (ícones de nav)
+  - Tooltip (labels de ícone no sidebar colapsado)
+  - CommandDialog (Command Palette global — ⌘K / Ctrl+K)
+  - Skeleton (loading state global)
+
+CommandDialog — comandos mínimos:
+  - "Ir para Home"
+  - "Buscar no DOU →" (ao digitar query, opção para navegar a /search?q=[query])
+  - "Alternar tema"
+  - "Favoritos"
+  - "Ajuda (? = atalhos)"
+  - Comportamento: ⌘K novamente fecha (toggle). Escape fecha.
+
+ErrorBoundary: via errorElement no layout raiz do router (ver seção 1.6).
+
+RB: nenhum no shell — estabilidade > animação.
+
+Estados: loading (Skeleton no content area), error (RouteErrorFallback com Alert e retry), offline (Banner fixo top com cor warning).
+
+──────────────────────────────────
+4.2 HOME (Dashboard)
+──────────────────────────────────
+Layout:
+  Mobile: stack vertical, cards full-width.
+  Tablet: grid 2 colunas.
+  Desktop: grid 3 colunas (2fr main + 1fr sidebar de atividade recente).
+
+Componentes shadcn/ui:
+  - Card + CardHeader + CardContent + CardFooter (métricas, publicações recentes, alertas)
+  - Badge (status de publicação: novo, lido, favorito)
+  - Tabs (alternar entre "Hoje", "Semana", "Favoritos") — sincronizado com URL via useSearchParams: ?tab=today|week|favorites. Default: today. Refresh preserva tab ativo.
+  - ScrollArea (lista de publicações recentes na sidebar)
+  - Separator (entre grupos de cards)
+  - Skeleton (placeholder durante fetch)
+
+Data fetching: TanStack Query — queryKey ['publications', tab], staleTime 5min.
+
+RB:
+  - StaggerList: entrada sequencial dos cards ao carregar (delay 50ms entre cards, duração 300ms).
+  - AnimatedCard: hover lift sutil (translateY -2px, shadow increase) em desktop.
+
+Estados: loading (grid de Skeleton cards), empty (ilustração + CTA "Nenhuma publicação hoje"), error (Alert inline com retry).
+
+──────────────────────────────────
+4.3 SEARCH (Busca)
+──────────────────────────────────
+Layout:
+  Mobile: Input fixo no topo + resultados em lista vertical full-width.
+  Tablet/Desktop: Input centralizado (max-width 640px) + resultados abaixo em lista, filtros em Popover lateral.
+
+Separação de responsabilidades:
+  - CommandDialog global (⌘K) = navegação rápida e atalhos. Ao digitar query de busca no CommandDialog, opção "Buscar '[query]' no DOU →" navega para /search?q=[query]. O CommandDialog NÃO é a interface de busca.
+  - Tela /search = Input dedicado (componente próprio, NÃO Command) + resultados inline + filtros. É a experiência de busca completa.
+
+Componentes shadcn/ui:
+  - Input (campo de busca dedicado, persistente na página, com ícone de busca e clear button)
+  - Badge (filtros ativos: tipo de ato, órgão, data)
+  - Popover + Calendar (filtro de data)
+  - Select (filtro de tipo de ato, órgão)
+  - ScrollArea (lista de resultados)
+  - Card (cada resultado: título, trecho com highlight via bg-highlight-search/15, metadados)
+  - Separator (entre resultados)
+  - Button (limpar filtros, carregar mais)
+  - Skeleton (resultados carregando)
+
+Data fetching: TanStack Query — queryKey ['search', { query, filters }], enabled: query.length >= 2, placeholderData: keepPreviousData para UX sem flash entre queries.
+
+Announcer de acessibilidade: <div role="status" aria-live="polite" class="sr-only">{resultsCount} resultados encontrados para "{query}"</div> — atualizado a cada resposta do servidor.
+
+RB:
+  - Nenhum nos resultados (performance > estética em lista que pode ter centenas de itens).
+  - AnimatedCard apenas no primeiro carregamento dos filtros (fade-in, 200ms).
+
+Virtualização: decisão tomada NO PRIMEIRO RENDER baseada em total_count da resposta da API. Se total_count * estimatedRowHeight > viewportHeight * 2, virtualizar desde o início com @tanstack/react-virtual. NUNCA trocar de estratégia de renderização mid-scroll (causa CLS). Se total_count não disponível na primeira página, virtualizar por default (overhead de @tanstack/react-virtual em lista curta é ~0.5ms — negligível).
+
+Scroll infinito: IntersectionObserver no último item visível para fetch da próxima página.
+
+Estados: loading (Skeleton list), empty (ilustração "Nenhum resultado para [query]"), error (Alert), initial (sugestões de busca recente armazenadas em Zustand).
+
+──────────────────────────────────
+4.4 DOCUMENT VIEWER (Visualizador de Documento)
+──────────────────────────────────
+** Tela crítica — caso de uso primário do GABI DOU. **
+
+Layout:
+  Mobile: documento full-width, TOC acessível via Sheet (bottom sheet com snap points via Vaul: 30% / 60% / 90%).
+  Tablet: documento com TOC em Sheet lateral (esquerda, 280px).
+  Desktop: grid 3 colunas — TOC sticky à esquerda (240px) + documento central (max 68ch) + painel de metadados/ações à direita (200px).
+
+Componentes shadcn/ui:
+  - ScrollArea (container principal do documento — custom scrollbar estilizado)
+  - Sheet + Vaul (TOC mobile e tablet, com snap points)
+  - NavigationMenu (TOC desktop — sticky, anchor links)
+  - Separator (entre seções/artigos do DOU)
+  - Tooltip (ações inline: copiar artigo, compartilhar, favoritar)
+  - Button (ações: voltar, favoritar, compartilhar, imprimir)
+  - Badge (tipo do ato, órgão emissor, data de publicação)
+  - Popover (menu de compartilhamento)
+  - Skeleton (carregamento progressivo de seções)
+
+Data fetching: TanStack Query — queryKey ['document', documentId], com select para transformar resposta em estrutura de seções.
+
+Prefetch inteligente: quando usuário está idle por 3s no Document Viewer, prefetch do próximo documento na lista de publicações:
+  queryClient.prefetchQuery({ queryKey: ['document', nextDocId], queryFn: fetchDocument })
+
+Progresso de carregamento: para documentos com 500+ seções, barra de progresso sutil (NProgress-style) no topo do viewer mostrando % de seções carregadas.
+
+TOC interativa — modelo unificado de seção ativa:
+
+  Estado: activeSectionIndex armazenado em useRef<number> (não useState — evitar re-renders da TOC a cada scroll frame). TOC lê via useSyncExternalStore ou callback subscrito ao ref.
+
+  Fonte de verdade unificada:
+  - Seções 0–19 (renderizadas no DOM): UM ÚNICO IntersectionObserver observando todos os headings, com rootMargin "-10% 0px -80% 0px". Callback atualiza activeSectionIndex.
+  - Seções 20+ (virtualizadas): usar virtualizer.range.startIndex exposto por @tanstack/react-virtual. Debounce de 100ms no onScroll callback antes de atualizar activeSectionIndex.
+
+  Reconciliação na zona de transição (seções 18–22):
+  - Quando scrollTop está dentro de ±80px do offset da seção 20 (boundary de virtualização), APENAS o scroll-offset tracker é autoritativo. IntersectionObserver é temporariamente ignorado para índices nessa faixa.
+  - Regra de prioridade: scroll-offset > IntersectionObserver quando ambos emitem dentro de 100ms.
+  - Isso elimina flickering de TOC na transição entre estratégias.
+
+  Navegação TOC → seção:
+  - Seções 0–19 (no DOM): anchor links nativos com scroll-behavior: smooth.
+  - Seções 20+ (virtualizadas):
+    1. Chamar virtualizer.measure() para forçar cálculo de offsets.
+    2. virtualizer.scrollToIndex(sectionIndex, { align: 'start' }).
+    3. Após scroll e renderização, chamar focus() no heading-alvo via ref (heading tem tabIndex={-1} para receber focus programático — necessário para keyboard users).
+    4. Se diff entre seção atual e alvo > overscan * 3, mostrar indicador de loading temporário na TOC ("Navegando...") até seção estar visível no DOM.
+
+  Focus management (a11y): após navegação TOC → seção virtualizada, focus é movido para o heading da seção-alvo. Isso garante que keyboard users e leitores de tela acompanham a navegação.
+
+  Teste obrigatório: Playwright — validar highlight correto da TOC ao scrollar para seções 19→21 (zona de transição), seção 50+, 100+, e última seção. Validar que focus move para heading após click na TOC.
+
+Progressive rendering para documentos longos:
