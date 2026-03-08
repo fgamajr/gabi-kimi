@@ -16,14 +16,14 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Upload
 
-- [ ] **UPLD-01**: Admin can upload a single XML file via drag-and-drop or file picker
-- [ ] **UPLD-02**: Admin can upload a ZIP bundle of XML files (up to 200MB)
+- [x] **UPLD-01**: Admin can upload a single XML file via drag-and-drop or file picker
+- [x] **UPLD-02**: Admin can upload a ZIP bundle of XML files (up to 200MB)
 - [x] **UPLD-03**: Upload streams directly to Tigris blob storage (no local disk buffering)
 - [x] **UPLD-04**: Server validates file type (XML/ZIP only) via magic bytes, rejects others with clear message
 - [x] **UPLD-05**: Upload returns HTTP 202 with job ID immediately after blob write completes
-- [ ] **UPLD-06**: Admin sees upload progress indicator during file transfer
-- [ ] **UPLD-07**: Admin can preview XML before upload — client-side parse shows article count, date range, sections detected
-- [ ] **UPLD-08**: Admin can paste XML content directly via textarea tab for single-article ingestion
+- [x] **UPLD-06**: Admin sees upload progress indicator during file transfer
+- [x] **UPLD-07**: Admin can preview XML before upload — client-side parse shows article count, date range, sections detected
+- [x] **UPLD-08**: Admin can paste XML content directly via textarea tab for single-article ingestion
 
 ### Processing
 
@@ -79,14 +79,14 @@ Deferred to future release. Tracked but not in current roadmap.
 | INFRA-02 | Phase 2 | Complete |
 | INFRA-03 | Phase 4 | Complete |
 | INFRA-04 | Phase 4 | Complete |
-| UPLD-01 | Phase 7 | Pending |
-| UPLD-02 | Phase 7 | Pending |
+| UPLD-01 | Phase 7 | Complete |
+| UPLD-02 | Phase 7 | Complete |
 | UPLD-03 | Phase 3 | Complete |
 | UPLD-04 | Phase 3 | Complete |
 | UPLD-05 | Phase 3 | Complete |
-| UPLD-06 | Phase 7 | Pending |
-| UPLD-07 | Phase 7 | Pending |
-| UPLD-08 | Phase 7 | Pending |
+| UPLD-06 | Phase 7 | Complete |
+| UPLD-07 | Phase 7 | Complete |
+| UPLD-08 | Phase 7 | Complete |
 | PROC-01 | Phase 5 | Complete |
 | PROC-02 | Phase 6 | Complete |
 | PROC-03 | Phase 5 | Complete |
