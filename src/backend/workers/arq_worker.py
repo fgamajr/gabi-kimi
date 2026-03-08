@@ -90,10 +90,20 @@ async def process_upload_job(ctx: dict, job_id: str) -> None:
                 "failed",
                 articles_found=result.articles_found,
                 articles_ingested=result.documents_inserted,
-                articles_failed=len(result.errors),
+                articles_dup=result.documents_dup,
+                articles_failed=result.documents_failed,
                 error_message=err_msg,
             )
             return
+
+        # Partial success (PROC-05): some articles failed but others ingested
+        is_partial = result.documents_failed > 0 and result.documents_inserted > 0
+        status = "partial" if is_partial else "completed"
+        err_msg = None
+        if is_partial or result.documents_failed > 0:
+            err_msg = "; ".join(result.errors[:5]) or "Some articles failed"
+            if len(result.errors) > 5:
+                err_msg += f" (+{len(result.errors) - 5} more)"
 
         # Sync new docs to Elasticsearch
         try:
@@ -109,18 +119,20 @@ async def process_upload_job(ctx: dict, job_id: str) -> None:
                 "failed",
                 articles_found=result.articles_found,
                 articles_ingested=result.documents_inserted,
+                articles_dup=result.documents_dup,
+                articles_failed=result.documents_failed,
                 error_message=f"ES sync failed: {e}",
             )
             raise
 
-        articles_dup = max(0, result.articles_found - result.documents_inserted - len(result.errors))
         update_job_status(
             job_id,
-            "completed",
+            status,
             articles_found=result.articles_found,
             articles_ingested=result.documents_inserted,
-            articles_dup=articles_dup,
-            articles_failed=len(result.errors),
+            articles_dup=result.documents_dup,
+            articles_failed=result.documents_failed,
+            error_message=err_msg,
         )
 
 
