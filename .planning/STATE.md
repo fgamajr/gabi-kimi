@@ -4,14 +4,14 @@ milestone: v1.0
 milestone_name: milestone
 current_plan: 1
 status: executing
-stopped_at: Completed 05-01-SUMMARY.md (Phase 5 Single XML Processing)
-last_updated: "2026-03-08T23:28:52.489Z"
-last_activity: 2026-03-08 -- Phase 5 plan 01 complete (Single XML Processing)
+stopped_at: Completed 06-01-SUMMARY.md
+last_updated: "2026-03-08T23:31:07.048Z"
+last_activity: 2026-03-08
 progress:
   total_phases: 10
   completed_phases: 0
   total_plans: 0
-  completed_plans: 5
+  completed_plans: 6
   percent: 50
 ---
 
@@ -30,7 +30,7 @@ Phase: 6 of 10 (ZIP Processing)
 Current Plan: 1
 Total Plans in Phase: 1
 Status: Ready to execute
-Last activity: 2026-03-08 -- Phase 5 plan 01 complete (Single XML Processing)
+Last activity: 2026-03-08
 
 Progress: [█████░░░░░] 50%
 
@@ -58,6 +58,7 @@ Progress: [█████░░░░░] 50%
 | Phase 04-worker-infrastructure P01 | 12 | 4 tasks | 6 files |
 | Phase 05-single-xml-processing P01 | 18 | 3 tasks | 3 files |
 | Phase 05-single-xml-processing P01 | 18 | 3 tasks | 3 files |
+| Phase 06-zip-processing P01 | 15 | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -69,6 +70,7 @@ Recent decisions affecting current work:
 - [Roadmap]: Worker runs as separate Fly.io process group (not BackgroundTask) to avoid OOM on 512MB web machine
 - [Roadmap]: Upload streams directly to Tigris (no local disk buffering) due to ephemeral Fly.io disk
 - [Roadmap]: ARQ + Redis for task queue (Redis already deployed for search caching)
+- [Phase 06-zip-processing]: ZIP Slip: reject path traversal/absolute paths before extract; abort entire ZIP. Partial success: per-article exceptions do not rollback; commit at end.
 
 ### Pending Todos
 
@@ -82,6 +84,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-08
-Stopped at: Completed 05-01-SUMMARY.md (Phase 5 Single XML Processing)
+Last session: 2026-03-08T23:30:58.884Z
+Stopped at: Completed 06-01-SUMMARY.md
 Resume file: None
