@@ -61,10 +61,10 @@ Plans:
   3. A job record exists in the worker_jobs table with status "queued"
   4. Uploading a non-XML/non-ZIP file (e.g., PNG) returns an error with a clear rejection message
   5. The upload streams to Tigris without buffering the full file in server memory
-**Plans**: TBD
+**Plans**: 03-01 done
 
 Plans:
-- [ ] 03-01: TBD
+- [x] 03-01: POST /api/admin/upload, magic-byte validation, stream to Tigris, 202 + job_id
 
 ### Phase 4: Worker Infrastructure
 **Goal**: An ARQ worker process runs alongside the web process on Fly.io, ready to consume jobs from Redis
@@ -171,7 +171,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 |-------|----------------|--------|-----------|
 | 1. Storage Foundation | 1/1 | Complete | 2026-03-08 |
 | 2. Job Control Schema | 1/1 | Complete | 2026-03-08 |
-| 3. Upload API | 0/? | Not started | - |
+| 3. Upload API | 1/1 | Complete | 2026-03-08 |
 | 4. Worker Infrastructure | 0/? | Not started | - |
 | 5. Single XML Processing | 0/? | Not started | - |
 | 6. ZIP Processing | 0/? | Not started | - |
