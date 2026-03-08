@@ -319,6 +319,23 @@ _NORM_REF_RE = re.compile(
 )
 
 
+def _norm_digits(value: str | None) -> str:
+    return re.sub(r"\D+", "", value or "")
+
+
+def _is_plausible_norm_reference(ref_type: str, number: str, date_str: str | None) -> bool:
+    digits = _norm_digits(number)
+    if not digits:
+        return False
+
+    has_year_hint = "/" in number or bool(date_str)
+    if ref_type == "lei" and not has_year_hint and len(digits) < 4:
+        return False
+    if ref_type in {"decreto", "decreto_lei", "medida_provisória"} and not has_year_hint and len(digits) < 3:
+        return False
+    return True
+
+
 def extract_normative_references(text: str) -> list[NormRef]:
     """Extract normative/legislative references from plain text."""
     if not text:
@@ -333,6 +350,9 @@ def extract_normative_references(text: str) -> list[NormRef]:
         number = m.group("number").strip().rstrip(",.")
         date_str = (m.group("date") or "").strip() or None
         full_text = m.group(0).strip()
+
+        if not _is_plausible_norm_reference(ref_type, number, date_str):
+            continue
 
         # Issuing body from qualifier or standalone body
         qualifier = (m.group("qualifier") or "").strip()

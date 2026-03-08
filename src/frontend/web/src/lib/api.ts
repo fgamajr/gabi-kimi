@@ -1,6 +1,6 @@
 // API configuration and types for DOU search system
-
-const API_BASE = "/api";
+import { apiFetch } from "@/lib/auth";
+import { API_BASE, resolveApiUrl } from "@/lib/runtimeConfig";
 
 // --- Types ---
 
@@ -99,6 +99,52 @@ export interface StatsResponse {
   [key: string]: unknown;
 }
 
+export interface AnalyticsLatestDocument {
+  id: string;
+  title: string;
+  snippet?: string;
+  issuing_organ?: string;
+  art_type?: string;
+  pub_date?: string | null;
+  section: string;
+  page?: string | null;
+}
+
+export interface AnalyticsSectionMonthlyPoint {
+  month: string;
+  do1: number;
+  do2: number;
+  do3: number;
+  extra: number;
+  total: number;
+}
+
+export interface AnalyticsTypeSeries {
+  key: string;
+  label: string;
+  total: number;
+  points: number[];
+}
+
+export interface AnalyticsResponse {
+  overview: {
+    total_documents: number;
+    total_organs: number;
+    total_types: number;
+    date_min?: string | null;
+    date_max?: string | null;
+    tracked_months: number;
+  };
+  section_totals: Array<{ section: string; count: number }>;
+  section_monthly: AnalyticsSectionMonthlyPoint[];
+  top_types_monthly: {
+    months: string[];
+    series: AnalyticsTypeSeries[];
+  };
+  top_organs: Array<{ organ: string; count: number }>;
+  latest_documents: AnalyticsLatestDocument[];
+}
+
 export interface TypeOption {
   value: string;
   label: string;
@@ -149,10 +195,29 @@ export interface DocumentGraphResponse {
   branches: DocumentGraphBranch[];
 }
 
+export interface ChatMessage {
+  role: string;
+  content: string;
+}
+
+export interface ChatResponse {
+  reply: string;
+  model: string;
+  cache?: string;
+  sources?: SearchResult[];
+}
+
+export interface ChatStreamHandlers {
+  onMeta?: (meta: { model?: string; cache?: string; source_count?: number }) => void;
+  onDelta?: (chunk: string) => void;
+  onDone?: (payload: ChatResponse) => void;
+  onError?: (detail: string) => void;
+}
+
 // --- API Functions ---
 
 async function fetchJSON<T>(url: string): Promise<T> {
-  const res = await fetch(url);
+  const res = await apiFetch(url);
   if (!res.ok) throw new Error(`API error: ${res.status}`);
   return res.json();
 }
@@ -208,7 +273,9 @@ function normalizeDocumentMedia(media: Record<string, unknown>): DocumentMedia {
     context_hint: (String(media.context_hint || "unknown") as DocumentMedia["context_hint"]),
     fallback_text: String(media.fallback_text || "").trim() || undefined,
     original_url: String(media.original_url || "").trim() || undefined,
-    blob_url: String(media.blob_url || "").trim() || undefined,
+    blob_url: String(media.blob_url || "").trim()
+      ? resolveApiUrl(String(media.blob_url || "").trim())
+      : undefined,
     position_in_doc: media.position_in_doc != null ? Number(media.position_in_doc) : undefined,
     alt_text: String(media.alt_text || "").trim() || undefined,
     width_px: media.width_px != null ? Number(media.width_px) : null,
@@ -349,7 +416,112 @@ export function getDocumentGraph(id: string, depth = 2, perSeed = 3): Promise<Do
 }
 
 export function getMediaUrl(docId: string, mediaName: string): string {
-  return `${API_BASE}/media/${encodeURIComponent(docId)}/${encodeURIComponent(mediaName)}`;
+  return resolveApiUrl(`/api/media/${encodeURIComponent(docId)}/${encodeURIComponent(mediaName)}`);
+}
+
+export function sendChat(message: string, history: ChatMessage[] = []): Promise<ChatResponse> {
+  return apiFetch(`${API_BASE}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, history }),
+  }).then(async (res) => {
+    if (!res.ok) throw new Error(`API error: ${res.status}`);
+    const payload = await res.json() as Record<string, unknown>;
+    return {
+      reply: String(payload.reply || ""),
+      model: String(payload.model || "gabi"),
+      cache: String(payload.cache || "").trim() || undefined,
+      sources: Array.isArray(payload.sources)
+        ? payload.sources.map((item) => normalizeSearchResult(item as Record<string, unknown>))
+        : undefined,
+    };
+  });
+}
+
+export async function streamChat(
+  message: string,
+  history: ChatMessage[] = [],
+  handlers: ChatStreamHandlers = {},
+): Promise<void> {
+  const res = await apiFetch(`${API_BASE}/chat?stream=true`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Accept": "text/event-stream",
+    },
+    body: JSON.stringify({ message, history }),
+  });
+  if (!res.ok || !res.body) {
+    throw new Error(`API error: ${res.status}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let eventName = "message";
+
+  const flushBlock = (block: string) => {
+    const lines = block.split("\n");
+    const dataParts: string[] = [];
+    eventName = "message";
+    for (const line of lines) {
+      if (line.startsWith("event:")) {
+        eventName = line.slice(6).trim();
+      } else if (line.startsWith("data:")) {
+        dataParts.push(line.slice(5).trim());
+      }
+    }
+    if (dataParts.length === 0) return;
+    const raw = dataParts.join("\n");
+    let payload: Record<string, unknown> = {};
+    try {
+      payload = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      payload = { detail: raw };
+    }
+
+    if (eventName === "meta") {
+      handlers.onMeta?.({
+        model: String(payload.model || "").trim() || undefined,
+        cache: String(payload.cache || "").trim() || undefined,
+        source_count: payload.source_count != null ? Number(payload.source_count) : undefined,
+      });
+      return;
+    }
+    if (eventName === "delta") {
+      handlers.onDelta?.(String(payload.content || ""));
+      return;
+    }
+    if (eventName === "done") {
+      handlers.onDone?.({
+        reply: String(payload.reply || ""),
+        model: String(payload.model || "gabi"),
+        cache: String(payload.cache || "").trim() || undefined,
+        sources: Array.isArray(payload.sources)
+          ? payload.sources.map((item) => normalizeSearchResult(item as Record<string, unknown>))
+          : undefined,
+      });
+      return;
+    }
+    if (eventName === "error") {
+      handlers.onError?.(String(payload.detail || "stream-error"));
+    }
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    while (buffer.includes("\n\n")) {
+      const idx = buffer.indexOf("\n\n");
+      const block = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+      flushBlock(block);
+    }
+  }
+  if (buffer.trim()) {
+    flushBlock(buffer);
+  }
 }
 
 export function getStats(): Promise<StatsResponse> {
@@ -365,6 +537,66 @@ export function getStats(): Promise<StatsResponse> {
   }));
 }
 
+export function getAnalytics(): Promise<AnalyticsResponse> {
+  return fetchJSON<Record<string, unknown>>(`${API_BASE}/analytics`).then((payload) => ({
+    overview: {
+      total_documents: Number((payload.overview as Record<string, unknown> | undefined)?.total_documents || 0),
+      total_organs: Number((payload.overview as Record<string, unknown> | undefined)?.total_organs || 0),
+      total_types: Number((payload.overview as Record<string, unknown> | undefined)?.total_types || 0),
+      date_min: String((payload.overview as Record<string, unknown> | undefined)?.date_min || "").trim() || undefined,
+      date_max: String((payload.overview as Record<string, unknown> | undefined)?.date_max || "").trim() || undefined,
+      tracked_months: Number((payload.overview as Record<string, unknown> | undefined)?.tracked_months || 0),
+    },
+    section_totals: Array.isArray(payload.section_totals)
+      ? payload.section_totals.map((item) => ({
+          section: normalizeSection(String((item as Record<string, unknown>).section || "")),
+          count: Number((item as Record<string, unknown>).count || 0),
+        }))
+      : [],
+    section_monthly: Array.isArray(payload.section_monthly)
+      ? payload.section_monthly.map((item) => ({
+          month: String((item as Record<string, unknown>).month || ""),
+          do1: Number((item as Record<string, unknown>).do1 || 0),
+          do2: Number((item as Record<string, unknown>).do2 || 0),
+          do3: Number((item as Record<string, unknown>).do3 || 0),
+          extra: Number((item as Record<string, unknown>).extra || 0),
+          total: Number((item as Record<string, unknown>).total || 0),
+        }))
+      : [],
+    top_types_monthly: {
+      months: Array.isArray((payload.top_types_monthly as Record<string, unknown> | undefined)?.months)
+        ? ((payload.top_types_monthly as Record<string, unknown>).months as unknown[]).map((item) => String(item || ""))
+        : [],
+      series: Array.isArray((payload.top_types_monthly as Record<string, unknown> | undefined)?.series)
+        ? ((payload.top_types_monthly as Record<string, unknown>).series as Record<string, unknown>[]).map((item) => ({
+            key: String(item.key || ""),
+            label: String(item.label || item.key || ""),
+            total: Number(item.total || 0),
+            points: Array.isArray(item.points) ? item.points.map((point) => Number(point || 0)) : [],
+          }))
+        : [],
+    },
+    top_organs: Array.isArray(payload.top_organs)
+      ? payload.top_organs.map((item) => ({
+          organ: String((item as Record<string, unknown>).organ || ""),
+          count: Number((item as Record<string, unknown>).count || 0),
+        }))
+      : [],
+    latest_documents: Array.isArray(payload.latest_documents)
+      ? payload.latest_documents.map((item) => ({
+          id: String((item as Record<string, unknown>).id || ""),
+          title: String((item as Record<string, unknown>).title || "Sem título"),
+          snippet: String((item as Record<string, unknown>).snippet || "").trim() || undefined,
+          issuing_organ: String((item as Record<string, unknown>).issuing_organ || "").trim() || undefined,
+          art_type: String((item as Record<string, unknown>).art_type || "").trim() || undefined,
+          pub_date: String((item as Record<string, unknown>).pub_date || "").trim() || undefined,
+          section: normalizeSection(String((item as Record<string, unknown>).section || "")),
+          page: (item as Record<string, unknown>).page != null ? String((item as Record<string, unknown>).page) : undefined,
+        }))
+      : [],
+  }));
+}
+
 export function getTypes(): Promise<TypeOption[]> {
   return fetchJSON<Array<Record<string, unknown>>>(`${API_BASE}/types`).then((items) =>
     items.map((item) => ({
@@ -375,8 +607,8 @@ export function getTypes(): Promise<TypeOption[]> {
   );
 }
 
-export function getTopSearches(): Promise<TopSearch[]> {
-  return fetchJSON<Record<string, unknown>>(`${API_BASE}/top-searches`).then((payload) => {
+export function getTopSearches(n = 10, period: "day" | "week" = "day"): Promise<TopSearch[]> {
+  return fetchJSON<Record<string, unknown>>(`${API_BASE}/top-searches?n=${n}&period=${period}`).then((payload) => {
     const items = Array.isArray(payload.items) ? payload.items : [];
     return items.map((item) => ({
       query: String((item as Record<string, unknown>).term || (item as Record<string, unknown>).query || ""),

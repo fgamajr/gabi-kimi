@@ -98,6 +98,10 @@ export const CommandPalette: React.FC = () => {
                 <Icons.search className="mr-2 h-4 w-4 text-text-tertiary" />
                 Busca estruturada
               </CommandItem>
+              <CommandItem onSelect={() => closeAndNavigate("/chat")}>
+                <Icons.chat className="mr-2 h-4 w-4 text-text-tertiary" />
+                Chat com a GABI
+              </CommandItem>
             </CommandGroup>
 
             {recentSearches.length > 0 ? (

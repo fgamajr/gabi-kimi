@@ -36,10 +36,12 @@ except ModuleNotFoundError:
 
 from src.backend.search.adapters import create_search_adapter, load_search_config
 from src.backend.search.redis_signals import (
+    get_cached_search,
     get_cached_suggest,
     normalize_query,
     record_query,
     redis_available,
+    set_cached_search,
     set_cached_suggest,
     top_prefix_matches,
     top_searches,
@@ -146,6 +148,22 @@ def search_payload(
 ) -> dict[str, Any]:
     """Structured search payload using configured backend."""
     max_results = min(max(1, max_results), 50)
+    cache_params = {
+        "backend": SEARCH_CFG.backend,
+        "query": normalize_query(query),
+        "max_results": max_results,
+        "page": max(1, page),
+        "date_from": date_from or "",
+        "date_to": date_to or "",
+        "section": section or "",
+        "art_type": art_type or "",
+        "issuing_organ": issuing_organ or "",
+    }
+    cached = get_cached_search(cache_params)
+    if cached is not None:
+        record_query(query)
+        return cached
+
     result = SEARCH_ADAPTER.search(
         query=query,
         page_size=max_results,
@@ -156,6 +174,7 @@ def search_payload(
         art_type=art_type,
         issuing_organ=issuing_organ,
     )
+    set_cached_search(cache_params, result)
     record_query(query)
     return result
 

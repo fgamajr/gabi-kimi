@@ -4,6 +4,8 @@ import { getAutocomplete } from '@/lib/api';
 import { addRecentSearch, getRecentSearches } from '@/lib/history';
 import { Icons } from './Icons';
 
+type SearchVisualState = 'idle' | 'typing' | 'searching' | 'settled';
+
 interface SearchBarProps {
   defaultValue?: string;
   onSearch?: (q: string) => void;
@@ -11,6 +13,8 @@ interface SearchBarProps {
   compact?: boolean;
   placeholder?: string;
   showShortcutHint?: boolean;
+  visualState?: SearchVisualState;
+  statusText?: string;
 }
 
 export const SearchBar: React.FC<SearchBarProps> = ({
@@ -20,12 +24,15 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   compact = false,
   placeholder = 'Pesquisar no Diário Oficial...',
   showShortcutHint = true,
+  visualState = 'idle',
+  statusText,
 }) => {
   const [query, setQuery] = useState(defaultValue);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedIdx, setSelectedIdx] = useState(-1);
+  const [suggesting, setSuggesting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -45,12 +52,21 @@ export const SearchBar: React.FC<SearchBarProps> = ({
     if (q.length < 2) {
       setSuggestions([]);
       setShowSuggestions(false);
+      setSuggesting(false);
       return;
     }
     try {
+      setSuggesting(true);
       const data = await getAutocomplete(q);
       const items = Array.isArray(data)
-        ? data.map((d) => (typeof d === 'string' ? d : (d as any).suggestion || ''))
+        ? data.map((d) => {
+            if (typeof d === 'string') return d;
+            if (d && typeof d === 'object' && 'suggestion' in d) {
+              const suggestion = (d as { suggestion?: string }).suggestion;
+              return suggestion || '';
+            }
+            return '';
+          })
         : [];
       const nextSuggestions = items.filter(Boolean);
       setSuggestions(nextSuggestions);
@@ -58,6 +74,8 @@ export const SearchBar: React.FC<SearchBarProps> = ({
     } catch {
       setSuggestions([]);
       setShowSuggestions(false);
+    } finally {
+      setSuggesting(false);
     }
   }, []);
 
@@ -118,6 +136,21 @@ export const SearchBar: React.FC<SearchBarProps> = ({
 
   const panelItems = query.trim().length >= 2 ? suggestions : recentSearches;
   const showPanel = showSuggestions && panelItems.length > 0;
+  const resolvedVisualState: SearchVisualState = visualState !== 'idle'
+    ? visualState
+    : suggesting
+      ? 'typing'
+      : query.trim().length > 0
+        ? 'typing'
+        : 'idle';
+  const resolvedStatusText = statusText
+    || (resolvedVisualState === 'searching'
+      ? 'Consultando o acervo'
+      : resolvedVisualState === 'settled'
+        ? 'Resultados prontos'
+        : resolvedVisualState === 'typing'
+          ? 'Lapidando consulta'
+          : '');
 
   useEffect(() => {
     if (!showPanel) {
@@ -137,10 +170,26 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   return (
     <div ref={containerRef} className="relative z-20 w-full">
       <div
-        className={`flex items-center gap-3 rounded-[20px] border bg-[linear-gradient(180deg,rgba(26,28,36,0.94),rgba(18,20,28,0.98))] transition-all focus-within:border-primary/90 focus-within:shadow-[0_0_0_1px_rgba(126,87,255,0.25),0_0_24px_rgba(126,87,255,0.12)]
+        className={`flex items-center gap-3 rounded-[24px] border border-white/8 bg-[linear-gradient(180deg,rgba(16,18,30,0.92),rgba(10,12,22,0.98))] shadow-[0_20px_40px_rgba(0,0,0,0.14)] transition-all focus-within:border-primary/40 focus-within:shadow-[0_0_0_1px_rgba(120,80,220,0.18),0_18px_42px_rgba(0,0,0,0.22)]
         ${compact ? 'px-4 py-3' : 'px-5 py-4'}`}
       >
-        <Icons.search className="h-5 w-5 shrink-0 text-muted-foreground" />
+        <div
+          className={`search-state-shell shrink-0 ${
+            resolvedVisualState === 'searching'
+              ? 'is-searching'
+              : resolvedVisualState === 'settled'
+                ? 'is-settled'
+                : resolvedVisualState === 'typing'
+                  ? 'is-typing'
+                  : ''
+          }`}
+          aria-hidden="true"
+        >
+          <span className="search-state-core" />
+          <span className="search-state-orb search-state-orb--a" />
+          <span className="search-state-orb search-state-orb--b" />
+          <Icons.search className="relative z-10 h-[18px] w-[18px] text-foreground" />
+        </div>
         <input
           ref={inputRef}
           type="text"
@@ -162,10 +211,16 @@ export const SearchBar: React.FC<SearchBarProps> = ({
           aria-controls="search-suggestions"
         />
 
+        {resolvedStatusText ? (
+          <span className="search-status-pill hidden items-center rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-text-secondary md:inline-flex">
+            {resolvedStatusText}
+          </span>
+        ) : null}
+
         {query ? (
           <button
             onClick={() => { setQuery(''); setSuggestions([]); inputRef.current?.focus(); }}
-            className="flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border border-border bg-white/[0.03] transition-colors hover:bg-white/[0.06]"
+            className="flex min-h-[36px] min-w-[36px] items-center justify-center rounded-xl border border-border bg-white/[0.03] transition-colors hover:bg-white/[0.06]"
             aria-label="Limpar pesquisa"
           >
             <Icons.close className="w-4 h-4 text-muted-foreground" />
@@ -181,9 +236,9 @@ export const SearchBar: React.FC<SearchBarProps> = ({
         <div
           id="search-suggestions"
           ref={panelRef}
-          className="absolute z-50 top-full mt-3 w-full overflow-hidden rounded-[20px] border border-white/8 bg-[#141821] shadow-[var(--shadow-lg)]"
+          className="absolute top-full z-50 mt-3 w-full overflow-hidden rounded-[24px] border border-white/8 bg-[rgba(12,14,24,0.97)] shadow-[var(--shadow-lg)] backdrop-blur-xl"
         >
-          <div className="border-b border-white/6 px-4 py-2.5 text-[11px] uppercase tracking-[0.16em] text-text-tertiary">
+          <div className="border-b border-white/6 px-4 py-3 text-[11px] uppercase tracking-[0.16em] text-text-tertiary">
             {query.trim().length >= 2 ? 'Sugestões' : 'Pesquisas recentes'}
           </div>
           <ul role="listbox" className="max-h-[min(18rem,42vh)] overflow-y-auto">
@@ -192,7 +247,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
                 key={`${item}-${i}`}
                 role="option"
                 aria-selected={i === selectedIdx}
-                className={`flex min-h-[48px] cursor-pointer items-center gap-3 px-4 py-3 text-sm transition-colors
+                className={`flex min-h-[52px] cursor-pointer items-center gap-3 px-4 py-3 text-sm transition-colors
                 ${i === selectedIdx ? 'bg-white/[0.05] text-foreground' : 'text-secondary-foreground hover:bg-white/[0.04]'}`}
                 onPointerDown={(event) => {
                   event.preventDefault();

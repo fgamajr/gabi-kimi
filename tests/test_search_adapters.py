@@ -14,6 +14,7 @@ if str(_ROOT) not in sys.path:
 
 from src.backend.search.adapters import ESSearchAdapter, HybridSearchAdapter, SearchConfig, create_search_adapter
 from src.backend.search.adapters import _lexical_query_clause
+from src.backend.search.norm_queries import detect_legal_norm
 
 
 _passed = 0
@@ -221,6 +222,80 @@ def test_es_search_infers_issuing_organ_from_query() -> None:
         "infers portaria art_type from query",
     )
     _assert(out["inferred_filters"]["issuing_organ"] == "Ministério da Saúde", "reports inferred issuing organ")
+
+
+def test_detect_legal_norm_normalizes_common_law_variants() -> None:
+    queries = [
+        "Lei 9.394",
+        "Lei nº 9.394",
+        "Lei 9394",
+        "Lei 9.394/96",
+        "L9394",
+    ]
+    detected = [detect_legal_norm(query) for query in queries]
+
+    _assert(all(item is not None for item in detected), "detects common numeric law variants")
+    numbers = {item.number_digits for item in detected if item is not None}
+    _assert(numbers == {"9394"}, "normalizes all law variants to the same number")
+    years = {item.year for item in detected if item is not None}
+    _assert(1996 in years and None in years, "keeps explicit year when present without inventing missing year")
+
+
+def test_detect_legal_norm_supports_aliases() -> None:
+    detected = detect_legal_norm("Lei de Diretrizes e Bases")
+
+    _assert(detected is not None, "detects famous law alias")
+    if detected is not None:
+        _assert(detected.norm_type == "lei", "maps alias to canonical norm type")
+        _assert(detected.number_digits == "9394", "maps alias to canonical law number")
+        _assert(detected.year == 1996, "maps alias to canonical law year")
+
+
+def test_hybrid_norm_query_skips_vector_branch() -> None:
+    adapter = HybridSearchAdapter(
+        url="http://localhost:9200",
+        index="gabi_documents_v1",
+        chunks_index="gabi_chunks_v1",
+        username=None,
+        password=None,
+        verify_tls=False,
+        timeout_sec=5,
+        lexical_k=10,
+        vector_k=10,
+        num_candidates=20,
+        rrf_k=60,
+        rerank_provider="none",
+        rerank_top_n=0,
+    )
+
+    adapter._lexical_candidates = lambda **kwargs: (  # type: ignore[method-assign]
+        [
+            {
+                "doc_id": "doc-hit",
+                "bm25_rank": 1,
+                "bm25_score": 10.0,
+                "identifica": "LEI Nº 9.394, DE 20 DE DEZEMBRO DE 1996",
+                "ementa": "",
+                "art_type": "lei",
+                "pub_date": "1996-12-20",
+                "edition_section": "do1",
+                "issuing_organ": "Presidência da República",
+                "document_number": "9.394",
+                "document_year": 1996,
+                "snippet": "lei de diretrizes e bases",
+            }
+        ],
+        1,
+    )
+
+    def fail_vector(**kwargs):
+        raise AssertionError("vector branch should be skipped for normalized norm query")
+
+    adapter._vector_candidates = fail_vector  # type: ignore[method-assign]
+    out = adapter.search(query="Lei 9.394/96", page_size=10, page=1)
+
+    _assert(out["vector_candidates"] == 0, "norm query reports no vector candidates")
+    _assert(out["norm_query"]["id"] == "lei_9394_1996", "exposes normalized norm metadata")
 
 
 def test_hybrid_rrf_merge_prefers_dual_signal_docs() -> None:
@@ -573,6 +648,9 @@ def main() -> int:
     test_es_browse_mode_uses_match_all()
     test_es_search_infers_section_and_art_type_from_query()
     test_es_search_infers_issuing_organ_from_query()
+    test_detect_legal_norm_normalizes_common_law_variants()
+    test_detect_legal_norm_supports_aliases()
+    test_hybrid_norm_query_skips_vector_branch()
     test_hybrid_rrf_merge_prefers_dual_signal_docs()
     test_hybrid_exact_phrase_query_filters_noise()
     test_create_search_adapter_supports_hybrid()

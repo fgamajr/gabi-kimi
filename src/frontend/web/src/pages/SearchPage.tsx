@@ -6,8 +6,8 @@ import { Icons } from "@/components/Icons";
 import { ResultCard } from "@/components/ResultCard";
 import { SearchBar } from "@/components/SearchBar";
 import { SkeletonCard } from "@/components/Skeletons";
-import { getTypes, searchDocuments } from "@/lib/api";
-import type { SearchParams, SearchResponse, TypeOption } from "@/lib/api";
+import { getSearchExamples, getTypes, searchDocuments } from "@/lib/api";
+import type { SearchExample, SearchParams, SearchResponse, TypeOption } from "@/lib/api";
 
 const SECTIONS = [
   { value: "", label: "Todas" },
@@ -46,6 +46,7 @@ const SearchPage: React.FC = () => {
   const [response, setResponse] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [types, setTypes] = useState<TypeOption[]>([]);
+  const [examples, setExamples] = useState<SearchExample[]>([]);
   const [showFilters, setShowFilters] = useState(false);
 
   const [localSection, setLocalSection] = useState(section);
@@ -55,7 +56,10 @@ const SearchPage: React.FC = () => {
   const [localIssuingOrgan, setLocalIssuingOrgan] = useState(issuingOrgan);
 
   useEffect(() => {
-    getTypes().then(setTypes).catch(() => {});
+    Promise.allSettled([getTypes(), getSearchExamples()]).then(([typesResult, examplesResult]) => {
+      if (typesResult.status === "fulfilled") setTypes(typesResult.value);
+      if (examplesResult.status === "fulfilled") setExamples(examplesResult.value.slice(0, 4));
+    });
   }, []);
 
   useEffect(() => {
@@ -136,8 +140,18 @@ const SearchPage: React.FC = () => {
     setShowFilters(false);
   };
 
+  const resetSearchConstraints = () => {
+    clearFilters();
+  };
+
   const activeFilterCount = [section, artType, dateFrom, dateTo, issuingOrgan].filter(Boolean).length;
   const totalPages = response ? Math.ceil(response.total / (response.max || 20)) : 0;
+  const visualState = loading ? "searching" : response ? "settled" : "idle";
+  const searchStatusText = loading
+    ? "Consultando acervo"
+    : response
+      ? `${response.total.toLocaleString("pt-BR")} sinais`
+      : undefined;
 
   const inferredFilterItems = useMemo(
     () =>
@@ -160,17 +174,36 @@ const SearchPage: React.FC = () => {
       <header className="sticky top-0 z-30 bg-background/85 backdrop-blur-xl border-b border-border">
         <div className="max-w-6xl mx-auto px-4 py-4 flex flex-col gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.16em] text-text-tertiary mb-2">Pesquisa estruturada</p>
-            <SearchBar defaultValue={query} onSearch={handleSearch} compact />
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-text-tertiary">Pesquisa operacional</p>
+                <p className="mt-1 text-sm text-text-secondary">
+                  Leitura de consulta, filtros inferidos e navegação editorial pelo corpus.
+                </p>
+              </div>
+              {response?.backend || response?.took_ms != null ? (
+                <div className="hidden rounded-full border border-white/8 bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-text-tertiary md:inline-flex">
+                  {response?.backend ? response.backend : "search"}
+                  {response?.took_ms != null ? ` · ${response.took_ms}ms` : ""}
+                </div>
+              ) : null}
+            </div>
+            <SearchBar
+              defaultValue={query}
+              onSearch={handleSearch}
+              compact
+              visualState={visualState}
+              statusText={searchStatusText}
+            />
           </div>
 
           <div className="hidden md:grid md:grid-cols-[repeat(4,minmax(0,1fr))] gap-3">
-            <div className="rounded-2xl border border-border bg-card p-3">
+            <div className="rounded-[22px] border border-white/8 bg-[linear-gradient(180deg,rgba(18,20,32,0.88),rgba(10,12,22,0.94))] p-3">
               <label className="text-[11px] uppercase tracking-[0.16em] text-text-tertiary mb-2 block">Seção</label>
               <select
                 value={localSection}
                 onChange={(event) => setLocalSection(event.target.value)}
-                className="w-full rounded-xl bg-secondary border border-border px-3 py-2.5 text-sm text-foreground focus-ring min-h-[44px]"
+                className="min-h-[44px] w-full rounded-xl border border-white/8 bg-secondary/80 px-3 py-2.5 text-sm text-foreground focus-ring"
               >
                 {SECTIONS.map((item) => (
                   <option key={item.value} value={item.value}>
@@ -180,12 +213,12 @@ const SearchPage: React.FC = () => {
               </select>
             </div>
 
-            <div className="rounded-2xl border border-border bg-card p-3">
+            <div className="rounded-[22px] border border-white/8 bg-[linear-gradient(180deg,rgba(18,20,32,0.88),rgba(10,12,22,0.94))] p-3">
               <label className="text-[11px] uppercase tracking-[0.16em] text-text-tertiary mb-2 block">Tipo de ato</label>
               <select
                 value={localArtType}
                 onChange={(event) => setLocalArtType(event.target.value)}
-                className="w-full rounded-xl bg-secondary border border-border px-3 py-2.5 text-sm text-foreground focus-ring min-h-[44px]"
+                className="min-h-[44px] w-full rounded-xl border border-white/8 bg-secondary/80 px-3 py-2.5 text-sm text-foreground focus-ring"
               >
                 <option value="">Todos</option>
                 {types.map((type) => (
@@ -197,31 +230,31 @@ const SearchPage: React.FC = () => {
               </select>
             </div>
 
-            <div className="rounded-2xl border border-border bg-card p-3">
+            <div className="rounded-[22px] border border-white/8 bg-[linear-gradient(180deg,rgba(18,20,32,0.88),rgba(10,12,22,0.94))] p-3">
               <label className="text-[11px] uppercase tracking-[0.16em] text-text-tertiary mb-2 block">Órgão emissor</label>
               <input
                 type="text"
                 value={localIssuingOrgan}
                 onChange={(event) => setLocalIssuingOrgan(event.target.value)}
                 placeholder="Ex.: Ministério da Saúde"
-                className="w-full rounded-xl bg-secondary border border-border px-3 py-2.5 text-sm text-foreground placeholder:text-text-tertiary focus-ring min-h-[44px]"
+                className="min-h-[44px] w-full rounded-xl border border-white/8 bg-secondary/80 px-3 py-2.5 text-sm text-foreground placeholder:text-text-tertiary focus-ring"
               />
             </div>
 
-            <div className="rounded-2xl border border-border bg-card p-3">
+            <div className="rounded-[22px] border border-white/8 bg-[linear-gradient(180deg,rgba(18,20,32,0.88),rgba(10,12,22,0.94))] p-3">
               <label className="text-[11px] uppercase tracking-[0.16em] text-text-tertiary mb-2 block">Janela temporal</label>
               <div className="grid grid-cols-2 gap-2">
                 <input
                   type="date"
                   value={localDateFrom}
                   onChange={(event) => setLocalDateFrom(event.target.value)}
-                  className="w-full rounded-xl bg-secondary border border-border px-2.5 py-2.5 text-sm text-foreground focus-ring min-h-[44px]"
+                  className="min-h-[44px] w-full rounded-xl border border-white/8 bg-secondary/80 px-2.5 py-2.5 text-sm text-foreground focus-ring"
                 />
                 <input
                   type="date"
                   value={localDateTo}
                   onChange={(event) => setLocalDateTo(event.target.value)}
-                  className="w-full rounded-xl bg-secondary border border-border px-2.5 py-2.5 text-sm text-foreground focus-ring min-h-[44px]"
+                  className="min-h-[44px] w-full rounded-xl border border-white/8 bg-secondary/80 px-2.5 py-2.5 text-sm text-foreground focus-ring"
                 />
               </div>
             </div>
@@ -281,28 +314,31 @@ const SearchPage: React.FC = () => {
 
       <main className="flex-1 max-w-6xl mx-auto px-4 pb-8 w-full">
         {response ? (
-          <section className="rounded-2xl border border-border bg-card px-4 py-4 mb-4 animate-fade-in">
+          <section className="mb-4 overflow-hidden rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(16,18,30,0.92),rgba(10,12,22,0.96))] px-4 py-4 animate-fade-in shadow-[var(--shadow-md)]">
             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
               <div className="min-w-0">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-text-tertiary mb-2">Leitura da consulta</p>
-                <p className="text-sm text-foreground leading-relaxed">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-text-tertiary">Leitura da consulta</p>
+                <p className="font-editorial text-xl leading-tight text-foreground md:text-2xl">
                   {response.interpreted_query || query}
                 </p>
                 {response.interpreted_query && response.interpreted_query !== query ? (
-                  <p className="text-xs text-text-secondary mt-1">
+                  <p className="mt-2 text-xs text-text-secondary">
                     Consulta normalizada a partir de “{query}”.
                   </p>
                 ) : null}
               </div>
-              <div className="text-sm text-text-secondary shrink-0">
-                {response.total.toLocaleString("pt-BR")} resultado{response.total !== 1 ? "s" : ""}
-                {response.took_ms != null ? <span className="text-text-tertiary"> · {response.took_ms}ms</span> : null}
+              <div className="shrink-0 rounded-[22px] border border-white/8 bg-background/30 px-4 py-3 text-sm text-text-secondary">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-text-tertiary">Resposta</p>
+                <p className="mt-1 text-lg font-semibold text-foreground">
+                  {response.total.toLocaleString("pt-BR")} resultado{response.total !== 1 ? "s" : ""}
+                </p>
+                {response.took_ms != null ? <p className="mt-1 text-xs text-text-tertiary">{response.took_ms}ms</p> : null}
               </div>
             </div>
 
             {(inferredFilterItems.length > 0 || appliedFilterItems.length > 0) ? (
               <div className="mt-4 grid gap-3 md:grid-cols-2">
-                <div className="rounded-xl bg-background/70 border border-border px-3 py-3">
+                <div className="rounded-[22px] border border-white/8 bg-background/50 px-3 py-3">
                   <p className="text-[11px] uppercase tracking-[0.16em] text-text-tertiary mb-2">Filtros inferidos</p>
                   {inferredFilterItems.length > 0 ? (
                     <div className="flex flex-wrap gap-2">
@@ -314,7 +350,7 @@ const SearchPage: React.FC = () => {
                     <p className="text-xs text-text-secondary">Nenhum filtro inferido automaticamente nesta consulta.</p>
                   )}
                 </div>
-                <div className="rounded-xl bg-background/70 border border-border px-3 py-3">
+                <div className="rounded-[22px] border border-white/8 bg-background/50 px-3 py-3">
                   <p className="text-[11px] uppercase tracking-[0.16em] text-text-tertiary mb-2">Filtros aplicados</p>
                   {appliedFilterItems.length > 0 ? (
                     <div className="flex flex-wrap gap-2">
@@ -348,10 +384,60 @@ const SearchPage: React.FC = () => {
         ) : null}
 
         {!loading && response && response.results.length === 0 ? (
-          <div className="text-center py-16 animate-fade-in">
-            <Icons.search className="w-12 h-12 text-text-tertiary mx-auto mb-4" />
-            <p className="text-foreground font-medium">Nenhum resultado encontrado</p>
-            <p className="text-sm text-text-secondary mt-1">Tente ajustar os filtros jurídicos ou reformular a consulta.</p>
+          <div className="animate-fade-in rounded-[28px] border border-dashed border-white/10 bg-[rgba(12,14,24,0.78)] px-6 py-12 text-center">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-white/8 bg-white/[0.03]">
+              <Icons.search className="h-6 w-6 text-text-tertiary" />
+            </div>
+            <p className="font-editorial text-2xl text-foreground">Nenhum resultado encontrado</p>
+            <p className="mt-2 text-sm text-text-secondary">
+              Amplie a consulta ou remova restrições para recuperar mais sinais do corpus.
+            </p>
+
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+              {activeFilterCount > 0 ? (
+                <button
+                  onClick={resetSearchConstraints}
+                  className="rounded-full border border-white/8 bg-white/[0.03] px-4 py-2 text-sm text-foreground transition-colors hover:bg-white/[0.06] focus-ring"
+                >
+                  Remover filtros
+                </button>
+              ) : null}
+              {issuingOrgan ? (
+                <button
+                  onClick={() => updateParams({ issuing_organ: "", page: "1" })}
+                  className="rounded-full border border-white/8 bg-white/[0.03] px-4 py-2 text-sm text-foreground transition-colors hover:bg-white/[0.06] focus-ring"
+                >
+                  Buscar sem órgão
+                </button>
+              ) : null}
+              {(dateFrom || dateTo) ? (
+                <button
+                  onClick={() => updateParams({ date_from: "", date_to: "", page: "1" })}
+                  className="rounded-full border border-white/8 bg-white/[0.03] px-4 py-2 text-sm text-foreground transition-colors hover:bg-white/[0.06] focus-ring"
+                >
+                  Remover período
+                </button>
+              ) : null}
+            </div>
+
+            {examples.length > 0 ? (
+              <div className="mt-8">
+                <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-text-tertiary">
+                  Tente também
+                </p>
+                <div className="flex flex-wrap justify-center gap-2">
+                  {examples.map((example) => (
+                    <button
+                      key={example.query}
+                      onClick={() => handleSearch(example.query)}
+                      className="rounded-full border border-white/8 bg-secondary/70 px-4 py-2 text-sm text-foreground transition-colors hover:bg-white/[0.06] focus-ring"
+                    >
+                      {example.query}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
 

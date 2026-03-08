@@ -17,23 +17,44 @@ Usage:
 from __future__ import annotations
 
 import os
-import json
 from io import BytesIO
 from html import escape
 from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 import re
+import json
 
 import httpx
 import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+
+from src.backend.apps.auth import (
+    AuthPrincipal,
+    clear_session_response,
+    create_session_response,
+    get_auth_config,
+    request_ip,
+    require_protected_access,
+    resolve_request_principal,
+)
+from src.backend.apps.chat_security import ChatSecurity
+from src.backend.apps.middleware.security import (
+    RateLimiter,
+    RateRule,
+    build_content_security_policy,
+    hostnames_to_origins,
+    local_dev_origins,
+    log_security_event,
+)
+from src.backend.apps.middleware.security_middleware import AppSecurityMiddleware
 
 from src.backend.apps.mcp_server import (
     SEARCH_CFG,
@@ -43,6 +64,7 @@ from src.backend.apps.mcp_server import (
     suggest_payload,
     top_searches_payload,
 )
+from src.backend.search.norm_queries import NormQuery, detect_legal_norm
 
 load_dotenv()
 
@@ -68,6 +90,46 @@ _FRONTEND_WEB_DIR = _ROOT_DIR / "src" / "frontend" / "web"
 _LEGACY_WEB_DIR = _ROOT_DIR / "web"
 WEB_DIR = _FRONTEND_WEB_DIR if _FRONTEND_WEB_DIR.exists() else _LEGACY_WEB_DIR
 SPA_INDEX = WEB_DIR / "dist" / "index.html" if (WEB_DIR / "dist" / "index.html").exists() else WEB_DIR / "index.html"
+DIST_DIR = (WEB_DIR / "dist").resolve()
+MEDIA_ROOT = Path(
+    os.getenv("GABI_MEDIA_ROOT", str(_ROOT_DIR / "ops" / "data" / "dou" / "images"))
+).resolve()
+SERVE_FRONTEND = os.getenv("GABI_SERVE_FRONTEND", "true").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _parse_csv_env(name: str) -> list[str]:
+    raw = os.getenv(name, "")
+    if not raw.strip():
+        return []
+    normalized = raw.replace("\n", ",").replace(";", ",")
+    return [item.strip() for item in normalized.split(",") if item.strip()]
+
+
+def _allow_local_origins() -> bool:
+    if os.getenv("FLY_APP_NAME", "").strip():
+        return False
+    return os.getenv("GABI_ENV", "development").strip().lower() != "production"
+
+
+def _allowed_hosts() -> list[str]:
+    explicit = _parse_csv_env("GABI_ALLOWED_HOSTS")
+    if explicit:
+        return explicit
+    hosts = ["localhost", "127.0.0.1", "::1"]
+    fly_app_name = os.getenv("FLY_APP_NAME", "").strip()
+    if fly_app_name:
+        hosts.extend([f"{fly_app_name}.fly.dev", f"{fly_app_name}.internal"])
+    return hosts
+
+
+def _allowed_origins(allowed_hosts: list[str]) -> list[str]:
+    explicit = _parse_csv_env("GABI_CORS_ORIGINS")
+    if explicit:
+        return explicit
+    origins = hostnames_to_origins(allowed_hosts)
+    if _allow_local_origins():
+        origins.extend(local_dev_origins())
+    return sorted({origin for origin in origins if origin})
 
 # ---------------------------------------------------------------------------
 # App
@@ -77,18 +139,29 @@ SPA_INDEX = WEB_DIR / "dist" / "index.html" if (WEB_DIR / "dist" / "index.html")
 async def lifespan(app: FastAPI):
     """Startup / shutdown."""
     app.state.http = httpx.AsyncClient(timeout=60.0)
+    app.state.rate_limiter = RateLimiter(redis_url=os.getenv("REDIS_URL", "").strip() or None)
+    app.state.chat_security = ChatSecurity(redis_url=os.getenv("REDIS_URL", "").strip() or None)
+    await app.state.rate_limiter.startup()
+    await app.state.chat_security.startup()
     yield
+    await app.state.chat_security.shutdown()
+    await app.state.rate_limiter.shutdown()
     await app.state.http.aclose()
 
 
 app = FastAPI(title="GABI DOU", lifespan=lifespan)
+ALLOWED_HOSTS = _allowed_hosts()
+ALLOWED_ORIGINS = _allowed_origins(ALLOWED_HOSTS)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+    allow_credentials=True,
 )
+app.add_middleware(AppSecurityMiddleware, csp=build_content_security_policy())
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
 
 
 # ---------------------------------------------------------------------------
@@ -118,10 +191,38 @@ def _ser(v: Any) -> Any:
 def _resolve_local_media_path(local_path: str | None) -> Path | None:
     if not local_path:
         return None
-    candidate = Path(local_path)
-    if not candidate.is_absolute():
-        candidate = _ROOT_DIR / candidate
-    return candidate
+    normalized = str(local_path).strip().replace("\\", "/")
+    if not normalized:
+        return None
+
+    candidate = Path(normalized)
+    if candidate.is_absolute():
+        resolved = candidate.resolve()
+    else:
+        relative = normalized
+        media_prefix = "ops/data/dou/images/"
+        if relative.startswith(media_prefix):
+            relative = relative[len(media_prefix):]
+        relative = relative.lstrip("./")
+        resolved = (MEDIA_ROOT / relative).resolve()
+
+    try:
+        resolved.relative_to(MEDIA_ROOT)
+    except ValueError:
+        log_security_event(
+            "media_path_denied",
+            requested_path=normalized,
+            resolved_path=str(resolved),
+            media_root=str(MEDIA_ROOT),
+        )
+        return None
+    return resolved
+
+
+def _require_frontend_enabled() -> None:
+    if SERVE_FRONTEND:
+        return
+    raise HTTPException(404, "Not found")
 
 
 def _load_document_payload(doc_id: str) -> dict[str, Any]:
@@ -205,7 +306,9 @@ def _infer_relation_type(text: str | None, fallback: str | None = None) -> str:
         return "altera"
     if "prorrog" in corpus:
         return "prorroga"
-    if "complement" in corpus or "regulament" in corpus:
+    if "regulament" in corpus:
+        return "regulamenta"
+    if "complement" in corpus:
         return "complementa"
     return "cita"
 
@@ -230,6 +333,184 @@ def _normalize_graph_search_result(row: dict[str, Any]) -> dict[str, Any]:
             else None
         ),
     }
+
+
+def _graph_reference_query(reference_type: str | None, reference_number: str | None, reference_text: str | None) -> str:
+    return " ".join(
+        part for part in [reference_type, reference_number] if str(part or "").strip()
+    ).strip() or str(reference_text or "").strip()
+
+
+def _resolved_norm_variants(norm_query: NormQuery | None, fallback_number: str | None = None) -> list[str]:
+    values: list[str] = []
+    if norm_query is not None:
+        values.extend(norm_query.number_variants)
+        values.append(norm_query.number_digits)
+    if fallback_number:
+        values.append(str(fallback_number).strip())
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values:
+        candidate = str(value or "").strip()
+        if candidate and candidate not in seen:
+            out.append(candidate)
+            seen.add(candidate)
+    return out
+
+
+def _resolve_reference_targets(
+    ref: dict[str, Any],
+    *,
+    exclude_doc_id: str,
+    per_seed: int,
+) -> list[dict[str, Any]]:
+    query = _graph_reference_query(
+        str(ref.get("reference_type") or "").strip() or None,
+        str(ref.get("reference_number") or "").strip() or None,
+        str(ref.get("reference_text") or "").strip() or None,
+    )
+    norm_query = detect_legal_norm(query, inferred_type=str(ref.get("reference_type") or "").strip() or None)
+    exact_rows: list[dict[str, Any]] = []
+
+    if norm_query is not None:
+        conn = _conn()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT d.id AS doc_id, d.id_materia, d.identifica, d.titulo, d.ementa,
+                       d.issuing_organ, d.page_number, d.art_type, e.publication_date AS pub_date,
+                       e.section AS edition_section
+                FROM dou.document d
+                JOIN dou.edition e ON e.id = d.edition_id
+                WHERE d.id != %s::uuid
+                  AND (%s::text IS NULL OR d.art_type = %s)
+                  AND d.document_number = ANY(%s)
+                  AND (%s::int IS NULL OR d.document_year = %s)
+                ORDER BY
+                  CASE WHEN %s::int IS NOT NULL AND d.document_year = %s THEN 0 ELSE 1 END,
+                  e.publication_date DESC
+                LIMIT %s
+                """,
+                (
+                    exclude_doc_id,
+                    norm_query.norm_type,
+                    norm_query.norm_type,
+                    _resolved_norm_variants(norm_query, str(ref.get("reference_number") or "").strip() or None),
+                    norm_query.year,
+                    norm_query.year,
+                    norm_query.year,
+                    norm_query.year,
+                    per_seed,
+                ),
+            )
+            exact_rows = [_normalize_graph_search_result(item) for item in _rows(cur)]
+            cur.close()
+        finally:
+            conn.close()
+
+    if exact_rows:
+        return exact_rows[:per_seed]
+
+    try:
+        result = search_payload(query=query, max_results=per_seed, page=1)
+        return [
+            _normalize_graph_search_result(item)
+            for item in result.get("results", [])
+            if str(item.get("doc_id") or item.get("id") or "") != exclude_doc_id
+        ][:per_seed]
+    except Exception:
+        return []
+
+
+def _incoming_normative_branches(
+    doc: dict[str, Any],
+    *,
+    per_seed: int,
+) -> list[dict[str, Any]]:
+    doc_type = str(doc.get("art_type") or "").strip() or None
+    doc_number = str(doc.get("document_number") or "").strip() or None
+    doc_year = doc.get("document_year")
+    if not doc_type or not doc_number:
+        return []
+
+    norm_query = detect_legal_norm(
+        " ".join(part for part in [doc_type, doc_number, str(doc_year or "")] if str(part).strip()),
+        inferred_type=doc_type,
+    )
+    variants = _resolved_norm_variants(norm_query, doc_number)
+    if not variants:
+        return []
+
+    conn = _conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT d.id AS doc_id, d.id_materia, d.identifica, d.titulo, d.ementa,
+                   d.issuing_organ, d.page_number, d.art_type, e.publication_date AS pub_date,
+                   e.section AS edition_section, nr.reference_type, nr.reference_number, nr.reference_text
+            FROM dou.normative_reference nr
+            JOIN dou.document d ON d.id = nr.document_id
+            JOIN dou.edition e ON e.id = d.edition_id
+            WHERE d.id != %s::uuid
+              AND (%s::text IS NULL OR nr.reference_type = %s)
+              AND nr.reference_number = ANY(%s)
+            ORDER BY e.publication_date DESC
+            LIMIT %s
+            """,
+            (
+                str(doc.get("id") or ""),
+                doc_type,
+                doc_type,
+                variants,
+                max(6, per_seed * 4),
+            ),
+        )
+        rows = _rows(cur)
+        cur.close()
+    finally:
+        conn.close()
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        relation_type = _infer_relation_type(
+            str(row.get("reference_text") or ""),
+            str(row.get("reference_type") or ""),
+        )
+        grouped.setdefault(relation_type, [])
+        normalized = _normalize_graph_search_result(row)
+        if all(item["id"] != normalized["id"] for item in grouped[relation_type]):
+            grouped[relation_type].append(normalized)
+
+    branches: list[dict[str, Any]] = []
+    for relation_type, related_docs in grouped.items():
+        if not related_docs:
+            continue
+        verb = {
+            "altera": "alteram",
+            "revoga": "revogam",
+            "prorroga": "prorrogam",
+            "regulamenta": "regulamentam",
+            "complementa": "complementam",
+            "cita": "citam",
+        }.get(relation_type, "relacionam-se com")
+        branches.append(
+            {
+                "seed": {
+                    "id": f"incoming-{relation_type}",
+                    "node_type": "incoming",
+                    "relation_type": relation_type,
+                    "title": f"Atos que {verb} este ato",
+                    "subtitle": "Relações de entrada detectadas no corpus",
+                    "query": " ".join(part for part in [doc_type, doc_number] if part),
+                },
+                "related_documents": related_docs[:per_seed],
+            }
+        )
+    order = {"revoga": 0, "altera": 1, "regulamenta": 2, "complementa": 3, "prorroga": 4, "cita": 5}
+    branches.sort(key=lambda branch: order.get(str(branch["seed"].get("relation_type") or ""), 99))
+    return branches
 
 
 def _collapse_text(value: str) -> str:
@@ -372,17 +653,57 @@ def api_search_examples(n: int = Query(8, ge=1, le=20)):
 
 
 # ---------------------------------------------------------------------------
+# API — Auth
+# ---------------------------------------------------------------------------
+
+@app.get("/api/auth/session")
+def api_auth_session_status(request: Request):
+    principal = resolve_request_principal(request, log_failures=False)
+    if principal is None:
+        return {"authenticated": False}
+    return {
+        "authenticated": True,
+        "principal": {
+            "label": principal.label,
+            "source": principal.source,
+        },
+        "expires_in_sec": get_auth_config().session_ttl_sec,
+    }
+
+
+@app.post("/api/auth/session")
+async def api_auth_session_create(request: Request):
+    principal = resolve_request_principal(request, allow_session=False)
+    assert principal is not None
+    limiter = getattr(request.app.state, "rate_limiter", None)
+    if isinstance(limiter, RateLimiter):
+        await limiter.enforce(
+            bucket="auth_bootstrap",
+            key=request_ip(request),
+            rule=RateRule(limit=10, window_sec=60),
+            request=request,
+            dimension="ip",
+        )
+    return create_session_response(request, principal)
+
+
+@app.delete("/api/auth/session")
+def api_auth_session_delete():
+    return clear_session_response()
+
+
+# ---------------------------------------------------------------------------
 # API — Document
 # ---------------------------------------------------------------------------
 
 @app.get("/api/document/{doc_id}")
-def api_document(doc_id: str):
+def api_document(doc_id: str, _auth: AuthPrincipal = Depends(require_protected_access)):
     """Get full document by UUID."""
     return _load_document_payload(doc_id)
 
 
 @app.get("/api/document/{doc_id}/pdf")
-def api_document_pdf(doc_id: str):
+def api_document_pdf(doc_id: str, _auth: AuthPrincipal = Depends(require_protected_access)):
     """Generate a server-side PDF rendition with editorial/two-column layout."""
     doc = _load_document_payload(doc_id)
 
@@ -766,6 +1087,7 @@ def api_document_graph(
     doc_id: str,
     depth: int = Query(2, ge=1, le=2),
     per_seed: int = Query(3, ge=1, le=5),
+    _auth: AuthPrincipal = Depends(require_protected_access),
 ):
     """Derived document graph from existing references + search backend."""
     conn = _conn()
@@ -774,7 +1096,7 @@ def api_document_graph(
         cur.execute(
             """
             SELECT d.id, d.identifica, d.titulo, d.ementa, d.issuing_organ, d.page_number,
-                   d.art_type, e.publication_date, e.section
+                   d.art_type, d.document_number, d.document_year, e.publication_date, e.section
             FROM dou.document d
             JOIN dou.edition e ON e.id = d.edition_id
             WHERE d.id = %s::uuid
@@ -816,22 +1138,18 @@ def api_document_graph(
     branches: list[dict[str, Any]] = []
 
     for idx, ref in enumerate(normative_refs[:4]):
-        query = " ".join(
-            part for part in [ref.get("reference_type"), ref.get("reference_number")] if part
-        ).strip() or str(ref.get("reference_text") or "").strip()
+        query = _graph_reference_query(
+            str(ref.get("reference_type") or "").strip() or None,
+            str(ref.get("reference_number") or "").strip() or None,
+            str(ref.get("reference_text") or "").strip() or None,
+        )
         if not query:
             continue
-        related_docs: list[dict[str, Any]] = []
-        if depth >= 2:
-            try:
-                result = search_payload(query=query, max_results=per_seed, page=1)
-                related_docs = [
-                    _normalize_graph_search_result(item)
-                    for item in result.get("results", [])
-                    if str(item.get("doc_id") or item.get("id") or "") != doc_id
-                ][:per_seed]
-            except Exception:
-                related_docs = []
+        related_docs: list[dict[str, Any]] = _resolve_reference_targets(
+            ref,
+            exclude_doc_id=doc_id,
+            per_seed=per_seed,
+        ) if depth >= 2 else []
 
         branches.append(
             {
@@ -852,6 +1170,8 @@ def api_document_graph(
                 "related_documents": related_docs,
             }
         )
+
+    branches.extend(_incoming_normative_branches(doc, per_seed=per_seed))
 
     for idx, procedure in enumerate(procedure_refs[:3]):
         query = " ".join(
@@ -952,6 +1272,194 @@ def api_stats():
     }
 
 
+@app.get("/api/analytics")
+def api_analytics():
+    """Operational analytics payload for home and analytics views."""
+    conn = _conn()
+    try:
+        cur = conn.cursor()
+
+        cur.execute(
+            """
+            SELECT
+                count(*)::bigint AS total_documents,
+                (count(DISTINCT issuing_organ) FILTER (WHERE issuing_organ IS NOT NULL AND issuing_organ <> ''))::bigint AS total_organs,
+                (count(DISTINCT art_type) FILTER (WHERE art_type IS NOT NULL AND art_type <> ''))::bigint AS total_types
+            FROM dou.document
+            """
+        )
+        total_documents, total_organs, total_types = cur.fetchone()
+
+        cur.execute(
+            """
+            SELECT min(publication_date), max(publication_date)
+            FROM dou.edition
+            """
+        )
+        date_min, date_max = cur.fetchone()
+
+        cur.execute(
+            """
+            SELECT
+                date_trunc('month', e.publication_date)::date AS month,
+                count(*) FILTER (WHERE e.section = 'do1' AND NOT COALESCE(e.is_extra, false))::bigint AS do1,
+                count(*) FILTER (WHERE e.section = 'do2')::bigint AS do2,
+                count(*) FILTER (WHERE e.section = 'do3')::bigint AS do3,
+                count(*) FILTER (WHERE COALESCE(e.is_extra, false) OR e.section IN ('do1e', 'e'))::bigint AS extra,
+                count(*)::bigint AS total
+            FROM dou.document d
+            JOIN dou.edition e ON e.id = d.edition_id
+            GROUP BY 1
+            ORDER BY 1 DESC
+            LIMIT 18
+            """
+        )
+        monthly_rows = list(reversed(cur.fetchall()))
+        section_monthly = [
+            {
+                "month": row[0].isoformat() if row[0] else None,
+                "do1": int(row[1] or 0),
+                "do2": int(row[2] or 0),
+                "do3": int(row[3] or 0),
+                "extra": int(row[4] or 0),
+                "total": int(row[5] or 0),
+            }
+            for row in monthly_rows
+        ]
+
+        cur.execute(
+            """
+            SELECT COALESCE(NULLIF(trim(art_type), ''), 'outros') AS art_type, count(*)::bigint AS cnt
+            FROM dou.document
+            GROUP BY 1
+            ORDER BY cnt DESC
+            LIMIT 5
+            """
+        )
+        top_type_rows = cur.fetchall()
+        top_types = [str(row[0]) for row in top_type_rows]
+
+        type_points_by_month: dict[str, dict[str, int]] = {}
+        if top_types:
+            cur.execute(
+                """
+                SELECT
+                    date_trunc('month', e.publication_date)::date AS month,
+                    COALESCE(NULLIF(trim(d.art_type), ''), 'outros') AS art_type,
+                    count(*)::bigint AS cnt
+                FROM dou.document d
+                JOIN dou.edition e ON e.id = d.edition_id
+                WHERE COALESCE(NULLIF(trim(d.art_type), ''), 'outros') = ANY(%s)
+                GROUP BY 1, 2
+                ORDER BY 1 ASC
+                """,
+                (top_types,),
+            )
+            for month_value, art_type_value, count_value in cur.fetchall():
+                month_key = month_value.isoformat() if month_value else ""
+                bucket = type_points_by_month.setdefault(month_key, {})
+                bucket[str(art_type_value)] = int(count_value or 0)
+
+        top_types_monthly = {
+            "months": [item["month"] for item in section_monthly],
+            "series": [
+                {
+                    "key": art_type,
+                    "label": art_type.replace("-", " ").title(),
+                    "total": int(total or 0),
+                    "points": [
+                        type_points_by_month.get(str(item["month"]), {}).get(art_type, 0)
+                        for item in section_monthly
+                    ],
+                }
+                for art_type, total in top_type_rows
+            ],
+        }
+
+        cur.execute(
+            """
+            SELECT issuing_organ, count(*)::bigint AS cnt
+            FROM dou.document
+            WHERE issuing_organ IS NOT NULL AND issuing_organ <> ''
+            GROUP BY issuing_organ
+            ORDER BY cnt DESC
+            LIMIT 8
+            """
+        )
+        top_organs = [
+            {"organ": str(row[0]), "count": int(row[1] or 0)}
+            for row in cur.fetchall()
+        ]
+
+        cur.execute(
+            """
+            SELECT
+                e.section,
+                count(*)::bigint AS cnt
+            FROM dou.document d
+            JOIN dou.edition e ON e.id = d.edition_id
+            GROUP BY e.section
+            ORDER BY cnt DESC
+            """
+        )
+        section_totals = [
+            {"section": str(row[0] or ""), "count": int(row[1] or 0)}
+            for row in cur.fetchall()
+        ]
+
+        cur.execute(
+            """
+            SELECT
+                d.id,
+                d.identifica,
+                d.ementa,
+                d.issuing_organ,
+                d.art_type,
+                e.publication_date,
+                e.section,
+                d.page_number
+            FROM dou.document d
+            JOIN dou.edition e ON e.id = d.edition_id
+            ORDER BY e.publication_date DESC, d.page_number DESC NULLS LAST, d.id DESC
+            LIMIT 4
+            """
+        )
+        latest_documents = []
+        for row in cur.fetchall():
+            latest_documents.append(
+                {
+                    "id": str(row[0]),
+                    "title": str(row[1] or row[2] or "Sem título"),
+                    "snippet": str(row[2] or "").strip() or None,
+                    "issuing_organ": str(row[3] or "").strip() or None,
+                    "art_type": str(row[4] or "").strip() or None,
+                    "pub_date": row[5].isoformat() if row[5] else None,
+                    "section": str(row[6] or ""),
+                    "page": str(row[7]) if row[7] is not None else None,
+                }
+            )
+
+        cur.close()
+    finally:
+        conn.close()
+
+    return {
+        "overview": {
+            "total_documents": int(total_documents or 0),
+            "total_organs": int(total_organs or 0),
+            "total_types": int(total_types or 0),
+            "date_min": date_min.isoformat() if date_min else None,
+            "date_max": date_max.isoformat() if date_max else None,
+            "tracked_months": len(section_monthly),
+        },
+        "section_totals": section_totals,
+        "section_monthly": section_monthly,
+        "top_types_monthly": top_types_monthly,
+        "top_organs": top_organs,
+        "latest_documents": latest_documents,
+    }
+
+
 # ---------------------------------------------------------------------------
 # API — Types (for filter dropdown)
 # ---------------------------------------------------------------------------
@@ -1030,6 +1538,406 @@ def _chat_context(user_msg: str) -> str:
     return "\n".join(parts)
 
 
+def _normalize_chat_source(row: dict[str, Any]) -> dict[str, Any]:
+    section = str(row.get("edition_section") or row.get("section") or "").strip().lower()
+    if section in {"1", "do1", "secao1"}:
+        section = "do1"
+    elif section in {"2", "do2", "secao2"}:
+        section = "do2"
+    elif section in {"3", "do3", "secao3"}:
+        section = "do3"
+    elif section in {"e", "extra", "do1e"}:
+        section = "do1e"
+
+    title = str(
+        row.get("identifica")
+        or row.get("titulo")
+        or row.get("ementa")
+        or row.get("title")
+        or "Sem título"
+    ).strip()
+    snippet = (
+        str(row.get("snippet") or row.get("highlight") or row.get("ementa") or "")
+        .replace(">>>", "")
+        .replace("<<<", "")
+        .strip()
+    )
+    doc_id = str(row.get("doc_id") or row.get("id") or "").strip()
+    id_materia = row.get("id_materia")
+
+    return {
+        "id": doc_id,
+        "title": title,
+        "subtitle": str(row.get("ementa") or "").strip() or None,
+        "snippet": snippet or None,
+        "highlight": str(row.get("highlight") or "").strip() or None,
+        "pub_date": str(row.get("pub_date") or row.get("publication_date") or "").strip(),
+        "section": section,
+        "page": str(row.get("page_number")).strip() if row.get("page_number") is not None else None,
+        "art_type": str(row.get("art_type") or "").strip() or None,
+        "issuing_organ": str(row.get("issuing_organ") or "").strip() or None,
+        "dou_url": f"https://www.in.gov.br/web/dou/-/{id_materia}" if id_materia else None,
+    }
+
+
+def _compact_text(value: str, *, limit: int = 900) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip() + "…"
+
+
+def _chat_excerpt_for_query(body_plain: str | None, query: str) -> str:
+    text = str(body_plain or "").strip()
+    if not text:
+        return ""
+
+    paragraphs = [part.strip() for part in re.split(r"\n{2,}", text) if part.strip()]
+    if not paragraphs:
+        paragraphs = [text]
+
+    keywords = [
+        token
+        for token in re.findall(r"[\wÀ-ÿ]{4,}", query.lower())
+        if token not in {"sobre", "quais", "qual", "como", "esta", "esse", "norma", "decreto", "portaria", "lei"}
+    ][:6]
+
+    for paragraph in paragraphs:
+        corpus = paragraph.lower()
+        if any(token in corpus for token in keywords):
+            return _compact_text(paragraph)
+
+    for paragraph in paragraphs:
+        if re.search(r"\bart\.\s*\d+", paragraph, re.IGNORECASE):
+            return _compact_text(paragraph)
+
+    return _compact_text(paragraphs[0])
+
+
+def _chat_rag_fallback_reply(message: str, sources: list[dict[str, Any]]) -> str:
+    lines = [
+        "Recuperei os atos mais relevantes para responder com base no corpus do DOU.",
+        "Abra as fontes abaixo para leitura integral ou refine a pergunta com órgão, número da norma ou período.",
+        "",
+    ]
+    for source in sources[:4]:
+        bits = [
+            str(source.get("art_type") or "").strip(),
+            str(source.get("section") or "").upper(),
+            str(source.get("pub_date") or "").strip(),
+        ]
+        meta = " · ".join(bit for bit in bits if bit)
+        lines.append(f"• **{source.get('title') or 'Sem título'}**" + (f" — {meta}" if meta else ""))
+        if source.get("snippet"):
+            lines.append(f"  {source['snippet']}")
+    lines.append("")
+    lines.append(f"Pergunta original: *{message.strip()}*")
+    return "\n".join(lines).strip()
+
+
+def _chat_extract_organ_terms(message: str) -> list[str]:
+    low = message.lower()
+    aliases = {
+        "anvisa": ["Agência Nacional de Vigilância Sanitária", "ANVISA"],
+        "mec": ["Ministério da Educação"],
+        "ms": ["Ministério da Saúde"],
+        "receita federal": ["Receita Federal", "Ministério da Fazenda"],
+        "anatel": ["Agência Nacional de Telecomunicações"],
+    }
+    terms: list[str] = []
+    for alias, expansions in aliases.items():
+        if alias in low:
+            terms.extend(expansions)
+
+    conn = _conn(timeout_ms=5000)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT term
+            FROM dou.suggest_cache
+            WHERE cat = 'orgao'
+              AND length(term) >= 5
+              AND %s ILIKE '%%' || term || '%%'
+            ORDER BY length(term) DESC, cnt DESC
+            LIMIT 3
+            """,
+            (message,),
+        )
+        terms.extend(str(row[0]) for row in cur.fetchall())
+        cur.close()
+    except Exception:
+        pass
+    finally:
+        conn.close()
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for term in terms:
+        value = str(term or "").strip()
+        if value and value.casefold() not in seen:
+            seen.add(value.casefold())
+            out.append(value)
+    return out
+
+
+def _chat_exact_norm_matches(
+    norm_query: NormQuery,
+    *,
+    organ_terms: list[str] | None = None,
+    max_results: int = 4,
+) -> list[dict[str, Any]]:
+    organ_terms = [term for term in (organ_terms or []) if str(term).strip()]
+    conn = _conn(timeout_ms=10000)
+    try:
+        cur = conn.cursor()
+        sql = """
+            SELECT d.id AS doc_id, d.id_materia, d.identifica, d.titulo, d.ementa,
+                   d.issuing_organ, d.page_number, d.art_type, e.publication_date AS pub_date,
+                   e.section AS edition_section
+            FROM dou.document d
+            JOIN dou.edition e ON e.id = d.edition_id
+            WHERE (%s::text IS NULL OR d.art_type = %s)
+              AND d.document_number = ANY(%s)
+              AND (%s::int IS NULL OR d.document_year = %s)
+        """
+        params: list[Any] = [
+            norm_query.norm_type,
+            norm_query.norm_type,
+            _resolved_norm_variants(norm_query),
+            norm_query.year,
+            norm_query.year,
+        ]
+        if organ_terms:
+            sql += """
+              AND (
+            """
+            clauses: list[str] = []
+            for term in organ_terms:
+                clauses.append(
+                    "(d.issuing_organ ILIKE %s OR d.identifica ILIKE %s OR d.ementa ILIKE %s OR d.body_plain ILIKE %s)"
+                )
+                like = f"%{term}%"
+                params.extend([like, like, like, like])
+            sql += " OR ".join(clauses) + ")"
+
+        sql += """
+            ORDER BY
+              CASE WHEN %s::int IS NOT NULL AND d.document_year = %s THEN 0 ELSE 1 END,
+              e.publication_date DESC
+            LIMIT %s
+        """
+        params.extend([norm_query.year, norm_query.year, max_results])
+        cur.execute(sql, params)
+        rows = _rows(cur)
+        cur.close()
+        return rows
+    finally:
+        conn.close()
+
+
+def _chat_corpus_range() -> tuple[str | None, str | None]:
+    conn = _conn(timeout_ms=5000)
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT min(publication_date), max(publication_date) FROM dou.edition")
+        row = cur.fetchone()
+        cur.close()
+        if not row:
+            return None, None
+        return (
+            row[0].isoformat() if row[0] else None,
+            row[1].isoformat() if row[1] else None,
+        )
+    except Exception:
+        return None, None
+    finally:
+        conn.close()
+
+
+def _chat_exact_norm_miss_reply(
+    message: str,
+    *,
+    norm_query: NormQuery,
+    organ_terms: list[str],
+    nearby_sources: list[dict[str, Any]],
+) -> str:
+    date_min, date_max = _chat_corpus_range()
+    norm_label = " ".join(
+        part
+        for part in [
+            norm_query.norm_type.title() if norm_query.norm_type else "Norma",
+            norm_query.canonical_number,
+            f"/{norm_query.year}" if norm_query.year else "",
+        ]
+        if str(part).strip()
+    ).replace(" /", "/")
+    organ_label = ", ".join(organ_terms[:2]) if organ_terms else "o órgão solicitado"
+    lines = [
+        f"Não encontrei um ato exato para **{norm_label}** associado a **{organ_label}** no corpus carregado.",
+    ]
+    if date_min or date_max:
+        lines.append(
+            f"O recorte atual da base cobre **{date_min or '?'}** até **{date_max or '?'}**, então a fonte pedida pode estar fora dessa janela."
+        )
+    if nearby_sources:
+        lines.append("")
+        lines.append("Encontrei atos próximos pelo mesmo número, mas não vou tratá-los como equivalentes:")
+        for source in nearby_sources[:3]:
+            meta = " · ".join(
+                bit
+                for bit in [
+                    str(source.get("art_type") or "").strip(),
+                    str(source.get("issuing_organ") or "").strip(),
+                    str(source.get("pub_date") or "").strip(),
+                ]
+                if bit
+            )
+            lines.append(f"• **{source.get('title') or 'Sem título'}**" + (f" — {meta}" if meta else ""))
+    lines.append("")
+    lines.append(f"Pergunta original: *{message.strip()}*")
+    return "\n".join(lines).strip()
+
+
+def _chat_rag_context(message: str, *, max_results: int = 4) -> dict[str, Any] | None:
+    norm_query = detect_legal_norm(message)
+    organ_terms = _chat_extract_organ_terms(message)
+    relation_terms = [
+        term
+        for term in ["regulamenta", "revoga", "altera", "complementa", "cita"]
+        if term in message.lower()
+    ]
+    search_query = message
+    if norm_query is not None:
+        search_query = " ".join(
+            part
+            for part in [
+                norm_query.norm_type or "norma",
+                norm_query.number_digits,
+                str(norm_query.year) if norm_query.year is not None else "",
+                *relation_terms,
+            ]
+            if str(part or "").strip()
+        )
+    merged_results: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+
+    if norm_query is not None:
+        exact_rows = _chat_exact_norm_matches(norm_query, organ_terms=organ_terms, max_results=max_results)
+        if not exact_rows and organ_terms:
+            nearby_rows = _chat_exact_norm_matches(norm_query, organ_terms=None, max_results=max_results)
+            nearby_sources = [_normalize_chat_source(row) for row in nearby_rows]
+            return {
+                "reply": _chat_exact_norm_miss_reply(
+                    message,
+                    norm_query=norm_query,
+                    organ_terms=organ_terms,
+                    nearby_sources=nearby_sources,
+                ),
+                "sources": nearby_sources,
+                "context": "",
+                "search_total": len(nearby_sources),
+                "search_backend": "exact-norm-guard",
+            }
+        for row in exact_rows:
+            doc_id = str(row.get("doc_id") or "").strip()
+            if not doc_id or doc_id in seen_ids:
+                continue
+            seen_ids.add(doc_id)
+            merged_results.append(row)
+    try:
+        search = search_payload(query=search_query, max_results=max_results, page=1)
+    except Exception:
+        search = {"results": []}
+
+    raw_results = search.get("results", [])
+    if isinstance(raw_results, list):
+        for raw in raw_results:
+            row = raw if isinstance(raw, dict) else {}
+            doc_id = str(row.get("doc_id") or row.get("id") or "").strip()
+            if doc_id and doc_id not in seen_ids:
+                seen_ids.add(doc_id)
+                merged_results.append(row)
+
+    if not merged_results:
+        return None
+
+    sources: list[dict[str, Any]] = []
+    context_blocks: list[str] = []
+
+    for index, raw in enumerate(merged_results[:max_results], start=1):
+        row = raw if isinstance(raw, dict) else {}
+        source = _normalize_chat_source(row)
+        doc_id = str(source.get("id") or "").strip()
+        body_plain = ""
+        normative_refs: list[dict[str, Any]] = []
+
+        if doc_id:
+            try:
+                doc = _load_document_payload(doc_id)
+                if isinstance(doc, dict):
+                    body_plain = str(doc.get("body_plain") or "").strip()
+                    normative_refs = [
+                        item for item in doc.get("normative_refs", []) if isinstance(item, dict)
+                    ][:4]
+                    if not source.get("subtitle"):
+                        source["subtitle"] = str(doc.get("ementa") or "").strip() or None
+            except HTTPException:
+                pass
+            except Exception:
+                pass
+
+        excerpt = _chat_excerpt_for_query(body_plain, message)
+        if excerpt and not source.get("snippet"):
+            source["snippet"] = excerpt
+
+        ref_text = ", ".join(
+            _compact_text(
+                " ".join(
+                    part
+                    for part in [
+                        str(item.get("reference_type") or "").strip(),
+                        str(item.get("reference_number") or "").strip(),
+                        str(item.get("reference_date") or "").strip(),
+                    ]
+                    if part
+                ),
+                limit=80,
+            )
+            for item in normative_refs[:3]
+        )
+
+        meta_bits = [
+            str(source.get("art_type") or "").strip(),
+            str(source.get("issuing_organ") or "").strip(),
+            str(source.get("pub_date") or "").strip(),
+            str(source.get("section") or "").upper(),
+        ]
+        meta = " | ".join(bit for bit in meta_bits if bit)
+        block_lines = [f"[DOC {index}] {source.get('title') or 'Sem título'}"]
+        if meta:
+            block_lines.append(f"Metadados: {meta}")
+        if source.get("subtitle"):
+            block_lines.append(f"Ementa: {_compact_text(str(source['subtitle']), limit=360)}")
+        if excerpt:
+            block_lines.append(f"Trecho: {excerpt}")
+        if ref_text:
+            block_lines.append(f"Referências citadas: {ref_text}")
+        context_blocks.append("\n".join(block_lines))
+        sources.append(source)
+
+    if not sources:
+        return None
+
+    return {
+        "reply": _chat_rag_fallback_reply(message, sources),
+        "sources": sources,
+        "context": "\n\n".join(context_blocks),
+        "search_total": int(search.get("total") or 0),
+        "search_backend": str(search.get("backend") or "").strip() or None,
+    }
+
+
 SYSTEM_PROMPT = (
     "Você é a GABI, assistente do sistema de busca do Diário Oficial da União (DOU). "
     "Responda SEMPRE em português brasileiro, de forma curta e objetiva (máximo 3 parágrafos). "
@@ -1039,8 +1947,22 @@ SYSTEM_PROMPT = (
     "Você ajuda os usuários a encontrar publicações. "
     "Quando o usuário perguntar algo que pode ser buscado, sugira termos de busca "
     'concretos (ex: use a busca com "portaria ministério da saúde"). '
+    "Quando houver documentos recuperados, responda com base neles, cite o tipo do ato e a data quando isso ajudar, "
+    "e admita incerteza se as fontes não bastarem. "
     "Não invente dados — use apenas o contexto fornecido abaixo.\n\n"
 )
+
+
+def _sse_event(event: str, payload: dict[str, Any]) -> bytes:
+    body = json.dumps(payload, ensure_ascii=False)
+    return f"event: {event}\ndata: {body}\n\n".encode("utf-8")
+
+
+def _chunk_text(value: str, *, chunk_size: int = 180) -> list[str]:
+    text = str(value or "")
+    if not text:
+        return []
+    return [text[idx: idx + chunk_size] for idx in range(0, len(text), chunk_size)]
 
 
 def _parse_limit(msg: str) -> int:
@@ -1277,9 +2199,13 @@ def _chat_search(msg: str) -> str | None:
 def _is_off_topic(msg: str) -> bool:
     """Detect messages clearly unrelated to DOU/legal publications."""
     low = msg.lower().strip()
+    if detect_legal_norm(msg) is not None:
+        return False
+    if _re.search(r"\b(publicaç|documento|ato|norma|dou|diário oficial|portaria|decreto|lei|edital|resolução)\b", low):
+        return False
     # Math expressions (operators present, not just a year)
     ops = len(_re.findall(r'[+\-*/=^]{1}', low))
-    if ops >= 2 and not _re.search(r'\b(publicaç|documento|ato|dou|edital|portaria|decreto|ministério)', low):
+    if ops >= 2:
         return True
     # Clearly off-topic
     off_patterns = [
@@ -1293,15 +2219,200 @@ def _is_off_topic(msg: str) -> bool:
     return False
 
 
+def _should_use_rag(msg: str) -> bool:
+    low = msg.lower().strip()
+    norm = detect_legal_norm(msg)
+    if norm is None and not re.search(r"\b(norma|ato|documento|dou|diário oficial)\b", low):
+        return False
+
+    rag_patterns = [
+        r"\b(explica|explique|explicar|resuma|resumir|resumo)\b",
+        r"\b(o que diz|o que dispõe|o que dispoe|o que estabelece|do que trata)\b",
+        r"\b(qual a diferença|quais são|quais sao|quais|qual)\b",
+        r"\b(regulamenta|regulamentam|revoga|revogam|altera|alteram|complementa|complementam|cita|citam)\b",
+        r"\b(como funciona|como se aplica|impacto|efeito)\b",
+    ]
+    return any(re.search(pattern, low) for pattern in rag_patterns)
+
+
 @app.post("/api/chat")
-async def api_chat(req: ChatRequest, request: Request):
+async def api_chat(
+    req: ChatRequest,
+    request: Request,
+    stream: bool = Query(False),
+    _auth: AuthPrincipal = Depends(require_protected_access),
+):
     """Chat: natural language search interface for DOU publications."""
     msg = req.message.strip()
     low = msg.lower()
+    chat_security = getattr(request.app.state, "chat_security", None)
+    limiter = getattr(request.app.state, "rate_limiter", None)
 
-    # 1. Greetings
+    async def finalize(payload: dict[str, Any]) -> dict[str, Any]:
+        if isinstance(chat_security, ChatSecurity):
+            await chat_security.cache_reply(msg, req.history, payload)
+        return payload
+
+    async def stream_payload(payload: dict[str, Any], *, cache_reply: bool) -> StreamingResponse:
+        async def iterator() -> AsyncIterator[bytes]:
+            effective = await finalize(payload) if cache_reply else payload
+            yield _sse_event(
+                "meta",
+                {
+                    "model": str(effective.get("model", "gabi")),
+                    "cache": effective.get("cache"),
+                    "source_count": len(effective.get("sources", []) or []),
+                },
+            )
+            for chunk in _chunk_text(str(effective.get("reply", ""))):
+                yield _sse_event("delta", {"content": chunk})
+            yield _sse_event(
+                "done",
+                {
+                    "reply": str(effective.get("reply", "")),
+                    "model": str(effective.get("model", "gabi")),
+                    "cache": effective.get("cache"),
+                    "sources": effective.get("sources", []),
+                },
+            )
+
+        return StreamingResponse(
+            iterator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    async def stream_qwen(
+        messages: list[dict[str, str]],
+        *,
+        sources: list[dict[str, Any]] | None = None,
+        fallback_payload: dict[str, Any] | None = None,
+    ) -> StreamingResponse:
+        http = request.app.state.http
+
+        async def iterator() -> AsyncIterator[bytes]:
+            collected: list[str] = []
+            meta_sent = False
+            try:
+                async with http.stream(
+                    "POST",
+                    DASHSCOPE_URL,
+                    headers={
+                        "Authorization": f"Bearer {QWEN_API_KEY}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": QWEN_MODEL,
+                        "messages": messages,
+                        "temperature": 0.7,
+                        "max_tokens": 2048,
+                        "stream": True,
+                    },
+                ) as resp:
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if not line or not line.startswith("data:"):
+                            continue
+                        raw = line[5:].strip()
+                        if raw == "[DONE]":
+                            break
+                        try:
+                            payload = json.loads(raw)
+                        except json.JSONDecodeError:
+                            continue
+                        delta = (
+                            payload.get("choices", [{}])[0]
+                            .get("delta", {})
+                            .get("content", "")
+                        )
+                        if not meta_sent:
+                            meta_sent = True
+                            yield _sse_event(
+                                "meta",
+                                {
+                                    "model": QWEN_MODEL,
+                                    "source_count": len(sources or []),
+                                },
+                            )
+                        if delta:
+                            collected.append(str(delta))
+                            yield _sse_event("delta", {"content": str(delta)})
+            except Exception as exc:
+                if fallback_payload is not None:
+                    effective = await finalize(
+                        {
+                            "reply": str(fallback_payload.get("reply", "")),
+                            "model": str(fallback_payload.get("model", "gabi-rag")),
+                            "sources": fallback_payload.get("sources", sources or []),
+                        }
+                    )
+                    if not meta_sent:
+                        yield _sse_event(
+                            "meta",
+                            {
+                                "model": str(effective.get("model", "gabi-rag")),
+                                "cache": effective.get("cache"),
+                                "source_count": len(effective.get("sources", []) or []),
+                            },
+                        )
+                    for chunk in _chunk_text(str(effective.get("reply", ""))):
+                        yield _sse_event("delta", {"content": chunk})
+                    yield _sse_event(
+                        "done",
+                        {
+                            "reply": str(effective.get("reply", "")),
+                            "model": str(effective.get("model", "gabi-rag")),
+                            "cache": effective.get("cache"),
+                            "sources": effective.get("sources", []),
+                        },
+                    )
+                    return
+                yield _sse_event("error", {"detail": str(exc)})
+                return
+
+            payload = await finalize(
+                {
+                    "reply": "".join(collected),
+                    "model": QWEN_MODEL,
+                    "sources": sources or [],
+                }
+            )
+            yield _sse_event(
+                "done",
+                {
+                    "reply": payload["reply"],
+                    "model": payload["model"],
+                    "cache": payload.get("cache"),
+                    "sources": payload.get("sources", []),
+                },
+            )
+
+        return StreamingResponse(
+            iterator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    if isinstance(chat_security, ChatSecurity):
+        await chat_security.enforce(request, limiter=limiter if isinstance(limiter, RateLimiter) else None)
+        cached = await chat_security.get_cached_reply(msg, req.history)
+        if cached is not None:
+            if stream:
+                return await stream_payload(cached, cache_reply=False)
+            return cached
+
+    payload: dict[str, Any] | None = None
+
     if _re.search(r'^(oi|olá|ola|hey|bom dia|boa tarde|boa noite|hello|hi)\b', low):
-        return {
+        payload = {
             "reply": (
                 "Olá! Sou a **GABI**, sua assistente para buscas no Diário Oficial da União.\n\n"
                 "Posso buscar publicações para você! Experimente:\n"
@@ -1312,10 +2423,8 @@ async def api_chat(req: ChatRequest, request: Request):
             ),
             "model": "gabi",
         }
-
-    # 2. What is DOU / help
-    if _re.search(r'\b(o que é|oque é|que é o|explica).*(dou|diário oficial|gabi)\b', low):
-        return {
+    elif _re.search(r'\b(o que é|oque é|que é o|explica).*(dou|diário oficial|gabi)\b', low):
+        payload = {
             "reply": (
                 "O **DOU** (Diário Oficial da União) é o jornal oficial do governo federal do Brasil, "
                 "publicado diariamente pela Imprensa Nacional.\n\n"
@@ -1326,10 +2435,8 @@ async def api_chat(req: ChatRequest, request: Request):
             ),
             "model": "gabi",
         }
-
-    # 3. How to search
-    if _re.search(r'\b(como|ajuda|help|dica|sintaxe).*(busca|pesquis|procur|encontr|usar)', low):
-        return {
+    elif _re.search(r'\b(como|ajuda|help|dica|sintaxe).*(busca|pesquis|procur|encontr|usar)', low):
+        payload = {
             "reply": (
                 "**Como buscar no GABI:**\n\n"
                 '🔍 Peça diretamente: *"portarias do Ministério da Saúde de 2023"*\n\n'
@@ -1341,10 +2448,8 @@ async def api_chat(req: ChatRequest, request: Request):
             ),
             "model": "gabi",
         }
-
-    # 4. Off-topic rejection
-    if _is_off_topic(msg):
-        return {
+    elif _is_off_topic(msg):
+        payload = {
             "reply": (
                 "Desculpe, só posso ajudar com buscas no **Diário Oficial da União** "
                 "(publicações, órgãos, atos normativos).\n\n"
@@ -1356,19 +2461,64 @@ async def api_chat(req: ChatRequest, request: Request):
             "model": "gabi",
         }
 
-    # 5. Try to interpret as a search and return real documents
-    result = _chat_search(msg)
-    if result:
-        return {"reply": result, "model": "gabi"}
+    use_rag = _should_use_rag(msg)
+    rag = _chat_rag_context(msg, max_results=min(_parse_limit(msg), 4)) if use_rag else None
+    if payload is not None:
+        if stream:
+            return await stream_payload(payload, cache_reply=True)
+        return await finalize(payload)
 
-    # 6. Fallback: try Qwen API if available
+    if not use_rag:
+        result = _chat_search(msg)
+        if result:
+            payload = {"reply": result, "model": "gabi"}
+            if stream:
+                return await stream_payload(payload, cache_reply=True)
+            return await finalize(payload)
+
+    if rag is not None and not QWEN_API_KEY:
+        payload = {
+            "reply": rag["reply"],
+            "model": "gabi-rag",
+            "sources": rag["sources"],
+        }
+        if stream:
+            return await stream_payload(payload, cache_reply=True)
+        return await finalize(payload)
+
     if QWEN_API_KEY:
         ctx = _chat_context(msg)
-        system = SYSTEM_PROMPT + (f"CONTEXTO DA BASE:\n{ctx}" if ctx else "")
+        system_parts = [SYSTEM_PROMPT]
+        if ctx:
+            system_parts.append(f"CONTEXTO DA BASE:\n{ctx}")
+        if rag is not None:
+            system_parts.append(
+                "DOCUMENTOS RECUPERADOS:\n"
+                f"{rag['context']}\n\n"
+                "Use esses documentos como fonte primária da resposta. "
+                "Se a pergunta pedir comparação, regulamentos, alterações ou explicação, "
+                "baseie a resposta no que aparece nessas fontes e mencione quando algo não estiver explícito."
+            )
+        system = "\n\n".join(part for part in system_parts if part)
         messages = [{"role": "system", "content": system}]
         for h in req.history[-10:]:
             messages.append({"role": h.get("role", "user"), "content": h.get("content", "")})
         messages.append({"role": "user", "content": msg})
+
+        if stream:
+            return await stream_qwen(
+                messages,
+                sources=list(rag.get("sources", [])) if rag is not None else None,
+                fallback_payload=(
+                    {
+                        "reply": rag["reply"],
+                        "model": "gabi-rag",
+                        "sources": rag["sources"],
+                    }
+                    if rag is not None
+                    else None
+                ),
+            )
 
         http = request.app.state.http
         try:
@@ -1388,12 +2538,25 @@ async def api_chat(req: ChatRequest, request: Request):
             resp.raise_for_status()
             data = resp.json()
             reply = data["choices"][0]["message"]["content"]
-            return {"reply": reply, "model": QWEN_MODEL}
+            return await finalize(
+                {
+                    "reply": reply,
+                    "model": QWEN_MODEL,
+                    "sources": list(rag.get("sources", [])) if rag is not None else [],
+                }
+            )
         except Exception:
-            pass
+            if rag is not None:
+                payload = {
+                    "reply": rag["reply"],
+                    "model": "gabi-rag",
+                    "sources": rag["sources"],
+                }
+                if stream:
+                    return await stream_payload(payload, cache_reply=True)
+                return await finalize(payload)
 
-    # 7. Final fallback
-    return {
+    payload = {
         "reply": (
             "Não entendi sua pergunta. Posso buscar publicações do DOU para você!\n\n"
             "Experimente:\n"
@@ -1404,6 +2567,9 @@ async def api_chat(req: ChatRequest, request: Request):
         ),
         "model": "gabi",
     }
+    if stream:
+        return await stream_payload(payload, cache_reply=True)
+    return await finalize(payload)
 
 
 # ---------------------------------------------------------------------------
@@ -1412,7 +2578,11 @@ async def api_chat(req: ChatRequest, request: Request):
 
 
 @app.get("/api/media/{doc_id}/{media_name}")
-def api_media(doc_id: str, media_name: str):
+def api_media(
+    doc_id: str,
+    media_name: str,
+    _auth: AuthPrincipal = Depends(require_protected_access),
+):
     """Serve media from bytea or local cache only."""
     conn = _conn(timeout_ms=10000)
     try:
@@ -1445,6 +2615,13 @@ def api_media(doc_id: str, media_name: str):
                 media_type=media_type or "image/jpeg",
                 headers={"Cache-Control": "public, max-age=86400"},
             )
+        if local_path:
+            log_security_event(
+                "media_cache_lookup_failed",
+                doc_id=doc_id,
+                media_name=media_name,
+                local_path=str(local_path),
+            )
         if availability_status == "available" and ingest_checked_at is not None:
             raise HTTPException(500, "Imagem classificada como disponível, mas cache local está ausente")
         raise HTTPException(404, "Imagem não disponível")
@@ -1463,32 +2640,58 @@ def api_media(doc_id: str, media_name: str):
 # SPA fallback: serve index.html for non-API routes
 @app.get("/")
 def index():
+    _require_frontend_enabled()
     return FileResponse(SPA_INDEX)
 
 
 @app.get("/search")
 @app.get("/search/{path:path}")
 def search_page(path: str = ""):
+    _require_frontend_enabled()
+    return FileResponse(SPA_INDEX)
+
+
+@app.get("/analytics")
+@app.get("/analytics/{path:path}")
+def analytics_page(path: str = ""):
+    _require_frontend_enabled()
     return FileResponse(SPA_INDEX)
 
 
 @app.get("/document/{path:path}")
 def document_page(path: str):
+    _require_frontend_enabled()
     return FileResponse(SPA_INDEX)
 
 
 @app.get("/doc/{path:path}")
 def doc_page(path: str):
     """Serve SPA for document pages."""
+    _require_frontend_enabled()
     return FileResponse(SPA_INDEX)
 
 
 @app.get("/dist/{path:path}")
 def dist_asset(path: str):
-    file_path = WEB_DIR / "dist" / path
-    if not file_path.exists() or not file_path.is_file():
+    _require_frontend_enabled()
+    requested_path = Path(path)
+    if requested_path.is_absolute():
+        log_security_event("dist_asset_denied", requested_path=path, reason="absolute_path")
+        raise HTTPException(403, "Asset path denied")
+    resolved = (DIST_DIR / requested_path).resolve()
+    try:
+        resolved.relative_to(DIST_DIR)
+    except ValueError:
+        log_security_event(
+            "dist_asset_denied",
+            requested_path=path,
+            resolved_path=str(resolved),
+            reason="path_traversal",
+        )
+        raise HTTPException(403, "Asset path denied")
+    if not resolved.exists() or not resolved.is_file():
         raise HTTPException(404, "Asset não encontrado")
-    return FileResponse(file_path)
+    return FileResponse(resolved)
 
 # ---------------------------------------------------------------------------
 # Entrypoint

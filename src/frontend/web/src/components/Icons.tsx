@@ -22,6 +22,8 @@ import {
   Settings,
   Download,
   Star,
+  Lock,
+  MessageSquare,
 } from 'lucide-react';
 
 export const Icons = {
@@ -48,4 +50,6 @@ export const Icons = {
   settings: Settings,
   download: Download,
   star: Star,
+  lock: Lock,
+  chat: MessageSquare,
 };

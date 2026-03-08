@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 import re
@@ -37,6 +38,7 @@ def _cfg() -> dict[str, Any]:
         "day_ttl": int(os.getenv("TOP_SEARCH_DAY_TTL_SEC", str(14 * 24 * 3600))),
         "week_ttl": int(os.getenv("TOP_SEARCH_WEEK_TTL_SEC", str(16 * 7 * 24 * 3600))),
         "suggest_ttl": int(os.getenv("SUGGEST_CACHE_TTL_SEC", "120")),
+        "search_ttl": int(os.getenv("SEARCH_RESULT_CACHE_TTL_SEC", "180")),
     }
 
 
@@ -185,6 +187,38 @@ def set_cached_suggest(prefix: str, suggestions: list[dict[str, Any]]) -> None:
         return
 
 
+def _search_cache_key(params: dict[str, Any]) -> str:
+    payload = json.dumps(params, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    return _k(f"cache:search:{hashlib.sha256(payload.encode('utf-8')).hexdigest()}")
+
+
+def get_cached_search(params: dict[str, Any]) -> dict[str, Any] | None:
+    client = _get_client()
+    if client is None:
+        return None
+    try:
+        raw = client.get(_search_cache_key(params))
+        if not raw:
+            return None
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def set_cached_search(params: dict[str, Any], payload: dict[str, Any]) -> None:
+    client = _get_client()
+    if client is None:
+        return
+    try:
+        client.set(
+            _search_cache_key(params),
+            json.dumps(payload, ensure_ascii=False),
+            ex=_cfg()["search_ttl"],
+        )
+    except Exception:
+        return
+
+
 def redis_available() -> bool:
     return _get_client() is not None
-

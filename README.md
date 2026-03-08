@@ -227,10 +227,50 @@ Manual parser smoke check:
 - [config/pipeline_config.example.yaml](/home/parallels/dev/gabi-kimi/config/pipeline_config.example.yaml): orchestrator config template
 - [docs/runbooks/PIPELINE.md](/home/parallels/dev/gabi-kimi/docs/runbooks/PIPELINE.md): detailed runbook
 
+## Fly.io Web Deploy
+
+For the hardened public web deployment, use:
+
+- [ops/deploy/web/fly.toml](/home/parallels/dev/gabi-kimi/ops/deploy/web/fly.toml)
+- [ops/deploy/web/Dockerfile](/home/parallels/dev/gabi-kimi/ops/deploy/web/Dockerfile)
+- [docs/runbooks/FLY_WEB_SECURITY.md](/home/parallels/dev/gabi-kimi/docs/runbooks/FLY_WEB_SECURITY.md)
+- [docs/runbooks/FLY_SPLIT_DEPLOY.md](/home/parallels/dev/gabi-kimi/docs/runbooks/FLY_SPLIT_DEPLOY.md)
+
+Recommended production architecture:
+
+- `gabi-dou-web` for API/backend
+- `gabi-dou-frontend` for the static SPA
+
+Minimum secrets bootstrap:
+
+```bash
+fly secrets set \
+  PGPASSWORD='...' \
+  GABI_API_TOKENS='ops:token-1,reader:token-2' \
+  GABI_AUTH_SECRET='troque-por-um-segredo-forte' \
+  QWEN_API_KEY='...' \
+  -a gabi-dou-web
+```
+
+If the public hostname or Redis app name differs from the defaults, update
+[fly.toml](/home/parallels/dev/gabi-kimi/ops/deploy/web/fly.toml#L10) before:
+
+```bash
+fly deploy -c ops/deploy/web/fly.toml
+```
+
+Frontend static deploy:
+
+```bash
+fly deploy -c ops/deploy/frontend-static/fly.toml
+```
+
 ## Documentation Status
 
 The authoritative operator docs are:
 
 - [README.md](/home/parallels/dev/gabi-kimi/README.md)
 - [docs/runbooks/PIPELINE.md](/home/parallels/dev/gabi-kimi/docs/runbooks/PIPELINE.md)
+- [docs/runbooks/FLY_WEB_SECURITY.md](/home/parallels/dev/gabi-kimi/docs/runbooks/FLY_WEB_SECURITY.md)
+- [docs/runbooks/FLY_SPLIT_DEPLOY.md](/home/parallels/dev/gabi-kimi/docs/runbooks/FLY_SPLIT_DEPLOY.md)
 - [docs/meta/DOCS_RECONCILIATION.md](/home/parallels/dev/gabi-kimi/docs/meta/DOCS_RECONCILIATION.md)

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
+import { AccessKeyPrompt } from "@/components/AccessKeyPrompt";
 import { SectionBadge } from "@/components/Badges";
 import { BottomSheet } from "@/components/BottomSheet";
 import { DocumentTOC } from "@/components/DocumentTOC";
@@ -11,10 +12,11 @@ import { Icons } from "@/components/Icons";
 import { MobileActionsBar } from "@/components/MobileActionsBar";
 import { ReadingProgress } from "@/components/ReadingProgress";
 import { SkeletonDocument } from "@/components/Skeletons";
+import { createAccessSession, ApiAuthError } from "@/lib/auth";
 import { getDocument } from "@/lib/api";
 import type { DocumentDetail } from "@/lib/api";
 import { addRecentDocument } from "@/lib/history";
-import { downloadServerPdf, exportDocumentPdf, prefersPrintPdfFallback } from "@/lib/pdfExport";
+import { downloadServerPdf, prefersPrintPdfFallback } from "@/lib/pdfExport";
 import { parseSections, type Section } from "@/lib/sectionParser";
 import { generateShareUrl, useDeepLink } from "@/hooks/useDeepLink";
 import { useReadingPosition } from "@/hooks/useReadingPosition";
@@ -26,6 +28,10 @@ const DocumentPage: React.FC = () => {
   const [doc, setDoc] = useState<DocumentDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [needsAuth, setNeedsAuth] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authPending, setAuthPending] = useState(false);
+  const [reloadNonce, setReloadNonce] = useState(0);
   const [showToc, setShowToc] = useState(false);
   const [sections, setSections] = useState<Section[]>([]);
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
@@ -36,11 +42,20 @@ const DocumentPage: React.FC = () => {
     if (!id) return;
     setLoading(true);
     setError(false);
+    setNeedsAuth(false);
+    setAuthError(null);
     getDocument(id)
       .then(setDoc)
-      .catch(() => setError(true))
+      .catch((cause: unknown) => {
+        if (cause instanceof ApiAuthError) {
+          setNeedsAuth(true);
+          setDoc(null);
+          return;
+        }
+        setError(true);
+      })
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, reloadNonce]);
 
   useEffect(() => {
     if (!doc) return;
@@ -115,6 +130,16 @@ const DocumentPage: React.FC = () => {
     [activeSectionId, sections]
   );
 
+  const documentMetaItems = useMemo(
+    () => [
+      doc?.art_type ? `Tipo ${doc.art_type}` : null,
+      doc?.page ? `Página ${doc.page}` : null,
+      doc?.edition ? `Edição ${doc.edition}` : null,
+      sections.length > 0 ? `${sections.length} seções` : null,
+    ].filter(Boolean) as string[],
+    [doc?.art_type, doc?.edition, doc?.page, sections.length]
+  );
+
   const formatDate = (value: string) => {
     try {
       return new Date(value).toLocaleDateString("pt-BR", {
@@ -186,23 +211,47 @@ const DocumentPage: React.FC = () => {
       });
       toast("PDF exportado", { description: "Versão gerada no servidor baixada com sucesso." });
       return;
-    } catch {
-      // Fall back to client-side rendering below.
-    }
-    try {
-      await exportDocumentPdf(contentRef.current, {
-        title: doc.title,
-        section: doc.section,
-        pubDate: doc.pub_date,
-      });
-      toast("PDF exportado", { description: "O documento foi preparado para download." });
-    } catch {
+    } catch (cause) {
+      if (cause instanceof ApiAuthError) {
+        setNeedsAuth(true);
+        toast("Acesso necessário", { description: "Valide a chave de acesso para baixar o PDF." });
+        return;
+      }
       window.print();
       toast("Abrindo impressão", { description: "Use Salvar como PDF no navegador se necessário." });
     }
   };
 
   if (loading) return <SkeletonDocument />;
+
+  if (needsAuth) {
+    return (
+      <AccessKeyPrompt
+        title="Documento protegido"
+        description="Este documento, suas imagens e a versão em PDF exigem uma chave de acesso do ambiente."
+        submitLabel="Abrir documento"
+        error={authError}
+        pending={authPending}
+        onSubmit={async (accessKey) => {
+          setAuthPending(true);
+          setAuthError(null);
+          try {
+            await createAccessSession(accessKey);
+            setNeedsAuth(false);
+            setReloadNonce((value) => value + 1);
+          } catch (cause) {
+            if (cause instanceof ApiAuthError) {
+              setAuthError("Chave inválida ou sem permissão para este ambiente.");
+            } else {
+              setAuthError("Não foi possível abrir a sessão protegida agora.");
+            }
+          } finally {
+            setAuthPending(false);
+          }
+        }}
+      />
+    );
+  }
 
   if (error || !doc) {
     return (
@@ -235,8 +284,16 @@ const DocumentPage: React.FC = () => {
           <div className="hidden items-center gap-3 text-sm text-text-secondary md:flex">
             <SectionBadge section={doc.section} />
             <span>{doc.page ? `Página ${doc.page}` : "Documento"}</span>
+            {activeSectionLabel ? <span className="truncate max-w-[18rem]">{activeSectionLabel}</span> : null}
           </div>
           <div className="flex items-center gap-1">
+            <button
+              onClick={() => setShowToc(true)}
+              className="hidden min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-text-secondary transition-colors hover:bg-white/[0.04] hover:text-foreground focus-ring md:flex"
+              aria-label="Abrir índice"
+            >
+              <Icons.book className="h-5 w-5" />
+            </button>
             <button
               onClick={handleShare}
               className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-text-secondary transition-colors hover:bg-white/[0.04] hover:text-foreground focus-ring"
@@ -261,7 +318,7 @@ const DocumentPage: React.FC = () => {
 
       <div className={`mx-auto grid max-w-[1180px] gap-10 px-6 py-8 md:px-10 lg:grid-cols-[minmax(0,1fr)_16rem] ${continuousEntry ? "animate-route-settle" : ""}`}>
         <div className="min-w-0">
-          <section className={`${continuousEntry ? "document-origin-glow" : "animate-fade-in"} border-b border-white/6 pb-8`}>
+          <section className={`${continuousEntry ? "document-origin-glow" : "animate-fade-in"} reader-surface overflow-hidden rounded-[34px] px-6 py-7 md:px-8 md:py-8`}>
             <div className="mb-5 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.2em] text-text-tertiary">
               <div className="h-px w-6 bg-white/10" />
               Diário Oficial da União
@@ -275,7 +332,7 @@ const DocumentPage: React.FC = () => {
               {doc.edition ? <span className="text-text-tertiary">Ed. {doc.edition}</span> : null}
             </div>
 
-            <h1 className="max-w-4xl text-3xl font-semibold leading-tight text-foreground md:text-5xl">
+            <h1 className="font-editorial max-w-4xl text-4xl leading-[0.98] text-foreground md:text-6xl">
               {doc.title}
             </h1>
 
@@ -295,11 +352,49 @@ const DocumentPage: React.FC = () => {
                 {doc.ementa}
               </blockquote>
             ) : null}
+
+            <div className="mt-7 flex flex-wrap gap-2">
+              {documentMetaItems.map((item) => (
+                <span
+                  key={item}
+                  className="rounded-full border border-white/8 bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-text-tertiary"
+                >
+                  {item}
+                </span>
+              ))}
+            </div>
+
+            <div className="mt-8 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+              <div className="rounded-[24px] border border-white/8 bg-background/28 px-4 py-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-tertiary">Contexto de leitura</p>
+                <p className="mt-2 text-sm leading-relaxed text-text-secondary">
+                  {activeSectionLabel
+                    ? `Leitura posicionada em ${activeSectionLabel}.`
+                    : "Navegue pelo índice, continue do ponto salvo ou use a rede de relações para saltos contextuais."}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {savedPosition ? (
+                  <button
+                    onClick={() => scrollToSaved()}
+                    className="rounded-full border border-primary/18 bg-primary/12 px-4 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/16 focus-ring"
+                  >
+                    Continuar leitura
+                  </button>
+                ) : null}
+                <button
+                  onClick={() => setShowToc(true)}
+                  className="rounded-full border border-white/8 bg-white/[0.03] px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-white/[0.06] focus-ring"
+                >
+                  Abrir índice
+                </button>
+              </div>
+            </div>
           </section>
 
           <main
             ref={contentRef}
-            className={`${continuousEntry ? "animate-route-settle" : "animate-fade-in"} pt-8`}
+            className={`${continuousEntry ? "animate-route-settle" : "animate-fade-in"} reader-surface mt-6 rounded-[34px] px-6 py-8 md:px-10 md:py-10`}
             style={{ animationDelay: "60ms" }}
           >
             <DocumentBody doc={doc} />
@@ -317,7 +412,7 @@ const DocumentPage: React.FC = () => {
 
             {doc.assinatura ? (
               <div className="mt-12 border-t border-white/6 pt-10 text-center">
-                <p className="whitespace-pre-line text-2xl text-text-secondary">{doc.assinatura}</p>
+                <p className="whitespace-pre-line font-editorial text-2xl text-text-secondary">{doc.assinatura}</p>
               </div>
             ) : null}
 
@@ -327,7 +422,7 @@ const DocumentPage: React.FC = () => {
                   href={doc.dou_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex min-h-[44px] items-center gap-2 text-sm text-text-accent hover:underline"
+                  className="inline-flex min-h-[44px] items-center gap-2 rounded-full border border-white/8 bg-white/[0.03] px-4 py-2 text-sm text-text-accent transition-colors hover:bg-white/[0.06]"
                 >
                   <Icons.externalLink className="w-4 h-4" />
                   Ver no Diário Oficial
@@ -336,8 +431,8 @@ const DocumentPage: React.FC = () => {
             ) : null}
           </main>
 
-          <section className="document-secondary-panels mt-12 grid gap-8 border-t border-white/6 pt-8 lg:grid-cols-[0.9fr_1.1fr]">
-            <div>
+          <section className="document-secondary-panels mt-8 grid gap-8 lg:grid-cols-[0.9fr_1.1fr]">
+            <div className="reader-surface rounded-[30px] px-6 py-6">
               <p className="mb-5 text-xs font-semibold uppercase tracking-[0.18em] text-text-tertiary">
                 Rastro editorial
               </p>
@@ -349,7 +444,7 @@ const DocumentPage: React.FC = () => {
                       {index < activityItems.length - 1 ? <span className="mt-1 h-full w-px bg-white/8" /> : null}
                     </div>
                     <div>
-                      <p className="text-lg text-foreground">{item.label}</p>
+                      <p className="font-editorial text-xl leading-tight text-foreground">{item.label}</p>
                       <p className="mt-1 text-sm text-text-secondary">{item.detail}</p>
                       <p className="text-sm text-text-tertiary">{item.meta}</p>
                     </div>
@@ -365,7 +460,23 @@ const DocumentPage: React.FC = () => {
         </div>
 
         <aside className="hidden lg:block">
-          <div className="sticky top-[104px]">
+          <div className="sticky top-[104px] space-y-4">
+            {savedPosition ? (
+              <div className="reader-surface rounded-[24px] px-4 py-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-tertiary">Retomar</p>
+                <p className="mt-2 text-sm text-text-secondary">
+                  {savedPosition.nearestSectionId
+                    ? savedPosition.nearestSectionId.replace(/-/g, " ")
+                    : "Ponto salvo de leitura"}
+                </p>
+                <button
+                  onClick={() => scrollToSaved()}
+                  className="mt-4 w-full rounded-[18px] border border-primary/18 bg-primary/12 px-4 py-3 text-sm font-medium text-primary transition-colors hover:bg-primary/16 focus-ring"
+                >
+                  Continuar daqui
+                </button>
+              </div>
+            ) : null}
             <DocumentTOC sections={sections} activeSectionId={activeSectionId} onSelect={handleSectionSelect} />
           </div>
         </aside>
