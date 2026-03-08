@@ -21,7 +21,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 7: Upload UI** - React admin page with drag-drop upload, preview, and paste input
 - [ ] **Phase 8: Job Dashboard** - React job list and detail views showing ingestion results
 - [ ] **Phase 9: Live Status and Retry** - Real-time SSE progress streaming and one-click job retry
-- [ ] **Phase 10: Legacy Cleanup** - Remove Alpine.js frontend from codebase
+- [x] **Phase 10: Legacy Cleanup** - Remove Alpine.js frontend from codebase
 
 ## Phase Details
 
@@ -157,10 +157,10 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. The file web/index.html (Alpine.js frontend) no longer exists in the codebase
   2. The React SPA at /dist/ is the only frontend served by the backend
-**Plans**: TBD
+**Plans**: 10-01 done
 
 Plans:
-- [ ] 10-01: TBD
+- [x] 10-01: Remove web/index.html, backend React-only, docs updated
 
 ## Progress
 
