@@ -16,6 +16,7 @@ Usage:
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import uuid
 from io import BytesIO
@@ -852,6 +853,22 @@ def api_admin_upload(
     job_id = job.get("id")
     if not job_id:
         raise HTTPException(500, "Job creation did not return id")
+
+    redis_url = os.getenv("REDIS_URL", "").strip()
+    if redis_url:
+        try:
+            from arq import create_pool
+            from arq.connections import RedisSettings
+
+            async def _enqueue():
+                redis = await create_pool(RedisSettings.from_dsn(redis_url))
+                await redis.enqueue_job("process_upload_job", job_id)
+
+            asyncio.run(_enqueue())
+        except Exception as e:
+            raise HTTPException(503, f"Failed to enqueue job: {e}") from e
+    # If no REDIS_URL, job remains queued until worker/Redis is configured
+
     return {"job_id": job_id, "status": "queued"}
 
 
