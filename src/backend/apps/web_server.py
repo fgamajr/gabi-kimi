@@ -36,6 +36,7 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from src.backend.apps.worker_jobs import ensure_worker_jobs_schema, get_job, list_jobs
 from src.backend.apps.auth import (
     AuthPrincipal,
     bootstrap_identity_store,
@@ -154,6 +155,7 @@ def _allowed_origins(allowed_hosts: list[str]) -> list[str]:
 async def lifespan(app: FastAPI):
     """Startup / shutdown."""
     bootstrap_identity_store(get_auth_config())
+    ensure_worker_jobs_schema()
     app.state.http = httpx.AsyncClient(timeout=60.0)
     app.state.rate_limiter = RateLimiter(redis_url=os.getenv("REDIS_URL", "").strip() or None)
     app.state.chat_security = ChatSecurity(redis_url=os.getenv("REDIS_URL", "").strip() or None)
@@ -791,6 +793,28 @@ def api_admin_revoke_token(
         return revoke_api_token(token_id)
     except ValueError as ex:
         raise HTTPException(404, str(ex))
+
+
+@app.get("/api/admin/jobs")
+def api_admin_jobs_list(
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    _auth: AuthPrincipal = Depends(require_admin_access),
+):
+    """List upload jobs (newest first)."""
+    return {"items": list_jobs(limit=limit, offset=offset)}
+
+
+@app.get("/api/admin/jobs/{job_id}")
+def api_admin_job_detail(
+    job_id: str,
+    _auth: AuthPrincipal = Depends(require_admin_access),
+):
+    """Get one upload job by id."""
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(404, "job not found")
+    return job
 
 
 @app.get("/api/admin/storage-check")
