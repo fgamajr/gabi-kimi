@@ -103,10 +103,10 @@ Plans:
   2. If some articles in a ZIP fail, the rest are still ingested and the job status shows "partial" with failure details
   3. A crafted ZIP with path traversal entries (ZIP Slip) is rejected without extracting malicious paths
   4. The job record accurately reports total articles, ingested count, skipped/duplicate count, and failed count
-**Plans**: TBD
+**Plans**: 06-01 done
 
 Plans:
-- [ ] 06-01: TBD
+- [x] 06-01: ZIP Slip, partial success, accurate counts (documents_dup/failed, status partial)
 
 ### Phase 7: Upload UI
 **Goal**: Admins have a complete upload experience in the React frontend
