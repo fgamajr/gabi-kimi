@@ -22,6 +22,7 @@ const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
 const UserSettingsPage = lazy(() => import("@/pages/UserSettingsPage"));
 const AdminUsersPage = lazy(() => import("@/pages/AdminUsersPage"));
 const AdminUploadPage = lazy(() => import("@/pages/AdminUploadPage"));
+const AdminJobsPage = lazy(() => import("@/pages/AdminJobsPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
@@ -91,6 +92,7 @@ const App = () => (
                 <Route path="/favoritos" element={<FavoritosPage />} />
                 <Route path="/admin/users" element={<ProtectedRoute requiredRole="admin"><AdminUsersPage /></ProtectedRoute>} />
                 <Route path="/admin/upload" element={<ProtectedRoute requiredRole="admin"><AdminUploadPage /></ProtectedRoute>} />
+                <Route path="/admin/jobs" element={<ProtectedRoute requiredRole="admin"><AdminJobsPage /></ProtectedRoute>} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>

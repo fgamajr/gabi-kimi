@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
-import { FileUp, FileCode, Loader2, ClipboardPaste } from "lucide-react";
+import { Link } from "react-router-dom";
+import { FileUp, FileCode, Loader2, ClipboardPaste, ListTodo } from "lucide-react";
 import { toast } from "sonner";
 import { uploadAdminFile } from "@/lib/uploadApi";
 import { parseXmlPreview, type XmlPreview } from "@/lib/xmlPreview";
@@ -126,10 +127,19 @@ export default function AdminUploadPage() {
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto max-w-2xl px-4 py-8">
-        <h1 className="text-2xl font-semibold text-foreground mb-2">Upload DOU</h1>
-        <p className="text-sm text-muted-foreground mb-6">
-          Envie um arquivo XML ou ZIP (até 200 MB). O processamento é feito em segundo plano.
-        </p>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-6">
+          <div>
+            <h1 className="text-2xl font-semibold text-foreground mb-2">Upload DOU</h1>
+            <p className="text-sm text-muted-foreground">
+              Envie um arquivo XML ou ZIP (até 200 MB). O processamento é feito em segundo plano.
+            </p>
+          </div>
+          <Button asChild variant="ghost" size="sm" className="w-fit text-muted-foreground">
+            <Link to="/admin/jobs" className="inline-flex items-center gap-2">
+              <ListTodo className="w-4 h-4" /> Ver jobs
+            </Link>
+          </Button>
+        </div>
 
         <Tabs defaultValue="file" className="w-full">
           <TabsList className="grid w-full grid-cols-2">

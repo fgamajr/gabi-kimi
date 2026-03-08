@@ -214,11 +214,78 @@ export interface ChatStreamHandlers {
   onError?: (detail: string) => void;
 }
 
+export interface AdminRole {
+  id: string;
+  code: string;
+  label: string;
+  description?: string | null;
+  created_at?: string;
+}
+
+export interface AdminTokenSummary {
+  token_id: string;
+  label: string;
+  status: string;
+  created_at?: string;
+  updated_at?: string;
+  last_used_at?: string | null;
+}
+
+export interface AdminUser {
+  id: string;
+  display_name: string;
+  email?: string | null;
+  status: string;
+  is_service_account: boolean;
+  created_at?: string;
+  updated_at?: string;
+  last_login_at?: string | null;
+  roles: string[];
+  tokens: AdminTokenSummary[];
+}
+
+export interface AdminUserUpsertRequest {
+  id?: string | null;
+  display_name: string;
+  email?: string | null;
+  status?: string;
+  is_service_account?: boolean;
+}
+
+export interface AdminUserRolesRequest {
+  roles: string[];
+}
+
+export interface AdminTokenIssueRequest {
+  token_label: string;
+}
+
+export interface AdminIssuedToken extends AdminTokenSummary {
+  plain_token: string;
+}
+
 // --- API Functions ---
 
 async function fetchJSON<T>(url: string): Promise<T> {
   const res = await apiFetch(url);
   if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+async function fetchWithBody<T>(url: string, init: RequestInit): Promise<T> {
+  const res = await apiFetch(url, init);
+  if (!res.ok) {
+    let detail = `API error: ${res.status}`;
+    try {
+      const payload = await res.json();
+      if (payload && typeof payload.detail === "string" && payload.detail.trim()) {
+        detail = payload.detail.trim();
+      }
+    } catch {
+      // ignore parse errors
+    }
+    throw new Error(detail);
+  }
   return res.json();
 }
 
@@ -321,6 +388,52 @@ export function getAutocomplete(q: string, n = 8): Promise<AutocompleteResult[] 
   return fetchJSON<Record<string, unknown>>(`${API_BASE}/autocomplete?q=${encodeURIComponent(q)}&n=${n}`).then((payload) => {
     const items = Array.isArray(payload.items) ? payload.items : [];
     return items.map((item) => (typeof item === "string" ? item : String((item as Record<string, unknown>).suggestion || ""))).filter(Boolean);
+  });
+}
+
+export async function getAdminRoles(): Promise<AdminRole[]> {
+  const payload = await fetchJSON<{ items?: AdminRole[] }>(`${API_BASE}/admin/roles`);
+  return Array.isArray(payload.items) ? payload.items : [];
+}
+
+export async function getAdminUsers(): Promise<AdminUser[]> {
+  const payload = await fetchJSON<{ items?: AdminUser[] }>(`${API_BASE}/admin/users`);
+  return Array.isArray(payload.items)
+    ? payload.items.map((item) => ({
+        ...item,
+        roles: Array.isArray(item.roles) ? item.roles : [],
+        tokens: Array.isArray(item.tokens) ? item.tokens : [],
+      }))
+    : [];
+}
+
+export function upsertAdminUser(payload: AdminUserUpsertRequest): Promise<AdminUser> {
+  return fetchWithBody<AdminUser>(`${API_BASE}/admin/users`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateAdminUserRoles(userId: string, payload: AdminUserRolesRequest): Promise<{ id: string; display_name: string; roles: string[] }> {
+  return fetchWithBody(`${API_BASE}/admin/users/${encodeURIComponent(userId)}/roles`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function issueAdminUserToken(userId: string, payload: AdminTokenIssueRequest): Promise<AdminIssuedToken> {
+  return fetchWithBody(`${API_BASE}/admin/users/${encodeURIComponent(userId)}/tokens`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function revokeAdminToken(tokenId: string): Promise<AdminTokenSummary> {
+  return fetchWithBody(`${API_BASE}/admin/tokens/${encodeURIComponent(tokenId)}`, {
+    method: "DELETE",
   });
 }
 
@@ -625,4 +738,40 @@ export function getSearchExamples(): Promise<SearchExample[]> {
       description: String((item as Record<string, unknown>).description || (item as Record<string, unknown>).source || "").trim() || undefined,
     })).filter((item) => item.query);
   });
+}
+
+// --- Admin Jobs (Phase 8) ---
+
+export interface AdminJobListItem {
+  id: string;
+  filename: string;
+  status: string;
+  created_at: string | null;
+  updated_at: string | null;
+  completed_at: string | null;
+  articles_found: number | null;
+  articles_ingested: number | null;
+  articles_dup: number | null;
+  articles_failed: number | null;
+  error_message: string | null;
+  uploaded_by: string | null;
+  file_type?: string;
+  file_size_bytes?: number | null;
+}
+
+export interface AdminJobDetail extends AdminJobListItem {
+  storage_key?: string;
+  error_detail?: unknown;
+}
+
+export async function getAdminJobsList(limit = 50, offset = 0): Promise<AdminJobListItem[]> {
+  const url = resolveApiUrl(`/api/admin/jobs?limit=${limit}&offset=${offset}`);
+  const payload = await fetchJSON<{ items?: AdminJobListItem[] }>(url);
+  const items = payload?.items ?? [];
+  return items;
+}
+
+export async function getAdminJobDetail(jobId: string): Promise<AdminJobDetail> {
+  const url = resolveApiUrl(`/api/admin/jobs/${encodeURIComponent(jobId)}`);
+  return fetchJSON<AdminJobDetail>(url);
 }
