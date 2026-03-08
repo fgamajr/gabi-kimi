@@ -89,10 +89,10 @@ Plans:
   2. Uploading the same XML file twice does not create duplicate articles (deduplication via natural_key_hash)
   3. The job record transitions from "queued" to "processing" to "completed" with correct article counts
   4. Processing the same file again produces the same outcome without side effects (idempotent)
-**Plans**: TBD
+**Plans**: 05-01 done
 
 Plans:
-- [ ] 05-01: TBD
+- [x] 05-01: enqueue process_upload_job, ingest_single_xml, worker claim/download/ingest/ES/update
 
 ### Phase 6: ZIP Processing
 **Goal**: The worker handles ZIP bundles containing multiple XML files with robust error handling
@@ -173,7 +173,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 2. Job Control Schema | 1/1 | Complete | 2026-03-08 |
 | 3. Upload API | 1/1 | Complete | 2026-03-08 |
 | 4. Worker Infrastructure | 1/1 | Complete | 2026-03-08 |
-| 5. Single XML Processing | 0/? | Not started | - |
+| 5. Single XML Processing | 1/1 | Complete | 2026-03-08 |
 | 6. ZIP Processing | 0/? | Not started | - |
 | 7. Upload UI | 0/? | Not started | - |
 | 8. Job Dashboard | 0/? | Not started | - |
