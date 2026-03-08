@@ -17,6 +17,7 @@ Usage:
 from __future__ import annotations
 
 import os
+import uuid
 from io import BytesIO
 from html import escape
 from contextlib import asynccontextmanager
@@ -30,13 +31,14 @@ import httpx
 import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from src.backend.apps.worker_jobs import ensure_worker_jobs_schema, get_job, list_jobs
+from src.backend.apps.upload_validation import validate_upload_file
+from src.backend.apps.worker_jobs import create_job, ensure_worker_jobs_schema, get_job, list_jobs
 from src.backend.apps.auth import (
     AuthPrincipal,
     bootstrap_identity_store,
@@ -793,6 +795,64 @@ def api_admin_revoke_token(
         return revoke_api_token(token_id)
     except ValueError as ex:
         raise HTTPException(404, str(ex))
+
+
+# Max upload size (Phase 7: ZIP up to 200MB). Enforced when possible via Content-Length.
+MAX_UPLOAD_BYTES = 200 * 1024 * 1024
+
+
+def _sanitize_upload_filename(filename: str | None) -> str:
+    """Basename only, no path traversal."""
+    if not filename or not filename.strip():
+        return "upload"
+    name = os.path.basename(filename.strip()).strip()
+    return name if name else "upload"
+
+
+@app.post("/api/admin/upload", status_code=202)
+def api_admin_upload(
+    file: UploadFile = File(...),
+    _auth: AuthPrincipal = Depends(require_admin_access),
+):
+    """
+    Upload XML or ZIP for ingestion. Streams to Tigris, creates a queued job, returns job_id (202).
+    Validates file type by magic bytes; rejects non-XML/non-ZIP with clear error.
+    """
+    if not storage_is_configured():
+        raise HTTPException(
+            503,
+            "Tigris not configured. Set AWS_ENDPOINT_URL_S3, AWS_ACCESS_KEY_ID, "
+            "AWS_SECRET_ACCESS_KEY, BUCKET_NAME (e.g. fly storage create).",
+        )
+    try:
+        file_type = validate_upload_file(file.file)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    filename = _sanitize_upload_filename(file.filename)
+    storage_key = f"uploads/{uuid.uuid4()}/{filename}"
+    try:
+        upload_fileobj(file.file, storage_key)
+    except Exception as e:
+        raise HTTPException(503, f"Upload to storage failed: {e}") from e
+    try:
+        file_size = file.file.tell()
+    except (OSError, AttributeError):
+        file_size = None
+    uploaded_by = (_auth.user_id or _auth.token_id) or None
+    try:
+        job = create_job(
+            filename=filename,
+            storage_key=storage_key,
+            file_size_bytes=file_size,
+            file_type=file_type,
+            uploaded_by=uploaded_by,
+        )
+    except ValueError as e:
+        raise HTTPException(500, str(e)) from e
+    job_id = job.get("id")
+    if not job_id:
+        raise HTTPException(500, "Job creation did not return id")
+    return {"job_id": job_id, "status": "queued"}
 
 
 @app.get("/api/admin/jobs")
