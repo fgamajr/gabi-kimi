@@ -46,7 +46,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Cleanup
 
-- [ ] **CLEN-01**: Legacy Alpine.js frontend (`web/index.html`) removed from codebase
+- [x] **CLEN-01**: Legacy Alpine.js frontend (`web/index.html`) removed from codebase
 
 ## v2 Requirements
 
@@ -100,7 +100,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | JOBS-04 | Phase 9 | Complete |
 | JOBS-05 | Phase 9 | Complete |
 | JOBS-06 | Phase 8 | Complete |
-| CLEN-01 | Phase 10 | Pending |
+| CLEN-01 | Phase 10 | Complete |
 
 **Coverage:**
 - v1 requirements: 26 total

@@ -4,14 +4,14 @@ milestone: v1.0
 milestone_name: milestone
 current_plan: 1
 status: executing
-stopped_at: Completed 09-01-SUMMARY.md
-last_updated: "2026-03-08T23:38:35.333Z"
+stopped_at: Completed 10-01-SUMMARY.md
+last_updated: "2026-03-08T23:40:40.898Z"
 last_activity: 2026-03-08
 progress:
   total_phases: 10
   completed_phases: 0
   total_plans: 0
-  completed_plans: 9
+  completed_plans: 10
   percent: 50
 ---
 
@@ -22,14 +22,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-08)
 
 **Core value:** Admins can upload DOU documents (XML/ZIP) and see them ingested into the search index via background processing
-**Current focus:** Phase 6: ZIP Processing
+**Current focus:** Milestone complete (Phase 10 Legacy Cleanup done)
 
 ## Current Position
 
-Phase: 6 of 10 (ZIP Processing)
+Phase: 10 of 10 (Legacy Cleanup)
 Current Plan: 1
 Total Plans in Phase: 1
-Status: Ready to execute
+Status: Milestone complete
 Last activity: 2026-03-08
 
 Progress: [█████░░░░░] 50%
@@ -62,6 +62,7 @@ Progress: [█████░░░░░] 50%
 | Phase 07-upload-ui P01 | 25 | 1 tasks | 5 files |
 | Phase 08-job-dashboard P01 | 20 | 1 tasks | 5 files |
 | Phase 09-live-status-and-retry P01 | 25 | 1 tasks | 4 files |
+| Phase 10-legacy-cleanup P01 | 15 | 1 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -77,6 +78,7 @@ Recent decisions affecting current work:
 - [Phase 07-upload-ui]: Upload progress via XHR; paste tab sends Blob as pasted.xml; XML preview best-effort client-side.
 - [Phase 08-job-dashboard]: Job detail as modal; audit log read-only, no delete.
 - [Phase 09-live-status-and-retry]: SSE stream polls get_job every 1s; retry_job resets to queued and enqueues.
+- [Phase 10-legacy-cleanup]: Single frontend: React SPA only; backend serves src/frontend/web exclusively.
 
 ### Pending Todos
 
@@ -90,6 +92,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-08T23:38:35.307Z
-Stopped at: Completed 09-01-SUMMARY.md
+Last session: 2026-03-08T23:40:40.879Z
+Stopped at: Completed 10-01-SUMMARY.md
 Resume file: None
