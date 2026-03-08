@@ -37,7 +37,7 @@ Users can find any published legal act in the DOU quickly and read it in a clean
 - [ ] Upload to Fly.io blob storage with immediate user release
 - [ ] Background worker: unzip → deduplicate → ingest or reject
 - [ ] Worker control table for tracking background job status
-- [ ] Remove legacy Alpine.js frontend (`web/index.html`)
+- [x] Remove legacy Alpine.js frontend (`web/index.html`) (Phase 10)
 - [ ] Vite dev proxy configuration for local development
 - [ ] Polish frontend: fix remaining integration issues
 
@@ -75,7 +75,7 @@ Users can find any published legal act in the DOU quickly and read it in a clean
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| React/Lovable over Alpine.js | Production-quality component system, TypeScript, better DX | — Pending |
+| React/Lovable over Alpine.js | Production-quality component system, TypeScript, better DX | Phase 10: Alpine removed; React SPA only |
 | Background processing for uploads | Don't block user on ingestion — return immediately after upload | — Pending |
 | Worker control table | Track job status, enable retry, surface errors to admin | — Pending |
 | Fly.io blob storage for uploads | Native integration, no external S3 dependency | — Pending |
