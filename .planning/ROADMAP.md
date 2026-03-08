@@ -33,10 +33,10 @@ Decimal phases appear between their surrounding integers in numeric order.
   1. A Tigris bucket exists and is bound to the Fly.io app
   2. FastAPI can upload a test file to Tigris and read it back via boto3
   3. Tigris credentials are available as environment variables in the Fly.io app
-**Plans**: TBD
+**Plans**: 01-01 done
 
 Plans:
-- [ ] 01-01: TBD
+- [x] 01-01: Tigris module, runbook, storage-check endpoint
 
 ### Phase 2: Job Control Schema
 **Goal**: A PostgreSQL table that tracks the full lifecycle of upload jobs
@@ -46,10 +46,10 @@ Plans:
   1. A migration creates the worker_jobs table with columns for status, filename, timestamps, article counts, and error details
   2. Job status transitions are enforced (queued -> processing -> completed/failed/partial)
   3. The job table is queryable from FastAPI via SQLAlchemy or raw SQL
-**Plans**: TBD
+**Plans**: 02-01 done
 
 Plans:
-- [ ] 02-01: TBD
+- [x] 02-01: worker_jobs schema, module, GET /api/admin/jobs
 
 ### Phase 3: Upload API
 **Goal**: Admins can upload files via API and receive an immediate job ID while the file lands in Tigris
@@ -169,8 +169,8 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Storage Foundation | 0/? | Not started | - |
-| 2. Job Control Schema | 0/? | Not started | - |
+| 1. Storage Foundation | 1/1 | Complete | 2026-03-08 |
+| 2. Job Control Schema | 1/1 | Complete | 2026-03-08 |
 | 3. Upload API | 0/? | Not started | - |
 | 4. Worker Infrastructure | 0/? | Not started | - |
 | 5. Single XML Processing | 0/? | Not started | - |
