@@ -38,12 +38,20 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from src.backend.apps.auth import (
     AuthPrincipal,
+    bootstrap_identity_store,
     clear_session_response,
     create_session_response,
     get_auth_config,
+    issue_api_token,
+    list_roles,
+    list_users,
     request_ip,
+    revoke_api_token,
+    require_admin_access,
     require_protected_access,
+    replace_user_roles,
     resolve_request_principal,
+    upsert_user,
 )
 from src.backend.apps.chat_security import ChatSecurity
 from src.backend.apps.middleware.security import (
@@ -65,6 +73,12 @@ from src.backend.apps.mcp_server import (
     top_searches_payload,
 )
 from src.backend.search.norm_queries import NormQuery, detect_legal_norm
+from src.backend.storage import (
+    delete_object,
+    get_object_bytes,
+    is_configured as storage_is_configured,
+    upload_fileobj,
+)
 
 load_dotenv()
 
@@ -91,6 +105,7 @@ _LEGACY_WEB_DIR = _ROOT_DIR / "web"
 WEB_DIR = _FRONTEND_WEB_DIR if _FRONTEND_WEB_DIR.exists() else _LEGACY_WEB_DIR
 SPA_INDEX = WEB_DIR / "dist" / "index.html" if (WEB_DIR / "dist" / "index.html").exists() else WEB_DIR / "index.html"
 DIST_DIR = (WEB_DIR / "dist").resolve()
+ASSETS_DIR = (DIST_DIR / "assets").resolve()
 MEDIA_ROOT = Path(
     os.getenv("GABI_MEDIA_ROOT", str(_ROOT_DIR / "ops" / "data" / "dou" / "images"))
 ).resolve()
@@ -138,6 +153,7 @@ def _allowed_origins(allowed_hosts: list[str]) -> list[str]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup / shutdown."""
+    bootstrap_identity_store(get_auth_config())
     app.state.http = httpx.AsyncClient(timeout=60.0)
     app.state.rate_limiter = RateLimiter(redis_url=os.getenv("REDIS_URL", "").strip() or None)
     app.state.chat_security = ChatSecurity(redis_url=os.getenv("REDIS_URL", "").strip() or None)
@@ -666,6 +682,10 @@ def api_auth_session_status(request: Request):
         "principal": {
             "label": principal.label,
             "source": principal.source,
+            "user_id": principal.user_id,
+            "roles": list(principal.roles),
+            "email": principal.email,
+            "status": principal.status,
         },
         "expires_in_sec": get_auth_config().session_ttl_sec,
     }
@@ -692,6 +712,109 @@ def api_auth_session_delete():
     return clear_session_response()
 
 
+class AdminUserUpsertRequest(BaseModel):
+    id: str | None = None
+    display_name: str
+    email: str | None = None
+    status: str = "active"
+    is_service_account: bool = False
+
+
+class AdminUserRolesRequest(BaseModel):
+    roles: list[str]
+
+
+class AdminTokenIssueRequest(BaseModel):
+    token_label: str
+
+
+@app.get("/api/admin/roles")
+def api_admin_roles(_auth: AuthPrincipal = Depends(require_admin_access)):
+    return {"items": list_roles()}
+
+
+@app.get("/api/admin/users")
+def api_admin_users(_auth: AuthPrincipal = Depends(require_admin_access)):
+    return {"items": list_users()}
+
+
+@app.post("/api/admin/users")
+def api_admin_user_upsert(
+    payload: AdminUserUpsertRequest,
+    _auth: AuthPrincipal = Depends(require_admin_access),
+):
+    try:
+        return upsert_user(
+            user_id=payload.id,
+            display_name=payload.display_name.strip(),
+            email=payload.email.strip() if payload.email else None,
+            status=payload.status.strip() or "active",
+            is_service_account=payload.is_service_account,
+        )
+    except ValueError as ex:
+        raise HTTPException(404, str(ex))
+
+
+@app.put("/api/admin/users/{user_id}/roles")
+def api_admin_user_roles(
+    user_id: str,
+    payload: AdminUserRolesRequest,
+    _auth: AuthPrincipal = Depends(require_admin_access),
+):
+    try:
+        return replace_user_roles(user_id, payload.roles)
+    except ValueError as ex:
+        raise HTTPException(404, str(ex))
+
+
+@app.post("/api/admin/users/{user_id}/tokens")
+def api_admin_user_issue_token(
+    user_id: str,
+    payload: AdminTokenIssueRequest,
+    _auth: AuthPrincipal = Depends(require_admin_access),
+):
+    try:
+        label = payload.token_label.strip()
+        if not label:
+            raise HTTPException(400, "token_label is required")
+        return issue_api_token(user_id=user_id, token_label=label)
+    except ValueError as ex:
+        raise HTTPException(404, str(ex))
+
+
+@app.delete("/api/admin/tokens/{token_id}")
+def api_admin_revoke_token(
+    token_id: str,
+    _auth: AuthPrincipal = Depends(require_admin_access),
+):
+    try:
+        return revoke_api_token(token_id)
+    except ValueError as ex:
+        raise HTTPException(404, str(ex))
+
+
+@app.get("/api/admin/storage-check")
+def api_admin_storage_check(_auth: AuthPrincipal = Depends(require_admin_access)):
+    """Verify Tigris blob storage: upload a test file and read it back (Phase 1)."""
+    if not storage_is_configured():
+        raise HTTPException(
+            503,
+            "Tigris not configured: set AWS_ENDPOINT_URL_S3, AWS_ACCESS_KEY_ID, "
+            "AWS_SECRET_ACCESS_KEY, BUCKET_NAME (e.g. fly storage create).",
+        )
+    test_key = "_storage_check/test.txt"
+    payload = b"GABI Tigris check"
+    try:
+        upload_fileobj(BytesIO(payload), test_key)
+        read_back = get_object_bytes(test_key)
+        delete_object(test_key)
+    except Exception as e:
+        raise HTTPException(503, f"Tigris read/write failed: {e}") from e
+    if read_back != payload:
+        raise HTTPException(503, "Tigris read-back content mismatch")
+    return {"ok": True}
+
+
 # ---------------------------------------------------------------------------
 # API — Document
 # ---------------------------------------------------------------------------
@@ -707,24 +830,31 @@ def api_document_pdf(doc_id: str, _auth: AuthPrincipal = Depends(require_protect
     """Generate a server-side PDF rendition with editorial/two-column layout."""
     doc = _load_document_payload(doc_id)
 
-    from bs4 import BeautifulSoup, Tag
-    from reportlab.lib import colors
-    from reportlab.lib.enums import TA_JUSTIFY, TA_LEFT
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-    from reportlab.lib.units import mm
-    from reportlab.platypus import (
-        BaseDocTemplate,
-        Frame,
-        FrameBreak,
-        NextPageTemplate,
-        PageBreak,
-        PageTemplate,
-        Paragraph,
-        Spacer,
-        Table,
-        TableStyle,
-    )
+    try:
+        from bs4 import BeautifulSoup, Tag
+    except ModuleNotFoundError:  # pragma: no cover - fallback for lean local envs
+        BeautifulSoup = None  # type: ignore[assignment]
+        Tag = tuple()  # type: ignore[assignment]
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.enums import TA_JUSTIFY, TA_LEFT
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.platypus import (
+            BaseDocTemplate,
+            Frame,
+            FrameBreak,
+            NextPageTemplate,
+            PageBreak,
+            PageTemplate,
+            Paragraph,
+            Spacer,
+            Table,
+            TableStyle,
+        )
+    except ModuleNotFoundError as exc:  # pragma: no cover - local env without PDF stack
+        raise HTTPException(503, "PDF generation dependencies are not installed") from exc
 
     buffer = BytesIO()
     pdf = BaseDocTemplate(
@@ -1003,7 +1133,7 @@ def api_document_pdf(doc_id: str, _auth: AuthPrincipal = Depends(require_protect
         return True
 
     body_html = str(doc.get("body_html") or "").strip()
-    if body_html:
+    if body_html and BeautifulSoup is not None:
         soup = BeautifulSoup(body_html, "html.parser")
         for node in soup.contents:
             if not isinstance(node, Tag):
@@ -2664,6 +2794,12 @@ def document_page(path: str):
     return FileResponse(SPA_INDEX)
 
 
+@app.get("/documento/{path:path}")
+def documento_page(path: str):
+    _require_frontend_enabled()
+    return FileResponse(SPA_INDEX)
+
+
 @app.get("/doc/{path:path}")
 def doc_page(path: str):
     """Serve SPA for document pages."""
@@ -2684,6 +2820,29 @@ def dist_asset(path: str):
     except ValueError:
         log_security_event(
             "dist_asset_denied",
+            requested_path=path,
+            resolved_path=str(resolved),
+            reason="path_traversal",
+        )
+        raise HTTPException(403, "Asset path denied")
+    if not resolved.exists() or not resolved.is_file():
+        raise HTTPException(404, "Asset não encontrado")
+    return FileResponse(resolved)
+
+
+@app.get("/assets/{path:path}")
+def assets_asset(path: str):
+    _require_frontend_enabled()
+    requested_path = Path(path)
+    if requested_path.is_absolute():
+        log_security_event("assets_asset_denied", requested_path=path, reason="absolute_path")
+        raise HTTPException(403, "Asset path denied")
+    resolved = (ASSETS_DIR / requested_path).resolve()
+    try:
+        resolved.relative_to(ASSETS_DIR)
+    except ValueError:
+        log_security_event(
+            "assets_asset_denied",
             requested_path=path,
             resolved_path=str(resolved),
             reason="path_traversal",
