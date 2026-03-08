@@ -240,6 +240,57 @@ def update_job_status(
         conn.close()
 
 
+def retry_job(job_id: str) -> dict[str, Any] | None:
+    """Reset a failed/partial job to queued and clear result fields (Phase 9 retry). Returns updated row or None."""
+    conn = _connect()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT status FROM admin.worker_jobs WHERE id = %s::uuid",
+                (job_id,),
+            )
+            row = cur.fetchone()
+            if not row or row["status"] not in ("failed", "partial"):
+                return None
+            cur.execute(
+                """
+                UPDATE admin.worker_jobs
+                SET updated_at = now(),
+                    status = 'queued',
+                    error_message = NULL,
+                    error_detail = NULL,
+                    completed_at = NULL,
+                    articles_found = NULL,
+                    articles_ingested = NULL,
+                    articles_dup = NULL,
+                    articles_failed = NULL
+                WHERE id = %s::uuid
+                RETURNING
+                    id::text AS id,
+                    created_at,
+                    updated_at,
+                    filename,
+                    storage_key,
+                    file_size_bytes,
+                    file_type,
+                    uploaded_by,
+                    status,
+                    articles_found,
+                    articles_ingested,
+                    articles_dup,
+                    articles_failed,
+                    error_message,
+                    error_detail,
+                    completed_at
+                """,
+                (job_id,),
+            )
+            out = cur.fetchone()
+            return dict(out) if out else None
+    finally:
+        conn.close()
+
+
 def claim_job_for_processing(job_id: str) -> dict[str, Any] | None:
     """Atomically transition queued -> processing. Returns updated row or None if not queued."""
     conn = _connect()

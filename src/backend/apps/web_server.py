@@ -39,7 +39,7 @@ from pydantic import BaseModel
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from src.backend.apps.upload_validation import validate_upload_file
-from src.backend.apps.worker_jobs import create_job, ensure_worker_jobs_schema, get_job, list_jobs
+from src.backend.apps.worker_jobs import create_job, ensure_worker_jobs_schema, get_job, list_jobs, retry_job
 from src.backend.apps.auth import (
     AuthPrincipal,
     bootstrap_identity_store,
@@ -891,6 +891,68 @@ def api_admin_job_detail(
     job = get_job(job_id)
     if not job:
         raise HTTPException(404, "job not found")
+    return job
+
+
+@app.get("/api/admin/jobs/{job_id}/stream")
+async def api_admin_job_stream(
+    job_id: str,
+    _auth: AuthPrincipal = Depends(require_admin_access),
+):
+    """Stream job status via SSE until completed/failed/partial (Phase 9, JOBS-05)."""
+    async def _stream() -> AsyncIterator[bytes]:
+        terminal = {"completed", "failed", "partial"}
+        while True:
+            job = await asyncio.to_thread(get_job, job_id)
+            if not job:
+                yield _sse_event("error", {"detail": "job not found"})
+                return
+            # Serialize for JSON (datetime -> str)
+            payload = json.loads(json.dumps(dict(job), default=str))
+            yield _sse_event("job", payload)
+            if job.get("status") in terminal:
+                return
+            await asyncio.sleep(1)
+
+    return StreamingResponse(
+        _stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.post("/api/admin/jobs/{job_id}/retry")
+def api_admin_job_retry(
+    job_id: str,
+    _auth: AuthPrincipal = Depends(require_admin_access),
+):
+    """Re-queue a failed or partial job for reprocessing (Phase 9, JOBS-04)."""
+    job = retry_job(job_id)
+    if not job:
+        job = get_job(job_id)
+        if not job:
+            raise HTTPException(404, "job not found")
+        raise HTTPException(
+            400,
+            f"job cannot be retried (status: {job.get('status')}); only failed or partial",
+        )
+    redis_url = os.getenv("REDIS_URL", "").strip()
+    if redis_url:
+        try:
+            from arq import create_pool
+            from arq.connections import RedisSettings
+
+            async def _enqueue():
+                redis = await create_pool(RedisSettings.from_dsn(redis_url))
+                await redis.enqueue_job("process_upload_job", job_id)
+
+            asyncio.run(_enqueue())
+        except Exception as e:
+            raise HTTPException(503, f"Failed to enqueue retry: {e}") from e
     return job
 
 

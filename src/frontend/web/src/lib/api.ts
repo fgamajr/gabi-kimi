@@ -775,3 +775,13 @@ export async function getAdminJobDetail(jobId: string): Promise<AdminJobDetail> 
   const url = resolveApiUrl(`/api/admin/jobs/${encodeURIComponent(jobId)}`);
   return fetchJSON<AdminJobDetail>(url);
 }
+
+/** URL for SSE stream of job status (Phase 9). Use with EventSource (cookies sent same-origin). */
+export function getAdminJobStreamUrl(jobId: string): string {
+  return resolveApiUrl(`/api/admin/jobs/${encodeURIComponent(jobId)}/stream`);
+}
+
+export async function retryAdminJob(jobId: string): Promise<AdminJobDetail> {
+  const url = resolveApiUrl(`/api/admin/jobs/${encodeURIComponent(jobId)}/retry`);
+  return fetchWithBody<AdminJobDetail>(url, { method: "POST" });
+}

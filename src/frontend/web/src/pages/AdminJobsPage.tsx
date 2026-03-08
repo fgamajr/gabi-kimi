@@ -1,11 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { FileUp, Loader2 } from "lucide-react";
+import { FileUp, Loader2, RotateCcw } from "lucide-react";
 import {
   getAdminJobsList,
   getAdminJobDetail,
+  getAdminJobStreamUrl,
+  retryAdminJob,
   type AdminJobListItem,
   type AdminJobDetail,
 } from "@/lib/api";
@@ -59,11 +61,14 @@ function statusVariant(status: string): "default" | "secondary" | "destructive" 
   }
 }
 
+const TERMINAL_STATUSES = ["completed", "failed", "partial"];
+
 export default function AdminJobsPage() {
   const [jobs, setJobs] = useState<AdminJobListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<AdminJobDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [retrying, setRetrying] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -90,6 +95,47 @@ export default function AdminJobsPage() {
       .then((d) => setDetail(d))
       .catch(() => setDetail(null))
       .finally(() => setDetailLoading(false));
+  };
+
+  // SSE stream when detail is open and job is queued or processing (JOBS-05)
+  const streamRef = useRef<EventSource | null>(null);
+  useEffect(() => {
+    if (!detail?.id || TERMINAL_STATUSES.includes(detail.status)) return;
+    const url = getAdminJobStreamUrl(detail.id);
+    const es = new EventSource(url);
+    streamRef.current = es;
+    es.addEventListener("job", (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data) as AdminJobDetail;
+        setDetail(data);
+        if (TERMINAL_STATUSES.includes(data.status)) {
+          es.close();
+          streamRef.current = null;
+        }
+      } catch {
+        // ignore parse errors
+      }
+    });
+    es.addEventListener("error", () => {
+      es.close();
+      streamRef.current = null;
+    });
+    return () => {
+      es.close();
+      streamRef.current = null;
+    };
+  }, [detail?.id]);
+
+  const handleRetry = () => {
+    if (!detail || retrying) return;
+    setRetrying(true);
+    retryAdminJob(detail.id)
+      .then((d) => {
+        setDetail(d);
+        setJobs((prev) => prev.map((j) => (j.id === d.id ? { ...j, ...d } : j)));
+      })
+      .catch(() => {})
+      .finally(() => setRetrying(false));
   };
 
   return (
@@ -203,6 +249,22 @@ export default function AdminJobsPage() {
                   <p className="font-medium text-foreground mb-1">Mensagens de erro</p>
                   <p className="text-muted-foreground whitespace-pre-wrap break-words">{detail.error_message}</p>
                 </div>
+              )}
+              {(detail.status === "failed" || detail.status === "partial") && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRetry}
+                  disabled={retrying}
+                  className="w-full sm:w-auto"
+                >
+                  {retrying ? (
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  ) : (
+                    <RotateCcw className="w-4 h-4 mr-2" />
+                  )}
+                  Tentar novamente
+                </Button>
               )}
             </div>
           ) : null}
