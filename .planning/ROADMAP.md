@@ -145,10 +145,10 @@ Plans:
   1. While a job is processing, the admin sees real-time progress updates (e.g., "Processing article 124 of 500")
   2. Progress streams via SSE without requiring page refresh or manual polling
   3. Admin can retry a failed job with one click, which re-reads the file from Tigris and reprocesses it
-**Plans**: TBD
+**Plans**: 09-01 done
 
 Plans:
-- [ ] 09-01: TBD
+- [x] 09-01: GET job stream (SSE), POST retry, EventSource + Retry button
 
 ### Phase 10: Legacy Cleanup
 **Goal**: The old Alpine.js frontend is removed, leaving only the React SPA

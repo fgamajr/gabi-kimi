@@ -40,8 +40,8 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **JOBS-01**: Admin sees job list with columns: filename, status, submitted time, completed time, article count
 - [x] **JOBS-02**: Admin can click into job detail showing per-article breakdown (ingested, skipped/duplicate, failed with error message)
 - [x] **JOBS-03**: Error messages are human-readable: "Duplicate article", "Invalid XML at line N", "Missing field: artType"
-- [ ] **JOBS-04**: Admin can retry a failed job with one click (re-reads file from blob storage)
-- [ ] **JOBS-05**: Job progress streams in real-time via SSE ("Processing article 124 of 500")
+- [x] **JOBS-04**: Admin can retry a failed job with one click (re-reads file from blob storage)
+- [x] **JOBS-05**: Job progress streams in real-time via SSE ("Processing article 124 of 500")
 - [x] **JOBS-06**: Upload history serves as audit log — who uploaded what, when, outcome (immutable)
 
 ### Cleanup
@@ -97,8 +97,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | JOBS-01 | Phase 8 | Complete |
 | JOBS-02 | Phase 8 | Complete |
 | JOBS-03 | Phase 8 | Complete |
-| JOBS-04 | Phase 9 | Pending |
-| JOBS-05 | Phase 9 | Pending |
+| JOBS-04 | Phase 9 | Complete |
+| JOBS-05 | Phase 9 | Complete |
 | JOBS-06 | Phase 8 | Complete |
 | CLEN-01 | Phase 10 | Pending |
 
