@@ -11,8 +11,8 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **INFRA-01**: Tigris blob storage bucket created and accessible from FastAPI via boto3
 - [x] **INFRA-02**: Worker control table in PostgreSQL tracks job lifecycle (queued → processing → completed/failed/partial)
-- [ ] **INFRA-03**: ARQ worker runs as separate Fly.io process group with 1GB+ RAM
-- [ ] **INFRA-04**: fly.toml updated with web + worker process groups and correct entrypoints
+- [x] **INFRA-03**: ARQ worker runs as separate Fly.io process group with 1GB+ RAM
+- [x] **INFRA-04**: fly.toml updated with web + worker process groups and correct entrypoints
 
 ### Upload
 
@@ -77,8 +77,8 @@ Deferred to future release. Tracked but not in current roadmap.
 |-------------|-------|--------|
 | INFRA-01 | Phase 1 | Complete |
 | INFRA-02 | Phase 2 | Complete |
-| INFRA-03 | Phase 4 | Pending |
-| INFRA-04 | Phase 4 | Pending |
+| INFRA-03 | Phase 4 | Complete |
+| INFRA-04 | Phase 4 | Complete |
 | UPLD-01 | Phase 7 | Pending |
 | UPLD-02 | Phase 7 | Pending |
 | UPLD-03 | Phase 3 | Complete |

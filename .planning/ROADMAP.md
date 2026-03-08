@@ -75,10 +75,10 @@ Plans:
   2. The worker process starts successfully and connects to Redis as an ARQ worker
   3. The worker process has 1GB+ RAM allocated
   4. Enqueuing a test task via Redis results in the worker picking it up and executing it
-**Plans**: TBD
+**Plans**: 04-01 done
 
 Plans:
-- [ ] 04-01: TBD
+- [x] 04-01: arq worker, fly.toml web+worker 1GB, runbook
 
 ### Phase 5: Single XML Processing
 **Goal**: The worker can take a queued job for a single XML file and ingest it into the search index
@@ -172,7 +172,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 1. Storage Foundation | 1/1 | Complete | 2026-03-08 |
 | 2. Job Control Schema | 1/1 | Complete | 2026-03-08 |
 | 3. Upload API | 1/1 | Complete | 2026-03-08 |
-| 4. Worker Infrastructure | 0/? | Not started | - |
+| 4. Worker Infrastructure | 1/1 | Complete | 2026-03-08 |
 | 5. Single XML Processing | 0/? | Not started | - |
 | 6. ZIP Processing | 0/? | Not started | - |
 | 7. Upload UI | 0/? | Not started | - |
