@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { Home, Search, BarChart3, MessageSquare, Star, LogOut, LogIn, User, Settings, Sun, Moon, Users, Shield, FileUp } from "lucide-react";
+import { Home, Search, BarChart3, MessageSquare, Star, LogOut, LogIn, User, Settings, Sun, Moon, Users, Shield, FileUp, ListTodo } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import { useTheme } from "@/hooks/useTheme";
@@ -87,6 +87,9 @@ function DesktopUserMenu() {
             <DropdownMenuItem className="gap-2 text-text-secondary cursor-pointer" onClick={() => navigate("/admin/upload")}>
               <FileUp className="w-4 h-4" /> Upload DOU
             </DropdownMenuItem>
+            <DropdownMenuItem className="gap-2 text-text-secondary cursor-pointer" onClick={() => navigate("/admin/jobs")}>
+              <ListTodo className="w-4 h-4" /> Jobs
+            </DropdownMenuItem>
             <DropdownMenuItem className="gap-2 text-text-secondary cursor-pointer" onClick={() => navigate("/admin/users")}>
               <Shield className="w-4 h-4" /> Painel operacional
             </DropdownMenuItem>
@@ -156,6 +159,9 @@ function MobileUserSheet() {
                     <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-text-secondary hover:bg-muted transition-colors" onClick={() => { setOpen(false); navigate("/admin/upload"); }}>
                       <FileUp className="w-4 h-4" /> Upload DOU
                     </button>
+                    <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-text-secondary hover:bg-muted transition-colors" onClick={() => { setOpen(false); navigate("/admin/jobs"); }}>
+                      <ListTodo className="w-4 h-4" /> Jobs
+                    </button>
                     <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-text-secondary hover:bg-muted transition-colors" onClick={() => { setOpen(false); navigate("/admin/users"); }}>
                       <Shield className="w-4 h-4" /> Painel operacional
                     </button>
@@ -195,7 +201,7 @@ function MobileUserSheet() {
 
 export default function AppShell() {
   const { isAdmin } = useAuth();
-  const navItems = isAdmin ? [...NAV_ITEMS, { to: "/admin/upload", icon: FileUp, label: "Upload" }, { to: "/admin/users", icon: Shield, label: "Operação" }] : NAV_ITEMS;
+  const navItems = isAdmin ? [...NAV_ITEMS, { to: "/admin/upload", icon: FileUp, label: "Upload" }, { to: "/admin/jobs", icon: ListTodo, label: "Jobs" }, { to: "/admin/users", icon: Shield, label: "Operação" }] : NAV_ITEMS;
 
   return (
     <div className="flex min-h-screen min-h-[100dvh]">
