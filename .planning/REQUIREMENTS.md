@@ -27,13 +27,13 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Processing
 
-- [ ] **PROC-01**: Worker picks up queued jobs and processes them using existing ingestion pipeline (xml_parser → normalizer → registry_ingest → ES indexer)
+- [x] **PROC-01**: Worker picks up queued jobs and processes them using existing ingestion pipeline (xml_parser → normalizer → registry_ingest → ES indexer)
 - [ ] **PROC-02**: Worker handles ZIP files: unzip → parse each XML → normalize → deduplicate → ingest
-- [ ] **PROC-03**: Worker handles single XML files: parse → normalize → deduplicate → ingest
-- [ ] **PROC-04**: Deduplication uses existing natural_key_hash — duplicate articles are skipped, not errored
+- [x] **PROC-03**: Worker handles single XML files: parse → normalize → deduplicate → ingest
+- [x] **PROC-04**: Deduplication uses existing natural_key_hash — duplicate articles are skipped, not errored
 - [ ] **PROC-05**: Partial success supported — if ZIP has 500 articles and 3 fail, 497 are ingested and 3 failures surfaced
 - [ ] **PROC-06**: ZIP Slip protection — validate all extracted paths are within target directory
-- [ ] **PROC-07**: Processing is idempotent — re-processing same file produces same result without duplicates
+- [x] **PROC-07**: Processing is idempotent — re-processing same file produces same result without duplicates
 
 ### Job Tracking
 
@@ -87,13 +87,13 @@ Deferred to future release. Tracked but not in current roadmap.
 | UPLD-06 | Phase 7 | Pending |
 | UPLD-07 | Phase 7 | Pending |
 | UPLD-08 | Phase 7 | Pending |
-| PROC-01 | Phase 5 | Pending |
+| PROC-01 | Phase 5 | Complete |
 | PROC-02 | Phase 6 | Pending |
-| PROC-03 | Phase 5 | Pending |
-| PROC-04 | Phase 5 | Pending |
+| PROC-03 | Phase 5 | Complete |
+| PROC-04 | Phase 5 | Complete |
 | PROC-05 | Phase 6 | Pending |
 | PROC-06 | Phase 6 | Pending |
-| PROC-07 | Phase 5 | Pending |
+| PROC-07 | Phase 5 | Complete |
 | JOBS-01 | Phase 8 | Pending |
 | JOBS-02 | Phase 8 | Pending |
 | JOBS-03 | Phase 8 | Pending |
