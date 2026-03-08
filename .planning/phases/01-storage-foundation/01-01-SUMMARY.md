@@ -87,6 +87,11 @@ To satisfy "Tigris bucket exists and is bound to Fly app" and "credentials avail
 - Phase 2 (Job Control Schema) can proceed: storage is ready for upload API (Phase 3) to write blobs and worker to read them.
 - No blockers.
 
+## Self-Check: PASSED
+
+- 01-01-SUMMARY.md, src/backend/storage/tigris.py, docs/runbooks/FLY_TIGRIS_STORAGE.md exist.
+- Commits 3cd3295, 51c7263, d66e15a, 5159393 present.
+
 ---
 *Phase: 01-storage-foundation*
 *Completed: 2026-03-08*
