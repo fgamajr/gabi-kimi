@@ -22,6 +22,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 8: Job Dashboard** - React job list and detail views showing ingestion results
 - [ ] **Phase 9: Live Status and Retry** - Real-time SSE progress streaming and one-click job retry
 - [x] **Phase 10: Legacy Cleanup** - Remove Alpine.js frontend from codebase
+- [ ] **Phase 11: Fly.io Migration & Dashboard** - 3-machine Fly.io architecture, autonomous pipeline, admin dashboard
 
 ## Phase Details
 
@@ -162,10 +163,31 @@ Plans:
 Plans:
 - [x] 10-01: Remove web/index.html, backend React-only, docs updated
 
+### Phase 11: Fly.io Migration & Dashboard
+**Goal:** Deploy GABI as 3 separate Fly.io machines (WEB, WORKER, ES), replace manual JSON catalog with autonomous SQLite-backed ingestion pipeline, and add React admin dashboard for pipeline monitoring
+**Depends on:** Phase 10
+**Requirements**: FLY-01, FLY-02, FLY-03, FLY-04, PIPE-01, PIPE-02, PIPE-03, PIPE-04, PIPE-05, PIPE-06, PIPE-07, PIPE-08, DASH-01, DASH-02, DASH-03, DASH-04, DASH-05, DASH-06, DASH-07
+**Success Criteria** (what must be TRUE):
+  1. ES runs on dedicated Fly.io machine with 4GB RAM, 50GB volume, single-node config
+  2. Worker runs on dedicated Fly.io machine with SQLite registry, APScheduler cron jobs, and internal API
+  3. Web proxies /api/worker/* to worker.internal:8081 for dashboard access
+  4. Pipeline autonomously discovers, downloads, extracts, ingests, and verifies DOU publications
+  5. Admin dashboard shows pipeline health, timeline, scheduler status, logs, and settings
+**Plans:** 7 plans
+
+Plans:
+- [ ] 11-01-PLAN.md -- ES + Worker Fly.io deployment configs
+- [ ] 11-02-PLAN.md -- SQLite registry module + migration script
+- [ ] 11-03-PLAN.md -- Pipeline modules (discovery, download, extract, ingest, verify)
+- [ ] 11-04-PLAN.md -- Worker main + scheduler + internal API
+- [ ] 11-05-PLAN.md -- Web proxy + dashboard types/hooks/API client
+- [ ] 11-06-PLAN.md -- Dashboard Overview + Timeline tabs
+- [ ] 11-07-PLAN.md -- Dashboard Pipeline + Logs + Settings tabs
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -174,8 +196,9 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 3. Upload API | 1/1 | Complete | 2026-03-08 |
 | 4. Worker Infrastructure | 1/1 | Complete | 2026-03-08 |
 | 5. Single XML Processing | 1/1 | Complete | 2026-03-08 |
-| 6. ZIP Processing | 0/? | Not started | - |
-| 7. Upload UI | 0/? | Not started | - |
-| 8. Job Dashboard | 0/? | Not started | - |
-| 9. Live Status and Retry | 0/? | Not started | - |
-| 10. Legacy Cleanup | 0/? | Not started | - |
+| 6. ZIP Processing | 1/1 | Complete | 2026-03-08 |
+| 7. Upload UI | 1/1 | Complete | 2026-03-08 |
+| 8. Job Dashboard | 1/1 | Complete | 2026-03-08 |
+| 9. Live Status and Retry | 1/1 | Complete | 2026-03-08 |
+| 10. Legacy Cleanup | 1/1 | Complete | 2026-03-08 |
+| 11. Fly.io Migration & Dashboard | 0/7 | Not started | - |
