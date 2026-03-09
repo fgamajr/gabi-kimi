@@ -20,6 +20,7 @@ const AnalyticsPage = lazy(() => import("@/pages/AnalyticsPage"));
 const ChatPage = lazy(() => import("@/pages/ChatPage"));
 const FavoritosPage = lazy(() => import("@/pages/FavoritosPage"));
 const LoginPage = lazy(() => import("@/pages/LoginPage"));
+const RegisterPage = lazy(() => import("@/pages/RegisterPage"));
 const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
 const UserSettingsPage = lazy(() => import("@/pages/UserSettingsPage"));
 const AdminUsersPage = lazy(() => import("@/pages/AdminUsersPage"));
@@ -84,6 +85,8 @@ const App = () => (
             <Suspense fallback={<RouteFallback />}>
               <Routes>
                 <Route path="/login" element={<LoginPage />} />
+                <Route path="/cadastro" element={<RegisterPage />} />
+                <Route path="/register" element={<RegisterPage />} />
                 <Route element={<AppShell />}>
                   <Route path="/" element={<HomePage />} />
                   <Route path="/busca" element={<SearchPage />} />
