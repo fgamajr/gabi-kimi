@@ -35,7 +35,7 @@
 ### Phase 14: Email + Password Authentication
 **Goal:** Citizens and professionals can create accounts and log in with email+password while existing token auth continues working unchanged
 **Depends on:** Phase 13
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 **Requirements**: SCHEMA-01, SCHEMA-02, SCHEMA-03, AUTH-01, AUTH-02, AUTH-03, AUTH-04, SEC-01, SEC-02, SEC-03, SEC-04, SEC-05, SEC-06, SEC-07, UI-01, UI-02, UI-03, UI-04, UI-05, COEX-01, COEX-02, COEX-03
 **Success Criteria** (what must be TRUE):
   1. User can register with email+password and immediately use the app
@@ -57,7 +57,7 @@ Phases execute in numeric order: 1 -> ... -> 13 -> 14
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1-13 | v1.0 | 22/22 | Complete | 2026-03-09 |
-| 14. Email + Password Auth | v1.1 | 0/2 | Not started | - |
+| 14. Email + Password Auth | 1/2 | In Progress|  | - |
 
 ---
 _Full v1.0 details: `.planning/milestones/v1.0-ROADMAP.md`_

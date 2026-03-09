@@ -9,26 +9,26 @@ Requirements for v1.1 release. Public-facing email+password authentication.
 
 ### Schema
 
-- [ ] **SCHEMA-01**: auth.user table extended with password_hash, email_verified, login_method columns
-- [ ] **SCHEMA-02**: Unique index on auth.user(email) WHERE email IS NOT NULL
-- [ ] **SCHEMA-03**: auth.login_attempt table tracks email, ip_address, success, attempted_at
+- [x] **SCHEMA-01**: auth.user table extended with password_hash, email_verified, login_method columns
+- [x] **SCHEMA-02**: Unique index on auth.user(email) WHERE email IS NOT NULL
+- [x] **SCHEMA-03**: auth.login_attempt table tracks email, ip_address, success, attempted_at
 
 ### Auth Endpoints
 
-- [ ] **AUTH-01**: POST /api/auth/register creates user with email+password, assigns 'user' role, creates session
-- [ ] **AUTH-02**: POST /api/auth/login authenticates by email+password (case-insensitive), creates session cookie
-- [ ] **AUTH-03**: POST /api/auth/logout clears session cookie
-- [ ] **AUTH-04**: GET /api/auth/me returns current user info (works for both password and token sessions)
+- [x] **AUTH-01**: POST /api/auth/register creates user with email+password, assigns 'user' role, creates session
+- [x] **AUTH-02**: POST /api/auth/login authenticates by email+password (case-insensitive), creates session cookie
+- [x] **AUTH-03**: POST /api/auth/logout clears session cookie
+- [x] **AUTH-04**: GET /api/auth/me returns current user info (works for both password and token sessions)
 
 ### Security
 
-- [ ] **SEC-01**: Passwords hashed with bcrypt cost factor 12 via passlib (application layer, not pgcrypto)
-- [ ] **SEC-02**: Brute-force protection: >5 failed attempts per email in 15 min blocks login (429)
-- [ ] **SEC-03**: Brute-force protection: >20 failed attempts per IP in 15 min blocks login (429)
-- [ ] **SEC-04**: Generic error responses ("Credenciais invalidas") — never reveal if email exists
-- [ ] **SEC-05**: Rate limit /api/auth/register at 10/hour per IP
-- [ ] **SEC-06**: Rate limit /api/auth/login at 20/hour per IP
-- [ ] **SEC-07**: Login attempt logging (email, IP, success, timestamp) in auth.login_attempt
+- [x] **SEC-01**: Passwords hashed with bcrypt cost factor 12 via passlib (application layer, not pgcrypto)
+- [x] **SEC-02**: Brute-force protection: >5 failed attempts per email in 15 min blocks login (429)
+- [x] **SEC-03**: Brute-force protection: >20 failed attempts per IP in 15 min blocks login (429)
+- [x] **SEC-04**: Generic error responses ("Credenciais invalidas") — never reveal if email exists
+- [x] **SEC-05**: Rate limit /api/auth/register at 10/hour per IP
+- [x] **SEC-06**: Rate limit /api/auth/login at 20/hour per IP
+- [x] **SEC-07**: Login attempt logging (email, IP, success, timestamp) in auth.login_attempt
 
 ### Frontend
 
@@ -40,9 +40,9 @@ Requirements for v1.1 release. Public-facing email+password authentication.
 
 ### Coexistence
 
-- [ ] **COEX-01**: Token login (POST /api/auth/session) continues working unchanged
-- [ ] **COEX-02**: Bearer token auth in middleware continues working unchanged
-- [ ] **COEX-03**: Session cookie is agnostic — same cookie regardless of login method
+- [x] **COEX-01**: Token login (POST /api/auth/session) continues working unchanged
+- [x] **COEX-02**: Bearer token auth in middleware continues working unchanged
+- [x] **COEX-03**: Session cookie is agnostic — same cookie regardless of login method
 
 ## v2 Requirements
 
@@ -71,28 +71,28 @@ Deferred to future release.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SCHEMA-01 | Phase 14 | Pending |
-| SCHEMA-02 | Phase 14 | Pending |
-| SCHEMA-03 | Phase 14 | Pending |
-| AUTH-01 | Phase 14 | Pending |
-| AUTH-02 | Phase 14 | Pending |
-| AUTH-03 | Phase 14 | Pending |
-| AUTH-04 | Phase 14 | Pending |
-| SEC-01 | Phase 14 | Pending |
-| SEC-02 | Phase 14 | Pending |
-| SEC-03 | Phase 14 | Pending |
-| SEC-04 | Phase 14 | Pending |
-| SEC-05 | Phase 14 | Pending |
-| SEC-06 | Phase 14 | Pending |
-| SEC-07 | Phase 14 | Pending |
+| SCHEMA-01 | Phase 14 | Complete |
+| SCHEMA-02 | Phase 14 | Complete |
+| SCHEMA-03 | Phase 14 | Complete |
+| AUTH-01 | Phase 14 | Complete |
+| AUTH-02 | Phase 14 | Complete |
+| AUTH-03 | Phase 14 | Complete |
+| AUTH-04 | Phase 14 | Complete |
+| SEC-01 | Phase 14 | Complete |
+| SEC-02 | Phase 14 | Complete |
+| SEC-03 | Phase 14 | Complete |
+| SEC-04 | Phase 14 | Complete |
+| SEC-05 | Phase 14 | Complete |
+| SEC-06 | Phase 14 | Complete |
+| SEC-07 | Phase 14 | Complete |
 | UI-01 | Phase 14 | Pending |
 | UI-02 | Phase 14 | Pending |
 | UI-03 | Phase 14 | Pending |
 | UI-04 | Phase 14 | Pending |
 | UI-05 | Phase 14 | Pending |
-| COEX-01 | Phase 14 | Pending |
-| COEX-02 | Phase 14 | Pending |
-| COEX-03 | Phase 14 | Pending |
+| COEX-01 | Phase 14 | Complete |
+| COEX-02 | Phase 14 | Complete |
+| COEX-03 | Phase 14 | Complete |
 
 **Coverage:**
 - v1.1 requirements: 22 total
