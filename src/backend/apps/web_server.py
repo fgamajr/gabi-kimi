@@ -36,7 +36,7 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from src.backend.apps.upload_validation import UploadValidationError, validate_upload_file
@@ -49,10 +49,12 @@ from src.backend.apps.analytics_cache import (
 )
 from src.backend.apps.auth import (
     AuthPrincipal,
+    DUMMY_HASH,
     bootstrap_identity_store,
     clear_session_response,
     create_session_response,
     get_auth_config,
+    hash_password,
     issue_api_token,
     list_roles,
     list_users,
@@ -63,6 +65,14 @@ from src.backend.apps.auth import (
     replace_user_roles,
     resolve_request_principal,
     upsert_user,
+    verify_password,
+)
+from src.backend.apps.identity_store import (
+    create_password_user,
+    find_user_by_email,
+    log_login_attempt,
+    check_brute_force,
+    resolve_identity_for_user_id,
 )
 from src.backend.apps.chat_security import ChatSecurity
 from src.backend.apps.middleware.security import (
@@ -856,6 +866,113 @@ async def api_auth_session_create(request: Request):
 @app.delete("/api/auth/session")
 def api_auth_session_delete():
     return clear_session_response()
+
+
+# ---------------------------------------------------------------------------
+# API — Email + Password Auth (v1.1)
+# ---------------------------------------------------------------------------
+
+
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+    display_name: str = Field(min_length=2, max_length=100)
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=128)
+
+
+@app.post("/api/auth/register", status_code=201)
+async def api_auth_register(body: RegisterRequest, request: Request):
+    limiter = getattr(request.app.state, "rate_limiter", None)
+    if isinstance(limiter, RateLimiter):
+        await limiter.enforce(
+            bucket="auth_register",
+            key=request_ip(request),
+            rule=RateRule(limit=10, window_sec=3600),
+            request=request,
+            dimension="ip",
+        )
+    hashed = hash_password(body.password)
+    import asyncpg
+    try:
+        user = await create_password_user(
+            email=body.email, password_hash=hashed, display_name=body.display_name,
+        )
+    except asyncpg.UniqueViolationError:
+        raise HTTPException(status_code=409, detail="Email ja cadastrado")
+    principal = AuthPrincipal(
+        label=user["display_name"],
+        token_id=str(user["id"]),
+        source="password",
+        user_id=str(user["id"]),
+        roles=("user",),
+        email=user["email"],
+        status="active",
+    )
+    response = create_session_response(request, principal)
+    response.status_code = 201
+    return response
+
+
+@app.post("/api/auth/login")
+async def api_auth_login(body: LoginRequest, request: Request):
+    limiter = getattr(request.app.state, "rate_limiter", None)
+    if isinstance(limiter, RateLimiter):
+        await limiter.enforce(
+            bucket="auth_login",
+            key=request_ip(request),
+            rule=RateRule(limit=20, window_sec=3600),
+            request=request,
+            dimension="ip",
+        )
+    ip = request_ip(request)
+    email_lower = body.email.strip().lower()
+    await check_brute_force(email_lower, ip)
+    user = await find_user_by_email(email_lower)
+    if user is None or not user.get("password_hash"):
+        # Timing equalization: always run bcrypt verify even on missing user
+        verify_password("dummy", DUMMY_HASH)
+        await log_login_attempt(email_lower, ip, False)
+        raise HTTPException(status_code=401, detail="Credenciais invalidas")
+    if not verify_password(body.password, user["password_hash"]):
+        await log_login_attempt(email_lower, ip, False)
+        raise HTTPException(status_code=401, detail="Credenciais invalidas")
+    await log_login_attempt(email_lower, ip, True)
+    # Resolve roles from DB for accuracy
+    identity = await resolve_identity_for_user_id(str(user["id"]))
+    roles = identity.roles if identity else ("user",)
+    principal = AuthPrincipal(
+        label=user["display_name"],
+        token_id=str(user["id"]),
+        source="password",
+        user_id=str(user["id"]),
+        roles=roles,
+        email=user["email"],
+        status="active",
+    )
+    return create_session_response(request, principal)
+
+
+@app.post("/api/auth/logout")
+async def api_auth_logout():
+    return clear_session_response()
+
+
+@app.get("/api/auth/me")
+async def api_auth_me(request: Request):
+    principal = await resolve_request_principal(request, log_failures=False)
+    if principal is None:
+        raise HTTPException(status_code=401, detail="Nao autenticado")
+    return {
+        "id": principal.user_id,
+        "email": principal.email,
+        "display_name": principal.label,
+        "roles": list(principal.roles),
+        "login_method": principal.source,
+    }
 
 
 class AdminUserUpsertRequest(BaseModel):
