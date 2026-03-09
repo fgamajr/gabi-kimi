@@ -1,6 +1,7 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { Home, Search, BarChart3, MessageSquare, Star, LogOut, LogIn, User, Settings, Sun, Moon, Users, Shield, FileUp, ListTodo } from "lucide-react";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { Home, Search, BarChart3, MessageSquare, Star, LogOut, LogIn, User, Settings, Sun, Moon, Shield, FileUp, ListTodo, Workflow } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/hooks/useI18n";
 import { useAuth } from "@/hooks/useAuth";
 import { useTheme } from "@/hooks/useTheme";
 import {
@@ -12,14 +13,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const NAV_ITEMS = [
-  { to: "/", icon: Home, label: "Home" },
-  { to: "/busca", icon: Search, label: "Busca" },
-  { to: "/analytics", icon: BarChart3, label: "Analytics" },
-  { to: "/chat", icon: MessageSquare, label: "Chat" },
-  { to: "/favoritos", icon: Star, label: "Favoritos" },
+  { to: "/", icon: Home, key: "appShell.nav.home" },
+  { to: "/busca", icon: Search, key: "appShell.nav.search" },
+  { to: "/analytics", icon: BarChart3, key: "appShell.nav.analytics" },
+  { to: "/chat", icon: MessageSquare, key: "appShell.nav.chat" },
+  { to: "/favoritos", icon: Star, key: "appShell.nav.favorites" },
 ] as const;
 
 function UserAvatar({ name, className }: { name: string; className?: string }) {
@@ -32,6 +33,7 @@ function UserAvatar({ name, className }: { name: string; className?: string }) {
 }
 
 function DesktopUserMenu() {
+  const { t } = useI18n();
   const { user, role, isAdmin, logout } = useAuth();
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
@@ -42,17 +44,17 @@ function DesktopUserMenu() {
         <button
           onClick={toggleTheme}
           className="flex flex-col items-center justify-center w-12 h-12 rounded-xl text-text-tertiary hover:bg-muted hover:text-text-secondary transition-colors"
-          aria-label={theme === "dark" ? "Modo claro" : "Modo escuro"}
+          aria-label={theme === "dark" ? t("appShell.account.openLightMode") : t("appShell.account.openDarkMode")}
         >
           {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-          <span className="text-[10px] mt-0.5 font-medium">{theme === "dark" ? "Claro" : "Escuro"}</span>
+          <span className="text-[10px] mt-0.5 font-medium">{theme === "dark" ? t("appShell.account.light") : t("appShell.account.dark")}</span>
         </button>
         <NavLink
           to="/login"
           className="flex flex-col items-center justify-center w-12 h-12 rounded-xl text-text-tertiary hover:bg-muted hover:text-text-secondary transition-colors"
         >
           <LogIn className="w-4 h-4" />
-          <span className="text-[10px] mt-0.5 font-medium">Entrar</span>
+          <span className="text-[10px] mt-0.5 font-medium">{t("common.actions.login")}</span>
         </NavLink>
       </div>
     );
@@ -75,33 +77,36 @@ function DesktopUserMenu() {
         </DropdownMenuLabel>
         <DropdownMenuSeparator className="bg-border" />
         <DropdownMenuItem className="gap-2 text-text-secondary cursor-pointer" onClick={() => navigate("/perfil")}>
-          <User className="w-4 h-4" /> Perfil
+          <User className="w-4 h-4" /> {t("common.actions.profile")}
         </DropdownMenuItem>
         <DropdownMenuItem className="gap-2 text-text-secondary cursor-pointer" onClick={() => navigate("/configuracoes")}>
-          <Settings className="w-4 h-4" /> Configurações
+          <Settings className="w-4 h-4" /> {t("common.actions.settings")}
         </DropdownMenuItem>
         {isAdmin ? (
           <>
             <DropdownMenuSeparator className="bg-border" />
-            <DropdownMenuLabel className="text-[10px] uppercase tracking-[0.18em] text-text-tertiary">Operação</DropdownMenuLabel>
+            <DropdownMenuLabel className="text-[10px] uppercase tracking-[0.18em] text-text-tertiary">{t("appShell.account.operationLabel")}</DropdownMenuLabel>
+            <DropdownMenuItem className="gap-2 text-text-secondary cursor-pointer" onClick={() => navigate("/pipeline")}>
+              <Workflow className="w-4 h-4" /> Pipeline
+            </DropdownMenuItem>
             <DropdownMenuItem className="gap-2 text-text-secondary cursor-pointer" onClick={() => navigate("/admin/upload")}>
-              <FileUp className="w-4 h-4" /> Upload DOU
+              <FileUp className="w-4 h-4" /> {t("appShell.account.uploadDou")}
             </DropdownMenuItem>
             <DropdownMenuItem className="gap-2 text-text-secondary cursor-pointer" onClick={() => navigate("/admin/jobs")}>
-              <ListTodo className="w-4 h-4" /> Jobs
+              <ListTodo className="w-4 h-4" /> {t("appShell.account.jobs")}
             </DropdownMenuItem>
             <DropdownMenuItem className="gap-2 text-text-secondary cursor-pointer" onClick={() => navigate("/admin/users")}>
-              <Shield className="w-4 h-4" /> Painel operacional
+              <Shield className="w-4 h-4" /> {t("appShell.account.operationalPanel")}
             </DropdownMenuItem>
           </>
         ) : null}
         <DropdownMenuItem className="gap-2 text-text-secondary cursor-pointer" onClick={toggleTheme}>
           {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-          {theme === "dark" ? "Modo claro" : "Modo escuro"}
+          {theme === "dark" ? t("appShell.account.openLightMode") : t("appShell.account.openDarkMode")}
         </DropdownMenuItem>
         <DropdownMenuSeparator className="bg-border" />
         <DropdownMenuItem className="gap-2 text-text-secondary cursor-pointer" onClick={logout}>
-          <LogOut className="w-4 h-4" /> Sair
+          <LogOut className="w-4 h-4" /> {t("common.actions.logout")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -109,6 +114,7 @@ function DesktopUserMenu() {
 }
 
 function MobileUserSheet() {
+  const { t } = useI18n();
   const { user, role, isAdmin, logout } = useAuth();
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
@@ -121,19 +127,19 @@ function MobileUserSheet() {
           {user ? (
             <>
               <UserAvatar name={user.name} className="w-5 h-5 text-[8px]" />
-              <span className="text-[10px] mt-0.5 font-medium">Conta</span>
+              <span className="text-[10px] mt-0.5 font-medium">{t("appShell.account.account")}</span>
             </>
           ) : (
             <>
               <User className="w-5 h-5" />
-              <span className="text-[10px] mt-0.5 font-medium">Entrar</span>
+              <span className="text-[10px] mt-0.5 font-medium">{t("common.actions.login")}</span>
             </>
           )}
         </button>
       </SheetTrigger>
       <SheetContent side="bottom" className="rounded-t-2xl bg-surface-elevated border-border pb-safe">
         <SheetHeader>
-          <SheetTitle className="text-foreground">{user ? "Minha conta" : "Conta"}</SheetTitle>
+          <SheetTitle className="text-foreground">{user ? t("appShell.account.myAccount") : t("appShell.account.account")}</SheetTitle>
         </SheetHeader>
         <div className="py-4 space-y-4">
           {user ? (
@@ -148,48 +154,51 @@ function MobileUserSheet() {
               </div>
               <div className="space-y-1">
                 <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-text-secondary hover:bg-muted transition-colors" onClick={() => { setOpen(false); navigate("/perfil"); }}>
-                  <User className="w-4 h-4" /> Perfil
+                  <User className="w-4 h-4" /> {t("common.actions.profile")}
                 </button>
                 <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-text-secondary hover:bg-muted transition-colors" onClick={() => { setOpen(false); navigate("/configuracoes"); }}>
-                  <Settings className="w-4 h-4" /> Configurações
+                  <Settings className="w-4 h-4" /> {t("common.actions.settings")}
                 </button>
                 {isAdmin ? (
                   <>
-                    <div className="px-3 pt-2 text-[10px] uppercase tracking-[0.18em] text-text-tertiary">Operação</div>
+                    <div className="px-3 pt-2 text-[10px] uppercase tracking-[0.18em] text-text-tertiary">{t("appShell.account.operationLabel")}</div>
+                    <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-text-secondary hover:bg-muted transition-colors" onClick={() => { setOpen(false); navigate("/pipeline"); }}>
+                      <Workflow className="w-4 h-4" /> Pipeline
+                    </button>
                     <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-text-secondary hover:bg-muted transition-colors" onClick={() => { setOpen(false); navigate("/admin/upload"); }}>
-                      <FileUp className="w-4 h-4" /> Upload DOU
+                      <FileUp className="w-4 h-4" /> {t("appShell.account.uploadDou")}
                     </button>
                     <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-text-secondary hover:bg-muted transition-colors" onClick={() => { setOpen(false); navigate("/admin/jobs"); }}>
-                      <ListTodo className="w-4 h-4" /> Jobs
+                      <ListTodo className="w-4 h-4" /> {t("appShell.account.jobs")}
                     </button>
                     <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-text-secondary hover:bg-muted transition-colors" onClick={() => { setOpen(false); navigate("/admin/users"); }}>
-                      <Shield className="w-4 h-4" /> Painel operacional
+                      <Shield className="w-4 h-4" /> {t("appShell.account.operationalPanel")}
                     </button>
                   </>
                 ) : null}
                 <div className="border-t border-border my-2" />
                 <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-text-secondary hover:bg-muted transition-colors" onClick={toggleTheme}>
                   {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-                  {theme === "dark" ? "Modo claro" : "Modo escuro"}
+                  {theme === "dark" ? t("appShell.account.openLightMode") : t("appShell.account.openDarkMode")}
                 </button>
                 <div className="border-t border-border my-2" />
                 <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-text-secondary hover:bg-muted transition-colors" onClick={() => { setOpen(false); logout(); }}>
-                  <LogOut className="w-4 h-4" /> Sair
+                  <LogOut className="w-4 h-4" /> {t("common.actions.logout")}
                 </button>
               </div>
             </>
           ) : (
             <div className="text-center space-y-3">
-              <p className="text-sm text-text-secondary">Você não está logado.</p>
+              <p className="text-sm text-text-secondary">{t("appShell.account.notLoggedIn")}</p>
               <button
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
                 onClick={() => { setOpen(false); navigate("/login"); }}
               >
-                <LogIn className="w-4 h-4" /> Entrar
+                <LogIn className="w-4 h-4" /> {t("common.actions.login")}
               </button>
               <button className="inline-flex items-center gap-2 text-sm text-text-tertiary hover:text-text-secondary transition-colors mt-2" onClick={toggleTheme}>
                 {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-                {theme === "dark" ? "Modo claro" : "Modo escuro"}
+                {theme === "dark" ? t("appShell.account.openLightMode") : t("appShell.account.openDarkMode")}
               </button>
             </div>
           )}
@@ -200,17 +209,42 @@ function MobileUserSheet() {
 }
 
 export default function AppShell() {
+  const { t } = useI18n();
   const { isAdmin } = useAuth();
-  const navItems = isAdmin ? [...NAV_ITEMS, { to: "/admin/upload", icon: FileUp, label: "Upload" }, { to: "/admin/jobs", icon: ListTodo, label: "Jobs" }, { to: "/admin/users", icon: Shield, label: "Operação" }] : NAV_ITEMS;
+  const location = useLocation();
+  const navItems = isAdmin
+    ? [...NAV_ITEMS, { to: "/pipeline", icon: Workflow, key: "appShell.nav.pipeline" }, { to: "/admin/upload", icon: FileUp, key: "appShell.nav.upload" }, { to: "/admin/jobs", icon: ListTodo, key: "appShell.nav.jobs" }, { to: "/admin/users", icon: Shield, key: "appShell.nav.operations" }]
+    : NAV_ITEMS;
+  const mainRef = useRef<HTMLElement | null>(null);
+  const previousPathRef = useRef(location.pathname);
+
+  useEffect(() => {
+    if (previousPathRef.current === location.pathname) return;
+    previousPathRef.current = location.pathname;
+    window.requestAnimationFrame(() => {
+      try {
+        mainRef.current?.focus({ preventScroll: true });
+      } catch {
+        mainRef.current?.focus();
+      }
+    });
+  }, [location.pathname]);
 
   return (
     <div className="flex min-h-screen min-h-[100dvh]">
+      <a
+        href="#main-content"
+        className="sr-only z-[60] rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-lg focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+      >
+        {t("appShell.skipToMain")}
+      </a>
+
       {/* Desktop Rail */}
       <nav className="hidden md:flex flex-col items-center w-[72px] border-r border-border bg-surface-elevated py-6 gap-2 fixed inset-y-0 left-0 z-40">
         <div className="mb-6 flex items-center justify-center w-10 h-10 rounded-lg bg-primary text-primary-foreground font-bold text-sm">
           G
         </div>
-        {navItems.map(({ to, icon: Icon, label }) => (
+        {navItems.map(({ to, icon: Icon, key }) => (
           <NavLink
             key={to}
             to={to}
@@ -223,7 +257,7 @@ export default function AppShell() {
             }
           >
             <Icon className="w-5 h-5" />
-            <span className="text-[10px] mt-0.5 font-medium">{label}</span>
+            <span className="text-[10px] mt-0.5 font-medium">{t(key)}</span>
           </NavLink>
         ))}
 
@@ -232,14 +266,20 @@ export default function AppShell() {
         </div>
       </nav>
 
-      <main className="flex-1 md:ml-[72px] pb-20 md:pb-0">
+      <main
+        id="main-content"
+        ref={mainRef}
+        role="main"
+        tabIndex={-1}
+        className="flex-1 md:ml-[72px] pb-20 md:pb-0 focus:outline-none"
+      >
         <Outlet />
       </main>
 
       {/* Mobile Bottom Nav */}
       <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 border-t border-border bg-surface-elevated/80 backdrop-blur-xl pb-safe">
         <div className="flex items-center justify-around h-16">
-          {navItems.map(({ to, icon: Icon, label }) => (
+          {navItems.map(({ to, icon: Icon, key }) => (
             <NavLink
               key={to}
               to={to}
@@ -252,7 +292,7 @@ export default function AppShell() {
               }
             >
               <Icon className="w-5 h-5" />
-              <span className="text-[10px] mt-0.5 font-medium">{label}</span>
+              <span className="text-[10px] mt-0.5 font-medium">{t(key)}</span>
             </NavLink>
           ))}
           <MobileUserSheet />
