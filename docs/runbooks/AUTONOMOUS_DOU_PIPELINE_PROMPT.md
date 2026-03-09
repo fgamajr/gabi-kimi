@@ -433,6 +433,229 @@ class CatalogReconciler:
 
 The orchestrator coordinates all pipeline modules via APScheduler. It runs discovery, download, extraction, indexing, embedding, and verification in sequence. The scheduler supports pause/resume (currently in-memory only; persistent pause is an open gap).
 
+### Holiday-Aware Watchdog (SPECIFICATION FOR FUTURE IMPLEMENTATION)
+
+> **STATUS:** Holiday awareness is listed as an open gap in PATCH 3's "STILL NEEDS" list. The watchdog exists but lacks holiday calendar integration. This subsection documents the planned behavior.
+
+#### 1. Holiday Calendar
+
+Brazilian national holidays when DOU is NOT published:
+
+**Fixed holidays:**
+- January 1 -- Confraternização Universal (New Year's Day)
+- April 21 -- Tiradentes
+- May 1 -- Dia do Trabalho (Labor Day)
+- September 7 -- Independência do Brasil
+- October 12 -- Nossa Senhora Aparecida
+- November 2 -- Finados (All Souls' Day)
+- November 15 -- Proclamação da República
+- December 25 -- Natal (Christmas)
+
+**Variable holidays (calculated from Easter):**
+- Carnival Monday and Tuesday -- 48 and 47 days before Easter Sunday
+- Good Friday -- 2 days before Easter Sunday
+- Corpus Christi -- 60 days after Easter Sunday
+
+**Holiday calculation:** Use Python `easter()` from the `dateutil` library to compute Easter Sunday, then derive Carnival and Good Friday dates programmatically.
+
+#### 2. Watchdog Behavior
+
+| Scenario | Behavior |
+|----------|----------|
+| **Normal day** | If no DOU publication discovered by 10:00 BRT, send Telegram alert |
+| **Holiday** | Skip alert entirely -- DOU is not published on holidays |
+| **Pre-holiday** | If tomorrow is a holiday, note in daily summary ("Tomorrow is [holiday], no DOU expected") |
+| **Post-holiday** | Normal behavior resumes; expect publication |
+
+#### 3. Telegram Notifications
+
+**Daily summary message:**
+- Count of articles discovered, downloaded, ingested, verified
+- Any anomalies (missing sections, partial publications)
+- Pre-holiday notice if applicable
+
+**Alert triggers:**
+- Missing publication on a non-holiday business day (after 10:00 BRT)
+- Download failure after 3 retries
+- Enrichment budget exceeded (daily or monthly cap)
+
+**Format:** Plain text, no markdown (Telegram bot API `parse_mode` not set). Messages should be concise and actionable.
+
+---
+
+## SEARCH API ARCHITECTURE (SPECIFICATION FOR FUTURE IMPLEMENTATION)
+
+> **STATUS:** The search API is ALREADY PARTIALLY IMPLEMENTED (BM25 search works). The citizen/professional mode split and RRF hybrid scoring described below are SPECIFICATIONS FOR FUTURE IMPLEMENTATION.
+
+### Two Search Modes
+
+#### Citizen Mode (default, ~90% of users)
+
+- **Endpoint:** `GET /api/v1/search?mode=citizen`
+- **Query fields:** `summary_plain`, `key_facts`, `category` (enrichment fields)
+- **Result display:** Plain-language summaries with key facts
+- **Progressive disclosure:** Initially shows `summary_plain`; full `body` text loads on explicit user action (click/expand)
+- **Prerequisite:** Enrichment pipeline (MODULE 3B) must be implemented for the full citizen experience. Without enrichment, citizen mode degrades to standard BM25 on raw fields.
+
+#### Professional Mode (~10% of users)
+
+- **Endpoint:** `GET /api/v1/search?mode=professional`
+- **Query fields:** Full `body` text, `summary_technical`, `references`
+- **Result display:** Technical summaries with legal citations, affected entities, and referenced laws
+- **Opt-in required:** Professional mode is never the default
+
+### Hybrid Search with Reciprocal Rank Fusion (RRF)
+
+The search combines two ranking signals:
+
+1. **BM25 (Portuguese analyzer):** Provides keyword relevance. Uses the existing `pt_folded` analyzer for raw fields and `portuguese` analyzer for enrichment fields. **ALWAYS available** as the baseline retrieval layer.
+
+2. **Dense vector (OpenAI embeddings):** Provides semantic relevance. Uses `ada-002` embeddings stored in the `dou_documents` index. **Additive** -- if embeddings are missing for some documents, those documents still appear via BM25.
+
+**RRF scoring formula:**
+```
+score = sum(1 / (k + rank_i)) for each ranking signal i
+```
+Where `k = 60` (standard RRF constant that prevents high-ranked documents from dominating).
+
+**Fallback behavior:** If vector search fails (e.g., OpenAI outage), degrade to BM25-only transparently. The user experience remains functional; only semantic relevance is lost.
+
+### Conversational Chat
+
+- **Endpoint:** `/api/chat`
+- **Model:** Qwen (already implemented)
+- **Rate limiting:** Per-user rate limiting (already implemented via Redis)
+- **Search-augmented:** Retrieves top-5 documents via hybrid search, passes as context to the chat model (RAG pattern)
+
+---
+
+## PROGRESSIVE DISCLOSURE UX PRINCIPLES (DESIGN CONSTRAINTS)
+
+> **STATUS:** These principles are DESIGN CONSTRAINTS that affect how enrichment modules generate content and how the search API structures responses. They are documented here so implementation agents understand the "why" behind API and data decisions.
+
+### 1. Mobile-First Payload Optimization
+
+All API responses must be optimized for mobile payload sizes. The `summary_plain` field is returned by default; full `body` text is only included on explicit request via `?expand=body` query parameter. This means the search API MUST NOT return the full article body in list results.
+
+### 2. Citizen Default
+
+The default search mode is `citizen`. Professional mode requires explicit opt-in (query parameter or user profile setting). This means enrichment (Plan 03 enrichment modules) is a prerequisite for the full citizen experience -- without enrichment fields, citizen mode falls back to raw BM25.
+
+### 3. Two Audiences
+
+| Audience | Percentage | Wants | API Fields |
+|----------|-----------|-------|------------|
+| Citizens | ~90% | Plain language, key facts, relevance | `summary_plain`, `key_facts`, `category`, `relevance_score` |
+| Professionals | ~10% | Exact legal text, references, affected entities | `body`, `summary_technical`, `references`, `affected_entities` |
+
+The pipeline must produce BOTH summary types during enrichment (MODULE 3B). This is not optional -- both audiences are first-class.
+
+### 4. Shareable Content
+
+Every article must have a `shareable_text` field (280 characters max) for social sharing. This is generated by the HighlightsGenerator enrichment module (MODULE 3B.2). The field enables a "share this" button in the citizen-facing UI.
+
+---
+
+## ADDITIONAL POSTGRES TABLES (SPECIFICATION FOR FUTURE IMPLEMENTATION)
+
+> **STATUS:** These tables extend the existing `auth.*` schema on the WEB app (`gabi-dou-web`). The pipeline worker does NOT interact with these tables -- they are web-app-only for user features.
+>
+> **CRITICAL:** The existing auth schema uses UUID primary keys (see `src/backend/dbsync/auth_schema.sql`). All `id` columns MUST use `UUID PRIMARY KEY DEFAULT gen_random_uuid()` and all `user_id` foreign keys MUST use `UUID NOT NULL REFERENCES auth."user"(id)` (note: `user` is a reserved word in Postgres and must be double-quoted).
+
+```sql
+-- Auditor profiles: tracks professional users who need advanced features
+CREATE TABLE auditor_profiles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth."user"(id),
+    organization TEXT,
+    cpf_cnpj TEXT,
+    professional_role TEXT,
+    search_mode TEXT DEFAULT 'citizen',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Workspaces: collections of documents for professional users
+CREATE TABLE workspaces (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth."user"(id),
+    name TEXT NOT NULL,
+    description TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Workspace documents: many-to-many between workspaces and DOU articles
+CREATE TABLE workspace_documents (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    workspace_id UUID NOT NULL REFERENCES workspaces(id),
+    document_id TEXT NOT NULL,  -- ES document ID (not a Postgres FK)
+    added_at TIMESTAMPTZ DEFAULT NOW(),
+    notes TEXT
+);
+```
+
+**Table purposes:**
+
+| Table | Purpose | Used By |
+|-------|---------|---------|
+| `auditor_profiles` | Stores professional user metadata (organization, CPF/CNPJ, role) and default search mode | Web app user settings |
+| `workspaces` | Named collections of DOU documents for professional analysis | Web app workspace feature |
+| `workspace_documents` | Links workspaces to ES document IDs with optional notes | Web app workspace feature |
+
+**Schema notes:**
+- These tables are in **Postgres** (NOT SQLite). They belong to the web app's identity/feature database.
+- The `document_id` in `workspace_documents` references an Elasticsearch document ID, not a Postgres row. This is intentional -- DOU articles live in ES, not Postgres.
+- `search_mode` in `auditor_profiles` defaults to `'citizen'` and can be set to `'professional'` by the user.
+
+---
+
+## COST TRACKING AND BUDGET CONTROLS (SPECIFICATION FOR FUTURE IMPLEMENTATION)
+
+> **STATUS:** This entire section is a SPECIFICATION FOR FUTURE IMPLEMENTATION. No cost tracking infrastructure exists in code yet.
+
+### 1. Per-Module Cost Estimates
+
+| Module | Service | Estimated Daily Cost | Basis |
+|--------|---------|---------------------|-------|
+| Enrichment (MODULE 3B) | GPT-4o-mini | ~$0.50/day | ~1000 articles/day, ~500 tokens in + ~300 tokens out per article |
+| Embeddings (MODULE 5) | OpenAI ada-002 | ~$0.13/1000 articles | Standard ada-002 pricing |
+| Telegram alerts (MODULE 7) | Telegram Bot API | Free | < 30 messages/day (well within free tier) |
+| **Total** | | **< $1.00/day** | Normal operation |
+
+### 2. Budget Controls
+
+**Daily enrichment budget:**
+- Environment variable: `ENRICHMENT_DAILY_BUDGET_USD` (default: `2.00`)
+- Behavior: If daily spend exceeds budget, enrichment PAUSES until the next calendar day (BRT timezone)
+- Degradation: Articles still get indexed for BM25 search but WITHOUT enrichment fields (summaries, categories, etc.)
+- The daily budget is a soft cap -- the current batch completes, then no new batches start
+
+**Monthly cost cap:**
+- Environment variable: `MONTHLY_COST_CAP_USD` (default: `30.00`)
+- Behavior: If monthly cumulative spend exceeds cap, ALL paid API calls (enrichment + embeddings) pause until next month
+- This is a hard safety net to prevent runaway costs
+
+**Cost tracking storage (SQLite, on worker volume):**
+```sql
+CREATE TABLE cost_log (
+    id INTEGER PRIMARY KEY,
+    date TEXT,           -- YYYY-MM-DD (BRT)
+    module TEXT,         -- 'enrichment', 'embeddings', 'chat'
+    tokens_in INTEGER,   -- Input tokens consumed
+    tokens_out INTEGER,  -- Output tokens consumed
+    cost_usd REAL,       -- Computed cost in USD
+    created_at TEXT       -- ISO 8601 timestamp
+);
+```
+
+### 3. Cost-Aware Operational Rules
+
+1. **NEVER** run enrichment on historical backfill without explicit operator approval. A full historical corpus could be thousands of articles and cost hundreds of dollars.
+2. **Embeddings for historical corpus** should be batched and rate-limited (e.g., 100 articles per batch, 1 batch per minute) to control costs and avoid API rate limits.
+3. **All OpenAI API calls** must log token usage (input + output tokens) to the `cost_log` table for cost auditing. No silent API calls.
+4. **Budget check before each batch:** Before starting an enrichment or embedding batch, query `cost_log` for today's total. If at or over budget, skip the batch and log a warning.
+
 ---
 
 ## PATCH 8 -- EXECUTION ORDER (adjusted for current codebase state)
