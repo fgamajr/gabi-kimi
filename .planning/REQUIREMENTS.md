@@ -92,6 +92,13 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **DOC-08**: Execution order updated to reflect current codebase state (5-step gap-focused plan)
 - [x] **DOC-09**: Modular usage note explains how to consume the document as focused slices
 
+### ULTRA MEGA PROMPT Extensions
+
+- [ ] **DOC-10**: Enrichment pipeline modules (DocumentEnricher, HighlightsGenerator, FeedGenerator) spec'd with input/output contracts and cost model
+- [ ] **DOC-11**: Extended ES mapping and SQLite registry columns for enrichment fields and state tracking documented
+- [ ] **DOC-12**: Search API architecture documents citizen vs professional modes with hybrid RRF scoring, plus Postgres tables (auditor_profiles, workspaces)
+- [ ] **DOC-13**: Cost tracking/budget controls and holiday-aware watchdog spec with Brazilian holiday calendar
+
 ## v2 Requirements
 
 Deferred to future release. Tracked but not in current roadmap.
@@ -173,14 +180,18 @@ Deferred to future release. Tracked but not in current roadmap.
 | DOC-07 | Phase 12 | Not started |
 | DOC-08 | Phase 12 | Not started |
 | DOC-09 | Phase 12 | Not started |
+| DOC-10 | Phase 12 | Not started |
+| DOC-11 | Phase 12 | Not started |
+| DOC-12 | Phase 12 | Not started |
+| DOC-13 | Phase 12 | Not started |
 
 **Coverage:**
 - v1 requirements: 26 total (all complete)
 - Phase 11 requirements: 19 total
-- Phase 12 requirements: 9 total
-- Mapped to phases: 54
+- Phase 12 requirements: 13 total
+- Mapped to phases: 58
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-08*
-*Last updated: 2026-03-09 after Phase 12 requirement definition*
+*Last updated: 2026-03-09 after Phase 12 ULTRA MEGA PROMPT extension requirements added*
