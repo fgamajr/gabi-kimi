@@ -10,11 +10,16 @@ import os
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import AsyncIterator
 
 from fastapi import FastAPI
 
 from src.backend.worker.registry import Registry
+from src.backend.worker.migration import (
+    bootstrap_registry_if_empty,
+    ensure_registry_seed_audit_trail,
+)
 from src.backend.worker.scheduler import (
     configure_scheduler,
     scheduler,
@@ -26,6 +31,23 @@ logger = logging.getLogger(__name__)
 
 _start_time: float = 0.0
 _last_heartbeat: str = ""
+
+
+def _resolve_registry_db_path() -> str:
+    configured = os.environ.get("REGISTRY_DB_PATH") or os.environ.get("REGISTRY_DB")
+    if configured:
+        return configured
+    if os.environ.get("FLY_APP_NAME", "").strip():
+        return "/data/registry.db"
+    root = Path(__file__).resolve().parents[3]
+    return str(root / "ops" / "data" / "registry.db")
+
+
+def _resolve_bind_host() -> str:
+    """Bind to IPv6 on Fly private networking, IPv4 locally."""
+    if os.environ.get("FLY_APP_NAME", "").strip():
+        return "::"
+    return "0.0.0.0"
 
 
 async def _heartbeat() -> None:
@@ -41,9 +63,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     global _start_time
 
     # Init registry
-    db_path = os.environ.get("REGISTRY_DB_PATH", "/data/registry.db")
+    db_path = _resolve_registry_db_path()
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     registry = Registry(db_path=db_path)
     await registry.init_db()
+    root = Path(__file__).resolve().parents[3]
+    await bootstrap_registry_if_empty(
+        registry,
+        os.environ.get("ES_URL", "http://es.internal:9200"),
+        root / "ops" / "data" / "dou_catalog_registry.json",
+    )
+    await ensure_registry_seed_audit_trail(registry)
     set_registry(registry)
 
     # Set registry on API module for route handlers
@@ -68,6 +98,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
 
     scheduler.start()
+    await _heartbeat()
     _start_time = time.monotonic()
     logger.info("Worker started with %d scheduled jobs", len(scheduler.get_jobs()))
 
@@ -103,6 +134,6 @@ if __name__ == "__main__":
 
     uvicorn.run(
         "src.backend.worker.main:app",
-        host="0.0.0.0",
+        host=_resolve_bind_host(),
         port=8081,
     )

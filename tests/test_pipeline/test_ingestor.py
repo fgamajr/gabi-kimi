@@ -73,14 +73,14 @@ async def test_ingest_parses_and_indexes(registry, tmp_path):
         mock_client.post = AsyncMock(return_value=mock_response)
         mock_client_cls.return_value = mock_client
 
-        run_id = await registry.create_pipeline_run("ingest")
+        run_id = await registry.create_pipeline_run("bm25")
         result = await run_ingest(registry, run_id, "http://localhost:9200", extract_dir=str(tmp_path / "extract"))
 
-    assert result["ingested_files"] == 1
-    assert result["ingested_docs"] >= 2
+    assert result["indexed_files"] == 1
+    assert result["indexed_docs"] >= 2
 
     f = await registry.get_file(file_id)
-    assert f["status"] == FileStatus.INGESTED.value
+    assert f["status"] == FileStatus.BM25_INDEXED.value
 
 
 async def test_ingest_deterministic_doc_id(registry, tmp_path):
@@ -98,7 +98,7 @@ async def test_ingest_deterministic_doc_id(registry, tmp_path):
 
 
 async def test_ingest_failure_transitions_to_ingest_failed(registry, tmp_path):
-    """Failed ingest transitions file to INGEST_FAILED with error_message."""
+    """Failed ingest transitions file to BM25_INDEX_FAILED with error_message."""
     file_id = await _setup_extracted_file(registry, tmp_path)
 
     with patch("src.backend.worker.pipeline.ingestor.httpx.AsyncClient") as mock_client_cls:
@@ -108,12 +108,12 @@ async def test_ingest_failure_transitions_to_ingest_failed(registry, tmp_path):
         mock_client.post = AsyncMock(side_effect=Exception("ES connection refused"))
         mock_client_cls.return_value = mock_client
 
-        run_id = await registry.create_pipeline_run("ingest")
+        run_id = await registry.create_pipeline_run("bm25")
         result = await run_ingest(registry, run_id, "http://localhost:9200", extract_dir=str(tmp_path / "extract"))
 
     assert result["failed_files"] >= 1
     f = await registry.get_file(file_id)
-    assert f["status"] == FileStatus.INGEST_FAILED.value
+    assert f["status"] == FileStatus.BM25_INDEX_FAILED.value
     assert f["error_message"] is not None
 
 

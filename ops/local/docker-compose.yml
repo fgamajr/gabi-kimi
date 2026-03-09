@@ -51,6 +51,20 @@ services:
       timeout: 3s
       retries: 30
       start_period: 5s
+  # S3-compatible storage for admin upload (local dev). Create bucket "gabi-dou-uploads" once in console (http://localhost:9001).
+  minio:
+    image: minio/minio:latest
+    container_name: gabi-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - gabi_minio_data:/data
 
 volumes:
   gabi_postgres_data:
@@ -59,3 +73,5 @@ volumes:
     name: gabi_es_data
   gabi_redis_data:
     name: gabi_redis_data
+  gabi_minio_data:
+    name: gabi_minio_data

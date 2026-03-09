@@ -2,21 +2,23 @@
 
 Last updated: 2026-03-08
 
-This runbook covers the ARQ worker process that runs alongside the web process on Fly.io, consuming jobs from Redis (Phase 4). Later phases wire it to process upload jobs from admin.worker_jobs.
+This runbook covers the ARQ upload worker process that runs alongside the web process on Fly.io, consuming manual upload jobs from Redis.
 
 ## Fly.io: Web + Worker Process Groups
 
 The app `gabi-dou-web` runs two process groups defined in `ops/deploy/web/fly.toml`:
 
 - **web** – FastAPI (python ops/bin/web_server.py), 512MB, receives HTTP traffic
-- **worker** – ARQ worker (arq src.backend.workers.arq_worker.WorkerSettings), 1GB RAM, no HTTP
+- **upload_worker** – ARQ worker (arq src.backend.workers.arq_worker.WorkerSettings), 1GB RAM, no HTTP
 
-Both use the same Docker image and share `[env]` (including `REDIS_URL`). Each process group has its own `[[vm]]` so the worker has 1GB memory for future XML/ZIP processing.
+This worker is not the autonomous DOU pipeline worker. The autonomous worker lives in the separate `gabi-dou-worker` Fly app and exposes the internal HTTP API used by the dashboard.
+
+Both process groups in `gabi-dou-web` use the same Docker image and share `[env]` (including `REDIS_URL`). Each process group has its own `[[vm]]`.
 
 After deploy, scale worker (default is 1 machine per process group):
 
 ```bash
-fly scale count worker=1 -a gabi-dou-web
+fly scale count upload_worker=1 -a gabi-dou-web
 fly status -a gabi-dou-web
 ```
 
@@ -62,8 +64,8 @@ fly status -a gabi-dou-web
 ## Success Criteria (Phase 4)
 
 1. fly.toml defines web and worker process groups with correct entrypoints
-2. Worker process starts and connects to Redis as an ARQ worker
-3. Worker process has 1GB+ RAM ([[vm]] processes = ["worker"] memory = "1gb")
+2. Upload worker process starts and connects to Redis as an ARQ worker
+3. Upload worker process has 1GB+ RAM ([[vm]] processes = ["upload_worker"] memory = "1gb")
 4. Enqueuing a test task (e.g. test_task with a string) results in the worker running it and returning the result
 
 ## References

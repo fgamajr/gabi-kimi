@@ -8,11 +8,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
+from datetime import date, timedelta
 from typing import Any
 
 import httpx
 
+from src.backend.ingest.zip_downloader import TAGS_API_URL, detect_special_editions
+from src.backend.worker.inlabs_client import INLabsClient, MAX_LOOKBACK_DAYS
 from src.backend.worker.registry import FileStatus, Registry
 
 logger = logging.getLogger(__name__)
@@ -24,6 +28,13 @@ FOLDERS_ENDPOINT = f"{LIFERAY_BASE}/dlapp/get-folders"
 FILES_ENDPOINT = f"{LIFERAY_BASE}/dlapp/get-file-entries"
 
 MAX_CONCURRENT_REQUESTS = 5
+RECENT_WINDOW_DAYS = MAX_LOOKBACK_DAYS
+REGULAR_INLABS_SECTIONS = ("do1", "do2", "do3")
+EXTRA_INLABS_SECTION_FLAGS: dict[str, str] = {
+    "DO1E": "do1e",
+    "DO2E": "do2e",
+    "DO3E": "do3e",
+}
 
 # Section prefix -> section code mapping (reverse of zip_downloader.ALL_SECTIONS)
 _PREFIX_TO_SECTION: dict[str, str] = {
@@ -37,7 +48,7 @@ _PREFIX_TO_SECTION: dict[str, str] = {
 
 # Regex to parse DOU ZIP filenames: S{prefix}{MM}{YYYY}.zip
 _FILENAME_RE = re.compile(
-    r"^(S\d{2}E?)\s*(\d{2})(\d{4})(?:_Parte\d+)?\.zip$", re.IGNORECASE
+    r"^(S\d{2}E?)\s*(\d{2})(\d{4})(?:_Parte_?\d+)?\.zip$", re.IGNORECASE
 )
 
 
@@ -105,6 +116,135 @@ async def _fetch_liferay_files(
         return resp.json()
 
 
+def _month_overlaps_recent_window(year_month: str, *, today: date | None = None) -> bool:
+    """Return True when a monthly Liferay archive overlaps the INLABS recent window."""
+    reference = today or date.today()
+    cutoff = reference - timedelta(days=RECENT_WINDOW_DAYS)
+    year, month = map(int, year_month.split("-"))
+    month_start = date(year, month, 1)
+    if month == 12:
+        month_end = date(year + 1, 1, 1) - timedelta(days=1)
+    else:
+        month_end = date(year, month + 1, 1) - timedelta(days=1)
+    return month_end >= cutoff
+
+
+def _iter_recent_publication_dates(registry: Registry, *, today: date | None = None) -> tuple[date, date]:
+    """Placeholder helper signature for clarity in discovery flow."""
+    reference = today or date.today()
+    return reference - timedelta(days=RECENT_WINDOW_DAYS), reference
+
+
+async def _probe_inlabs_target(
+    client: INLabsClient,
+    publication_date: date,
+    section: str,
+) -> tuple[bool, str | None]:
+    """Check if a recent INLABS ZIP exists without storing it."""
+    target = client.build_target(publication_date, section)
+    for attempt in range(2):
+        if not client.client.cookies.get("inlabs_session_cookie"):
+            await client.login()
+        async with client.client.stream(
+            "GET",
+            target.url,
+            headers=client.build_download_headers(),
+        ) as response:
+            if response.status_code == 200:
+                return True, target.url
+            if response.status_code in {401, 403} and attempt == 0:
+                await client.login()
+                continue
+            if response.status_code == 404:
+                return False, None
+            response.raise_for_status()
+    return False, None
+
+
+async def _discover_recent_inlabs_files(
+    registry: Registry,
+    run_id: str,
+    semaphore: asyncio.Semaphore,
+) -> dict[str, int | bool]:
+    """Discover recent daily publications through INLABS inside the supported window."""
+    email = os.getenv("INLABS_EMAIL", "").strip()
+    password = os.getenv("INLABS_PASSWORD", "").strip()
+    if not email or not password:
+        logger.warning("INLABS credentials missing; recent discovery skipped")
+        return {"new_files": 0, "existing_files": 0, "login_failed": True}
+
+    latest_known = await registry.get_latest_publication_date(source="inlabs")
+    today = date.today()
+    floor = today - timedelta(days=RECENT_WINDOW_DAYS)
+    start_date = max(floor, date.fromisoformat(latest_known) + timedelta(days=1)) if latest_known else floor
+
+    new_files = 0
+    existing_files = 0
+    client = INLabsClient(email, password)
+    try:
+        await client.login()
+    except Exception as exc:
+        logger.warning("INLABS login failed during discovery: %s", exc)
+        await client.aclose()
+        return {"new_files": 0, "existing_files": 0, "login_failed": True}
+
+    try:
+        current = start_date
+        while current <= today:
+            sections: list[str] = []
+            if current.weekday() < 5:
+                sections.extend(REGULAR_INLABS_SECTIONS)
+
+            try:
+                async with semaphore:
+                    flags = detect_special_editions(current)
+                for flag, section in EXTRA_INLABS_SECTION_FLAGS.items():
+                    if flags.get(flag):
+                        sections.append(section)
+            except Exception:
+                logger.debug("Special-edition probe failed for %s", current.isoformat(), exc_info=True)
+
+            for section in sections:
+                try:
+                    filename = INLabsClient.build_target(current, section).filename
+                except Exception:
+                    continue
+
+                existing = await registry.get_file_by_filename(filename)
+                if existing:
+                    existing_files += 1
+                    continue
+
+                async with semaphore:
+                    exists, url = await _probe_inlabs_target(client, current, section)
+                if not exists or not url:
+                    await asyncio.sleep(0.2)
+                    continue
+
+                file_id = await registry.insert_file(
+                    filename=filename,
+                    section=section,
+                    year_month=current.strftime("%Y-%m"),
+                    publication_date=current.isoformat(),
+                    source="inlabs",
+                    file_url=url,
+                )
+                if file_id:
+                    new_files += 1
+                    await registry.add_log_entry(
+                        run_id,
+                        file_id,
+                        "INFO",
+                        f"Discovered recent INLABS file: {filename}",
+                    )
+                await asyncio.sleep(0.2)
+            current += timedelta(days=1)
+    finally:
+        await client.aclose()
+
+    return {"new_files": new_files, "existing_files": existing_files, "login_failed": False}
+
+
 async def _probe_head_fallback(
     client: httpx.AsyncClient,
     semaphore: asyncio.Semaphore,
@@ -156,7 +296,7 @@ async def run_discovery(
     run_id: str,
     es_url: str,
 ) -> dict[str, Any]:
-    """Discover new DOU files from Liferay API or HEAD probe fallback.
+    """Discover new DOU files using the hybrid strategy.
 
     Args:
         registry: SQLite registry instance
@@ -164,16 +304,21 @@ async def run_discovery(
         es_url: Elasticsearch URL (unused in discovery, kept for interface consistency)
 
     Returns:
-        Stats dict: {"new_files": N, "existing_files": M, "fallback_used": bool}
+        Stats dict with hybrid source counts and fallback flags.
     """
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
     new_files = 0
     existing_files = 0
     fallback_used = False
+    inlabs_stats = await _discover_recent_inlabs_files(registry, run_id, semaphore)
+    new_files += int(inlabs_stats["new_files"])
+    existing_files += int(inlabs_stats["existing_files"])
+    liferay_new = 0
+    liferay_existing = 0
 
     async with httpx.AsyncClient() as client:
         try:
-            # Try Liferay API first
+            # Use Liferay for older monthly archives only.
             folders = await _fetch_liferay_folders(client, semaphore)
 
             for folder in folders:
@@ -193,10 +338,14 @@ async def run_discovery(
                         logger.warning("Skipping unparseable filename: %s", filename)
                         continue
 
+                    if _month_overlaps_recent_window(year_month):
+                        continue
+
                     # Check if already in registry
                     existing = await registry.get_file_by_filename(filename)
                     if existing:
                         existing_files += 1
+                        liferay_existing += 1
                         continue
 
                     # Insert new file
@@ -205,13 +354,16 @@ async def run_discovery(
                         filename=filename,
                         section=section,
                         year_month=year_month,
-                        folder_id=str(folder_id),
+                        publication_date=f"{year_month}-01",
+                        source="liferay",
+                        folder_id=folder_id,
                         file_url=file_url,
                     )
                     if file_id:
                         new_files += 1
+                        liferay_new += 1
                         await registry.add_log_entry(
-                            run_id, file_id, "INFO", f"Discovered new file: {filename}"
+                            run_id, file_id, "INFO", f"Discovered Liferay archive: {filename}"
                         )
 
         except Exception as e:
@@ -232,20 +384,27 @@ async def run_discovery(
                         except ValueError:
                             continue
 
+                    if _month_overlaps_recent_window(year_month):
+                        continue
+
                     existing = await registry.get_file_by_filename(filename)
                     if existing:
                         existing_files += 1
+                        liferay_existing += 1
                         continue
 
                     file_id = await registry.insert_file(
                         filename=filename,
                         section=section,
                         year_month=year_month,
+                        publication_date=f"{year_month}-01",
+                        source="liferay",
                     )
                     if file_id:
                         new_files += 1
+                        liferay_new += 1
                         await registry.add_log_entry(
-                            run_id, file_id, "INFO", f"Discovered (HEAD probe): {filename}"
+                            run_id, file_id, "INFO", f"Discovered Liferay fallback: {filename}"
                         )
             except Exception as probe_err:
                 logger.error("HEAD probe fallback also failed: %s", probe_err)
@@ -254,4 +413,8 @@ async def run_discovery(
         "new_files": new_files,
         "existing_files": existing_files,
         "fallback_used": fallback_used,
+        "inlabs_new_files": int(inlabs_stats["new_files"]),
+        "liferay_new_files": liferay_new,
+        "liferay_existing_files": liferay_existing,
+        "inlabs_login_failed": bool(inlabs_stats["login_failed"]),
     }

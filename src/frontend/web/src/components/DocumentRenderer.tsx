@@ -124,7 +124,7 @@ function fallbackCopy(contextHint: string) {
 }
 
 function buildReferenceLine(doc: DocumentLike) {
-  const bits = [];
+  const bits: string[] = [];
   if (doc?.publication_date || doc?.pub_date) {
     bits.push(`DOU ${formatDate(doc.publication_date || doc.pub_date)}`);
   }
@@ -174,7 +174,7 @@ function resolveImageRecord(element: Element, lookup: ReturnType<typeof buildIma
     context_hint: contextHint,
     fallback_text: explicit?.fallback_text || fallbackCopy(contextHint),
     original_url: explicit?.original_url || src || null,
-    source_filename: explicit?.source_filename || sourceFilename || null,
+    source_filename: explicit?.source_filename || sourceFilename || undefined,
     width_px: explicit?.width_px || null,
     height_px: explicit?.height_px || null,
     position_in_doc: explicit?.position_in_doc || seq,

@@ -12,6 +12,19 @@ from typing import Any
 from fastapi import HTTPException, Request, status
 from fastapi.responses import Response
 
+from src.backend.apps.identity_store import (
+    ensure_identity_schema,
+    issue_api_token,
+    list_roles,
+    list_users,
+    replace_user_roles,
+    revoke_api_token,
+    resolve_identity_for_token,
+    sync_env_tokens,
+    token_id_for_secret,
+    touch_token_usage,
+    upsert_user,
+)
 from src.backend.apps.middleware.security import (
     RateLimiter,
     RateRule,
@@ -35,6 +48,10 @@ class AuthPrincipal:
     label: str
     token_id: str
     source: str
+    user_id: str | None = None
+    roles: tuple[str, ...] = ()
+    email: str | None = None
+    status: str | None = None
 
 
 @dataclass(frozen=True)
@@ -71,7 +88,17 @@ def _build_auth_config() -> AuthConfig:
         tokens.append(TokenRecord(label=label, token=token, token_id=token_id))
 
     session_secret = os.getenv("GABI_AUTH_SECRET", "").strip()
+    if not session_secret and tokens and os.getenv("FLY_APP_NAME", "").strip():
+        raise RuntimeError(
+            "GABI_AUTH_SECRET must be set in production (Fly.io). "
+            "Generate one with: python3 -c \"import secrets; print(secrets.token_hex(32))\""
+        )
     if not session_secret and tokens:
+        import warnings
+        warnings.warn(
+            "GABI_AUTH_SECRET not set — deriving session secret from token IDs (local dev only)",
+            stacklevel=2,
+        )
         session_secret = hashlib.sha256(
             "|".join(record.token_id for record in tokens).encode("utf-8")
         ).hexdigest()
@@ -92,6 +119,36 @@ def _build_auth_config() -> AuthConfig:
 
 def get_auth_config() -> AuthConfig:
     return _build_auth_config()
+
+
+async def bootstrap_identity_store(config: AuthConfig | None = None) -> None:
+    config = config or get_auth_config()
+    await ensure_identity_schema()
+    await sync_env_tokens(
+        [{"label": record.label, "token_id": record.token_id} for record in config.tokens]
+    )
+
+
+async def _enrich_principal(principal: AuthPrincipal) -> AuthPrincipal:
+    try:
+        identity = await resolve_identity_for_token(principal.token_id)
+    except Exception:
+        return principal
+    if identity is None:
+        return principal
+    try:
+        await touch_token_usage(principal.token_id)
+    except Exception:
+        pass
+    return AuthPrincipal(
+        label=identity.display_name or principal.label,
+        token_id=principal.token_id,
+        source=principal.source,
+        user_id=identity.user_id,
+        roles=identity.roles,
+        email=identity.email,
+        status=identity.status,
+    )
 
 
 def request_ip(request: Request) -> str:
@@ -200,23 +257,29 @@ def _decode_session(cookie_value: str, config: AuthConfig) -> dict[str, Any] | N
     return payload
 
 
-def resolve_request_principal(
+async def resolve_request_principal(
     request: Request,
     *,
     allow_session: bool = True,
     log_failures: bool = True,
 ) -> AuthPrincipal | None:
     config = get_auth_config()
-    if not config.tokens:
-        if _is_local_dev_request(request):
-            return AuthPrincipal(label="local-dev", token_id="local-dev", source="local-dev")
-        _misconfigured_auth(request)
+    if not config.tokens and _is_local_dev_request(request):
+        return AuthPrincipal(label="local-dev", token_id="local-dev", source="local-dev", roles=("admin", "user"))
 
     bearer_token = _bearer_token_from_request(request)
     if bearer_token:
         record = _find_token_record(bearer_token, config)
         if record is not None:
-            return AuthPrincipal(label=record.label, token_id=record.token_id, source="bearer")
+            return await _enrich_principal(
+                AuthPrincipal(label=record.label, token_id=record.token_id, source="bearer")
+            )
+        db_token_id = token_id_for_secret(bearer_token)
+        db_principal = await _enrich_principal(
+            AuthPrincipal(label="db-token", token_id=db_token_id, source="bearer")
+        )
+        if db_principal.user_id is not None:
+            return db_principal
         if log_failures:
             _deny_auth(request, detail="Invalid bearer token", event="auth_invalid_token")
         return None
@@ -228,11 +291,22 @@ def resolve_request_principal(
             token_id = str(payload.get("sub") or "")
             for record in config.tokens:
                 if record.token_id == token_id:
-                    return AuthPrincipal(
-                        label=str(payload.get("label") or record.label),
-                        token_id=record.token_id,
-                        source="session",
+                    return await _enrich_principal(
+                        AuthPrincipal(
+                            label=str(payload.get("label") or record.label),
+                            token_id=record.token_id,
+                            source="session",
+                        )
                     )
+            db_principal = await _enrich_principal(
+                AuthPrincipal(
+                    label=str(payload.get("label") or "session"),
+                    token_id=token_id,
+                    source="session",
+                )
+            )
+            if db_principal.user_id is not None:
+                return db_principal
             log_security_event(
                 "auth_invalid_session_subject",
                 ip=request_ip(request),
@@ -258,7 +332,7 @@ def _rate_rule_for_path(path: str) -> tuple[str, RateRule]:
 
 
 async def require_protected_access(request: Request) -> AuthPrincipal:
-    principal = resolve_request_principal(request)
+    principal = await resolve_request_principal(request)
     assert principal is not None
     limiter = getattr(request.app.state, "rate_limiter", None)
     if isinstance(limiter, RateLimiter):
@@ -281,11 +355,41 @@ async def require_protected_access(request: Request) -> AuthPrincipal:
     return principal
 
 
+async def require_admin_access(request: Request) -> AuthPrincipal:
+    principal = await require_protected_access(request)
+    if "admin" not in principal.roles:
+        log_security_event(
+            "admin_access_denied",
+            ip=request_ip(request),
+            host=request_hostname(request),
+            path=request.url.path,
+            method=request.method,
+            principal=principal.token_id,
+        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    return principal
+
+
 def create_session_response(request: Request, principal: AuthPrincipal) -> Response:
     config = get_auth_config()
+    if not config.session_secret:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Session secret is not configured",
+        )
     response = Response(
         content=json.dumps(
-            {"authenticated": True, "principal": {"label": principal.label, "source": principal.source}},
+            {
+                "authenticated": True,
+                "principal": {
+                    "label": principal.label,
+                    "source": principal.source,
+                    "user_id": principal.user_id,
+                    "roles": list(principal.roles),
+                    "email": principal.email,
+                    "status": principal.status,
+                },
+            },
             ensure_ascii=True,
         ),
         media_type="application/json",
@@ -298,6 +402,27 @@ def create_session_response(request: Request, principal: AuthPrincipal) -> Respo
         max_age=config.session_ttl_sec,
     )
     return response
+
+
+__all__ = [
+    "AuthPrincipal",
+    "AuthConfig",
+    "bootstrap_identity_store",
+    "clear_session_response",
+    "create_session_response",
+    "get_auth_config",
+    "issue_api_token",
+    "list_roles",
+    "list_users",
+    "replace_user_roles",
+    "request_ip",
+    "request_hostname",
+    "revoke_api_token",
+    "require_admin_access",
+    "require_protected_access",
+    "resolve_request_principal",
+    "upsert_user",
+]
 
 
 def clear_session_response() -> Response:

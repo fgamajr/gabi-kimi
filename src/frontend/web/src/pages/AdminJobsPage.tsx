@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { FileUp, Loader2, RotateCcw } from "lucide-react";
+import { DatabaseZap, FileUp, Loader2, RotateCcw } from "lucide-react";
+import { toast } from "sonner";
 import {
   getAdminJobsList,
   getAdminJobDetail,
@@ -11,6 +12,7 @@ import {
   type AdminJobListItem,
   type AdminJobDetail,
 } from "@/lib/api";
+import { useAdminAnalyticsStatus, useRefreshAdminAnalyticsCache } from "@/hooks/useAdmin";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -33,6 +35,23 @@ function formatDateTime(value: string | null | undefined): string {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "—";
   return format(d, "dd/MM/yyyy HH:mm", { locale: ptBR });
+}
+
+function formatRelativeAge(value: string | null | undefined, nowMs: number): string {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  const diffMs = nowMs - d.getTime();
+  if (diffMs <= 0) return "agora";
+  const totalMinutes = Math.floor(diffMs / 60000);
+  if (totalMinutes < 1) return "agora";
+  if (totalMinutes < 60) return `há ${totalMinutes} min`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours < 24) return minutes > 0 ? `há ${hours}h ${minutes}min` : `há ${hours}h`;
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+  return remHours > 0 ? `há ${days}d ${remHours}h` : `há ${days}d`;
 }
 
 function articleCount(job: AdminJobListItem): number | null {
@@ -61,6 +80,16 @@ function statusVariant(status: string): "default" | "secondary" | "destructive" 
   }
 }
 
+function analyticsStatusVariant(
+  status: string | null | undefined,
+  isStale: boolean | undefined
+): "default" | "secondary" | "destructive" | "outline" {
+  if (status === "failed") return "destructive";
+  if (isStale) return "secondary";
+  if (status === "ok") return "default";
+  return "outline";
+}
+
 const TERMINAL_STATUSES = ["completed", "failed", "partial"];
 
 export default function AdminJobsPage() {
@@ -69,6 +98,16 @@ export default function AdminJobsPage() {
   const [detail, setDetail] = useState<AdminJobDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [relativeNowMs, setRelativeNowMs] = useState(() => Date.now());
+  const analyticsStatus = useAdminAnalyticsStatus();
+  const refreshAnalytics = useRefreshAdminAnalyticsCache();
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setRelativeNowMs(Date.now());
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -124,7 +163,7 @@ export default function AdminJobsPage() {
       es.close();
       streamRef.current = null;
     };
-  }, [detail?.id]);
+  }, [detail?.id, detail?.status]);
 
   const handleRetry = () => {
     if (!detail || retrying) return;
@@ -138,6 +177,18 @@ export default function AdminJobsPage() {
       .finally(() => setRetrying(false));
   };
 
+  const handleRefreshAnalytics = () => {
+    if (refreshAnalytics.isPending) return;
+    refreshAnalytics.mutate(undefined, {
+      onSuccess: (result) => {
+        toast.success(`Cache analytics atualizado em ${result.duration_ms} ms`);
+      },
+      onError: (error) => {
+        toast.error(error instanceof Error ? error.message : "Falha ao atualizar analytics");
+      },
+    });
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto max-w-5xl px-4 py-8">
@@ -148,11 +199,68 @@ export default function AdminJobsPage() {
               Histórico de envios (somente leitura, audit log).
             </p>
           </div>
-          <Button asChild variant="outline" className="w-fit">
-            <Link to="/admin/upload" className="inline-flex items-center gap-2">
-              <FileUp className="w-4 h-4" /> Novo upload
-            </Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-fit"
+              onClick={handleRefreshAnalytics}
+              disabled={refreshAnalytics.isPending}
+            >
+              {refreshAnalytics.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Atualizando analytics…
+                </>
+              ) : (
+                <>
+                  <DatabaseZap className="w-4 h-4 mr-2" /> Atualizar analytics
+                </>
+              )}
+            </Button>
+            <Button asChild variant="outline" className="w-fit">
+              <Link to="/admin/upload" className="inline-flex items-center gap-2">
+                <FileUp className="w-4 h-4" /> Novo upload
+              </Link>
+            </Button>
+          </div>
+        </div>
+
+        <div className="mb-6 rounded-lg border border-border bg-card p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-medium text-foreground">Cache de analytics</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Último refresh:{" "}
+                {analyticsStatus.data?.last_refreshed_at
+                  ? formatDateTime(analyticsStatus.data.last_refreshed_at)
+                  : "nunca"}
+                {analyticsStatus.data?.last_refreshed_at
+                  ? ` (${formatRelativeAge(analyticsStatus.data.last_refreshed_at, relativeNowMs)})`
+                  : ""}
+                {" · "}
+                origem: {analyticsStatus.data?.last_refresh_source ?? "—"}
+                {" · "}
+                duração: {analyticsStatus.data?.last_duration_ms != null ? `${analyticsStatus.data.last_duration_ms} ms` : "—"}
+              </p>
+              {analyticsStatus.data?.is_stale ? (
+                <p className="text-xs text-amber-600 mt-1">
+                  Cache stale: último refresh excedeu {analyticsStatus.data.stale_after_hours}h.
+                </p>
+              ) : null}
+              {analyticsStatus.data?.last_error ? (
+                <p className="text-xs text-destructive mt-1 break-words">
+                  Último erro: {analyticsStatus.data.last_error}
+                </p>
+              ) : null}
+            </div>
+            <Badge variant={analyticsStatusVariant(analyticsStatus.data?.last_status, analyticsStatus.data?.is_stale)}>
+              {analyticsStatus.isLoading
+                ? "carregando"
+                : analyticsStatus.data?.last_status === "ok" && analyticsStatus.data?.is_stale
+                  ? "stale"
+                  : analyticsStatus.data?.last_status ?? "unknown"}
+            </Badge>
+          </div>
         </div>
 
         {loading ? (

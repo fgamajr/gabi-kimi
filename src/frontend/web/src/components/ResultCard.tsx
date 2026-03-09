@@ -1,13 +1,12 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import DOMPurify from 'dompurify';
 import type { SearchResult } from '@/lib/api';
 import { SectionBadge } from './Badges';
 import { navigateToDocument } from '@/lib/navigation';
 
 function sanitizeSnippet(html: string) {
-  return html
-    .replace(/<(?!\/?(mark|em|strong|b)\b)[^>]+>/giu, "")
-    .trim();
+  return DOMPurify.sanitize(html, { ALLOWED_TAGS: ['mark', 'em', 'strong', 'b'] }).trim();
 }
 
 interface ResultCardProps {

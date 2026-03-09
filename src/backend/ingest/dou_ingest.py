@@ -246,6 +246,20 @@ class DOUIngestor:
         merged_articles = filtered
         result.articles_found = len(merged_articles)
 
+        if result.xml_count == 0:
+            result.success = False
+            result.errors.append("zip contains no XML files")
+            _cleanup_dir(extract_dir)
+            result.elapsed_ms = int((time.monotonic() - t0) * 1000)
+            return result
+
+        if result.parse_errors > 0 and result.articles_found == 0:
+            result.success = False
+            result.errors.append("zip contains zero valid XML articles after parsing")
+            _cleanup_dir(extract_dir)
+            result.elapsed_ms = int((time.monotonic() - t0) * 1000)
+            return result
+
         # --- ZIP metadata ---
         zip_sha = _sha256_file(zip_path)
         zip_size = zip_path.stat().st_size

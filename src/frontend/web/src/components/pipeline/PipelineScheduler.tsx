@@ -1,270 +1,220 @@
-import { useState } from "react";
-import {
-  useWorkerHealth,
-  usePipelineRuns,
-  useTriggerPipeline,
-} from "@/hooks/usePipeline";
-import type { PipelineRun } from "@/types/pipeline";
+import { useMemo } from "react";
+import { Clock3, PlayCircle, RefreshCw, SearchCheck } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
+
+import { usePipelineRuns, usePipelineScheduler, usePipelineStats, useTriggerPipeline, useWorkerHealth } from "@/hooks/usePipeline";
+import { Button } from "@/components/ui/button";
 import {
-  Play,
-  Pause,
-  CircleOff,
-  Rocket,
-  Clock,
-  Timer,
-} from "lucide-react";
-import { cn } from "@/lib/utils";
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import WorkerUnavailableState from "./WorkerUnavailableState";
 
-const SCHEDULE = [
-  { phase: "discovery", label: "Discovery", cron: "23:00 UTC", icon: "🔍" },
-  { phase: "download", label: "Download", cron: "23:30 UTC", icon: "⬇️" },
-  { phase: "ingest", label: "Ingest", cron: "00:00 UTC", icon: "📥" },
-  { phase: "verify", label: "Verify", cron: "01:00 UTC", icon: "✅" },
-  { phase: "retry", label: "Retry", cron: "06:00 UTC", icon: "🔄" },
-];
-
-const TRIGGER_PHASES = ["discovery", "download", "extract", "ingest", "verify"];
+const FALLBACK_SCHEDULES: Record<string, string> = {
+  discovery: "23:00 UTC",
+  download: "23:30 UTC",
+  extract: "23:45 UTC",
+  bm25: "00:00 UTC",
+  embed: "00:30 UTC",
+  verify: "01:00 UTC",
+  retry: "06:00 UTC",
+  snapshot: "02:00 UTC",
+  heartbeat: "a cada 60s",
+};
 
 function formatUptime(seconds: number): string {
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor((seconds % 86400) / 3600);
+  const total = Math.max(0, Math.floor(seconds));
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
   if (days > 0) return `${days}d ${hours}h`;
-  const mins = Math.floor((seconds % 3600) / 60);
-  return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+function formatRelativeFuture(dateStr: string | null): string {
+  if (!dateStr) return "sem agenda";
+  const diff = new Date(dateStr).getTime() - Date.now();
+  const minutes = Math.round(diff / 60000);
+  if (minutes <= 0) return "agora";
+  if (minutes < 60) return `em ${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const rem = minutes % 60;
+  return rem > 0 ? `em ${hours}h ${rem}m` : `em ${hours}h`;
 }
 
 function formatDuration(startedAt: string, completedAt: string | null): string {
-  const start = new Date(startedAt).getTime();
-  const end = completedAt ? new Date(completedAt).getTime() : Date.now();
-  const seconds = Math.round((end - start) / 1000);
+  const diff = Math.max(0, new Date(completedAt ?? new Date().toISOString()).getTime() - new Date(startedAt).getTime());
+  const seconds = Math.round(diff / 1000);
   if (seconds < 60) return `${seconds}s`;
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  return `${mins}m ${secs}s`;
-}
-
-function formatRelativeTime(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
-function nextRunRelative(cronUtcHour: string): string {
-  const [h, m] = cronUtcHour.split(":").map(Number);
-  const now = new Date();
-  const next = new Date(now);
-  next.setUTCHours(h, m, 0, 0);
-  if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
-  const diffMs = next.getTime() - now.getTime();
-  const diffH = Math.floor(diffMs / 3_600_000);
-  const diffM = Math.floor((diffMs % 3_600_000) / 60_000);
-  if (diffH > 0) return `in ${diffH}h ${diffM}m`;
-  return `in ${diffM}m`;
-}
-
-function StatusBadge({ status }: { status: string }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full",
-        status === "completed" && "bg-emerald-500/15 text-emerald-400",
-        status === "failed" && "bg-red-500/15 text-red-400",
-        status === "running" && "bg-yellow-500/15 text-yellow-400 animate-pulse"
-      )}
-    >
-      {status}
-    </span>
-  );
+  const minutes = Math.floor(seconds / 60);
+  const rem = seconds % 60;
+  return `${minutes}m ${rem}s`;
 }
 
 export default function PipelineScheduler() {
-  const { data: health } = useWorkerHealth();
-  const { data: runs, isLoading: runsLoading } = usePipelineRuns(20);
+  const { data: health, isError: healthError, error: healthFailure } = useWorkerHealth();
+  const { data: scheduler, isError: schedulerError, error: schedulerFailure } = usePipelineScheduler();
+  const { data: runs, isError: runsError, error: runsFailure } = usePipelineRuns(20);
+  const { data: stats } = usePipelineStats();
   const triggerMut = useTriggerPipeline();
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [, setSearchParams] = useSearchParams();
 
-  const schedulerStatus = health?.scheduler_paused
-    ? "paused"
+  const schedulerJobs = useMemo(
+    () => (scheduler?.jobs?.length ? scheduler.jobs : health?.scheduler_jobs?.length ? health.scheduler_jobs : []),
+    [health?.scheduler_jobs, scheduler?.jobs]
+  );
+
+  const statusBadge = health?.scheduler_paused
+    ? "bg-amber-500/10 text-amber-300"
     : health?.scheduler_running
-    ? "running"
-    : "stopped";
+      ? "bg-emerald-500/10 text-emerald-300"
+      : "bg-red-500/10 text-red-300";
+  const bootstrappedWithoutRealRuns = (stats?.total_files ?? 0) > 0 && !(runs?.length);
 
-  const handleTrigger = (phase: string) => {
-    triggerMut.mutate(phase, {
-      onSuccess: () => toast.success(`Phase "${phase}" triggered`),
-      onError: (err) =>
-        toast.error(`Trigger failed: ${(err as Error).message}`),
-    });
+  const handleTrigger = async (phase: string) => {
+    try {
+      await triggerMut.mutateAsync(phase);
+      toast.success(`Fase "${phase}" enviada ao scheduler.`);
+    } catch (error) {
+      toast.error(`Falha ao disparar ${phase}: ${(error as Error).message}`);
+    }
   };
+
+  if (healthError || schedulerError || runsError) {
+    const message = [healthFailure, schedulerFailure, runsFailure].find(Boolean);
+    return (
+      <WorkerUnavailableState
+        title="Scheduler indisponível"
+        message={(message as Error | undefined)?.message}
+      />
+    );
+  }
 
   return (
     <div className="space-y-6">
-      {/* Scheduler status */}
-      <div className="rounded-xl border border-border bg-surface-elevated p-4">
-        <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-3">
-          Scheduler Status
-        </h3>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            {schedulerStatus === "running" ? (
-              <Play className="w-4 h-4 text-emerald-400" />
-            ) : schedulerStatus === "paused" ? (
-              <Pause className="w-4 h-4 text-yellow-400" />
-            ) : (
-              <CircleOff className="w-4 h-4 text-red-400" />
-            )}
-            <span
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium capitalize",
-                schedulerStatus === "running" &&
-                  "bg-emerald-500/15 text-emerald-400",
-                schedulerStatus === "paused" &&
-                  "bg-yellow-500/15 text-yellow-400",
-                schedulerStatus === "stopped" && "bg-red-500/15 text-red-400"
-              )}
-            >
-              {schedulerStatus}
+      <section className="grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
+        <div className="rounded-2xl border border-border bg-surface-elevated p-5 shadow-sm">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-text-primary">Scheduler</h2>
+              <p className="text-xs text-text-secondary">Loop contínuo do worker interno.</p>
+            </div>
+            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusBadge}`}>
+              {health?.scheduler_paused ? "Paused" : health?.scheduler_running ? "Running" : "Stopped"}
             </span>
           </div>
-          {health && (
-            <div className="flex items-center gap-1.5 text-xs text-text-tertiary">
-              <Timer className="w-3.5 h-3.5" />
-              Uptime: {formatUptime(health.uptime_seconds)}
+          <dl className="grid gap-3 text-sm">
+            <div className="flex items-center justify-between rounded-xl bg-background/40 px-4 py-3">
+              <dt className="text-text-secondary">Uptime</dt>
+              <dd className="font-medium text-text-primary">{formatUptime(health?.uptime_seconds ?? 0)}</dd>
             </div>
-          )}
-        </div>
-      </div>
-
-      {/* Next run times */}
-      <div className="rounded-xl border border-border bg-surface-elevated p-4">
-        <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-3">
-          Schedule
-        </h3>
-        <div className="space-y-2">
-          {SCHEDULE.map((s) => (
-            <div
-              key={s.phase}
-              className="flex items-center justify-between py-1.5 border-b border-border/50 last:border-0"
-            >
-              <div className="flex items-center gap-2 text-sm">
-                <span>{s.icon}</span>
-                <span className="font-medium text-text-primary">{s.label}</span>
-              </div>
-              <div className="flex items-center gap-3 text-xs text-text-tertiary">
-                <span className="font-mono">{s.cron}</span>
-                <span className="text-text-secondary">
-                  <Clock className="w-3 h-3 inline mr-0.5" />
-                  {nextRunRelative(s.cron)}
-                </span>
-              </div>
+            <div className="flex items-center justify-between rounded-xl bg-background/40 px-4 py-3">
+              <dt className="text-text-secondary">Último heartbeat</dt>
+              <dd className="font-medium text-text-primary">{health?.last_heartbeat ?? "-"}</dd>
             </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Manual triggers */}
-      <div className="rounded-xl border border-border bg-surface-elevated p-4">
-        <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-3">
-          Manual Trigger
-        </h3>
-        <div className="flex flex-wrap gap-2">
-          {TRIGGER_PHASES.map((phase) => (
-            <button
-              key={phase}
-              onClick={() => handleTrigger(phase)}
-              disabled={triggerMut.isPending}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium text-text-secondary hover:bg-muted hover:text-text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed capitalize"
-            >
-              <Rocket className="w-3.5 h-3.5" />
-              {phase}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Execution history */}
-      <div className="rounded-xl border border-border bg-surface-elevated p-4">
-        <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-3">
-          Execution History
-        </h3>
-        {runsLoading ? (
-          <div className="space-y-2">
-            {[1, 2, 3].map((i) => (
-              <div
-                key={i}
-                className="h-8 rounded bg-muted animate-pulse"
-              />
+          </dl>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {["full", "discovery", "download", "extract", "bm25", "embed", "verify"].map((phase) => (
+              <Button
+                key={phase}
+                variant="outline"
+                size="sm"
+                disabled={triggerMut.isPending}
+                onClick={() => handleTrigger(phase)}
+              >
+                <PlayCircle className="h-3.5 w-3.5" />
+                {phase === "full" ? "full cycle" : phase}
+              </Button>
             ))}
           </div>
-        ) : runs && runs.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-xs text-text-tertiary uppercase border-b border-border">
-                  <th className="text-left py-2 pr-3 font-medium">Phase</th>
-                  <th className="text-left py-2 pr-3 font-medium">Status</th>
-                  <th className="text-left py-2 pr-3 font-medium">Started</th>
-                  <th className="text-left py-2 pr-3 font-medium">Duration</th>
-                  <th className="text-right py-2 font-medium">Files</th>
-                </tr>
-              </thead>
-              <tbody>
-                {runs.map((run: PipelineRun) => (
-                  <tr
-                    key={run.id}
-                    onClick={() => setSelectedRunId(run.id)}
-                    className={cn(
-                      "border-b border-border/50 last:border-0 cursor-pointer hover:bg-muted/50 transition-colors",
-                      selectedRunId === run.id && "bg-muted/30"
-                    )}
-                  >
-                    <td className="py-2 pr-3 font-medium text-text-primary capitalize">
-                      {run.phase}
-                    </td>
-                    <td className="py-2 pr-3">
-                      <StatusBadge status={run.status} />
-                    </td>
-                    <td className="py-2 pr-3 text-text-tertiary text-xs">
-                      {formatRelativeTime(run.started_at)}
-                    </td>
-                    <td className="py-2 pr-3 text-text-tertiary text-xs font-mono">
-                      {formatDuration(run.started_at, run.completed_at)}
-                    </td>
-                    <td className="py-2 text-right text-xs">
-                      <span className="text-emerald-400">
-                        {run.files_succeeded}
-                      </span>
-                      <span className="text-text-tertiary">/</span>
-                      <span className="text-text-primary">
-                        {run.files_processed}
-                      </span>
-                      {run.files_failed > 0 && (
-                        <span className="text-red-400 ml-1">
-                          ({run.files_failed} failed)
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        </div>
+
+        <div className="rounded-2xl border border-border bg-surface-elevated p-5 shadow-sm">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-text-primary">Próximas execuções</h2>
+              <p className="text-xs text-text-secondary">Jobs agendados expostos pelo worker.</p>
+            </div>
+            <Clock3 className="h-4 w-4 text-primary" />
           </div>
-        ) : (
-          <p className="text-sm text-text-tertiary">No execution history yet.</p>
-        )}
-        {selectedRunId && (
-          <p className="text-xs text-text-tertiary mt-2">
-            Selected run: <code className="font-mono text-primary">{selectedRunId}</code>{" "}
-            — switch to Logs tab to see detailed logs for this run.
-          </p>
-        )}
-      </div>
+          <div className="space-y-3">
+            {schedulerJobs.map((job) => (
+              <div key={job.id} className="flex items-center justify-between rounded-xl bg-background/40 px-4 py-3 text-sm">
+                <div>
+                  <p className="font-medium capitalize text-text-primary">{job.id}</p>
+                  <p className="text-xs text-text-secondary">{FALLBACK_SCHEDULES[job.id] ?? "agendamento interno"}</p>
+                </div>
+                <div className="text-right">
+                  <p className="font-medium text-text-primary">{formatRelativeFuture(job.next_run_time)}</p>
+                  <p className="text-xs text-text-secondary">{job.next_run_time ?? "sem next_run_time"}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-border bg-surface-elevated p-5 shadow-sm">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-text-primary">Histórico de execução</h2>
+            <p className="text-xs text-text-secondary">Clique em uma execução para abrir o tab de logs filtrado.</p>
+          </div>
+          <RefreshCw className="h-4 w-4 text-primary" />
+        </div>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Phase</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Started</TableHead>
+              <TableHead>Duration</TableHead>
+              <TableHead>Files</TableHead>
+              <TableHead className="text-right">Logs</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {runs?.length ? runs.map((run) => (
+              <TableRow key={run.id}>
+                <TableCell className="font-medium capitalize text-text-primary">{run.phase}</TableCell>
+                <TableCell>
+                  <span className="rounded-full bg-muted px-2 py-1 text-[11px] uppercase tracking-wide text-text-secondary">
+                    {run.status}
+                  </span>
+                </TableCell>
+                <TableCell>{run.started_at}</TableCell>
+                <TableCell>{formatDuration(run.started_at, run.completed_at)}</TableCell>
+                <TableCell>{run.files_processed}/{run.files_succeeded}/{run.files_failed}</TableCell>
+                <TableCell className="text-right">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSearchParams({ tab: "logs", run: run.id })}
+                  >
+                    <SearchCheck className="h-3.5 w-3.5" />
+                    Abrir
+                  </Button>
+                </TableCell>
+              </TableRow>
+            )) : (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center text-text-tertiary">
+                  {bootstrappedWithoutRealRuns
+                    ? "Catálogo já foi carregado no registry; ainda não houve execução real do pipeline."
+                    : "Nenhuma execução encontrada."}
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </section>
     </div>
   );
 }

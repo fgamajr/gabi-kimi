@@ -1,5 +1,7 @@
-import { useEffect, useCallback } from 'react';
-import { toast } from 'sonner';
+import { useEffect } from "react";
+import { toast } from "sonner";
+import { getScrollBehavior } from "@/lib/motion";
+import { getContentScrollMetrics } from "./useReadingPosition";
 
 /**
  * Parse #pos= fragment from URL and scroll to position.
@@ -21,14 +23,13 @@ export function useDeepLink(
     // Delay to ensure DOM is fully laid out
     const timer = setTimeout(() => {
       if (!isNaN(numericValue) && numericValue >= 0 && numericValue <= 1) {
-        // Percentage-based
-        const docHeight = document.documentElement.scrollHeight - window.innerHeight;
-        window.scrollTo({ top: docHeight * numericValue, behavior: 'smooth' });
+        const { contentTop, scrollableHeight } = getContentScrollMetrics(contentRef.current);
+        window.scrollTo({ top: contentTop + scrollableHeight * numericValue, behavior: getScrollBehavior() });
       } else {
         // Anchor-based
         const el = document.getElementById(pos);
         if (el) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          el.scrollIntoView({ behavior: getScrollBehavior(), block: "start" });
           el.classList.add('deep-link-highlight');
           setTimeout(() => el.classList.remove('deep-link-highlight'), 2000);
         } else {

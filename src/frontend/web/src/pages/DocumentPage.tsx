@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { AccessKeyPrompt } from "@/components/AccessKeyPrompt";
@@ -16,10 +16,14 @@ import { createAccessSession, ApiAuthError } from "@/lib/auth";
 import { getDocument } from "@/lib/api";
 import type { DocumentDetail } from "@/lib/api";
 import { addRecentDocument } from "@/lib/history";
+import { getDocumentNavigationState } from "@/lib/navigation";
 import { downloadServerPdf, prefersPrintPdfFallback } from "@/lib/pdfExport";
-import { parseSections, type Section } from "@/lib/sectionParser";
+import type { Section } from "@/lib/sectionParser";
 import { generateShareUrl, useDeepLink } from "@/hooks/useDeepLink";
+import { useDocumentSectionNavigation } from "@/hooks/useDocumentSectionNavigation";
+import { usePageMetadata } from "@/hooks/usePageMetadata";
 import { useReadingPosition } from "@/hooks/useReadingPosition";
+import { formatLongDate, formatTime } from "@/lib/intl";
 
 const DocumentPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -33,10 +37,10 @@ const DocumentPage: React.FC = () => {
   const [authPending, setAuthPending] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
   const [showToc, setShowToc] = useState(false);
-  const [sections, setSections] = useState<Section[]>([]);
-  const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const resumeToastShownRef = useRef<string | null>(null);
+  const titleId = useId();
+  const tocSheetId = useId();
 
   useEffect(() => {
     if (!id) return;
@@ -69,33 +73,17 @@ const DocumentPage: React.FC = () => {
     });
   }, [doc]);
 
-  useEffect(() => {
-    if (!doc || !contentRef.current) return;
-    const frame = window.requestAnimationFrame(() => {
-      const parsedSections = parseSections(contentRef.current!);
-      setSections(parsedSections);
-      setActiveSectionId(parsedSections[0]?.id || null);
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [doc]);
+  usePageMetadata(doc?.title || "Documento", {
+    description: doc?.ementa || doc?.subtitle || doc?.issuing_organ || "Leitura editorial e navegação contextual de documento do Diário Oficial.",
+  });
 
-  useEffect(() => {
-    if (!sections.length) return;
-    const observers = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
-        if (visible[0]?.target?.id) {
-          setActiveSectionId(visible[0].target.id);
-        }
-      },
-      { rootMargin: "-20% 0px -65% 0px", threshold: [0.1, 0.4, 0.8] }
-    );
-
-    sections.forEach((section) => observers.observe(section.element));
-    return () => observers.disconnect();
-  }, [sections]);
+  const {
+    activeSectionId,
+    activeSectionLabel,
+    scrollToSection,
+    sections,
+    sectionsReady,
+  } = useDocumentSectionNavigation(doc, contentRef);
 
   const { savedPosition, scrollPercent, scrollToSaved } = useReadingPosition(
     doc?.id,
@@ -103,7 +91,7 @@ const DocumentPage: React.FC = () => {
     sections.map((section) => section.id)
   );
 
-  useDeepLink(contentRef, Boolean(doc && contentRef.current));
+  useDeepLink(contentRef, Boolean(doc) && sectionsReady);
 
   useEffect(() => {
     if (!doc || !savedPosition) return;
@@ -122,13 +110,7 @@ const DocumentPage: React.FC = () => {
   }, [doc, savedPosition, scrollToSaved]);
 
   const trailingMedia = useMemo(() => doc?.media?.filter((item) => item.position_in_doc == null) || [], [doc]);
-  const transitionOrigin = (location.state as { documentTransitionOrigin?: string } | null)?.documentTransitionOrigin;
-  const continuousEntry = Boolean(transitionOrigin);
-
-  const activeSectionLabel = useMemo(
-    () => sections.find((section) => section.id === activeSectionId)?.label,
-    [activeSectionId, sections]
-  );
+  const continuousEntry = Boolean(getDocumentNavigationState(location.state));
 
   const documentMetaItems = useMemo(
     () => [
@@ -140,24 +122,11 @@ const DocumentPage: React.FC = () => {
     [doc?.art_type, doc?.edition, doc?.page, sections.length]
   );
 
-  const formatDate = (value: string) => {
-    try {
-      return new Date(value).toLocaleDateString("pt-BR", {
-        weekday: "long",
-        day: "2-digit",
-        month: "long",
-        year: "numeric",
-      });
-    } catch {
-      return value;
-    }
-  };
-
   const activityItems = useMemo(
     () => [
       {
         label: "Publicação no DOU",
-        detail: formatDate(doc?.pub_date || ""),
+        detail: formatLongDate(doc?.pub_date, doc?.pub_date || ""),
         meta: doc?.pub_date || "",
       },
       {
@@ -168,7 +137,7 @@ const DocumentPage: React.FC = () => {
       {
         label: "Consulta",
         detail: "Agora",
-        meta: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+        meta: formatTime(new Date()),
       },
     ],
     [doc?.pub_date]
@@ -176,21 +145,18 @@ const DocumentPage: React.FC = () => {
 
   const handleSectionSelect = (section: Section) => {
     setShowToc(false);
-    section.element.scrollIntoView({ behavior: "smooth", block: "start" });
+    scrollToSection(section);
   };
 
   const handleShare = async () => {
     if (!doc) return;
-    const shareUrl = generateShareUrl(activeSectionId || undefined, activeSectionId ? undefined : scrollPercent);
+    const sectionId = activeSectionId || sections[0]?.id || savedPosition?.nearestSectionId || undefined;
+    const shareUrl = generateShareUrl(sectionId, sectionId ? undefined : scrollPercent);
     try {
-      if (navigator.share) {
-        await navigator.share({ title: doc.title, url: shareUrl });
-      } else {
-        await navigator.clipboard.writeText(shareUrl);
-        toast("Link copiado", { description: "O link do documento foi copiado com a posição atual." });
-      }
+      await navigator.clipboard.writeText(shareUrl);
+      toast("Link copiado", { description: "A URL do documento foi copiada com o ponto atual de leitura." });
     } catch {
-      toast("Não foi possível compartilhar agora.");
+      toast("Não foi possível copiar o link agora.");
     }
   };
 
@@ -217,8 +183,9 @@ const DocumentPage: React.FC = () => {
         toast("Acesso necessário", { description: "Valide a chave de acesso para baixar o PDF." });
         return;
       }
-      window.print();
-      toast("Abrindo impressão", { description: "Use Salvar como PDF no navegador se necessário." });
+      toast("PDF indisponível", {
+        description: "O backend não conseguiu gerar o PDF neste ambiente. Verifique as dependências do servidor.",
+      });
     }
   };
 
@@ -288,20 +255,27 @@ const DocumentPage: React.FC = () => {
           </div>
           <div className="flex items-center gap-1">
             <button
+              type="button"
               onClick={() => setShowToc(true)}
               className="hidden min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-text-secondary transition-colors hover:bg-white/[0.04] hover:text-foreground focus-ring md:flex"
               aria-label="Abrir índice"
+              aria-haspopup="dialog"
+              aria-expanded={showToc}
+              aria-controls={tocSheetId}
             >
               <Icons.book className="h-5 w-5" />
             </button>
             <button
+              type="button"
               onClick={handleShare}
               className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-text-secondary transition-colors hover:bg-white/[0.04] hover:text-foreground focus-ring"
-              aria-label="Compartilhar"
+              aria-label="Copiar link"
+              title="Copiar link"
             >
-              <Icons.share className="h-5 w-5" />
+              <Icons.copy className="h-5 w-5" />
             </button>
             <button
+              type="button"
               onClick={handlePdf}
               className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-text-secondary transition-colors hover:bg-white/[0.04] hover:text-foreground focus-ring"
               aria-label="Baixar ou imprimir"
@@ -312,7 +286,7 @@ const DocumentPage: React.FC = () => {
         </div>
       </header>
 
-      <div className="reading-progress">
+      <div className="reading-progress sticky top-[76px] z-30">
         <ReadingProgress progress={scrollPercent} activeLabel={activeSectionLabel} />
       </div>
 
@@ -327,12 +301,12 @@ const DocumentPage: React.FC = () => {
 
             <div className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
               <SectionBadge section={doc.section} />
-              <span className="text-text-secondary">{formatDate(doc.pub_date)}</span>
+              <span className="text-text-secondary">{formatLongDate(doc.pub_date, doc.pub_date)}</span>
               {doc.page ? <span className="text-text-tertiary">Página {doc.page}</span> : null}
               {doc.edition ? <span className="text-text-tertiary">Ed. {doc.edition}</span> : null}
             </div>
 
-            <h1 className="font-editorial max-w-4xl text-4xl leading-[0.98] text-foreground md:text-6xl">
+            <h1 id={titleId} className="font-editorial max-w-4xl text-4xl leading-[0.98] text-foreground md:text-6xl">
               {doc.title}
             </h1>
 
@@ -376,6 +350,7 @@ const DocumentPage: React.FC = () => {
               <div className="flex flex-wrap gap-2">
                 {savedPosition ? (
                   <button
+                    type="button"
                     onClick={() => scrollToSaved()}
                     className="rounded-full border border-primary/18 bg-primary/12 px-4 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/16 focus-ring"
                   >
@@ -383,8 +358,12 @@ const DocumentPage: React.FC = () => {
                   </button>
                 ) : null}
                 <button
+                  type="button"
                   onClick={() => setShowToc(true)}
                   className="rounded-full border border-white/8 bg-white/[0.03] px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-white/[0.06] focus-ring"
+                  aria-haspopup="dialog"
+                  aria-expanded={showToc}
+                  aria-controls={tocSheetId}
                 >
                   Abrir índice
                 </button>
@@ -392,8 +371,9 @@ const DocumentPage: React.FC = () => {
             </div>
           </section>
 
-          <main
+          <article
             ref={contentRef}
+            aria-labelledby={titleId}
             className={`${continuousEntry ? "animate-route-settle" : "animate-fade-in"} reader-surface mt-6 rounded-[34px] px-6 py-8 md:px-10 md:py-10`}
             style={{ animationDelay: "60ms" }}
           >
@@ -429,7 +409,7 @@ const DocumentPage: React.FC = () => {
                 </a>
               </div>
             ) : null}
-          </main>
+          </article>
 
           <section className="document-secondary-panels mt-8 grid gap-8 lg:grid-cols-[0.9fr_1.1fr]">
             <div className="reader-surface rounded-[30px] px-6 py-6">
@@ -470,6 +450,7 @@ const DocumentPage: React.FC = () => {
                     : "Ponto salvo de leitura"}
                 </p>
                 <button
+                  type="button"
                   onClick={() => scrollToSaved()}
                   className="mt-4 w-full rounded-[18px] border border-primary/18 bg-primary/12 px-4 py-3 text-sm font-medium text-primary transition-colors hover:bg-primary/16 focus-ring"
                 >
@@ -482,7 +463,7 @@ const DocumentPage: React.FC = () => {
         </aside>
       </div>
 
-      <BottomSheet open={showToc} onClose={() => setShowToc(false)} title="Índice do documento">
+      <BottomSheet open={showToc} onClose={() => setShowToc(false)} title="Índice do documento" contentId={tocSheetId}>
         <DocumentTOC sections={sections} activeSectionId={activeSectionId} onSelect={handleSectionSelect} />
       </BottomSheet>
 

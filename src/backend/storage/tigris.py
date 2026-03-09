@@ -24,7 +24,10 @@ def is_configured() -> bool:
 
 
 def get_s3_client():
-    """S3 client configured for Fly.io Tigris (s3v4, virtual-hosted style)."""
+    """S3 client for Tigris (Fly) or MinIO (local). Tigris needs virtual-hosted; MinIO on localhost needs path-style."""
+    addressing = "path"
+    if os.getenv("S3_PATH_STYLE", "").lower() not in ("1", "true", "yes"):
+        addressing = "virtual"
     return boto3.client(
         "s3",
         endpoint_url=os.environ["AWS_ENDPOINT_URL_S3"],
@@ -33,7 +36,7 @@ def get_s3_client():
         region_name=os.getenv("AWS_REGION", "auto"),
         config=Config(
             signature_version="s3v4",
-            s3={"addressing_style": "virtual"},
+            s3={"addressing_style": addressing},
         ),
     )
 

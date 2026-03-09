@@ -27,10 +27,10 @@ async def test_init_db_creates_tables(registry):
 async def test_dou_files_columns(registry):
     """dou_files table has all expected columns."""
     expected = {
-        "id", "filename", "section", "year_month", "folder_id", "file_url",
+        "id", "filename", "section", "year_month", "publication_date", "source", "folder_id", "file_url",
         "status", "retry_count", "doc_count", "file_size_bytes", "sha256",
         "error_message", "discovered_at", "queued_at", "downloaded_at",
-        "extracted_at", "ingested_at", "verified_at", "updated_at",
+        "extracted_at", "ingested_at", "bm25_indexed_at", "embedded_at", "verified_at", "updated_at",
     }
     async with registry.get_db() as db:
         cursor = await db.execute("PRAGMA table_info(dou_files)")
@@ -44,8 +44,9 @@ async def test_dou_files_columns(registry):
 async def test_file_status_enum_states():
     """FileStatus enum contains all expected states."""
     normal = {"DISCOVERED", "QUEUED", "DOWNLOADING", "DOWNLOADED",
-              "EXTRACTING", "EXTRACTED", "INGESTING", "INGESTED", "VERIFIED"}
-    failure = {"DOWNLOAD_FAILED", "EXTRACT_FAILED", "INGEST_FAILED", "VERIFY_FAILED"}
+              "EXTRACTING", "EXTRACTED", "BM25_INDEXING", "BM25_INDEXED",
+              "EMBEDDING", "EMBEDDED", "VERIFYING", "VERIFIED"}
+    failure = {"DOWNLOAD_FAILED", "EXTRACT_FAILED", "BM25_INDEX_FAILED", "EMBEDDING_FAILED", "VERIFY_FAILED"}
     all_expected = normal | failure
     actual = {s.name for s in FileStatus}
     assert all_expected == actual
@@ -63,9 +64,9 @@ async def test_valid_transition_discovered_to_queued(registry, sample_file):
 
 
 async def test_invalid_transition_raises(registry, sample_file):
-    """Invalid state transition DISCOVERED -> INGESTED raises ValueError."""
+    """Invalid state transition DISCOVERED -> BM25_INDEXED raises ValueError."""
     with pytest.raises(ValueError, match="Invalid transition"):
-        await registry.update_status(sample_file, FileStatus.INGESTED)
+        await registry.update_status(sample_file, FileStatus.BM25_INDEXED)
 
 
 async def test_full_state_machine_transitions(registry):
@@ -79,8 +80,11 @@ async def test_full_state_machine_transitions(registry):
         FileStatus.DOWNLOADED,
         FileStatus.EXTRACTING,
         FileStatus.EXTRACTED,
-        FileStatus.INGESTING,
-        FileStatus.INGESTED,
+        FileStatus.BM25_INDEXING,
+        FileStatus.BM25_INDEXED,
+        FileStatus.EMBEDDING,
+        FileStatus.EMBEDDED,
+        FileStatus.VERIFYING,
         FileStatus.VERIFIED,
     ]
     for status in path:
@@ -89,13 +93,39 @@ async def test_full_state_machine_transitions(registry):
     assert row["status"] == "VERIFIED"
 
 
+async def test_verified_file_can_reenter_embedding_for_backfill(registry):
+    """Previously verified files can re-enter embedding for legacy backfill."""
+    file_id = await registry.insert_file(
+        filename="reembed_test.zip", section="do1", year_month="2026-03"
+    )
+    path = [
+        FileStatus.QUEUED,
+        FileStatus.DOWNLOADING,
+        FileStatus.DOWNLOADED,
+        FileStatus.EXTRACTING,
+        FileStatus.EXTRACTED,
+        FileStatus.BM25_INDEXING,
+        FileStatus.BM25_INDEXED,
+        FileStatus.EMBEDDING,
+        FileStatus.EMBEDDED,
+        FileStatus.VERIFYING,
+        FileStatus.VERIFIED,
+        FileStatus.EMBEDDING,
+    ]
+    for status in path:
+        await registry.update_status(file_id, status)
+    row = await registry.get_file(file_id)
+    assert row["status"] == "EMBEDDING"
+
+
 async def test_failure_transitions(registry):
     """Processing states can transition to their failure states."""
     transitions = [
         (FileStatus.DOWNLOADING, FileStatus.DOWNLOAD_FAILED),
         (FileStatus.EXTRACTING, FileStatus.EXTRACT_FAILED),
-        (FileStatus.INGESTING, FileStatus.INGEST_FAILED),
-        (FileStatus.INGESTED, FileStatus.VERIFY_FAILED),
+        (FileStatus.BM25_INDEXING, FileStatus.BM25_INDEX_FAILED),
+        (FileStatus.EMBEDDING, FileStatus.EMBEDDING_FAILED),
+        (FileStatus.VERIFYING, FileStatus.VERIFY_FAILED),
     ]
     for i, (from_status, to_status) in enumerate(transitions):
         file_id = await registry.insert_file(

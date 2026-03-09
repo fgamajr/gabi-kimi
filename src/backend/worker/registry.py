@@ -1,12 +1,14 @@
 """SQLite registry for the autonomous DOU ingestion pipeline.
 
 Tracks lifecycle of every DOU file through discovery -> download -> extract ->
-ingest -> verify stages. Uses WAL mode for concurrent reader/writer access.
+BM25 index -> embedding -> verify stages. Uses WAL mode for concurrent
+reader/writer access.
 """
 from __future__ import annotations
 
 import enum
 import os
+import shutil
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -26,9 +28,13 @@ class FileStatus(enum.Enum):
     EXTRACTING = "EXTRACTING"
     EXTRACTED = "EXTRACTED"
     EXTRACT_FAILED = "EXTRACT_FAILED"
-    INGESTING = "INGESTING"
-    INGESTED = "INGESTED"
-    INGEST_FAILED = "INGEST_FAILED"
+    BM25_INDEXING = "BM25_INDEXING"
+    BM25_INDEXED = "BM25_INDEXED"
+    BM25_INDEX_FAILED = "BM25_INDEX_FAILED"
+    EMBEDDING = "EMBEDDING"
+    EMBEDDED = "EMBEDDED"
+    EMBEDDING_FAILED = "EMBEDDING_FAILED"
+    VERIFYING = "VERIFYING"
     VERIFIED = "VERIFIED"
     VERIFY_FAILED = "VERIFY_FAILED"
 
@@ -41,12 +47,16 @@ VALID_TRANSITIONS: dict[FileStatus, set[FileStatus]] = {
     FileStatus.DOWNLOADED: {FileStatus.EXTRACTING},
     FileStatus.DOWNLOAD_FAILED: {FileStatus.QUEUED},
     FileStatus.EXTRACTING: {FileStatus.EXTRACTED, FileStatus.EXTRACT_FAILED},
-    FileStatus.EXTRACTED: {FileStatus.INGESTING},
+    FileStatus.EXTRACTED: {FileStatus.BM25_INDEXING},
     FileStatus.EXTRACT_FAILED: {FileStatus.QUEUED},
-    FileStatus.INGESTING: {FileStatus.INGESTED, FileStatus.INGEST_FAILED},
-    FileStatus.INGESTED: {FileStatus.VERIFIED, FileStatus.VERIFY_FAILED},
-    FileStatus.INGEST_FAILED: {FileStatus.QUEUED},
-    FileStatus.VERIFIED: set(),
+    FileStatus.BM25_INDEXING: {FileStatus.BM25_INDEXED, FileStatus.BM25_INDEX_FAILED},
+    FileStatus.BM25_INDEXED: {FileStatus.EMBEDDING},
+    FileStatus.BM25_INDEX_FAILED: {FileStatus.QUEUED},
+    FileStatus.EMBEDDING: {FileStatus.EMBEDDED, FileStatus.EMBEDDING_FAILED},
+    FileStatus.EMBEDDED: {FileStatus.VERIFYING},
+    FileStatus.EMBEDDING_FAILED: {FileStatus.QUEUED},
+    FileStatus.VERIFYING: {FileStatus.VERIFIED, FileStatus.VERIFY_FAILED},
+    FileStatus.VERIFIED: {FileStatus.EMBEDDING},
     FileStatus.VERIFY_FAILED: {FileStatus.QUEUED},
 }
 
@@ -60,9 +70,13 @@ _STATUS_TIMESTAMP_COL: dict[FileStatus, str | None] = {
     FileStatus.EXTRACTING: None,
     FileStatus.EXTRACTED: "extracted_at",
     FileStatus.EXTRACT_FAILED: None,
-    FileStatus.INGESTING: None,
-    FileStatus.INGESTED: "ingested_at",
-    FileStatus.INGEST_FAILED: None,
+    FileStatus.BM25_INDEXING: None,
+    FileStatus.BM25_INDEXED: "bm25_indexed_at",
+    FileStatus.BM25_INDEX_FAILED: None,
+    FileStatus.EMBEDDING: None,
+    FileStatus.EMBEDDED: "embedded_at",
+    FileStatus.EMBEDDING_FAILED: None,
+    FileStatus.VERIFYING: None,
     FileStatus.VERIFIED: "verified_at",
     FileStatus.VERIFY_FAILED: None,
 }
@@ -75,6 +89,8 @@ CREATE TABLE IF NOT EXISTS dou_files (
     filename TEXT NOT NULL UNIQUE,
     section TEXT NOT NULL,
     year_month TEXT NOT NULL,
+    publication_date TEXT,
+    source TEXT NOT NULL DEFAULT 'liferay',
     folder_id INTEGER,
     file_url TEXT,
     status TEXT NOT NULL DEFAULT 'DISCOVERED',
@@ -88,12 +104,15 @@ CREATE TABLE IF NOT EXISTS dou_files (
     downloaded_at TEXT,
     extracted_at TEXT,
     ingested_at TEXT,
+    bm25_indexed_at TEXT,
+    embedded_at TEXT,
     verified_at TEXT,
     updated_at TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_dou_files_status ON dou_files(status);
 CREATE INDEX IF NOT EXISTS idx_dou_files_year_month ON dou_files(year_month);
+CREATE INDEX IF NOT EXISTS idx_dou_files_publication_date ON dou_files(publication_date);
 
 CREATE TABLE IF NOT EXISTS pipeline_runs (
     id TEXT PRIMARY KEY,
@@ -137,6 +156,7 @@ class Registry:
             await db.execute("PRAGMA journal_mode=WAL")
             await db.execute("PRAGMA busy_timeout=5000")
             await db.executescript(SCHEMA)
+            await _ensure_registry_columns(db)
             await db.commit()
 
     @asynccontextmanager
@@ -156,16 +176,19 @@ class Registry:
         year_month: str,
         folder_id: int | None = None,
         file_url: str | None = None,
+        *,
+        publication_date: str | None = None,
+        source: str = "liferay",
     ) -> int:
         """Insert a new file record, returning its id."""
         now = _now()
         async with self.get_db() as db:
             cursor = await db.execute(
                 """INSERT OR IGNORE INTO dou_files
-                   (filename, section, year_month, folder_id, file_url, status,
+                   (filename, section, year_month, publication_date, source, folder_id, file_url, status,
                     discovered_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (filename, section, year_month, folder_id, file_url,
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (filename, section, year_month, publication_date, source, folder_id, file_url,
                  FileStatus.DISCOVERED.value, now, now),
             )
             await db.commit()
@@ -242,33 +265,111 @@ class Registry:
         """Get files with a given status."""
         async with self.get_db() as db:
             cursor = await db.execute(
-                "SELECT * FROM dou_files WHERE status = ? LIMIT ?",
+                "SELECT * FROM dou_files WHERE status = ? "
+                "ORDER BY COALESCE(publication_date, year_month || '-01') DESC, id DESC LIMIT ?",
                 (status.value, limit),
             )
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
 
+    async def get_latest_publication_date(self, *, source: str | None = None) -> str | None:
+        """Return the newest publication_date recorded in the registry."""
+        async with self.get_db() as db:
+            if source:
+                cursor = await db.execute(
+                    "SELECT publication_date FROM dou_files "
+                    "WHERE source = ? AND publication_date IS NOT NULL "
+                    "ORDER BY publication_date DESC LIMIT 1",
+                    (source,),
+                )
+            else:
+                cursor = await db.execute(
+                    "SELECT publication_date FROM dou_files "
+                    "WHERE publication_date IS NOT NULL "
+                    "ORDER BY publication_date DESC LIMIT 1"
+                )
+            row = await cursor.fetchone()
+            return row["publication_date"] if row else None
+
     async def get_status_counts(self) -> dict[str, int]:
         """Get count of files by status."""
+        counts = {status.value: 0 for status in FileStatus}
         async with self.get_db() as db:
             cursor = await db.execute(
                 "SELECT status, COUNT(*) as cnt FROM dou_files GROUP BY status"
             )
             rows = await cursor.fetchall()
-            return {r["status"]: r["cnt"] for r in rows}
+            for row in rows:
+                counts[row["status"]] = row["cnt"]
+        return counts
 
     async def get_months(self, year: int | None = None) -> list[dict[str, Any]]:
-        """Get file records grouped by year_month."""
+        """Get timeline-ready file records, optionally filtered by year."""
         async with self.get_db() as db:
-            query = "SELECT year_month, section, status, doc_count FROM dou_files"
+            query = (
+                "SELECT id, filename, year_month, section, status, retry_count, "
+                "doc_count, file_size_bytes, error_message, source, publication_date, discovered_at, "
+                "queued_at, downloaded_at, extracted_at, ingested_at, bm25_indexed_at, "
+                "embedded_at, verified_at, "
+                "updated_at "
+                "FROM dou_files"
+            )
             params: list[Any] = []
             if year:
                 query += " WHERE year_month LIKE ?"
                 params.append(f"{year}-%")
-            query += " ORDER BY year_month DESC"
+            query += " ORDER BY year_month DESC, filename ASC"
             cursor = await db.execute(query, params)
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
+
+    async def get_summary_stats(self) -> dict[str, Any]:
+        """Return dashboard-friendly registry summary statistics."""
+        status_counts = await self.get_status_counts()
+        async with self.get_db() as db:
+            totals_cursor = await db.execute(
+                """
+                SELECT
+                    COUNT(*) AS total_files,
+                    COALESCE(SUM(CASE WHEN status = 'VERIFIED' THEN 1 ELSE 0 END), 0) AS verified_files,
+                    COALESCE(SUM(CASE WHEN status LIKE '%FAILED' THEN 1 ELSE 0 END), 0) AS failed_files,
+                    COALESCE(SUM(CASE WHEN status IN (
+                        'DISCOVERED', 'QUEUED', 'DOWNLOADING', 'DOWNLOADED',
+                        'EXTRACTING', 'EXTRACTED', 'BM25_INDEXING', 'BM25_INDEXED',
+                        'EMBEDDING', 'EMBEDDED', 'VERIFYING'
+                    ) THEN 1 ELSE 0 END), 0) AS active_files,
+                    COALESCE(SUM(COALESCE(doc_count, 0)), 0) AS total_docs,
+                    MAX(verified_at) AS last_verified_at,
+                    MAX(updated_at) AS last_activity_at,
+                    MAX(retry_count) AS max_retry_count
+                FROM dou_files
+                """
+            )
+            totals = dict(await totals_cursor.fetchone())
+
+            retry_cursor = await db.execute(
+                "SELECT COUNT(*) AS retry_backlog FROM dou_files WHERE status LIKE '%FAILED'"
+            )
+            retry_backlog = dict(await retry_cursor.fetchone())
+
+            run_cursor = await db.execute(
+                """
+                SELECT id, phase, status, started_at, completed_at, files_processed,
+                       files_succeeded, files_failed, error_message
+                FROM pipeline_runs
+                ORDER BY started_at DESC
+                LIMIT 1
+                """
+            )
+            latest_run_row = await run_cursor.fetchone()
+
+        return {
+            **totals,
+            **retry_backlog,
+            "status_counts": status_counts,
+            "disk_usage": await self.get_disk_usage(),
+            "latest_run": dict(latest_run_row) if latest_run_row else None,
+        }
 
     async def create_pipeline_run(self, phase: str) -> str:
         """Create a new pipeline run record."""
@@ -379,6 +480,7 @@ class Registry:
             rows = [
                 (
                     f["filename"], f["section"], f["year_month"],
+                    f.get("publication_date"), f.get("source", "liferay"),
                     f.get("folder_id"), f.get("file_url"),
                     f.get("status", FileStatus.DISCOVERED.value), now, now,
                 )
@@ -386,18 +488,70 @@ class Registry:
             ]
             await db.executemany(
                 """INSERT OR IGNORE INTO dou_files
-                   (filename, section, year_month, folder_id, file_url, status,
+                   (filename, section, year_month, publication_date, source, folder_id, file_url, status,
                     discovered_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 rows,
             )
             await db.commit()
             return len(rows)
 
     async def get_disk_usage(self) -> dict[str, int]:
-        """Get database file size."""
+        """Get database and worker-volume usage."""
         try:
             size = os.path.getsize(self.db_path)
         except OSError:
             size = 0
-        return {"db_size_bytes": size}
+        db_dir = os.path.dirname(self.db_path) or "."
+        tmp_dir = os.path.join(db_dir, "tmp")
+        tmp_size = 0
+        if os.path.isdir(tmp_dir):
+            for root, _, files in os.walk(tmp_dir):
+                for file_name in files:
+                    try:
+                        tmp_size += os.path.getsize(os.path.join(root, file_name))
+                    except OSError:
+                        continue
+        try:
+            usage = shutil.disk_usage(db_dir)
+            free_bytes = usage.free
+            total_bytes = usage.total
+        except OSError:
+            free_bytes = 0
+            total_bytes = 0
+        return {
+            "db_size_bytes": size,
+            "tmp_size_bytes": tmp_size,
+            "free_bytes": free_bytes,
+            "total_bytes": total_bytes,
+        }
+
+
+async def _ensure_registry_columns(db: aiosqlite.Connection) -> None:
+    """Apply additive column migrations for existing SQLite registries."""
+    cursor = await db.execute("PRAGMA table_info(dou_files)")
+    columns = {row[1] for row in await cursor.fetchall()}
+    if "publication_date" not in columns:
+        await db.execute("ALTER TABLE dou_files ADD COLUMN publication_date TEXT")
+    if "source" not in columns:
+        await db.execute(
+            "ALTER TABLE dou_files ADD COLUMN source TEXT NOT NULL DEFAULT 'liferay'"
+        )
+    if "bm25_indexed_at" not in columns:
+        await db.execute("ALTER TABLE dou_files ADD COLUMN bm25_indexed_at TEXT")
+    if "embedded_at" not in columns:
+        await db.execute("ALTER TABLE dou_files ADD COLUMN embedded_at TEXT")
+
+    await db.execute(
+        "UPDATE dou_files SET status = 'BM25_INDEXING' WHERE status = 'INGESTING'"
+    )
+    await db.execute(
+        "UPDATE dou_files SET status = 'BM25_INDEXED' WHERE status = 'INGESTED'"
+    )
+    await db.execute(
+        "UPDATE dou_files SET status = 'BM25_INDEX_FAILED' WHERE status = 'INGEST_FAILED'"
+    )
+    await db.execute(
+        "UPDATE dou_files SET bm25_indexed_at = COALESCE(bm25_indexed_at, ingested_at) "
+        "WHERE ingested_at IS NOT NULL"
+    )

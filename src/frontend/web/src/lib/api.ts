@@ -145,6 +145,10 @@ export interface AnalyticsResponse {
   latest_documents: AnalyticsLatestDocument[];
 }
 
+export interface HighlightsResponse {
+  items: AnalyticsLatestDocument[];
+}
+
 export interface TypeOption {
   value: string;
   label: string;
@@ -710,6 +714,22 @@ export function getAnalytics(): Promise<AnalyticsResponse> {
   }));
 }
 
+export function getHighlights(limit = 4): Promise<AnalyticsLatestDocument[]> {
+  return fetchJSON<Record<string, unknown>>(`${API_BASE}/highlights?limit=${limit}`).then((payload) => {
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    return items.map((item) => ({
+      id: String((item as Record<string, unknown>).id || ""),
+      title: String((item as Record<string, unknown>).title || "Sem título"),
+      snippet: String((item as Record<string, unknown>).snippet || "").trim() || undefined,
+      issuing_organ: String((item as Record<string, unknown>).issuing_organ || "").trim() || undefined,
+      art_type: String((item as Record<string, unknown>).art_type || "").trim() || undefined,
+      pub_date: String((item as Record<string, unknown>).pub_date || "").trim() || undefined,
+      section: normalizeSection(String((item as Record<string, unknown>).section || "")),
+      page: (item as Record<string, unknown>).page != null ? String((item as Record<string, unknown>).page) : undefined,
+    })).filter((item) => item.id);
+  });
+}
+
 export function getTypes(): Promise<TypeOption[]> {
   return fetchJSON<Array<Record<string, unknown>>>(`${API_BASE}/types`).then((items) =>
     items.map((item) => ({
@@ -764,6 +784,25 @@ export interface AdminJobDetail extends AdminJobListItem {
   error_detail?: unknown;
 }
 
+export interface AdminAnalyticsRefreshResult {
+  ok: boolean;
+  started_at: string;
+  finished_at: string;
+  duration_ms: number;
+  source?: string;
+}
+
+export interface AdminAnalyticsStatus {
+  last_refreshed_at: string | null;
+  last_duration_ms: number | null;
+  last_refresh_source: string | null;
+  last_status: string | null;
+  last_error: string | null;
+  updated_at: string | null;
+  is_stale: boolean;
+  stale_after_hours: number;
+}
+
 export async function getAdminJobsList(limit = 50, offset = 0): Promise<AdminJobListItem[]> {
   const url = resolveApiUrl(`/api/admin/jobs?limit=${limit}&offset=${offset}`);
   const payload = await fetchJSON<{ items?: AdminJobListItem[] }>(url);
@@ -784,4 +823,14 @@ export function getAdminJobStreamUrl(jobId: string): string {
 export async function retryAdminJob(jobId: string): Promise<AdminJobDetail> {
   const url = resolveApiUrl(`/api/admin/jobs/${encodeURIComponent(jobId)}/retry`);
   return fetchWithBody<AdminJobDetail>(url, { method: "POST" });
+}
+
+export async function refreshAdminAnalyticsCache(): Promise<AdminAnalyticsRefreshResult> {
+  const url = resolveApiUrl("/api/admin/analytics/refresh");
+  return fetchWithBody<AdminAnalyticsRefreshResult>(url, { method: "POST" });
+}
+
+export async function getAdminAnalyticsStatus(): Promise<AdminAnalyticsStatus> {
+  const url = resolveApiUrl("/api/admin/analytics/status");
+  return fetchJSON<AdminAnalyticsStatus>(url);
 }

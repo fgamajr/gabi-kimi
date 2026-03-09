@@ -9,16 +9,23 @@ export const ReadingProgress: React.FC<ReadingProgressProps> = ({ progress, acti
   const percent = Math.max(0, Math.min(100, Math.round(progress * 100)));
 
   return (
-    <div className="sticky top-[57px] z-30 border-b border-white/6 bg-background/78 px-4 py-2.5 backdrop-blur-xl">
+    <div className="border-b border-white/6 bg-background/78 px-4 py-2.5 backdrop-blur-xl">
       <div className="mx-auto flex max-w-[1180px] items-center gap-3">
         <div className="min-w-0 flex-1">
           <div className="mb-2 flex items-center justify-between gap-3">
             <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-tertiary">Leitura</span>
-            <span className="truncate text-xs text-text-secondary">
+            <span className="truncate text-xs text-text-secondary" aria-live="polite">
               {activeLabel || `${percent}% do documento`}
             </span>
           </div>
-          <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
+          <div
+            role="progressbar"
+            aria-label="Progresso de leitura"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={percent}
+            className="h-1.5 overflow-hidden rounded-full bg-secondary"
+          >
             <div
               className="h-full rounded-full bg-[linear-gradient(90deg,hsl(var(--primary)),hsl(var(--accent)))] transition-[width] duration-200 ease-out"
               style={{ width: `${percent}%` }}

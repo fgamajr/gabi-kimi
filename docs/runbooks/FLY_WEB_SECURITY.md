@@ -32,7 +32,8 @@ Set these before the first public deploy:
 ```bash
 fly secrets set \
   PGPASSWORD='...' \
-  GABI_API_TOKENS='ops:token-1,reader:token-2' \
+  GABI_API_TOKENS='admin:token-admin,reader:token-2' \
+  GABI_ADMIN_TOKEN_LABELS='admin' \
   GABI_AUTH_SECRET='replace-with-32-bytes-or-more-random' \
   QWEN_API_KEY='...' \
   -a gabi-dou-web
@@ -41,9 +42,31 @@ fly secrets set \
 Guidance:
 
 - `GABI_API_TOKENS`: use distinct labeled tokens per human or service.
+- `GABI_ADMIN_TOKEN_LABELS`: labels that should receive the `admin` role in the Postgres identity store.
 - `GABI_AUTH_SECRET`: use a random secret, minimum 32 bytes.
 - `PGPASSWORD`: required by the `PG_DSN` user in `fly.toml`.
 - `QWEN_API_KEY`: only if `/api/chat` should stay enabled.
+
+## Identity Store Bootstrap
+
+On startup the backend materializes a minimal Postgres identity schema:
+
+- `auth.user`
+- `auth.role`
+- `auth.user_role`
+- `auth.api_token`
+
+The bootstrap also syncs labeled bearer tokens from `GABI_API_TOKENS` into
+`auth.api_token`. Every synced token receives the `user` role by default. A token
+also receives `admin` when its label starts with `admin` or appears in
+`GABI_ADMIN_TOKEN_LABELS`.
+
+Admin-only endpoints exposed by the API:
+
+- `GET /api/admin/roles`
+- `GET /api/admin/users`
+- `POST /api/admin/users`
+- `PUT /api/admin/users/{user_id}/roles`
 
 ## Required Fly Environment
 
@@ -111,13 +134,13 @@ fly deploy -c ops/deploy/web/fly.toml
 
 ```bash
 fly status -a gabi-dou-web
-curl -I https://gabi-dou-web.fly.dev/api/stats
+curl -I https://gabi-dou-web.fly.dev/healthz
 curl -i https://gabi-dou-web.fly.dev/
 ```
 
 Expected:
 
-- `/api/stats` returns `200`
+- `/healthz` returns `200`
 - `/` returns `404` on the backend app in split mode
 
 5. Check auth behavior:
@@ -163,8 +186,28 @@ PY
 5. Remove the old token from `GABI_API_TOKENS`.
 6. Redeploy again.
 
+## Redis AUTH (requirepass)
+
+Redis should require authentication even on Fly internal networking.
+
+```bash
+# 1. Generate a strong password
+REDIS_PASS=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+
+# 2. Set requirepass in Redis config (add to your Redis Dockerfile or fly.toml)
+#    echo "requirepass $REDIS_PASS" >> /etc/redis/redis.conf
+
+# 3. Update the REDIS_URL secret on the web app
+fly secrets set REDIS_URL="redis://:${REDIS_PASS}@gabi-dou-redis.internal:6379/0" -a gabi-dou-web
+
+# 4. Redeploy both Redis and web app
+```
+
+No code changes needed — the app reads `REDIS_URL` which supports `redis://:password@host` format.
+
 ## Residual Notes
 
-- Search, analytics, suggest, and stats remain public by design.
+- Search, suggest, autocomplete, top-searches, and search-examples are public but IP-rate-limited (120 req/min).
+- `/api/stats` now requires authentication (exposes DB size, index names).
 - If you want a fully private app, attach `require_protected_access` to the remaining `/api/*` endpoints.
 - `/api/chat` is now protected and rate-limited, but you should still monitor Qwen usage and Fly logs.

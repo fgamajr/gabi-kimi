@@ -31,6 +31,15 @@ async function downloadBlob(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+function extractFilename(response: Response, fallback: string) {
+  const disposition = response.headers.get("content-disposition") || "";
+  const utf8Match = disposition.match(/filename\*\s*=\s*UTF-8''([^;]+)/i);
+  const plainMatch = disposition.match(/filename\s*=\s*"?([^";]+)"?/i);
+  const raw = utf8Match?.[1] || plainMatch?.[1] || fallback;
+  const decoded = decodeURIComponent(raw).trim();
+  return decoded.toLowerCase().endsWith(".pdf") ? decoded : `${decoded}.pdf`;
+}
+
 export async function downloadServerPdf(
   documentId: string,
   metadata: { title: string; section?: string; pubDate?: string }
@@ -42,11 +51,15 @@ export async function downloadServerPdf(
     throw new Error(`PDF server error: ${response.status}`);
   }
   const blob = await response.blob();
-  const filename = [
+  if (!blob.size) {
+    throw new Error("PDF server error: empty response");
+  }
+  const fallbackFilename = [
     "DOU",
     metadata.section?.toUpperCase() || "DOC",
     metadata.pubDate || new Date().toISOString().slice(0, 10),
     slugify(metadata.title || "documento"),
   ].join("_") + ".pdf";
+  const filename = extractFilename(response, fallbackFilename);
   await downloadBlob(blob, filename);
 }

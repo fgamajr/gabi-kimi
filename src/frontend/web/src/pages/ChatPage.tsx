@@ -1,8 +1,12 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AccessKeyPrompt } from "@/components/AccessKeyPrompt";
 import { Icons } from "@/components/Icons";
+import { useI18n } from "@/hooks/useI18n";
+import { usePageMetadata } from "@/hooks/usePageMetadata";
+import { formatDate } from "@/lib/intl";
 import { ApiAuthError, createAccessSession, getSessionStatus } from "@/lib/auth";
+import { getScrollBehavior } from "@/lib/motion";
 import { getSearchExamples, sendChat, streamChat } from "@/lib/api";
 import type { ChatMessage, SearchExample, SearchResult } from "@/lib/api";
 import { navigateToDocument } from "@/lib/navigation";
@@ -74,21 +78,14 @@ function MessageBody({ content }: { content: string }) {
 }
 
 function formatMetaDate(value?: string) {
-  if (!value) return "";
-  try {
-    return new Date(value).toLocaleDateString("pt-BR", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  } catch {
-    return value;
-  }
+  return formatDate(value, value || "");
 }
 
 const ChatPage: React.FC = () => {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const composerHintId = useId();
   const [messages, setMessages] = useState<ChatBubble[]>([
     { id: "assistant-initial", role: "assistant", content: INITIAL_ASSISTANT_MESSAGE },
   ]);
@@ -98,6 +95,11 @@ const ChatPage: React.FC = () => {
   const [authError, setAuthError] = useState<string | null>(null);
   const [authPending, setAuthPending] = useState(false);
   const [examples, setExamples] = useState<SearchExample[]>([]);
+  const liveStatusId = useId();
+
+  usePageMetadata(t("chat.title"), {
+    description: t("chat.metadataDescription"),
+  });
 
   useEffect(() => {
     getSessionStatus()
@@ -116,7 +118,9 @@ const ChatPage: React.FC = () => {
   useEffect(() => {
     const node = viewportRef.current;
     if (!node) return;
-    node.scrollTo({ top: node.scrollHeight, behavior: "smooth" });
+    const distanceFromBottom = node.scrollHeight - node.scrollTop - node.clientHeight;
+    if (distanceFromBottom > 120 && messages.length > 1) return;
+    node.scrollTo({ top: node.scrollHeight, behavior: getScrollBehavior() });
   }, [messages, streaming]);
 
   const quickReplies = useMemo(
@@ -302,7 +306,7 @@ const ChatPage: React.FC = () => {
           </div>
         </aside>
 
-        <section className="reader-surface flex min-h-[72vh] flex-col overflow-hidden rounded-[30px]">
+        <section className="reader-surface flex min-h-[72vh] flex-col overflow-hidden rounded-[30px]" aria-busy={streaming}>
           <header className="border-b border-white/8 px-4 py-4 sm:px-6">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -310,12 +314,22 @@ const ChatPage: React.FC = () => {
                 <p className="mt-2 font-editorial text-2xl text-foreground">Conversa guiada por busca, não por palpite</p>
               </div>
               <div className="rounded-full border border-white/8 bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-text-tertiary">
-                {streaming ? "Transmitindo" : "Pronto"}
+                {streaming ? t("chat.transmitting") : t("chat.ready")}
               </div>
             </div>
+            <p id={liveStatusId} className="sr-only" aria-live="polite" aria-atomic="true">
+              {streaming ? t("chat.assistantStreaming") : t("chat.assistantReady")}
+            </p>
           </header>
 
-          <div ref={viewportRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-6">
+          <div
+            ref={viewportRef}
+            role="log"
+            aria-live="polite"
+            aria-relevant="additions text"
+            aria-describedby={liveStatusId}
+            className="flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-6"
+          >
             {messages.map((message) => {
               const isAssistant = message.role === "assistant";
               const isEmptyStreamingBubble = streaming && isAssistant && !message.content;
@@ -424,17 +438,21 @@ const ChatPage: React.FC = () => {
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={(event) => {
+                  if (event.nativeEvent.isComposing) return;
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();
                     void sendMessage();
                   }
                 }}
                 placeholder="Pergunte sobre uma norma, um órgão ou uma busca no DOU…"
+                aria-label="Mensagem para o assistente do DOU"
+                aria-describedby={composerHintId}
                 className="min-h-[112px] w-full resize-none bg-transparent px-3 py-3 text-sm text-foreground outline-none placeholder:text-text-tertiary"
               />
               <div className="flex items-center justify-between gap-3 px-2 pb-2">
-                <p className="text-xs text-text-tertiary">Enter envia · Shift+Enter quebra linha</p>
+                <p id={composerHintId} className="text-xs text-text-tertiary">Enter envia · Shift+Enter quebra linha</p>
                 <button
+                  type="button"
                   onClick={() => void sendMessage()}
                   disabled={streaming || !input.trim()}
                   className="inline-flex min-h-[44px] items-center gap-2 rounded-[18px] border border-primary/20 bg-primary/12 px-4 text-sm font-medium text-primary transition-colors hover:bg-primary/18 disabled:cursor-not-allowed disabled:opacity-60"

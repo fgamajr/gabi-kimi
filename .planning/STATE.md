@@ -96,6 +96,7 @@ Recent decisions affecting current work:
 ### Roadmap Evolution
 
 - Phase 11 added: Fly.io migration and dashboard and extensibility
+- Phase 12 added: Fly.io pre-flight
 
 ### Pending Todos
 

@@ -21,7 +21,7 @@ export const MobileActionsBar: React.FC<MobileActionsBarProps> = ({
       <div className="reader-surface rounded-[28px] px-2 py-2 backdrop-blur-xl">
         <div className="grid grid-cols-4 gap-2">
           <ActionButton icon={<Icons.back className="w-4 h-4" />} label="Voltar" onClick={onBack} />
-          <ActionButton icon={<Icons.share className="w-4 h-4" />} label="Compartilhar" onClick={onShare} />
+          <ActionButton icon={<Icons.copy className="w-4 h-4" />} label="Link" onClick={onShare} />
           <ActionButton icon={<Icons.document className="w-4 h-4" />} label="PDF" onClick={onPdf} />
           <ActionButton
             icon={<Icons.book className="w-4 h-4" />}

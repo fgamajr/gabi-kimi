@@ -9,13 +9,15 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-import time
+import os
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 import requests
 
 from src.backend.ingest.zip_downloader import _build_session, _random_ua
+from src.backend.worker.inlabs_client import INLabsClient
 from src.backend.worker.registry import FileStatus, Registry
 
 logger = logging.getLogger(__name__)
@@ -24,7 +26,7 @@ RATE_LIMIT_DELAY = 0.2  # 1/5 = 0.2s -> max 5 req/s
 DEFAULT_DOWNLOAD_DIR = "/data/tmp"
 
 
-def _download_file(
+def _download_liferay_file(
     url: str,
     session: requests.Session | None = None,
 ) -> tuple[bytes | None, str | None]:
@@ -55,6 +57,10 @@ def _download_file(
             session.close()
 
 
+# Backward-compatible alias used by existing tests and callers.
+_download_file = _download_liferay_file
+
+
 async def run_download(
     registry: Registry,
     run_id: str,
@@ -78,11 +84,20 @@ async def run_download(
     failed = 0
 
     session = _build_session()
+    inlabs_client: INLabsClient | None = None
+    inlabs_email = os.getenv("INLABS_EMAIL", "").strip()
+    inlabs_password = os.getenv("INLABS_PASSWORD", "").strip()
+    if inlabs_email and inlabs_password:
+        inlabs_client = INLabsClient(inlabs_email, inlabs_password)
     try:
         for i, file_rec in enumerate(queued_files):
             file_id = file_rec["id"]
             filename = file_rec["filename"]
+            source = (file_rec.get("source") or "liferay").lower()
             file_url = file_rec.get("file_url") or ""
+            local_path = download_path / filename
+            if local_path.exists():
+                local_path.unlink()
 
             if not file_url:
                 # Construct URL from folder_id if available
@@ -100,15 +115,30 @@ async def run_download(
             # Transition to DOWNLOADING
             await registry.update_status(file_id, FileStatus.DOWNLOADING)
 
-            # Download file
-            content, error = _download_file(file_url, session=session)
+            error: str | None = None
+            if source == "inlabs":
+                publication_date = file_rec.get("publication_date")
+                if not inlabs_client:
+                    error = "INLABS credentials not configured"
+                elif not publication_date:
+                    error = "INLABS download requires publication_date"
+                else:
+                    try:
+                        await inlabs_client.download(
+                            publication_date=date.fromisoformat(publication_date),
+                            section=file_rec["section"],
+                            destination=local_path,
+                        )
+                    except Exception as exc:
+                        error = str(exc)
+            else:
+                content, error = _download_file(file_url, session=session)
+                if content is not None:
+                    local_path.write_bytes(content)
 
-            if content is not None:
-                # Save to disk
-                local_path = download_path / filename
-                local_path.write_bytes(content)
-
+            if error is None and local_path.exists():
                 # Compute SHA256
+                content = local_path.read_bytes()
                 sha256 = hashlib.sha256(content).hexdigest()
                 file_size = len(content)
 
@@ -121,11 +151,13 @@ async def run_download(
                 await registry.update_status(file_id, FileStatus.DOWNLOADED)
                 await registry.add_log_entry(
                     run_id, file_id, "INFO",
-                    f"Downloaded {filename}: {file_size:,} bytes, sha256={sha256[:16]}..."
+                    f"Downloaded {filename} from {source}: {file_size:,} bytes, sha256={sha256[:16]}..."
                 )
                 downloaded += 1
             else:
                 # Download failed
+                if local_path.exists():
+                    local_path.unlink()
                 await registry.update_status(file_id, FileStatus.DOWNLOAD_FAILED)
                 await registry.update_file_fields(file_id, error_message=error)
                 await registry.add_log_entry(
@@ -140,5 +172,7 @@ async def run_download(
 
     finally:
         session.close()
+        if inlabs_client:
+            await inlabs_client.aclose()
 
     return {"downloaded": downloaded, "failed": failed}

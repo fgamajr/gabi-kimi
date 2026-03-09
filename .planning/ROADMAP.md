@@ -171,7 +171,7 @@ Plans:
   1. ES runs on dedicated Fly.io machine with 4GB RAM, 50GB volume, single-node config
   2. Worker runs on dedicated Fly.io machine with SQLite registry, APScheduler cron jobs, and internal API
   3. Web proxies /api/worker/* to worker.internal:8081 for dashboard access
-  4. Pipeline autonomously discovers, downloads, extracts, ingests, and verifies DOU publications
+  4. Pipeline autonomously discovers, downloads, extracts, ingests, and verifies DOU publications using INLABS only for the last 30 days and Liferay for historical/month-close fallback
   5. Admin dashboard shows pipeline health, timeline, scheduler status, logs, and settings
 **Plans:** 6/7 plans executed
 
@@ -202,3 +202,13 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 9. Live Status and Retry | 1/1 | Complete | 2026-03-08 |
 | 10. Legacy Cleanup | 1/1 | Complete | 2026-03-08 |
 | 11. Fly.io Migration & Dashboard | 6/7 | In Progress|  |
+
+### Phase 12: Fly.io pre-flight
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 11
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 12 to break down)

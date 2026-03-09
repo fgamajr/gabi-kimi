@@ -1,8 +1,4 @@
-"""Verifier pipeline module — confirms doc counts in Elasticsearch.
-
-Post-ingest verification that queries ES to ensure the expected number
-of documents were indexed for each source ZIP file.
-"""
+"""Verifier pipeline module — confirms doc counts and embedding presence in Elasticsearch."""
 from __future__ import annotations
 
 import logging
@@ -23,7 +19,7 @@ async def run_verify(
     run_id: str,
     es_url: str,
 ) -> dict[str, Any]:
-    """Verify indexed document counts against registry expectations.
+    """Verify indexed document counts and embedding presence against registry expectations.
 
     Args:
         registry: SQLite registry instance
@@ -33,17 +29,19 @@ async def run_verify(
     Returns:
         Stats dict: {"verified": N, "failed": M}
     """
-    ingested_files = await registry.get_files_by_status(FileStatus.INGESTED)
+    embedded_files = await registry.get_files_by_status(FileStatus.EMBEDDED)
     verified = 0
     failed = 0
 
     async with httpx.AsyncClient(timeout=30) as client:
-        for file_rec in ingested_files:
+        for file_rec in embedded_files:
             file_id = file_rec["id"]
             filename = file_rec["filename"]
             expected_count = file_rec.get("doc_count") or 0
 
             try:
+                await registry.update_status(file_id, FileStatus.VERIFYING)
+
                 # Query ES for doc count matching this source_zip
                 resp = await client.get(
                     f"{es_url}/{ES_INDEX}/_count",
@@ -53,6 +51,28 @@ async def run_verify(
                 result = resp.json()
                 es_count = result.get("count", 0)
 
+                embedding_resp = await client.post(
+                    f"{es_url}/{ES_INDEX}/_search",
+                    json={
+                        "size": 1,
+                        "_source": False,
+                        "query": {
+                            "bool": {
+                                "filter": [{"exists": {"field": "embedding"}}],
+                                "should": [
+                                    {"term": {"source_zip.keyword": filename}},
+                                    {"term": {"source_zip": filename}},
+                                ],
+                                "minimum_should_match": 1,
+                            }
+                        },
+                    },
+                )
+                embedding_resp.raise_for_status()
+                embedding_hits = embedding_resp.json().get("hits", {}).get("hits", [])
+                if not embedding_hits:
+                    raise ValueError(f"No embedded documents found in ES for {filename}")
+
                 # Check tolerance
                 if expected_count == 0:
                     # If no expected count, just verify something was indexed
@@ -60,7 +80,7 @@ async def run_verify(
                         await registry.update_status(file_id, FileStatus.VERIFIED)
                         await registry.add_log_entry(
                             run_id, file_id, "INFO",
-                            f"Verified {filename}: {es_count} docs in ES (no expected count)"
+                            f"Verified {filename}: {es_count} docs in ES with embedding"
                         )
                         verified += 1
                     else:

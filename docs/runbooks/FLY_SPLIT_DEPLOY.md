@@ -79,13 +79,13 @@ fly deploy -c ops/deploy/frontend-static/fly.toml
 Backend:
 
 ```bash
-curl -I https://gabi-dou-web.fly.dev/api/stats
+curl -I https://gabi-dou-web.fly.dev/healthz
 curl -i https://gabi-dou-web.fly.dev/
 ```
 
 Expected:
 
-- `/api/stats` returns `200`
+- `/healthz` returns `200`
 - `/` on the backend returns `404`
 
 Frontend:
