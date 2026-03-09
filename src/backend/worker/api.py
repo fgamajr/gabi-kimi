@@ -13,7 +13,9 @@ from src.backend.worker.registry import Registry
 from src.backend.worker.scheduler import (
     PHASE_MAP,
     get_scheduler_status,
+    load_pause_state_from_registry,
     pause_scheduler,
+    persist_pause_state,
     resume_scheduler,
     trigger_phase,
 )
@@ -70,6 +72,13 @@ async def registry_months(year: int | None = None) -> list[dict[str, Any]]:
     return await reg.get_months(year)
 
 
+@router.get("/registry/catalog-months")
+async def registry_catalog_months(year: int | None = None) -> list[dict[str, Any]]:
+    """Return catalog month-level state (coverage vs ingest) for dashboard."""
+    reg = _get_registry()
+    return await reg.get_catalog_months(year)
+
+
 @router.get("/registry/stats")
 async def registry_stats() -> dict[str, Any]:
     """Return dashboard-friendly summary statistics."""
@@ -101,6 +110,29 @@ async def pipeline_runs(limit: int = Query(50, ge=1, le=500)) -> list[dict[str, 
 async def pipeline_scheduler() -> dict[str, Any]:
     """Return scheduler status, pause state, and next runs."""
     return get_scheduler_status()
+
+
+@router.get("/pipeline/watchdog")
+async def pipeline_watchdog() -> dict[str, Any]:
+    """Return current watchdog evaluation (rules + alerts). Does not send Telegram."""
+    from src.backend.worker.main import get_last_heartbeat
+    from src.backend.worker.watchdog import Watchdog
+    import httpx
+    import os
+
+    reg = _get_registry()
+    es_green = True
+    es_url = os.environ.get("ES_URL", "http://es.internal:9200")
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(f"{es_url}/_cluster/health", timeout=5)
+            if r.status_code == 200:
+                data = r.json()
+                es_green = data.get("status") == "green"
+    except Exception:
+        pass
+    w = Watchdog(reg)
+    return await w.evaluate(last_heartbeat=get_last_heartbeat(), es_green=es_green)
 
 
 @router.get("/pipeline/logs")
@@ -140,13 +172,15 @@ async def pipeline_retry(file_id: int) -> dict[str, int]:
 
 @router.post("/pipeline/pause")
 async def pipeline_pause() -> dict[str, bool]:
-    """Pause the scheduler (jobs will skip on next trigger)."""
+    """Pause the scheduler (jobs will skip on next trigger). Persists to SQLite and audit log."""
     pause_scheduler()
+    await persist_pause_state(True)
     return {"paused": True}
 
 
 @router.post("/pipeline/resume")
 async def pipeline_resume() -> dict[str, bool]:
-    """Resume the scheduler."""
+    """Resume the scheduler. Persists to SQLite and audit log."""
     resume_scheduler()
+    await persist_pause_state(False)
     return {"paused": False}

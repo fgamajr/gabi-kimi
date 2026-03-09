@@ -7,6 +7,8 @@ import type {
   FileRecord,
   PipelineRun,
   LogEntry,
+  CatalogMonth,
+  WatchdogStatus,
 } from "@/types/pipeline";
 import { resolveApiUrl } from "@/lib/runtimeConfig";
 
@@ -40,10 +42,13 @@ export const workerApi = {
   getRegistryStats: () => fetchJson<RegistryStats>("/registry/stats"),
   getMonths: (year?: number) =>
     fetchJson<MonthData[]>(`/registry/months${year ? `?year=${year}` : ""}`),
+  getCatalogMonths: (year?: number) =>
+    fetchJson<CatalogMonth[]>(`/registry/catalog-months${year ? `?year=${year}` : ""}`),
   getFile: (id: number) => fetchJson<FileRecord>(`/registry/files/${id}`),
   getRuns: (limit = 50) =>
     fetchJson<PipelineRun[]>(`/pipeline/runs?limit=${limit}`),
   getScheduler: () => fetchJson<SchedulerStatus>("/pipeline/scheduler"),
+  getWatchdog: () => fetchJson<WatchdogStatus>("/pipeline/watchdog"),
   getLogs: (params: {
     run_id?: string;
     file_id?: number;

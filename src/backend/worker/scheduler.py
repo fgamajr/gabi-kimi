@@ -18,6 +18,7 @@ from src.backend.worker.pipeline.embedder import run_embed
 from src.backend.worker.pipeline.extractor import run_extract
 from src.backend.worker.pipeline.ingestor import run_ingest
 from src.backend.worker.pipeline.verifier import run_verify
+from src.backend.worker.reconciler import run_reconciliation
 from src.backend.worker.registry import FileStatus, Registry
 from src.backend.worker.snapshots import create_snapshot
 
@@ -25,8 +26,9 @@ logger = logging.getLogger(__name__)
 
 scheduler = AsyncIOScheduler(timezone="UTC")
 
-_paused: bool = False
 _registry: Registry | None = None
+# Pause state is persisted in pipeline_config; _paused is in-memory cache
+_paused: bool = False
 
 PHASE_MAP: dict[str, Callable[..., Coroutine[Any, Any, dict[str, Any]]]] = {
     "discovery": run_discovery,
@@ -145,6 +147,78 @@ async def _run_snapshot() -> None:
     await create_snapshot(es_url)
 
 
+async def _run_refresh_catalog_status() -> None:
+    """Refresh catalog_status for all dou_catalog_months (daily)."""
+    global _registry
+    if _paused:
+        logger.info("Scheduler paused, skipping catalog status refresh")
+        return
+    if _registry is None:
+        logger.error("Registry not initialized, cannot refresh catalog status")
+        return
+    n = await _registry.refresh_catalog_month_status()
+    logger.info("Refreshed catalog_status for %d months", n)
+
+
+async def _run_watchdog() -> None:
+    """Run watchdog evaluation and send Telegram alerts (every 6h)."""
+    global _registry
+    if _paused:
+        logger.info("Scheduler paused, skipping watchdog")
+        return
+    if _registry is None:
+        logger.error("Registry not initialized, cannot run watchdog")
+        return
+    from src.backend.worker.main import get_last_heartbeat
+    from src.backend.worker.watchdog import Watchdog
+
+    es_green = True
+    es_url = _get_es_url()
+    try:
+        import httpx
+        async with httpx.AsyncClient() as client:
+            r = await client.get(f"{es_url}/_cluster/health", timeout=5)
+            if r.status_code == 200:
+                data = r.json()
+                es_green = data.get("status") == "green"
+    except Exception as e:
+        logger.warning("Watchdog could not check ES health: %s", e)
+
+    w = Watchdog(_registry)
+    outcome = await w.run_and_notify(
+        last_heartbeat=get_last_heartbeat(),
+        es_green=es_green,
+        send_telegram=True,
+    )
+    logger.info("Watchdog run: status=%s alerts=%d", outcome.get("status"), len(outcome.get("alerts", [])))
+
+
+async def _run_reconciliation() -> None:
+    """Run catalog reconciliation: age-out to FALLBACK_PENDING + Liferay monthly probe (weekly)."""
+    global _registry
+    if _paused:
+        logger.info("Scheduler paused, skipping reconciliation")
+        return
+    if _registry is None:
+        logger.error("Registry not initialized, cannot run reconciliation")
+        return
+    run_id = await _registry.create_pipeline_run("reconciliation")
+    try:
+        stats = await run_reconciliation(_registry, run_id=run_id)
+        await _registry.complete_pipeline_run(
+            run_id,
+            files_processed=stats.get("recovered_files", 0) + stats.get("aged_to_fallback", 0),
+            files_succeeded=stats.get("recovered_files", 0),
+            files_failed=len(stats.get("errors", [])),
+        )
+        logger.info("Reconciliation completed: %s", stats)
+    except Exception as exc:
+        logger.exception("Reconciliation failed: %s", exc)
+        await _registry.complete_pipeline_run(
+            run_id, 0, 0, 0, error_message=str(exc)
+        )
+
+
 async def _run_full_cycle() -> dict[str, Any]:
     """Run the full pipeline sequentially as a single manual trigger."""
     summary: dict[str, Any] = {"phase": "full", "steps": [], "errors": []}
@@ -227,6 +301,24 @@ def configure_scheduler() -> None:
         id="snapshot", replace_existing=True, max_instances=1,
     )
 
+    # Daily refresh of month-level catalog_status (INLABS_WINDOW, FALLBACK_ELIGIBLE, CLOSED)
+    scheduler.add_job(
+        _run_refresh_catalog_status, CronTrigger(hour=3, minute=0),
+        id="refresh_catalog_status", replace_existing=True, max_instances=1,
+    )
+
+    # Weekly catalog reconciliation (aged DOWNLOAD_FAILED → FALLBACK_PENDING; Liferay monthly probe)
+    scheduler.add_job(
+        _run_reconciliation, CronTrigger(day_of_week="tue", hour=4, minute=0),
+        id="reconciliation", replace_existing=True, max_instances=1,
+    )
+
+    # Watchdog every 6 hours
+    scheduler.add_job(
+        _run_watchdog, CronTrigger(hour="0,6,12,18", minute=0),
+        id="watchdog", replace_existing=True, max_instances=1,
+    )
+
     logger.info("Scheduler configured with %d jobs", len(scheduler.get_jobs()))
 
 
@@ -242,6 +334,36 @@ def resume_scheduler() -> None:
     global _paused
     _paused = False
     logger.info("Scheduler resumed")
+
+
+async def persist_pause_state(paused: bool) -> None:
+    """Write pause state to pipeline_config and pipeline_log. Call from API after pause_scheduler/resume_scheduler."""
+    global _registry
+    if _registry is None:
+        return
+    from datetime import datetime, timezone
+    await _registry.set_config("scheduler_paused", "true" if paused else "false")
+    if paused:
+        await _registry.set_config("scheduler_paused_at", datetime.now(timezone.utc).isoformat())
+    else:
+        await _registry.set_config("scheduler_paused_at", "")
+    event = "scheduler_paused" if paused else "scheduler_resumed"
+    run_id = await _registry.create_pipeline_run(event)
+    await _registry.add_log_entry(
+        run_id, None, "INFO",
+        f"Pipeline {event} (trigger=manual)",
+    )
+    await _registry.complete_pipeline_run(run_id, 0, 0, 0)
+
+
+async def load_pause_state_from_registry() -> bool:
+    """Read persisted pause state from pipeline_config. Call at startup."""
+    global _paused, _registry
+    if _registry is None:
+        return _paused
+    val = await _registry.get_config("scheduler_paused")
+    _paused = (val or "").strip().lower() == "true"
+    return _paused
 
 
 def get_scheduler_status() -> dict[str, Any]:

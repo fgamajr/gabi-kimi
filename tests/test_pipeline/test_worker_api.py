@@ -142,3 +142,16 @@ async def test_resume(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["paused"] is False
+
+
+@pytest.mark.asyncio
+async def test_pause_persists_across_restart(client):
+    """Pause state survives simulated restart (load from pipeline_config)."""
+    await client.post("/pipeline/pause")
+    # Simulate new process: clear in-memory state and load from DB
+    import src.backend.worker.scheduler as sched_mod
+    sched_mod._paused = False
+    await sched_mod.load_pause_state_from_registry()
+    resp = await client.get("/pipeline/scheduler")
+    assert resp.status_code == 200
+    assert resp.json()["paused"] is True

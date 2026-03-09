@@ -13,7 +13,7 @@ pytestmark = pytest.mark.asyncio
 
 
 async def test_init_db_creates_tables(registry):
-    """Registry.init_db() creates all 3 tables with expected columns."""
+    """Registry.init_db() creates all expected tables."""
     async with registry.get_db() as db:
         cursor = await db.execute(
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
@@ -22,6 +22,8 @@ async def test_init_db_creates_tables(registry):
     assert "dou_files" in tables
     assert "pipeline_log" in tables
     assert "pipeline_runs" in tables
+    assert "dou_catalog_months" in tables
+    assert "pipeline_config" in tables
 
 
 async def test_dou_files_columns(registry):
@@ -47,7 +49,8 @@ async def test_file_status_enum_states():
               "EXTRACTING", "EXTRACTED", "BM25_INDEXING", "BM25_INDEXED",
               "EMBEDDING", "EMBEDDED", "VERIFYING", "VERIFIED"}
     failure = {"DOWNLOAD_FAILED", "EXTRACT_FAILED", "BM25_INDEX_FAILED", "EMBEDDING_FAILED", "VERIFY_FAILED"}
-    all_expected = normal | failure
+    fallback = {"FALLBACK_PENDING"}
+    all_expected = normal | failure | fallback
     actual = {s.name for s in FileStatus}
     assert all_expected == actual
 
@@ -232,3 +235,108 @@ async def test_retry_beyond_max_raises(registry):
 
     with pytest.raises(ValueError, match="max retries"):
         await registry.retry_file(file_id)
+
+
+# --- Catalog months and pipeline_config (P2) ---
+
+
+async def test_catalog_month_upsert(registry):
+    """catalog_month_upsert() inserts or updates dou_catalog_months."""
+    await registry.catalog_month_upsert("2026-01", source_of_truth="json_bootstrap")
+    await registry.catalog_month_upsert(
+        "2026-02", folder_id=999, group_id="49035712", source_of_truth="inlabs_discovery"
+    )
+
+    async with registry.get_db() as db:
+        cursor = await db.execute(
+            "SELECT year_month, folder_id, source_of_truth FROM dou_catalog_months ORDER BY year_month"
+        )
+        rows = await cursor.fetchall()
+    assert len(rows) == 2
+    assert rows[0]["year_month"] == "2026-01"
+    assert rows[0]["folder_id"] is None
+    assert rows[0]["source_of_truth"] == "json_bootstrap"
+    assert rows[1]["year_month"] == "2026-02"
+    assert rows[1]["folder_id"] == 999
+    assert rows[1]["source_of_truth"] == "inlabs_discovery"
+
+
+async def test_has_catalog_data_false_when_empty(registry):
+    """has_catalog_data() returns False when no files and no catalog months."""
+    assert await registry.has_catalog_data() is False
+
+
+async def test_has_catalog_data_true_when_files_exist(registry, sample_file):
+    """has_catalog_data() returns True when dou_files has rows."""
+    assert await registry.has_catalog_data() is True
+
+
+async def test_has_catalog_data_true_when_catalog_months_exist(registry):
+    """has_catalog_data() returns True when only dou_catalog_months has rows."""
+    await registry.catalog_month_upsert("2026-01", source_of_truth="json_bootstrap")
+    assert await registry.has_catalog_data() is True
+
+
+async def test_get_config_set_config(registry):
+    """get_config/set_config round-trip for pipeline_config."""
+    assert await registry.get_config("scheduler_paused") is None
+    await registry.set_config("scheduler_paused", "true")
+    assert await registry.get_config("scheduler_paused") == "true"
+    await registry.set_config("scheduler_paused", "false")
+    assert await registry.get_config("scheduler_paused") == "false"
+
+
+async def test_get_catalog_months(registry):
+    """get_catalog_months returns rows from dou_catalog_months."""
+    await registry.catalog_month_upsert("2026-01", source_of_truth="json_bootstrap")
+    await registry.catalog_month_upsert("2025-12", source_of_truth="inlabs_discovery")
+    months = await registry.get_catalog_months()
+    assert len(months) == 2
+    assert months[0]["year_month"] == "2026-01"
+    assert months[1]["year_month"] == "2025-12"
+    filtered = await registry.get_catalog_months(year=2025)
+    assert len(filtered) == 1
+    assert filtered[0]["year_month"] == "2025-12"
+
+
+async def test_refresh_catalog_month_status_closed(registry):
+    """Month with all files VERIFIED gets catalog_status CLOSED."""
+    from datetime import date, timedelta
+    from src.backend.worker.registry import CATALOG_STATUS_CLOSED
+
+    await registry.catalog_month_upsert("2020-01", source_of_truth="json_bootstrap")
+    await registry.insert_file("S01012020.zip", "do1", "2020-01")
+    await registry.update_status(1, FileStatus.QUEUED)
+    await registry.update_status(1, FileStatus.DOWNLOADING)
+    await registry.update_status(1, FileStatus.DOWNLOADED)
+    await registry.update_status(1, FileStatus.EXTRACTING)
+    await registry.update_status(1, FileStatus.EXTRACTED)
+    await registry.update_status(1, FileStatus.BM25_INDEXING)
+    await registry.update_status(1, FileStatus.BM25_INDEXED)
+    await registry.update_status(1, FileStatus.EMBEDDING)
+    await registry.update_status(1, FileStatus.EMBEDDED)
+    await registry.update_status(1, FileStatus.VERIFYING)
+    await registry.update_status(1, FileStatus.VERIFIED)
+
+    n = await registry.refresh_catalog_month_status(today=date(2026, 3, 1))
+    assert n == 1
+    months = await registry.get_catalog_months()
+    assert len(months) == 1
+    assert months[0]["catalog_status"] == CATALOG_STATUS_CLOSED
+    assert months[0]["month_closed"] == 1
+
+
+async def test_refresh_catalog_month_status_fallback_eligible(registry):
+    """Old month with incomplete files gets FALLBACK_ELIGIBLE."""
+    from datetime import date
+    from src.backend.worker.registry import CATALOG_STATUS_FALLBACK_ELIGIBLE
+
+    await registry.catalog_month_upsert("2020-01", source_of_truth="json_bootstrap")
+    await registry.insert_file("S01012020.zip", "do1", "2020-01")
+    # leave as DISCOVERED
+
+    n = await registry.refresh_catalog_month_status(today=date(2026, 3, 1))
+    assert n == 1
+    months = await registry.get_catalog_months()
+    assert len(months) == 1
+    assert months[0]["catalog_status"] == CATALOG_STATUS_FALLBACK_ELIGIBLE

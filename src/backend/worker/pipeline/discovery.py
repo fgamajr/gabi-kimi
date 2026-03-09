@@ -221,16 +221,20 @@ async def _discover_recent_inlabs_files(
                     await asyncio.sleep(0.2)
                     continue
 
+                year_month_str = current.strftime("%Y-%m")
                 file_id = await registry.insert_file(
                     filename=filename,
                     section=section,
-                    year_month=current.strftime("%Y-%m"),
+                    year_month=year_month_str,
                     publication_date=current.isoformat(),
                     source="inlabs",
                     file_url=url,
                 )
                 if file_id:
                     new_files += 1
+                    await registry.catalog_month_upsert(
+                        year_month_str, source_of_truth="inlabs_discovery"
+                    )
                     await registry.add_log_entry(
                         run_id,
                         file_id,
@@ -362,6 +366,12 @@ async def run_discovery(
                     if file_id:
                         new_files += 1
                         liferay_new += 1
+                        await registry.catalog_month_upsert(
+                            year_month,
+                            folder_id=folder_id,
+                            group_id=str(GROUP_ID),
+                            source_of_truth="liferay_discovery",
+                        )
                         await registry.add_log_entry(
                             run_id, file_id, "INFO", f"Discovered Liferay archive: {filename}"
                         )
@@ -403,6 +413,9 @@ async def run_discovery(
                     if file_id:
                         new_files += 1
                         liferay_new += 1
+                        await registry.catalog_month_upsert(
+                            year_month, source_of_truth="liferay_discovery"
+                        )
                         await registry.add_log_entry(
                             run_id, file_id, "INFO", f"Discovered Liferay fallback: {filename}"
                         )

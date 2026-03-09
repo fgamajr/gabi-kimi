@@ -1,5 +1,5 @@
-import { usePipelineMonths, usePipelineRuns, usePipelineStats, usePipelineStatus, useTriggerPipeline } from "@/hooks/usePipeline";
-import type { FileStatus, RegistryStatus } from "@/types/pipeline";
+import { useCatalogMonths, usePipelineMonths, usePipelineRuns, usePipelineStats, usePipelineStatus, useTriggerPipeline, useWatchdog } from "@/hooks/usePipeline";
+import type { CatalogMonth, CatalogMonthStatus, FileStatus, RegistryStatus } from "@/types/pipeline";
 import { toast } from "sonner";
 import { AlertTriangle, CheckCircle2, Clock, Files, Rocket } from "lucide-react";
 import CoverageChart from "./CoverageChart";
@@ -51,6 +51,8 @@ export default function PipelineOverview() {
   const { data: status, isLoading: statusLoading, isError: statusError, error: statusFailure } = usePipelineStatus();
   const { data: stats, isError: statsError, error: statsFailure } = usePipelineStats();
   const { data: months, isLoading: monthsLoading, isError: monthsError, error: monthsFailure } = usePipelineMonths();
+  const { data: catalogMonths } = useCatalogMonths(); // optional: catalog coverage vs ingest
+  const { data: watchdog } = useWatchdog();
   const { data: runs, isError: runsError, error: runsFailure } = usePipelineRuns(5);
   const triggerMut = useTriggerPipeline();
 
@@ -107,6 +109,25 @@ export default function PipelineOverview() {
         <MetricCard icon={<AlertTriangle className="h-4 w-4 text-red-400" />} label="Falhas" value={failed.toLocaleString()} />
       </div>
 
+      {watchdog ? (
+        <div className="rounded-xl border border-border bg-surface-elevated p-4">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-text-secondary">Watchdog</h3>
+          <p className="text-sm text-text-secondary">
+            Status: <span className={watchdog.status === "ok" ? "text-emerald-500" : "text-amber-500"}>{watchdog.status}</span>
+            {watchdog.alerts.length > 0 && (
+              <span className="ml-2"> · {watchdog.alerts.length} alert(s)</span>
+            )}
+          </p>
+          {watchdog.alerts.length > 0 ? (
+            <ul className="mt-2 space-y-1 text-xs text-text-tertiary">
+              {watchdog.alerts.map((a, i) => (
+                <li key={i}>{a.rule_id}: {a.message}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="grid gap-4 lg:grid-cols-3">
         <InfoCard
           label="Documentos indexados"
@@ -159,6 +180,15 @@ export default function PipelineOverview() {
         </div>
 
         <div className="rounded-xl border border-border bg-surface-elevated p-4">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-text-secondary">Estado do catálogo (meses)</h3>
+          {catalogMonths && catalogMonths.length > 0 ? (
+            <CatalogCoverageSummary catalogMonths={catalogMonths} />
+          ) : (
+            <p className="text-sm text-text-tertiary">Nenhum mês no catálogo ainda.</p>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-border bg-surface-elevated p-4">
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-text-secondary">Cobertura por ano</h3>
           {monthsLoading ? (
             <div className="space-y-3">
@@ -185,6 +215,34 @@ export default function PipelineOverview() {
         </div>
       </div>
     </div>
+  );
+}
+
+function CatalogCoverageSummary({ catalogMonths }: { catalogMonths: CatalogMonth[] }) {
+  const byStatus = catalogMonths.reduce<Record<CatalogMonthStatus, number>>(
+    (acc, m) => {
+      const s = m.catalog_status as CatalogMonthStatus;
+      acc[s] = (acc[s] ?? 0) + 1;
+      return acc;
+    },
+    {} as Record<CatalogMonthStatus, number>
+  );
+  const labels: Record<CatalogMonthStatus, string> = {
+    KNOWN: "Conhecido",
+    INLABS_WINDOW: "Janela INLABS",
+    WINDOW_CLOSING: "Fechando janela",
+    FALLBACK_ELIGIBLE: "Fallback elegível",
+    CLOSED: "Fechado",
+  };
+  return (
+    <ul className="space-y-1.5 text-sm">
+      {(Object.entries(byStatus) as [CatalogMonthStatus, number][]).map(([status, count]) => (
+        <li key={status} className="flex justify-between text-text-secondary">
+          <span>{labels[status] ?? status}</span>
+          <span className="font-medium text-foreground">{count}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

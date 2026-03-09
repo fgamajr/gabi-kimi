@@ -39,6 +39,22 @@ export function usePipelineMonths(year?: number) {
   });
 }
 
+export function useCatalogMonths(year?: number) {
+  return useQuery({
+    queryKey: ["pipeline", "catalog-months", year],
+    queryFn: () => workerApi.getCatalogMonths(year),
+    ...DEFAULT_QUERY_OPTIONS,
+  });
+}
+
+export function useWatchdog() {
+  return useQuery({
+    queryKey: ["pipeline", "watchdog"],
+    queryFn: workerApi.getWatchdog,
+    ...DEFAULT_QUERY_OPTIONS,
+  });
+}
+
 export function usePipelineRuns(limit = 50) {
   return useQuery({
     queryKey: ["pipeline", "runs", limit],

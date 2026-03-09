@@ -50,6 +50,10 @@ https://gabi-dou-web.fly.dev/api
 
 ## Deploy order
 
+For the full app list and canonical deploy order (Postgres, Redis, ES, Worker, Web, Frontend), see [TOPOLOGY.md](/home/parallels/dev/gabi-kimi/docs/TOPOLOGY.md).
+
+For this split (backend + frontend only):
+
 1. Deploy or update Redis.
 2. Deploy backend API.
 3. Deploy frontend static app.

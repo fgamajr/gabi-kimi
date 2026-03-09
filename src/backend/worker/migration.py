@@ -83,6 +83,21 @@ async def migrate_catalog_to_sqlite(
     if not files:
         return {"total": 0, "verified": 0, "discovered": 0}
 
+    # Populate dou_catalog_months from unique year_months in catalog
+    group_id = str(catalog.get("group_id") or "49035712")
+    folder_ids = catalog.get("folder_ids", {}) if isinstance(catalog.get("folder_ids"), dict) else {}
+    seen_months: set[str] = set()
+    for entry in files:
+        ym = entry.get("year_month")
+        if ym and ym not in seen_months:
+            seen_months.add(ym)
+            await registry.catalog_month_upsert(
+                ym,
+                folder_id=folder_ids.get(ym),
+                group_id=group_id,
+                source_of_truth="json_bootstrap",
+            )
+
     # Get ES coverage
     coverage = await _get_es_coverage(es_url)
 
@@ -165,10 +180,10 @@ async def bootstrap_registry_if_empty(
 ) -> dict[str, int] | None:
     """Populate the registry from the catalog on first boot.
 
+    If SQLite already has catalog data (dou_files or dou_catalog_months), skip bootstrap.
     Returns migration stats when bootstrap runs, otherwise ``None``.
     """
-    status_counts = await registry.get_status_counts()
-    if sum(status_counts.values()) > 0:
+    if await registry.has_catalog_data():
         await ensure_registry_seed_audit_trail(registry)
         return None
 

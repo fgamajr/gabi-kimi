@@ -63,10 +63,16 @@ These are still implementation gaps, not just polish.
 
 ### Core Worker Gaps
 
-- `pause/resume` is still in-memory only.
-- The delayed fallback path from failed recent `INLABS` items to later monthly `Liferay` ZIP recovery is not fully modeled yet.
+- `OK` (P6) `pause/resume` is persisted in `pipeline_config` and survives restart; every action is logged in `pipeline_log`; watchdog alerts if paused >48h.
+- `OK` (P4) Delayed Liferay monthly fallback implemented: `FALLBACK_PENDING` state, weekly reconciler, age-out transition, Liferay probe and recovery.
 - Re-embed and optional re-verify of legacy already-verified corpus still need a first-class backfill policy.
-- Watchdog holiday awareness is still missing.
+- `OK` Watchdog holiday awareness (P5): Brazilian calendar in pipeline_config, silence detector is business-day aware.
+
+### Done (P3)
+
+- Month-level lifecycle (`KNOWN` → `INLABS_WINDOW` → `WINDOW_CLOSING` → `FALLBACK_ELIGIBLE` → `CLOSED`) is implemented in `dou_catalog_months.catalog_status`.
+- Daily job refreshes status; worker also runs refresh on startup.
+- Worker API exposes `GET /registry/catalog-months`; dashboard Overview shows catalog coverage vs ingest.
 
 ### Deployment Gaps
 
@@ -84,8 +90,8 @@ These items may not block local development, but they will matter for long-term 
 
 ### Architectural Debt
 
-- `ops/data/dou_catalog_registry.json` is still too important operationally.
-  It should remain a bootstrap/import artifact, not a long-term source of truth.
+- `OK` SQLite is now the operational source of truth: `dou_catalog_months` and `dou_files` are populated from the JSON only on first-ever bootstrap; `pipeline_config` exists for persisted scheduler/watchdog settings.
+- `ops/data/dou_catalog_registry.json` is used only as a one-time seed; if the registry already has catalog data, bootstrap is skipped.
 - Catalog bootstrap coverage still uses Elasticsearch presence by `(year_month, section)` as a heuristic.
   That does not prove complete ZIP-level ingest.
 
@@ -93,7 +99,7 @@ These items may not block local development, but they will matter for long-term 
 
 - The local `state-seed` synthetic run is useful, but production confidence should come from real scheduler activity.
 - Browser-level validation of the dashboard is still weaker than API-level validation in this environment.
-- The watchdog does not yet understand Brazilian holidays, which can produce false positives.
+- `OK` (P5) Watchdog implemented with Brazilian holidays (pipeline_config `holidays_fixed`), rate-limited alerts, Telegram, API `/pipeline/watchdog`, and dashboard Overview.
 
 ### Deployment Debt
 
@@ -125,13 +131,13 @@ Status markers:
 
 ### 1. Target Topology
 
-- `PENDING` Confirm the final production shape:
+- `OK` Production topology is frozen and documented in [TOPOLOGY.md](/home/parallels/dev/gabi-kimi/docs/TOPOLOGY.md):
   - `gabi-dou-frontend` for static SPA
   - `gabi-dou-web` for public API
   - `gabi-dou-worker` for autonomous pipeline + SQLite
   - `gabi-dou-es` for Elasticsearch
-  - `gabi-dou-redis` only if ARQ/manual upload remains
-  - Postgres only for the web/admin data paths that still require it
+  - `gabi-dou-redis` as part of current topology (ARQ/manual upload)
+  - `gabi-dou-db` (Postgres) for web/admin identity and data
 - `OK` The deploy drift between the autonomous worker app and the ARQ upload worker was narrowed:
   [web fly.toml](/home/parallels/dev/gabi-kimi/ops/deploy/web/fly.toml) now names the Redis/ARQ process `upload_worker`, and [FLY_WORKER_ARQ.md](/home/parallels/dev/gabi-kimi/docs/runbooks/FLY_WORKER_ARQ.md) now treats it explicitly as a manual-upload queue worker instead of the autonomous pipeline worker.
 

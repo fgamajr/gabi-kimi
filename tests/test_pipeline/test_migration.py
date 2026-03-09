@@ -218,3 +218,43 @@ async def test_migration_accepts_grouped_catalog_layout(registry, tmp_path, monk
     split = await registry.get_file_by_filename("S01122024_Parte_01.zip")
     assert split is not None
     assert split["section"] == "do1"
+
+
+async def test_migration_populates_dou_catalog_months(registry, catalog_path, monkeypatch):
+    """migrate_catalog_to_sqlite() populates dou_catalog_months with one row per unique year_month."""
+    _mock_es_coverage([], monkeypatch)
+
+    await migrate_catalog_to_sqlite(
+        catalog_path=catalog_path,
+        registry=registry,
+        es_url="http://localhost:9200",
+    )
+
+    async with registry.get_db() as db:
+        cursor = await db.execute(
+            "SELECT year_month, source_of_truth FROM dou_catalog_months ORDER BY year_month"
+        )
+        rows = await cursor.fetchall()
+    # Catalog has 2026-01, 2026-01, 2026-02, 2025-03 -> unique months: 2025-03, 2026-01, 2026-02
+    assert len(rows) == 3
+    months = [r["year_month"] for r in rows]
+    assert "2025-03" in months
+    assert "2026-01" in months
+    assert "2026-02" in months
+    assert all(r["source_of_truth"] == "json_bootstrap" for r in rows)
+
+
+async def test_bootstrap_skipped_when_catalog_months_only(registry, catalog_path, monkeypatch):
+    """Bootstrap is skipped when dou_catalog_months has data but dou_files is empty."""
+    _mock_es_coverage([], monkeypatch)
+    await registry.catalog_month_upsert("2026-01", source_of_truth="inlabs_discovery")
+
+    stats = await bootstrap_registry_if_empty(
+        registry,
+        es_url="http://localhost:9200",
+        catalog_path=catalog_path,
+    )
+
+    assert stats is None
+    counts = await registry.get_status_counts()
+    assert sum(counts.values()) == 0

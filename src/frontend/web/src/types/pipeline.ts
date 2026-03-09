@@ -119,3 +119,39 @@ export interface RegistryStats {
 }
 
 export type MonthData = TimelineFile;
+
+/** Month-level catalog state (coverage vs ingest). */
+export type CatalogMonthStatus =
+  | "KNOWN"
+  | "INLABS_WINDOW"
+  | "WINDOW_CLOSING"
+  | "FALLBACK_ELIGIBLE"
+  | "CLOSED";
+
+export interface CatalogMonth {
+  year_month: string;
+  folder_id: number | null;
+  group_id: string | null;
+  source_of_truth: string | null;
+  catalog_status: CatalogMonthStatus;
+  month_closed: number;
+  inlabs_window_expires_at: string | null;
+  fallback_eligible_at: string | null;
+  liferay_zip_available: number;
+  last_reconciled_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface WatchdogRuleResult {
+  fired: boolean;
+  severity: string | null;
+  message: string | null;
+}
+
+export interface WatchdogStatus {
+  status: "ok" | "alerts";
+  last_evaluated: string;
+  rules: Record<string, WatchdogRuleResult>;
+  alerts: { rule_id: string; severity: string; message: string }[];
+}

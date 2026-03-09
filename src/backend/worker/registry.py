@@ -11,7 +11,7 @@ import os
 import shutil
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, AsyncIterator
 
 import aiosqlite
@@ -25,6 +25,7 @@ class FileStatus(enum.Enum):
     DOWNLOADING = "DOWNLOADING"
     DOWNLOADED = "DOWNLOADED"
     DOWNLOAD_FAILED = "DOWNLOAD_FAILED"
+    FALLBACK_PENDING = "FALLBACK_PENDING"
     EXTRACTING = "EXTRACTING"
     EXTRACTED = "EXTRACTED"
     EXTRACT_FAILED = "EXTRACT_FAILED"
@@ -45,7 +46,8 @@ VALID_TRANSITIONS: dict[FileStatus, set[FileStatus]] = {
     FileStatus.QUEUED: {FileStatus.DOWNLOADING},
     FileStatus.DOWNLOADING: {FileStatus.DOWNLOADED, FileStatus.DOWNLOAD_FAILED},
     FileStatus.DOWNLOADED: {FileStatus.EXTRACTING},
-    FileStatus.DOWNLOAD_FAILED: {FileStatus.QUEUED},
+    FileStatus.DOWNLOAD_FAILED: {FileStatus.QUEUED, FileStatus.FALLBACK_PENDING},
+    FileStatus.FALLBACK_PENDING: {FileStatus.DOWNLOADING},
     FileStatus.EXTRACTING: {FileStatus.EXTRACTED, FileStatus.EXTRACT_FAILED},
     FileStatus.EXTRACTED: {FileStatus.BM25_INDEXING},
     FileStatus.EXTRACT_FAILED: {FileStatus.QUEUED},
@@ -67,6 +69,7 @@ _STATUS_TIMESTAMP_COL: dict[FileStatus, str | None] = {
     FileStatus.DOWNLOADING: None,
     FileStatus.DOWNLOADED: "downloaded_at",
     FileStatus.DOWNLOAD_FAILED: None,
+    FileStatus.FALLBACK_PENDING: None,
     FileStatus.EXTRACTING: None,
     FileStatus.EXTRACTED: "extracted_at",
     FileStatus.EXTRACT_FAILED: None,
@@ -82,6 +85,15 @@ _STATUS_TIMESTAMP_COL: dict[FileStatus, str | None] = {
 }
 
 MAX_RETRIES = 3
+
+# Month-level catalog lifecycle (P3)
+CATALOG_STATUS_KNOWN = "KNOWN"
+CATALOG_STATUS_INLABS_WINDOW = "INLABS_WINDOW"
+CATALOG_STATUS_WINDOW_CLOSING = "WINDOW_CLOSING"
+CATALOG_STATUS_FALLBACK_ELIGIBLE = "FALLBACK_ELIGIBLE"
+CATALOG_STATUS_CLOSED = "CLOSED"
+INLABS_WINDOW_DAYS = 30
+WINDOW_CLOSING_DAYS_LEFT = 5  # days before window end to mark WINDOW_CLOSING
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS dou_files (
@@ -137,6 +149,27 @@ CREATE TABLE IF NOT EXISTS pipeline_log (
 
 CREATE INDEX IF NOT EXISTS idx_pipeline_log_run_id ON pipeline_log(run_id);
 CREATE INDEX IF NOT EXISTS idx_pipeline_log_created ON pipeline_log(created_at);
+
+CREATE TABLE IF NOT EXISTS dou_catalog_months (
+    year_month TEXT NOT NULL PRIMARY KEY,
+    folder_id INTEGER,
+    group_id TEXT DEFAULT '49035712',
+    source_of_truth TEXT,
+    catalog_status TEXT DEFAULT 'KNOWN',
+    month_closed INTEGER DEFAULT 0,
+    inlabs_window_expires_at TEXT,
+    fallback_eligible_at TEXT,
+    liferay_zip_available INTEGER DEFAULT 0,
+    last_reconciled_at TEXT,
+    created_at TEXT,
+    updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS pipeline_config (
+    key TEXT NOT NULL PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 
@@ -271,6 +304,38 @@ class Registry:
             )
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
+
+    async def get_files_by_status_and_month(
+        self, status: FileStatus, year_month: str, limit: int = 500
+    ) -> list[dict[str, Any]]:
+        """Get files with a given status and year_month (e.g. for reconciler)."""
+        async with self.get_db() as db:
+            cursor = await db.execute(
+                "SELECT * FROM dou_files WHERE status = ? AND year_month = ? ORDER BY id LIMIT ?",
+                (status.value, year_month, limit),
+            )
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+    async def get_catalog_months_by_status(self, catalog_status: str) -> list[dict[str, Any]]:
+        """Get catalog months with the given catalog_status (e.g. FALLBACK_ELIGIBLE)."""
+        async with self.get_db() as db:
+            cursor = await db.execute(
+                "SELECT * FROM dou_catalog_months WHERE catalog_status = ? ORDER BY year_month DESC",
+                (catalog_status,),
+            )
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+    async def set_catalog_month_liferay_available(self, year_month: str) -> None:
+        """Mark liferay_zip_available=1 and last_reconciled_at for a catalog month."""
+        now = _now()
+        async with self.get_db() as db:
+            await db.execute(
+                "UPDATE dou_catalog_months SET liferay_zip_available = 1, last_reconciled_at = ?, updated_at = ? WHERE year_month = ?",
+                (now, now, year_month),
+            )
+            await db.commit()
 
     async def get_latest_publication_date(self, *, source: str | None = None) -> str | None:
         """Return the newest publication_date recorded in the registry."""
@@ -496,6 +561,151 @@ class Registry:
             await db.commit()
             return len(rows)
 
+    async def catalog_month_upsert(
+        self,
+        year_month: str,
+        *,
+        folder_id: int | None = None,
+        group_id: str = "49035712",
+        source_of_truth: str | None = None,
+    ) -> None:
+        """Insert or replace a row in dou_catalog_months."""
+        now = _now()
+        async with self.get_db() as db:
+            await db.execute(
+                """INSERT INTO dou_catalog_months
+                   (year_month, folder_id, group_id, source_of_truth, catalog_status,
+                    month_closed, liferay_zip_available, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, 'KNOWN', 0, 0, ?, ?)
+                   ON CONFLICT(year_month) DO UPDATE SET
+                     folder_id = COALESCE(excluded.folder_id, folder_id),
+                     group_id = COALESCE(excluded.group_id, group_id),
+                     source_of_truth = COALESCE(excluded.source_of_truth, source_of_truth),
+                     updated_at = excluded.updated_at""",
+                (year_month, folder_id, group_id, source_of_truth, now, now),
+            )
+            await db.commit()
+
+    async def has_catalog_data(self) -> bool:
+        """Return True if the registry has any catalog data (files or catalog months)."""
+        status_counts = await self.get_status_counts()
+        if sum(status_counts.values()) > 0:
+            return True
+        async with self.get_db() as db:
+            cursor = await db.execute(
+                "SELECT 1 FROM dou_catalog_months LIMIT 1"
+            )
+            return (await cursor.fetchone()) is not None
+
+    async def get_config(self, key: str) -> str | None:
+        """Get a value from pipeline_config."""
+        async with self.get_db() as db:
+            cursor = await db.execute(
+                "SELECT value FROM pipeline_config WHERE key = ?", (key,)
+            )
+            row = await cursor.fetchone()
+            return row["value"] if row else None
+
+    async def set_config(self, key: str, value: str) -> None:
+        """Set a value in pipeline_config."""
+        now = _now()
+        async with self.get_db() as db:
+            await db.execute(
+                """INSERT INTO pipeline_config (key, value, updated_at)
+                   VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = ?""",
+                (key, value, now, value, now),
+            )
+            await db.commit()
+
+    async def get_catalog_months(self, year: int | None = None) -> list[dict[str, Any]]:
+        """Return catalog month rows with catalog_status for dashboard/API."""
+        async with self.get_db() as db:
+            query = "SELECT * FROM dou_catalog_months"
+            params: list[Any] = []
+            if year:
+                query += " WHERE year_month LIKE ?"
+                params.append(f"{year}-%")
+            query += " ORDER BY year_month DESC"
+            cursor = await db.execute(query, params)
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+    async def refresh_catalog_month_status(self, *, today: date | None = None) -> int:
+        """Update catalog_status for all dou_catalog_months based on dates and file completeness.
+
+        Returns the number of rows updated.
+        """
+        from datetime import timedelta
+
+        ref = today or date.today()
+        window_end = ref - timedelta(days=INLABS_WINDOW_DAYS)
+        closing_threshold = ref - timedelta(days=INLABS_WINDOW_DAYS - WINDOW_CLOSING_DAYS_LEFT)
+
+        async with self.get_db() as db:
+            cursor = await db.execute(
+                "SELECT year_month FROM dou_catalog_months ORDER BY year_month"
+            )
+            months = [row["year_month"] for row in await cursor.fetchall()]
+
+        updated = 0
+        for year_month in months:
+            try:
+                y, m = map(int, year_month.split("-"))
+                if m == 12:
+                    month_end = date(y + 1, 1, 1) - timedelta(days=1)
+                else:
+                    month_end = date(y, m + 1, 1) - timedelta(days=1)
+            except (ValueError, TypeError):
+                continue
+
+            days_since_end = (ref - month_end).days
+            async with self.get_db() as db:
+                cursor = await db.execute(
+                    """SELECT
+                         COUNT(*) AS total,
+                         SUM(CASE WHEN status = 'VERIFIED' THEN 1 ELSE 0 END) AS verified
+                       FROM dou_files WHERE year_month = ?""",
+                    (year_month,),
+                )
+                row = await cursor.fetchone()
+            total = row["total"] or 0
+            verified = row["verified"] or 0
+            all_verified = total > 0 and verified >= total
+
+            if all_verified:
+                new_status = CATALOG_STATUS_CLOSED
+                inlabs_at = None
+                fallback_at = None
+            elif days_since_end <= 0:
+                new_status = CATALOG_STATUS_INLABS_WINDOW
+                inlabs_at = (month_end + timedelta(days=INLABS_WINDOW_DAYS)).isoformat()
+                fallback_at = (month_end + timedelta(days=INLABS_WINDOW_DAYS + 1)).isoformat()
+            elif days_since_end <= INLABS_WINDOW_DAYS:
+                if days_since_end >= (INLABS_WINDOW_DAYS - WINDOW_CLOSING_DAYS_LEFT):
+                    new_status = CATALOG_STATUS_WINDOW_CLOSING
+                else:
+                    new_status = CATALOG_STATUS_INLABS_WINDOW
+                inlabs_at = (month_end + timedelta(days=INLABS_WINDOW_DAYS)).isoformat()
+                fallback_at = (month_end + timedelta(days=INLABS_WINDOW_DAYS + 1)).isoformat()
+            else:
+                new_status = CATALOG_STATUS_FALLBACK_ELIGIBLE
+                inlabs_at = None
+                fallback_at = (month_end + timedelta(days=INLABS_WINDOW_DAYS + 1)).isoformat()
+
+            now = _now()
+            async with self.get_db() as db:
+                await db.execute(
+                    """UPDATE dou_catalog_months SET
+                         catalog_status = ?, inlabs_window_expires_at = ?,
+                         fallback_eligible_at = ?, month_closed = ?, updated_at = ?
+                       WHERE year_month = ?""",
+                    (new_status, inlabs_at, fallback_at, 1 if all_verified else 0, now, year_month),
+                )
+                await db.commit()
+            updated += 1
+
+        return updated
+
     async def get_disk_usage(self) -> dict[str, int]:
         """Get database and worker-volume usage."""
         try:
@@ -528,7 +738,32 @@ class Registry:
 
 
 async def _ensure_registry_columns(db: aiosqlite.Connection) -> None:
-    """Apply additive column migrations for existing SQLite registries."""
+    """Apply additive column migrations and ensure new tables exist."""
+    # Ensure dou_catalog_months and pipeline_config exist (for DBs created before P2)
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS dou_catalog_months (
+            year_month TEXT NOT NULL PRIMARY KEY,
+            folder_id INTEGER,
+            group_id TEXT DEFAULT '49035712',
+            source_of_truth TEXT,
+            catalog_status TEXT DEFAULT 'KNOWN',
+            month_closed INTEGER DEFAULT 0,
+            inlabs_window_expires_at TEXT,
+            fallback_eligible_at TEXT,
+            liferay_zip_available INTEGER DEFAULT 0,
+            last_reconciled_at TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )
+    """)
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS pipeline_config (
+            key TEXT NOT NULL PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    """)
+
     cursor = await db.execute("PRAGMA table_info(dou_files)")
     columns = {row[1] for row in await cursor.fetchall()}
     if "publication_date" not in columns:

@@ -22,6 +22,7 @@ from src.backend.worker.migration import (
 )
 from src.backend.worker.scheduler import (
     configure_scheduler,
+    load_pause_state_from_registry,
     scheduler,
     set_registry,
 )
@@ -75,12 +76,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     await ensure_registry_seed_audit_trail(registry)
     set_registry(registry)
+    await load_pause_state_from_registry()
 
     # Set registry on API module for route handlers
     import src.backend.worker.api as api_mod
     api_mod._registry = registry
 
     logger.info("Registry initialized at %s", db_path)
+
+    # Refresh month-level catalog_status so existing months get INLABS_WINDOW / FALLBACK_ELIGIBLE / CLOSED
+    try:
+        await registry.refresh_catalog_month_status()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Initial catalog status refresh failed: %s", e)
 
     # Register ES snapshot repo (non-blocking, warn on failure)
     es_url = os.environ.get("ES_URL", "http://es.internal:9200")
