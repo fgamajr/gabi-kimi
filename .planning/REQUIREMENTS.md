@@ -152,43 +152,44 @@ Deferred to future release. Tracked but not in current roadmap.
 | JOBS-05 | Phase 9 | Complete |
 | JOBS-06 | Phase 8 | Complete |
 | CLEN-01 | Phase 10 | Complete |
-| FLY-01 | Phase 11 | Not started |
-| FLY-02 | Phase 11 | Not started |
-| FLY-03 | Phase 11 | Not started |
-| FLY-04 | Phase 11 | Not started |
-| PIPE-01 | Phase 11 | Not started |
+| FLY-01 | Phase 11 | Complete |
+| FLY-02 | Phase 11 | Complete |
+| FLY-03 | Phase 11, 13 | Partial (proxy auth pending) |
+| FLY-04 | Phase 11 | Complete |
+| PIPE-01 | Phase 11 | Complete |
 | PIPE-02 | Phase 11 | Complete |
 | PIPE-03 | Phase 11 | Complete |
 | PIPE-04 | Phase 11 | Complete |
 | PIPE-05 | Phase 11 | Complete |
 | PIPE-06 | Phase 11 | Complete |
-| PIPE-07 | Phase 11 | Not started |
-| PIPE-08 | Phase 11 | Not started |
-| DASH-01 | Phase 11 | Not started |
-| DASH-02 | Phase 11 | Not started |
-| DASH-03 | Phase 11 | Not started |
-| DASH-04 | Phase 11 | Not started |
-| DASH-05 | Phase 11 | Not started |
-| DASH-06 | Phase 11 | Not started |
-| DASH-07 | Phase 11 | Not started |
-| DOC-01 | Phase 12 | Not started |
-| DOC-02 | Phase 12 | Not started |
-| DOC-03 | Phase 12 | Not started |
-| DOC-04 | Phase 12 | Not started |
-| DOC-05 | Phase 12 | Not started |
-| DOC-06 | Phase 12 | Not started |
-| DOC-07 | Phase 12 | Not started |
-| DOC-08 | Phase 12 | Not started |
-| DOC-09 | Phase 12 | Not started |
-| DOC-10 | Phase 12 | Not started |
-| DOC-11 | Phase 12 | Not started |
-| DOC-12 | Phase 12 | Not started |
-| DOC-13 | Phase 12 | Not started |
+| PIPE-07 | Phase 11 | Complete |
+| PIPE-08 | Phase 11 | Complete |
+| DASH-01 | Phase 11 | Complete |
+| DASH-02 | Phase 11 | Complete |
+| DASH-03 | Phase 11 | Complete |
+| DASH-04 | Phase 11 | Complete |
+| DASH-05 | Phase 11 | Complete |
+| DASH-06 | Phase 11 | Complete |
+| DASH-07 | Phase 11 | Complete |
+| DOC-01 | Phase 12 | Complete |
+| DOC-02 | Phase 12 | Complete |
+| DOC-03 | Phase 12 | Complete |
+| DOC-04 | Phase 12 | Complete |
+| DOC-05 | Phase 12 | Complete |
+| DOC-06 | Phase 12 | Complete |
+| DOC-07 | Phase 12 | Complete |
+| DOC-08 | Phase 12 | Complete |
+| DOC-09 | Phase 12 | Complete |
+| DOC-10 | Phase 12 | Complete |
+| DOC-11 | Phase 12 | Complete |
+| DOC-12 | Phase 12 | Complete |
+| DOC-13 | Phase 12 | Complete |
 
 **Coverage:**
 - v1 requirements: 26 total (all complete)
-- Phase 11 requirements: 19 total
-- Phase 12 requirements: 13 total
+- Phase 11 requirements: 19 total (all complete, FLY-03 partial — proxy auth in Phase 13)
+- Phase 12 requirements: 13 total (all complete)
+- Phase 13 requirements: 1 (FLY-03 gap closure)
 - Mapped to phases: 58
 - Unmapped: 0
 
