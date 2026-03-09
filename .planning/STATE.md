@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_plan: 5
+current_plan: 6
 status: executing
-stopped_at: Completed 11-04-PLAN.md
-last_updated: "2026-03-09T13:06:12.334Z"
+stopped_at: Completed 11-05-PLAN.md
+last_updated: "2026-03-09T13:11:25.416Z"
 last_activity: 2026-03-09
 progress:
   total_phases: 11
   completed_phases: 0
   total_plans: 7
-  completed_plans: 14
+  completed_plans: 15
   percent: 28
 ---
 
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-03-08)
 ## Current Position
 
 Phase: 11 of 11 (Fly.io Migration and Dashboard and Extensibility)
-Current Plan: 5
+Current Plan: 6
 Total Plans in Phase: 7
 Status: Executing
 Last activity: 2026-03-09
@@ -67,6 +67,7 @@ Progress: [██░░░░░░░░] 28%
 | Phase 11 P02 | 4 | 2 tasks | 6 files |
 | Phase 11 P03 | 7 | 2 tasks | 11 files |
 | Phase 11 P04 | 3 | 2 tasks | 5 files |
+| Phase 11 P05 | 3 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -87,6 +88,8 @@ Recent decisions affecting current work:
 - [Phase 11]: Public get_db() context manager for Registry; schema uses discovered_at; bulk_insert_with_status bypasses validation for migration
 - [Phase 11-03]: Used chardet for encoding detection with latin-1 fallback; ZIP Slip protection via path validation; Bulk batch size 300 for ES; 5% tolerance on verification
 - [Phase 11]: APScheduler pause flag pattern for scheduler pause/resume; module-level _registry injection in api and scheduler modules during lifespan
+- [Phase 11]: Worker proxy uses httpx.AsyncClient with 10s timeout and 503 fallback on ConnectError
+- [Phase 11]: No admin auth guard on proxy route — worker is internal-only via .internal networking
 
 ### Roadmap Evolution
 
@@ -104,6 +107,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-09T13:06:12.333Z
-Stopped at: Completed 11-04-PLAN.md
+Last session: 2026-03-09T13:11:25.414Z
+Stopped at: Completed 11-05-PLAN.md
 Resume file: None
