@@ -13,6 +13,9 @@ import { cn } from "@/lib/utils";
 
 const PipelineOverview = lazy(() => import("@/components/pipeline/PipelineOverview"));
 const PipelineTimeline = lazy(() => import("@/components/pipeline/PipelineTimeline"));
+const PipelineScheduler = lazy(() => import("@/components/pipeline/PipelineScheduler"));
+const PipelineLogs = lazy(() => import("@/components/pipeline/PipelineLogs"));
+const PipelineSettings = lazy(() => import("@/components/pipeline/PipelineSettings"));
 
 const TAB_CONFIG = [
   { value: "overview", label: "Overview", icon: LayoutDashboard },
@@ -27,14 +30,6 @@ function TabFallback() {
     <div className="space-y-4 animate-pulse">
       <div className="h-24 rounded-xl bg-surface-elevated" />
       <div className="h-48 rounded-xl bg-surface-elevated" />
-    </div>
-  );
-}
-
-function ComingSoon({ plan }: { plan: string }) {
-  return (
-    <div className="flex items-center justify-center py-20">
-      <p className="text-sm text-text-tertiary">Coming in {plan}</p>
     </div>
   );
 }
@@ -128,15 +123,27 @@ export default function PipelinePage() {
           </Tabs.Content>
 
           <Tabs.Content value="pipeline">
-            {activeTab === "pipeline" && <ComingSoon plan="Plan 07" />}
+            {activeTab === "pipeline" && (
+              <Suspense fallback={<TabFallback />}>
+                <PipelineScheduler />
+              </Suspense>
+            )}
           </Tabs.Content>
 
           <Tabs.Content value="logs">
-            {activeTab === "logs" && <ComingSoon plan="Plan 07" />}
+            {activeTab === "logs" && (
+              <Suspense fallback={<TabFallback />}>
+                <PipelineLogs />
+              </Suspense>
+            )}
           </Tabs.Content>
 
           <Tabs.Content value="settings">
-            {activeTab === "settings" && <ComingSoon plan="Plan 07" />}
+            {activeTab === "settings" && (
+              <Suspense fallback={<TabFallback />}>
+                <PipelineSettings />
+              </Suspense>
+            )}
           </Tabs.Content>
         </div>
       </Tabs.Root>
