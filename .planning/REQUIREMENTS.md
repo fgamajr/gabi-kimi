@@ -99,6 +99,20 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **DOC-12**: Search API architecture documents citizen vs professional modes with hybrid RRF scoring, plus Postgres tables (auditor_profiles, workspaces)
 - [x] **DOC-13**: Cost tracking/budget controls and holiday-aware watchdog spec with Brazilian holiday calendar
 
+## Phase 13 Requirements
+
+### Auth & Rate Limiting (Gap Closure)
+
+- [x] **AUTH-01**: `/api/worker/*` proxy route requires `Depends(require_admin_access)` admin auth guard
+- [x] **AUTH-02**: Proxy rate-limited at 60 req/min per principal via in-memory sliding window (configurable via WORKER_PROXY_RATE_LIMIT)
+- [x] **AUTH-03**: `WORKER_PROXY_AUTH_ENABLED` env toggle (default: true) bypasses auth + rate limiting when false, with startup WARNING log
+- [x] **AUTH-04**: Proxy access logged with user identity, endpoint path, method, and IP via `log_security_event`
+- [x] **AUTH-05**: `/healthz` response includes `proxy_auth_enabled` boolean field
+
+### Traceability
+
+- [x] **TRACE-01**: All REQUIREMENTS.md traceability entries verified and show "Complete" status
+
 ## v2 Requirements
 
 Deferred to future release. Tracked but not in current roadmap.
@@ -154,7 +168,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | CLEN-01 | Phase 10 | Complete |
 | FLY-01 | Phase 11 | Complete |
 | FLY-02 | Phase 11 | Complete |
-| FLY-03 | Phase 11, 13 | Partial (proxy auth pending) |
+| FLY-03 | Phase 11, 13 | Complete |
 | FLY-04 | Phase 11 | Complete |
 | PIPE-01 | Phase 11 | Complete |
 | PIPE-02 | Phase 11 | Complete |
@@ -184,15 +198,21 @@ Deferred to future release. Tracked but not in current roadmap.
 | DOC-11 | Phase 12 | Complete |
 | DOC-12 | Phase 12 | Complete |
 | DOC-13 | Phase 12 | Complete |
+| AUTH-01 | Phase 13 | Complete |
+| AUTH-02 | Phase 13 | Complete |
+| AUTH-03 | Phase 13 | Complete |
+| AUTH-04 | Phase 13 | Complete |
+| AUTH-05 | Phase 13 | Complete |
+| TRACE-01 | Phase 13 | Complete |
 
 **Coverage:**
 - v1 requirements: 26 total (all complete)
-- Phase 11 requirements: 19 total (all complete, FLY-03 partial — proxy auth in Phase 13)
+- Phase 11 requirements: 19 total (all complete)
 - Phase 12 requirements: 13 total (all complete)
-- Phase 13 requirements: 1 (FLY-03 gap closure)
-- Mapped to phases: 58
+- Phase 13 requirements: 6 total (all complete)
+- Mapped to phases: 64
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-08*
-*Last updated: 2026-03-09 after Phase 12 ULTRA MEGA PROMPT extension requirements added*
+*Last updated: 2026-03-09 after Phase 13 auth gap closure and traceability audit*
