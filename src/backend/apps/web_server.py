@@ -136,6 +136,9 @@ def _default_worker_base() -> str:
 
 
 WORKER_BASE = os.getenv("WORKER_URL", _default_worker_base())
+_WORKER_PROXY_RATE_LIMIT = int(os.getenv("WORKER_PROXY_RATE_LIMIT", "60"))
+_WORKER_PROXY_AUTH_ENABLED = os.getenv("WORKER_PROXY_AUTH_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+_WORKER_PROXY_RATE_RULE = RateRule(limit=_WORKER_PROXY_RATE_LIMIT, window_sec=60)
 _embedded_worker_lock = asyncio.Lock()
 _embedded_worker_initialized = False
 
@@ -297,6 +300,8 @@ async def lifespan(app: FastAPI):
     app.state.chat_security = ChatSecurity(redis_url=os.getenv("REDIS_URL", "").strip() or None)
     await app.state.rate_limiter.startup()
     await app.state.chat_security.startup()
+    if not _WORKER_PROXY_AUTH_ENABLED:
+        logger.warning("WORKER_PROXY_AUTH_ENABLED=false -- proxy auth and rate limiting DISABLED")
     logger.info("GABI DOU backend ready")
     yield
     logger.info("Shutting down GABI DOU backend")
@@ -322,9 +327,9 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
 
 
 @app.get("/healthz")
-async def healthz() -> dict[str, str]:
+async def healthz() -> dict[str, str | bool]:
     """Public liveness endpoint for platform health checks."""
-    return {"status": "ok", "service": "web"}
+    return {"status": "ok", "service": "web", "proxy_auth_enabled": _WORKER_PROXY_AUTH_ENABLED}
 
 
 # ---------------------------------------------------------------------------
@@ -346,6 +351,18 @@ async def _rate_limit_ip(request: Request) -> None:
         request=request,
         dimension="ip",
     )
+
+
+# ---------------------------------------------------------------------------
+# Worker proxy auth + rate limiting
+# ---------------------------------------------------------------------------
+
+
+async def _require_proxy_auth(request: Request) -> AuthPrincipal | None:
+    """Conditionally require admin auth on worker proxy routes."""
+    if not _WORKER_PROXY_AUTH_ENABLED:
+        return None
+    return await require_admin_access(request)
 
 
 # ---------------------------------------------------------------------------
@@ -2891,8 +2908,34 @@ async def api_media(
 
 
 @app.api_route("/api/worker/{path:path}", methods=["GET", "POST"])
-async def proxy_worker(path: str, request: Request):
+async def proxy_worker(
+    path: str,
+    request: Request,
+    auth: AuthPrincipal | None = Depends(_require_proxy_auth),
+):
     """Proxy dashboard requests to worker internal API."""
+    # Rate limiting (only when auth is enabled and principal is available)
+    if _WORKER_PROXY_AUTH_ENABLED and auth:
+        limiter = getattr(request.app.state, "rate_limiter", None)
+        if isinstance(limiter, RateLimiter):
+            await limiter.enforce(
+                bucket="worker_proxy",
+                key=auth.token_id,
+                rule=_WORKER_PROXY_RATE_RULE,
+                request=request,
+                dimension="principal",
+            )
+
+    # Access logging (always, regardless of toggle)
+    log_security_event(
+        "worker_proxy_access",
+        ip=request_ip(request),
+        path=path,
+        method=request.method,
+        principal=auth.token_id if auth else "anonymous",
+        user_id=getattr(auth, "user_id", None) if auth else None,
+    )
+
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.request(
@@ -2905,7 +2948,7 @@ async def proxy_worker(path: str, request: Request):
                 },
                 content=await request.body() if request.method == "POST" else None,
                 params=dict(request.query_params),
-                timeout=10.0,
+                timeout=30.0,
             )
             return Response(
                 content=resp.content,

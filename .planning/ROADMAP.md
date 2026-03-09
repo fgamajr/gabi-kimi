@@ -206,7 +206,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 10. Legacy Cleanup | 1/1 | Complete | 2026-03-08 |
 | 11. Fly.io Migration & Dashboard | 7/7 | Complete    | 2026-03-09 |
 | 12. Fly.io Pre-flight | 4/4 | Complete    | 2026-03-09 |
-| 13. Worker Proxy Auth & Traceability Fix | 0/1 | Not started | - |
+| 13. Worker Proxy Auth & Traceability Fix | 1/1 | Complete | 2026-03-09 |
 
 ### Phase 12: Fly.io Pre-flight
 
@@ -244,5 +244,7 @@ Plans:
   1. `/api/worker/*` proxy route has `Depends(require_admin_access)` backend auth guard
   2. REQUIREMENTS.md traceability table shows "Complete" for all 32 phase 11-12 requirements
 
+**Plans:** 1/1 plans complete
+
 Plans:
-- [ ] 13-01-PLAN.md -- Add auth guard to worker proxy + fix traceability table
+- [x] 13-01-PLAN.md -- Add auth guard to worker proxy + fix traceability table
