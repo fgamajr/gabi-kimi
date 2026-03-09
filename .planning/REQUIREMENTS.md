@@ -94,8 +94,8 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### ULTRA MEGA PROMPT Extensions
 
-- [ ] **DOC-10**: Enrichment pipeline modules (DocumentEnricher, HighlightsGenerator, FeedGenerator) spec'd with input/output contracts and cost model
-- [ ] **DOC-11**: Extended ES mapping and SQLite registry columns for enrichment fields and state tracking documented
+- [x] **DOC-10**: Enrichment pipeline modules (DocumentEnricher, HighlightsGenerator, FeedGenerator) spec'd with input/output contracts and cost model
+- [x] **DOC-11**: Extended ES mapping and SQLite registry columns for enrichment fields and state tracking documented
 - [ ] **DOC-12**: Search API architecture documents citizen vs professional modes with hybrid RRF scoring, plus Postgres tables (auditor_profiles, workspaces)
 - [ ] **DOC-13**: Cost tracking/budget controls and holiday-aware watchdog spec with Brazilian holiday calendar
 
