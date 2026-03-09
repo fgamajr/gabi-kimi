@@ -65,7 +65,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **PIPE-04**: Extractor handles multi-era ZIP formats (2002-2018 vs 2019+), detects encoding (chardet)
 - [x] **PIPE-05**: Ingestor parses XML, normalizes, and bulk-indexes to ES (bypasses PostgreSQL)
 - [x] **PIPE-06**: Verifier confirms doc counts in ES match expected counts per file
-- [ ] **PIPE-07**: APScheduler runs 5 cron jobs (discovery 23:00, download 23:30, ingest 00:00, verify 01:00, retry 06:00)
+- [x] **PIPE-07**: APScheduler runs 5 cron jobs (discovery 23:00, download 23:30, ingest 00:00, verify 01:00, retry 06:00)
 - [x] **PIPE-08**: Migration script converts `dou_catalog_registry.json` to SQLite, cross-references ES for already-ingested files
 
 ### Admin Dashboard
