@@ -285,6 +285,104 @@ The `INLabsClient` class (`src/backend/worker/inlabs_client.py`) implements the 
 
 Already implemented. Parses XML articles from downloaded ZIP files with ZIP Slip protection and encoding detection (chardet with latin-1 fallback).
 
+## MODULE 3B: Enrichment Pipeline (SPECIFICATION FOR FUTURE IMPLEMENTATION)
+
+> **STATUS:** This entire section is a SPECIFICATION FOR FUTURE IMPLEMENTATION. None of the modules, fields, or schema changes described below exist in code yet. They document the planned enrichment layer so future implementation agents have a clear contract.
+
+The enrichment pipeline sits between extraction (MODULE 3) and BM25 indexing (MODULE 4). It uses GPT-4o-mini to transform raw DOU articles into citizen-readable content. Enrichment is **additive and non-blocking** -- if it fails, articles proceed to indexing without enrichment fields.
+
+### 3B.1 -- DocumentEnricher (GPT-4o-mini)
+
+**Input:** Raw extracted article fields:
+- `title` (string)
+- `body` (string)
+- `artType` (string)
+- `pubDate` (string)
+
+**Output fields generated:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `summary_plain` | string | 2-3 sentence plain-language summary for citizens |
+| `summary_technical` | string | Technical summary preserving legal terminology for professionals |
+| `key_facts` | array of strings | 3-5 bullet points of key facts |
+| `category` | string | One of: `legislation`, `procurement`, `personnel`, `judicial`, `regulatory`, `other` |
+| `relevance_score` | float (0-1) | How relevant to general public (0 = niche regulatory, 1 = affects everyone) |
+| `affected_entities` | array of strings | Organizations, agencies, people mentioned |
+| `legal_impact` | string | Brief description of legal consequence or change |
+| `references` | array of strings | Law numbers, decree numbers, prior acts referenced |
+
+**Cost model:** GPT-4o-mini at ~$0.15/1M input tokens, ~$0.60/1M output tokens. Estimate ~500 tokens input + ~300 tokens output per article. At 1000 articles/day: **~$0.50/day**.
+
+**Processing:** Batch of up to 20 articles per API call. Idempotent -- skip if enrichment fields already populated.
+
+**Error handling:** If enrichment fails, article proceeds to indexing WITHOUT enrichment fields. Enrichment is additive, never blocking.
+
+### 3B.2 -- HighlightsGenerator (GPT-4o-mini)
+
+**Input:** Enriched article with `summary_plain` field populated.
+
+**Output field:** `shareable_text` (string) -- A 280-character social-media-ready highlight.
+
+Runs as part of the enrichment batch, not as a separate pipeline stage. Purpose: Enables "share this" feature in citizen-facing UI.
+
+### 3B.3 -- FeedGenerator (Deterministic)
+
+**NOT an LLM module** -- this is a deterministic aggregator.
+
+**Input:** All articles enriched in the current run.
+
+**Output:** Ordered feed entries grouped by category and `relevance_score`.
+
+**Purpose:** Powers the "Today's DOU" citizen landing page.
+
+**Logic:** Sort by `relevance_score` DESC, group by `category`, limit to top 20 per category.
+
+---
+
+### Extended ES Mapping -- Enrichment Fields (SPECIFICATION FOR FUTURE IMPLEMENTATION)
+
+The following field mappings are ADDITIVE to the existing `dou_documents` index. They do not replace any existing fields. Articles indexed before enrichment is implemented will have these fields absent (null), which Elasticsearch handles gracefully.
+
+```json
+{
+  "summary_plain": { "type": "text", "analyzer": "portuguese" },
+  "summary_technical": { "type": "text", "analyzer": "portuguese" },
+  "key_facts": { "type": "text", "analyzer": "portuguese" },
+  "category": { "type": "keyword" },
+  "relevance_score": { "type": "float" },
+  "shareable_text": { "type": "text" },
+  "affected_entities": { "type": "keyword" },
+  "legal_impact": { "type": "text", "analyzer": "portuguese" },
+  "references": { "type": "keyword" }
+}
+```
+
+**Analyzer choice rationale:**
+
+- **Existing fields** (title, body, etc.) use `pt_folded` -- a custom analyzer with standard tokenizer + lowercase + asciifolding, with NO stemming. This is correct for raw DOU text where exact token matching and diacritic folding are priorities.
+- **Enrichment fields** (summary_plain, summary_technical, key_facts, legal_impact) use the built-in `portuguese` analyzer -- which includes stemming via the Portuguese snowball stemmer. This is intentional because LLM-generated summaries benefit from morphological analysis: stemming improves recall when users search with different word forms (e.g., "regulamentacao" matching "regulamentar").
+- **Keyword fields** (category, affected_entities, references) use `keyword` type for exact-match filtering and aggregations.
+
+---
+
+### Extended SQLite Registry -- Enrichment State (SPECIFICATION FOR FUTURE IMPLEMENTATION)
+
+The following columns extend the `dou_files` table for enrichment state tracking. Enrichment is DECOUPLED from the main pipeline state machine -- a file can be `VERIFIED` (BM25 indexed and count-checked) without being enriched. Enrichment runs as a post-verification pass.
+
+```sql
+-- Additional columns for dou_files table (enrichment tracking)
+ALTER TABLE dou_files ADD COLUMN enrichment_status TEXT DEFAULT NULL;
+-- Values: NULL (not enriched), 'ENRICHING', 'ENRICHED', 'ENRICHMENT_FAILED'
+ALTER TABLE dou_files ADD COLUMN enriched_at TEXT DEFAULT NULL;
+ALTER TABLE dou_files ADD COLUMN enrichment_error TEXT DEFAULT NULL;
+ALTER TABLE dou_files ADD COLUMN articles_enriched INTEGER DEFAULT 0;
+```
+
+The `enrichment_status` column is independent of the main `FileStatus` state machine. A file progresses through the main pipeline (DISCOVERED -> ... -> VERIFIED) regardless of enrichment state. After verification, the enrichment pass processes articles and updates `enrichment_status` separately.
+
+---
+
 ## MODULE 4: BM25 Indexer
 
 Already implemented. Bulk indexes extracted articles into Elasticsearch using batch size 300. BM25 search becomes available immediately after indexing, before embeddings complete.
