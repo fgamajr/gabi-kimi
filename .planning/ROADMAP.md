@@ -23,7 +23,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 9: Live Status and Retry** - Real-time SSE progress streaming and one-click job retry
 - [x] **Phase 10: Legacy Cleanup** - Remove Alpine.js frontend from codebase
 - [x] **Phase 11: Fly.io Migration & Dashboard** - 3-machine Fly.io architecture, autonomous pipeline, admin dashboard (completed 2026-03-09)
-- [x] **Phase 12: Fly.io Pre-flight** - Unified pipeline architectural reference with 9 mandatory patches (completed 2026-03-09)
+- [ ] **Phase 12: Fly.io Pre-flight** - Unified pipeline architectural reference with ULTRA MEGA PROMPT extensions
 
 ## Phase Details
 
@@ -203,11 +203,11 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 9. Live Status and Retry | 1/1 | Complete | 2026-03-08 |
 | 10. Legacy Cleanup | 1/1 | Complete | 2026-03-08 |
 | 11. Fly.io Migration & Dashboard | 7/7 | Complete    | 2026-03-09 |
-| 12. Fly.io Pre-flight | 2/2 | Complete    | 2026-03-09 |
+| 12. Fly.io Pre-flight | 2/4 | In Progress | - |
 
 ### Phase 12: Fly.io Pre-flight
 
-**Goal:** Create a complete unified pipeline architectural reference document by applying 9 mandatory patches that correct the topology, document existing infrastructure, add missing lifecycle states, and provide execution guidance for future implementation agents
+**Goal:** Create a complete unified pipeline architectural reference document by applying 9 mandatory patches and extending with ULTRA MEGA PROMPT architectural specifications (enrichment pipeline, search API, cost controls, holiday watchdog)
 **Requirements**: DOC-01, DOC-02, DOC-03, DOC-04, DOC-05, DOC-06, DOC-07, DOC-08, DOC-09
 **Depends on:** Phase 11
 **Success Criteria** (what must be TRUE):
@@ -220,8 +220,14 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
   7. INLABS auth flow is documented with actual implementation details
   8. Execution order reflects current codebase state (focus on gaps, not reimplementation)
   9. Modular usage guidance explains how to consume the document in focused slices
-**Plans:** 2/2 plans complete
+  10. Enrichment pipeline modules (DocumentEnricher, HighlightsGenerator, FeedGenerator) are spec'd
+  11. Search API architecture documents citizen vs professional modes with hybrid RRF
+  12. Cost tracking and budget controls are specified
+  13. Holiday-aware watchdog is spec'd with Brazilian holiday calendar
+**Plans:** 4 plans
 
 Plans:
-- [ ] 12-01-PLAN.md -- Document skeleton + patches 1-5 (data sources, topology, infrastructure, state machine, reconciler)
-- [ ] 12-02-PLAN.md -- Patches 6-9 (dual-worker, INLABS auth, execution order, usage guide) + validation
+- [x] 12-01-PLAN.md -- Document skeleton + patches 1-5 (data sources, topology, infrastructure, state machine, reconciler)
+- [x] 12-02-PLAN.md -- Patches 6-9 (dual-worker, INLABS auth, execution order, usage guide) + validation
+- [ ] 12-03-PLAN.md -- Enrichment pipeline modules + extended ES mapping + SQLite enrichment state
+- [ ] 12-04-PLAN.md -- Search API architecture + UX principles + Postgres tables + cost tracking + watchdog
