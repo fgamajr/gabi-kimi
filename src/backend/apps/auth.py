@@ -11,6 +11,7 @@ from typing import Any
 
 from fastapi import HTTPException, Request, status
 from fastapi.responses import Response
+from passlib.context import CryptContext
 
 from src.backend.apps.identity_store import (
     ensure_identity_schema,
@@ -18,6 +19,7 @@ from src.backend.apps.identity_store import (
     list_roles,
     list_users,
     replace_user_roles,
+    resolve_identity_for_user_id,
     revoke_api_token,
     resolve_identity_for_token,
     sync_env_tokens,
@@ -34,6 +36,24 @@ from src.backend.apps.middleware.security import (
 
 
 LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost"}
+
+# ---------------------------------------------------------------------------
+# Password hashing (bcrypt via passlib)
+# ---------------------------------------------------------------------------
+_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
+
+# Pre-computed dummy hash for timing equalization on failed email lookups.
+DUMMY_HASH = "$2b$12$LJ3m4ys3Lg3rJFmKBOxTkO0UpBiVNBqXkT6T8sYzXvqFqPnXsO3cO"
+
+
+def hash_password(plain: str) -> str:
+    """Hash a plaintext password with bcrypt (cost factor 12)."""
+    return _pwd_context.hash(plain)
+
+
+def verify_password(plain: str, hashed: str) -> bool:
+    """Verify a plaintext password against a bcrypt hash."""
+    return _pwd_context.verify(plain, hashed)
 
 
 @dataclass(frozen=True)
@@ -307,6 +327,22 @@ async def resolve_request_principal(
             )
             if db_principal.user_id is not None:
                 return db_principal
+            # Fallback: password users store user UUID as session sub,
+            # not an api_token token_id -- resolve via user table directly.
+            try:
+                identity = await resolve_identity_for_user_id(token_id)
+            except Exception:
+                identity = None
+            if identity is not None:
+                return AuthPrincipal(
+                    label=identity.display_name or str(payload.get("label") or "session"),
+                    token_id=token_id,
+                    source="session",
+                    user_id=identity.user_id,
+                    roles=identity.roles,
+                    email=identity.email,
+                    status=identity.status,
+                )
             log_security_event(
                 "auth_invalid_session_subject",
                 ip=request_ip(request),
@@ -407,10 +443,12 @@ def create_session_response(request: Request, principal: AuthPrincipal) -> Respo
 __all__ = [
     "AuthPrincipal",
     "AuthConfig",
+    "DUMMY_HASH",
     "bootstrap_identity_store",
     "clear_session_response",
     "create_session_response",
     "get_auth_config",
+    "hash_password",
     "issue_api_token",
     "list_roles",
     "list_users",
@@ -422,6 +460,7 @@ __all__ = [
     "require_protected_access",
     "resolve_request_principal",
     "upsert_user",
+    "verify_password",
 ]
 
 

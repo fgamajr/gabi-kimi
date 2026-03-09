@@ -48,3 +48,28 @@ VALUES
     ('user', 'User', 'Authenticated product user'),
     ('admin', 'Admin', 'Administrative access')
 ON CONFLICT (code) DO NOTHING;
+
+-- v1.1: Email+password authentication
+ALTER TABLE auth."user" ADD COLUMN IF NOT EXISTS password_hash TEXT;
+ALTER TABLE auth."user" ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT false;
+ALTER TABLE auth."user" ADD COLUMN IF NOT EXISTS login_method TEXT DEFAULT 'token';
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_email_unique
+  ON auth."user"(LOWER(email))
+  WHERE email IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS auth.login_attempt (
+    id SERIAL PRIMARY KEY,
+    email TEXT,
+    ip_address TEXT,
+    success BOOLEAN NOT NULL DEFAULT false,
+    attempted_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_login_attempt_email_time
+  ON auth.login_attempt(email, attempted_at)
+  WHERE NOT success;
+
+CREATE INDEX IF NOT EXISTS idx_login_attempt_ip_time
+  ON auth.login_attempt(ip_address, attempted_at)
+  WHERE NOT success;

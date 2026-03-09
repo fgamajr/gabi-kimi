@@ -7,6 +7,7 @@ import hashlib
 import secrets
 from typing import Any
 
+from fastapi import HTTPException
 from src.backend.apps.db_pool import acquire
 
 
@@ -365,3 +366,132 @@ async def replace_user_roles(user_id: str, roles: list[str]) -> dict[str, Any]:
         if not row:
             raise ValueError("user-not-found")
         return dict(row)
+
+
+# ---------------------------------------------------------------------------
+# v1.1: Email + password authentication helpers
+# ---------------------------------------------------------------------------
+
+
+async def create_password_user(email: str, password_hash: str, display_name: str) -> dict:
+    """Insert a new password-authenticated user and assign the 'user' role."""
+    async with acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO auth."user" (display_name, email, password_hash, login_method, email_verified, status, is_service_account)
+            VALUES ($1, $2, $3, 'password', false, 'active', false)
+            RETURNING id::text AS id, display_name, email
+            """,
+            display_name, email, password_hash,
+        )
+        user_id = row["id"]
+        await conn.execute(
+            """
+            INSERT INTO auth.user_role (user_id, role_id)
+            SELECT $1::uuid, r.id
+            FROM auth.role r
+            WHERE r.code = 'user'
+            ON CONFLICT DO NOTHING
+            """,
+            user_id,
+        )
+        return dict(row)
+
+
+async def find_user_by_email(email: str) -> dict | None:
+    """Look up an active user by email (case-insensitive)."""
+    async with acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT id::text AS id, display_name, email, password_hash, status, login_method
+            FROM auth."user"
+            WHERE LOWER(email) = LOWER($1)
+              AND status = 'active'
+            """,
+            email,
+        )
+        return dict(row) if row else None
+
+
+async def log_login_attempt(email: str, ip: str, success: bool) -> None:
+    """Record a login attempt for brute-force tracking."""
+    async with acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO auth.login_attempt (email, ip_address, success)
+            VALUES ($1, $2, $3)
+            """,
+            email, ip, success,
+        )
+
+
+async def check_brute_force(email: str, ip: str) -> None:
+    """Raise 429 if too many failed login attempts for email or IP in last 15 min."""
+    async with acquire() as conn:
+        email_count = await conn.fetchval(
+            """
+            SELECT COUNT(*)
+            FROM auth.login_attempt
+            WHERE email = $1
+              AND NOT success
+              AND attempted_at > now() - interval '15 minutes'
+            """,
+            email,
+        )
+        if email_count >= 5:
+            raise HTTPException(
+                status_code=429,
+                detail="Muitas tentativas de login. Tente novamente em alguns minutos.",
+            )
+        ip_count = await conn.fetchval(
+            """
+            SELECT COUNT(*)
+            FROM auth.login_attempt
+            WHERE ip_address = $1
+              AND NOT success
+              AND attempted_at > now() - interval '15 minutes'
+            """,
+            ip,
+        )
+        if ip_count >= 20:
+            raise HTTPException(
+                status_code=429,
+                detail="Muitas tentativas de login. Tente novamente em alguns minutos.",
+            )
+
+
+async def resolve_identity_for_user_id(user_id: str) -> IdentityRecord | None:
+    """Resolve an IdentityRecord directly from user UUID (for password-authenticated sessions)."""
+    async with acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT
+                u.id::text AS user_id,
+                u.display_name,
+                u.email,
+                u.status,
+                u.is_service_account,
+                COALESCE(array_agg(r.code ORDER BY r.code) FILTER (WHERE r.code IS NOT NULL), '{}'::text[]) AS roles
+            FROM auth."user" u
+            LEFT JOIN auth.user_role ur ON ur.user_id = u.id
+            LEFT JOIN auth.role r ON r.id = ur.role_id
+            WHERE u.id = $1::uuid
+              AND u.status = 'active'
+            GROUP BY u.id, u.display_name, u.email, u.status, u.is_service_account
+            """,
+            user_id,
+        )
+        if not row:
+            return None
+        d = dict(row)
+        return IdentityRecord(
+            user_id=str(d["user_id"]),
+            display_name=str(d["display_name"]),
+            email=str(d["email"]) if d.get("email") else None,
+            status=str(d["status"]),
+            roles=tuple(str(item) for item in (d.get("roles") or []) if item),
+            token_id=str(d["user_id"]),
+            token_label="password",
+            token_status="active",
+            is_service_account=bool(d["is_service_account"]),
+        )
