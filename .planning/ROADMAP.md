@@ -22,7 +22,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 8: Job Dashboard** - React job list and detail views showing ingestion results
 - [ ] **Phase 9: Live Status and Retry** - Real-time SSE progress streaming and one-click job retry
 - [x] **Phase 10: Legacy Cleanup** - Remove Alpine.js frontend from codebase
-- [ ] **Phase 11: Fly.io Migration & Dashboard** - 3-machine Fly.io architecture, autonomous pipeline, admin dashboard
+- [x] **Phase 11: Fly.io Migration & Dashboard** - 3-machine Fly.io architecture, autonomous pipeline, admin dashboard (completed 2026-03-09)
 - [x] **Phase 12: Fly.io Pre-flight** - Unified pipeline architectural reference with 9 mandatory patches (completed 2026-03-09)
 
 ## Phase Details
@@ -174,7 +174,7 @@ Plans:
   3. Web proxies /api/worker/* to worker.internal:8081 for dashboard access
   4. Pipeline autonomously discovers, downloads, extracts, ingests, and verifies DOU publications using INLABS only for the last 30 days and Liferay for historical/month-close fallback
   5. Admin dashboard shows pipeline health, timeline, scheduler status, logs, and settings
-**Plans:** 6/7 plans executed
+**Plans:** 7/7 plans complete
 
 Plans:
 - [ ] 11-01-PLAN.md -- ES + Worker Fly.io deployment configs
@@ -202,7 +202,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 8. Job Dashboard | 1/1 | Complete | 2026-03-08 |
 | 9. Live Status and Retry | 1/1 | Complete | 2026-03-08 |
 | 10. Legacy Cleanup | 1/1 | Complete | 2026-03-08 |
-| 11. Fly.io Migration & Dashboard | 6/7 | In Progress|  |
+| 11. Fly.io Migration & Dashboard | 7/7 | Complete   | 2026-03-09 |
 | 12. Fly.io Pre-flight | 2/2 | Complete    | 2026-03-09 |
 
 ### Phase 12: Fly.io Pre-flight
