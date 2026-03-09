@@ -39,6 +39,7 @@ Users can find any published legal act in the DOU quickly and read it in a clean
 
 ### Active
 
+- [ ] Email+password authentication for public users (v1.1)
 - [ ] Deduplication preview — show existing articles before processing
 - [ ] Bulk job management — select multiple, retry all failed, clear completed
 - [ ] Ingestion statistics dashboard — articles per day, error rates, processing duration
