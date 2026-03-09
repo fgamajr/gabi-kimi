@@ -16,6 +16,9 @@ primary_region = 'gru'
   GABI_ALLOWED_HOSTS = 'gabi-dou-web.fly.dev'
   GABI_CORS_ORIGINS = 'https://gabi-dou-frontend.fly.dev'
   REDIS_URL = 'redis://gabi-dou-redis.internal:6379/0'
+  ES_URL = 'http://gabi-dou-es.internal:9200'
+  WORKER_URL = 'http://gabi-dou-worker.internal:8081'
+  GABI_ANALYTICS_CACHE_REFRESH_ON_STARTUP = 'false'
 
 [processes]
   web = "python ops/bin/web_server.py"

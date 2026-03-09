@@ -22,15 +22,14 @@ import uuid
 from io import BytesIO
 from html import escape
 from contextlib import asynccontextmanager
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator
 import re
 import json
 
 import httpx
-import psycopg2
-import psycopg2.extras
+from src.backend.apps.db_pool import acquire, init_pool, close_pool
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -38,8 +37,14 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from src.backend.apps.upload_validation import validate_upload_file
+from src.backend.apps.upload_validation import UploadValidationError, validate_upload_file
 from src.backend.apps.worker_jobs import create_job, ensure_worker_jobs_schema, get_job, list_jobs, retry_job
+from src.backend.apps.analytics_cache import (
+    ensure_analytics_cache_schema,
+    get_analytics_cache_status,
+    load_analytics_payload,
+    refresh_analytics_cache,
+)
 from src.backend.apps.auth import (
     AuthPrincipal,
     bootstrap_identity_store,
@@ -87,20 +92,42 @@ from src.backend.storage import (
 load_dotenv()
 
 # ---------------------------------------------------------------------------
+# Structured JSON logging — stdout (captured by Fly.io)
+# ---------------------------------------------------------------------------
+import logging
+
+class _JsonFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        from datetime import datetime, timezone
+        entry = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        if record.exc_info and record.exc_info[1]:
+            entry["exception"] = f"{type(record.exc_info[1]).__name__}: {record.exc_info[1]}"
+        return json.dumps(entry, ensure_ascii=True)
+
+_handler = logging.StreamHandler()
+_handler.setFormatter(_JsonFormatter())
+logging.basicConfig(level=logging.INFO, handlers=[_handler])
+logger = logging.getLogger("gabi.app")
+
+# ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 
-DSN = os.getenv("PG_DSN") or (
-    f"host={os.getenv('PGHOST', 'localhost')} "
-    f"port={os.getenv('PGPORT', '5433')} "
-    f"dbname={os.getenv('PGDATABASE', 'gabi')} "
-    f"user={os.getenv('PGUSER', 'gabi')} "
-    f"password={os.getenv('PGPASSWORD', 'gabi')}"
-)
+_is_production = bool(os.getenv("FLY_APP_NAME", "").strip())
+
+if _is_production and not os.getenv("PG_DSN") and not os.getenv("PGPASSWORD"):
+    raise RuntimeError("PGPASSWORD or PG_DSN must be set in production")
 
 DASHSCOPE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 QWEN_API_KEY = os.getenv("QWEN_API_KEY", "")
 QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen-plus")
+
+WORKER_BASE = os.getenv("WORKER_URL", "http://gabi-dou-worker.internal:8081")
 
 # React SPA only (Phase 10: legacy Alpine.js frontend removed)
 _ROOT_DIR = Path(__file__).resolve().parents[3]
@@ -155,17 +182,25 @@ def _allowed_origins(allowed_hosts: list[str]) -> list[str]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup / shutdown."""
-    bootstrap_identity_store(get_auth_config())
-    ensure_worker_jobs_schema()
+    logger.info("Starting GABI DOU backend")
+    await init_pool()
+    await bootstrap_identity_store(get_auth_config())
+    await ensure_worker_jobs_schema()
+    await ensure_analytics_cache_schema()
+    if os.getenv("GABI_ANALYTICS_CACHE_REFRESH_ON_STARTUP", "false").strip().lower() in {"1", "true", "yes", "on"}:
+        await refresh_analytics_cache(source="startup")
     app.state.http = httpx.AsyncClient(timeout=60.0)
     app.state.rate_limiter = RateLimiter(redis_url=os.getenv("REDIS_URL", "").strip() or None)
     app.state.chat_security = ChatSecurity(redis_url=os.getenv("REDIS_URL", "").strip() or None)
     await app.state.rate_limiter.startup()
     await app.state.chat_security.startup()
+    logger.info("GABI DOU backend ready")
     yield
+    logger.info("Shutting down GABI DOU backend")
     await app.state.chat_security.shutdown()
     await app.state.rate_limiter.shutdown()
     await app.state.http.aclose()
+    await close_pool()
 
 
 app = FastAPI(title="GABI DOU", lifespan=lifespan)
@@ -184,21 +219,29 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
 
 
 # ---------------------------------------------------------------------------
-# DB helper
+# Public endpoint IP rate limiting
 # ---------------------------------------------------------------------------
 
-def _conn(timeout_ms: int = 30000):
-    conn = psycopg2.connect(DSN)
-    conn.autocommit = True
-    cur = conn.cursor()
-    cur.execute(f"SET statement_timeout = {timeout_ms}")
-    cur.close()
-    return conn
+_PUBLIC_RATE_RULE = RateRule(limit=120, window_sec=60)
 
 
-def _rows(cur) -> list[dict[str, Any]]:
-    cols = [d[0] for d in cur.description]
-    return [dict(zip(cols, row)) for row in cur.fetchall()]
+async def _rate_limit_ip(request: Request) -> None:
+    """Enforce per-IP rate limiting on public (unauthenticated) endpoints."""
+    limiter = getattr(request.app.state, "rate_limiter", None)
+    if not isinstance(limiter, RateLimiter):
+        return
+    await limiter.enforce(
+        bucket="public_api",
+        key=request_ip(request),
+        rule=_PUBLIC_RATE_RULE,
+        request=request,
+        dimension="ip",
+    )
+
+
+# ---------------------------------------------------------------------------
+# DB helper
+# ---------------------------------------------------------------------------
 
 
 def _ser(v: Any) -> Any:
@@ -244,11 +287,9 @@ def _require_frontend_enabled() -> None:
     raise HTTPException(404, "Not found")
 
 
-def _load_document_payload(doc_id: str) -> dict[str, Any]:
-    conn = _conn()
-    try:
-        cur = conn.cursor()
-        cur.execute("""
+async def _load_document_payload(doc_id: str) -> dict[str, Any]:
+    async with acquire() as conn:
+        row = await conn.fetchrow("""
             SELECT d.id, d.id_materia, d.art_type, d.art_type_raw,
                    d.art_category, d.identifica, d.ementa, d.titulo,
                    d.sub_titulo, d.body_plain, d.body_html,
@@ -258,45 +299,43 @@ def _load_document_payload(doc_id: str) -> dict[str, Any]:
                    e.publication_date, e.edition_number, e.section, e.is_extra
             FROM dou.document d
             JOIN dou.edition e ON e.id = d.edition_id
-            WHERE d.id = %s::uuid
-        """, (doc_id,))
-        row = cur.fetchone()
+            WHERE d.id = $1::uuid
+        """, doc_id)
         if not row:
             raise HTTPException(404, "Documento não encontrado")
-        cols = [desc[0] for desc in cur.description]
-        doc = {k: _ser(v) for k, v in zip(cols, row)}
+        doc = {k: _ser(v) for k, v in dict(row).items()}
 
-        cur.execute("""
+        rows = await conn.fetch("""
             SELECT reference_type, reference_number, reference_date, reference_text
-            FROM dou.normative_reference WHERE document_id = %s::uuid
+            FROM dou.normative_reference WHERE document_id = $1::uuid
             ORDER BY reference_type, reference_number
-        """, (doc_id,))
-        doc["normative_refs"] = [{k: _ser(v) for k, v in r.items()} for r in _rows(cur)]
+        """, doc_id)
+        doc["normative_refs"] = [{k: _ser(v) for k, v in dict(r).items()} for r in rows]
 
-        cur.execute("""
+        rows = await conn.fetch("""
             SELECT procedure_type, procedure_identifier
-            FROM dou.procedure_reference WHERE document_id = %s::uuid
-        """, (doc_id,))
-        doc["procedure_refs"] = [{k: _ser(v) for k, v in r.items()} for r in _rows(cur)]
+            FROM dou.procedure_reference WHERE document_id = $1::uuid
+        """, doc_id)
+        doc["procedure_refs"] = [{k: _ser(v) for k, v in dict(r).items()} for r in rows]
 
-        cur.execute("""
+        rows = await conn.fetch("""
             SELECT person_name, role_title
-            FROM dou.document_signature WHERE document_id = %s::uuid
+            FROM dou.document_signature WHERE document_id = $1::uuid
             ORDER BY sequence_in_document
-        """, (doc_id,))
-        doc["signatures"] = [{k: _ser(v) for k, v in r.items()} for r in _rows(cur)]
+        """, doc_id)
+        doc["signatures"] = [{k: _ser(v) for k, v in dict(r).items()} for r in rows]
 
-        cur.execute("""
+        rows = await conn.fetch("""
             SELECT media_name, media_type, file_extension, size_bytes,
                    source_filename, external_url, original_url,
                    availability_status, alt_text, context_hint, fallback_text,
                    local_path, width_px, height_px, ingest_checked_at, retry_count,
                    (data IS NOT NULL) AS has_binary,
                    sequence_in_document
-            FROM dou.document_media WHERE document_id = %s::uuid
+            FROM dou.document_media WHERE document_id = $1::uuid
             ORDER BY sequence_in_document
-        """, (doc_id,))
-        media_rows = [{k: _ser(v) for k, v in r.items()} for r in _rows(cur)]
+        """, doc_id)
+        media_rows = [{k: _ser(v) for k, v in dict(r).items()} for r in rows]
         for item in media_rows:
             media_name = str(item.get("media_name", "")).strip()
             effective_status = item.get("availability_status") or "unknown"
@@ -311,10 +350,7 @@ def _load_document_payload(doc_id: str) -> dict[str, Any]:
             )
         doc["media"] = media_rows
         doc["images"] = media_rows
-        cur.close()
         return doc
-    finally:
-        conn.close()
 
 
 def _infer_relation_type(text: str | None, fallback: str | None = None) -> str:
@@ -377,7 +413,7 @@ def _resolved_norm_variants(norm_query: NormQuery | None, fallback_number: str |
     return out
 
 
-def _resolve_reference_targets(
+async def _resolve_reference_targets(
     ref: dict[str, Any],
     *,
     exclude_doc_id: str,
@@ -392,41 +428,30 @@ def _resolve_reference_targets(
     exact_rows: list[dict[str, Any]] = []
 
     if norm_query is not None:
-        conn = _conn()
-        try:
-            cur = conn.cursor()
-            cur.execute(
+        async with acquire() as conn:
+            rows = await conn.fetch(
                 """
                 SELECT d.id AS doc_id, d.id_materia, d.identifica, d.titulo, d.ementa,
                        d.issuing_organ, d.page_number, d.art_type, e.publication_date AS pub_date,
                        e.section AS edition_section
                 FROM dou.document d
                 JOIN dou.edition e ON e.id = d.edition_id
-                WHERE d.id != %s::uuid
-                  AND (%s::text IS NULL OR d.art_type = %s)
-                  AND d.document_number = ANY(%s)
-                  AND (%s::int IS NULL OR d.document_year = %s)
+                WHERE d.id != $1::uuid
+                  AND ($2::text IS NULL OR d.art_type = $2)
+                  AND d.document_number = ANY($3)
+                  AND ($4::int IS NULL OR d.document_year = $4)
                 ORDER BY
-                  CASE WHEN %s::int IS NOT NULL AND d.document_year = %s THEN 0 ELSE 1 END,
+                  CASE WHEN $4::int IS NOT NULL AND d.document_year = $4 THEN 0 ELSE 1 END,
                   e.publication_date DESC
-                LIMIT %s
+                LIMIT $5
                 """,
-                (
-                    exclude_doc_id,
-                    norm_query.norm_type,
-                    norm_query.norm_type,
-                    _resolved_norm_variants(norm_query, str(ref.get("reference_number") or "").strip() or None),
-                    norm_query.year,
-                    norm_query.year,
-                    norm_query.year,
-                    norm_query.year,
-                    per_seed,
-                ),
+                exclude_doc_id,
+                norm_query.norm_type,
+                _resolved_norm_variants(norm_query, str(ref.get("reference_number") or "").strip() or None),
+                norm_query.year,
+                per_seed,
             )
-            exact_rows = [_normalize_graph_search_result(item) for item in _rows(cur)]
-            cur.close()
-        finally:
-            conn.close()
+            exact_rows = [_normalize_graph_search_result(dict(item)) for item in rows]
 
     if exact_rows:
         return exact_rows[:per_seed]
@@ -442,7 +467,7 @@ def _resolve_reference_targets(
         return []
 
 
-def _incoming_normative_branches(
+async def _incoming_normative_branches(
     doc: dict[str, Any],
     *,
     per_seed: int,
@@ -461,10 +486,8 @@ def _incoming_normative_branches(
     if not variants:
         return []
 
-    conn = _conn()
-    try:
-        cur = conn.cursor()
-        cur.execute(
+    async with acquire() as conn:
+        db_rows = await conn.fetch(
             """
             SELECT d.id AS doc_id, d.id_materia, d.identifica, d.titulo, d.ementa,
                    d.issuing_organ, d.page_number, d.art_type, e.publication_date AS pub_date,
@@ -472,24 +495,18 @@ def _incoming_normative_branches(
             FROM dou.normative_reference nr
             JOIN dou.document d ON d.id = nr.document_id
             JOIN dou.edition e ON e.id = d.edition_id
-            WHERE d.id != %s::uuid
-              AND (%s::text IS NULL OR nr.reference_type = %s)
-              AND nr.reference_number = ANY(%s)
+            WHERE d.id != $1::uuid
+              AND ($2::text IS NULL OR nr.reference_type = $2)
+              AND nr.reference_number = ANY($3)
             ORDER BY e.publication_date DESC
-            LIMIT %s
+            LIMIT $4
             """,
-            (
-                str(doc.get("id") or ""),
-                doc_type,
-                doc_type,
-                variants,
-                max(6, per_seed * 4),
-            ),
+            str(doc.get("id") or ""),
+            doc_type,
+            variants,
+            max(6, per_seed * 4),
         )
-        rows = _rows(cur)
-        cur.close()
-    finally:
-        conn.close()
+        rows = [dict(r) for r in db_rows]
 
     grouped: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
@@ -567,8 +584,8 @@ def _repair_pdf_text(value: str) -> str:
 # API — Search
 # ---------------------------------------------------------------------------
 
-@app.get("/api/search")
-def api_search(
+@app.get("/api/search", dependencies=[Depends(_rate_limit_ip)])
+async def api_search(
     q: str = Query(..., min_length=1),
     max: int = Query(20, ge=1, le=100),
     page: int = Query(1, ge=1),
@@ -590,24 +607,24 @@ def api_search(
             art_type=art_type,
             issuing_organ=issuing_organ,
         )
-    except Exception as ex:
-        raise HTTPException(503, f"Search backend unavailable ({SEARCH_CFG.backend}): {type(ex).__name__}")
+    except Exception:
+        raise HTTPException(503, "Search temporarily unavailable")
 
 
 # ---------------------------------------------------------------------------
 # API — Suggest (autocomplete)
 # ---------------------------------------------------------------------------
 
-@app.get("/api/suggest")
-def api_suggest(q: str = Query(..., min_length=2)):
+@app.get("/api/suggest", dependencies=[Depends(_rate_limit_ip)])
+async def api_suggest(q: str = Query(..., min_length=2)):
     try:
         return suggest_payload(query=q, limit=10)
-    except Exception as ex:
-        raise HTTPException(503, f"Suggest backend unavailable ({SEARCH_CFG.backend}): {type(ex).__name__}")
+    except Exception:
+        raise HTTPException(503, "Suggest temporarily unavailable")
 
 
-@app.get("/api/autocomplete")
-def api_autocomplete(
+@app.get("/api/autocomplete", dependencies=[Depends(_rate_limit_ip)])
+async def api_autocomplete(
     q: str = Query(..., min_length=1),
     n: int = Query(10, ge=1, le=20),
 ):
@@ -648,27 +665,27 @@ def api_autocomplete(
             "items": terms,
             "backend": SEARCH_CFG.backend,
         }
-    except Exception as ex:
-        raise HTTPException(503, f"Autocomplete unavailable ({SEARCH_CFG.backend}): {type(ex).__name__}")
+    except Exception:
+        raise HTTPException(503, "Autocomplete temporarily unavailable")
 
 
-@app.get("/api/top-searches")
-def api_top_searches(
+@app.get("/api/top-searches", dependencies=[Depends(_rate_limit_ip)])
+async def api_top_searches(
     n: int = Query(10, ge=1, le=30),
     period: str = Query("day", pattern="^(day|week)$"),
 ):
     try:
         return top_searches_payload(period=period, n=n)
-    except Exception as ex:
-        raise HTTPException(503, f"Top searches unavailable: {type(ex).__name__}")
+    except Exception:
+        raise HTTPException(503, "Top searches temporarily unavailable")
 
 
-@app.get("/api/search-examples")
-def api_search_examples(n: int = Query(8, ge=1, le=20)):
+@app.get("/api/search-examples", dependencies=[Depends(_rate_limit_ip)])
+async def api_search_examples(n: int = Query(8, ge=1, le=20)):
     try:
         return search_examples_payload(n=n)
-    except Exception as ex:
-        raise HTTPException(503, f"Search examples unavailable: {type(ex).__name__}")
+    except Exception:
+        raise HTTPException(503, "Search examples temporarily unavailable")
 
 
 # ---------------------------------------------------------------------------
@@ -676,8 +693,8 @@ def api_search_examples(n: int = Query(8, ge=1, le=20)):
 # ---------------------------------------------------------------------------
 
 @app.get("/api/auth/session")
-def api_auth_session_status(request: Request):
-    principal = resolve_request_principal(request, log_failures=False)
+async def api_auth_session_status(request: Request):
+    principal = await resolve_request_principal(request, log_failures=False)
     if principal is None:
         return {"authenticated": False}
     return {
@@ -696,7 +713,7 @@ def api_auth_session_status(request: Request):
 
 @app.post("/api/auth/session")
 async def api_auth_session_create(request: Request):
-    principal = resolve_request_principal(request, allow_session=False)
+    principal = await resolve_request_principal(request, allow_session=False)
     assert principal is not None
     limiter = getattr(request.app.state, "rate_limiter", None)
     if isinstance(limiter, RateLimiter):
@@ -732,22 +749,22 @@ class AdminTokenIssueRequest(BaseModel):
 
 
 @app.get("/api/admin/roles")
-def api_admin_roles(_auth: AuthPrincipal = Depends(require_admin_access)):
-    return {"items": list_roles()}
+async def api_admin_roles(_auth: AuthPrincipal = Depends(require_admin_access)):
+    return {"items": await list_roles()}
 
 
 @app.get("/api/admin/users")
-def api_admin_users(_auth: AuthPrincipal = Depends(require_admin_access)):
-    return {"items": list_users()}
+async def api_admin_users(_auth: AuthPrincipal = Depends(require_admin_access)):
+    return {"items": await list_users()}
 
 
 @app.post("/api/admin/users")
-def api_admin_user_upsert(
+async def api_admin_user_upsert(
     payload: AdminUserUpsertRequest,
     _auth: AuthPrincipal = Depends(require_admin_access),
 ):
     try:
-        return upsert_user(
+        return await upsert_user(
             user_id=payload.id,
             display_name=payload.display_name.strip(),
             email=payload.email.strip() if payload.email else None,
@@ -759,19 +776,19 @@ def api_admin_user_upsert(
 
 
 @app.put("/api/admin/users/{user_id}/roles")
-def api_admin_user_roles(
+async def api_admin_user_roles(
     user_id: str,
     payload: AdminUserRolesRequest,
     _auth: AuthPrincipal = Depends(require_admin_access),
 ):
     try:
-        return replace_user_roles(user_id, payload.roles)
+        return await replace_user_roles(user_id, payload.roles)
     except ValueError as ex:
         raise HTTPException(404, str(ex))
 
 
 @app.post("/api/admin/users/{user_id}/tokens")
-def api_admin_user_issue_token(
+async def api_admin_user_issue_token(
     user_id: str,
     payload: AdminTokenIssueRequest,
     _auth: AuthPrincipal = Depends(require_admin_access),
@@ -780,18 +797,18 @@ def api_admin_user_issue_token(
         label = payload.token_label.strip()
         if not label:
             raise HTTPException(400, "token_label is required")
-        return issue_api_token(user_id=user_id, token_label=label)
+        return await issue_api_token(user_id=user_id, token_label=label)
     except ValueError as ex:
         raise HTTPException(404, str(ex))
 
 
 @app.delete("/api/admin/tokens/{token_id}")
-def api_admin_revoke_token(
+async def api_admin_revoke_token(
     token_id: str,
     _auth: AuthPrincipal = Depends(require_admin_access),
 ):
     try:
-        return revoke_api_token(token_id)
+        return await revoke_api_token(token_id)
     except ValueError as ex:
         raise HTTPException(404, str(ex))
 
@@ -809,7 +826,7 @@ def _sanitize_upload_filename(filename: str | None) -> str:
 
 
 @app.post("/api/admin/upload", status_code=202)
-def api_admin_upload(
+async def api_admin_upload(
     file: UploadFile = File(...),
     _auth: AuthPrincipal = Depends(require_admin_access),
 ):
@@ -818,28 +835,29 @@ def api_admin_upload(
     Validates file type by magic bytes; rejects non-XML/non-ZIP with clear error.
     """
     if not storage_is_configured():
-        raise HTTPException(
-            503,
-            "Tigris not configured. Set AWS_ENDPOINT_URL_S3, AWS_ACCESS_KEY_ID, "
-            "AWS_SECRET_ACCESS_KEY, BUCKET_NAME (e.g. fly storage create).",
-        )
+        raise HTTPException(503, "Object storage is not configured")
     try:
-        file_type = validate_upload_file(file.file)
-    except ValueError as e:
+        validation = validate_upload_file(file.file)
+        file_type = validation.file_type
+    except UploadValidationError as e:
         raise HTTPException(400, str(e)) from e
+    try:
+        file.file.seek(0, 2)
+        file_size = file.file.tell()
+        file.file.seek(0)
+    except (OSError, AttributeError):
+        file_size = None
+    if file_size is not None and file_size > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, f"Upload exceeds max size of {MAX_UPLOAD_BYTES} bytes")
     filename = _sanitize_upload_filename(file.filename)
     storage_key = f"uploads/{uuid.uuid4()}/{filename}"
     try:
         upload_fileobj(file.file, storage_key)
     except Exception as e:
-        raise HTTPException(503, f"Upload to storage failed: {e}") from e
-    try:
-        file_size = file.file.tell()
-    except (OSError, AttributeError):
-        file_size = None
+        raise HTTPException(503, "Upload to storage failed") from e
     uploaded_by = (_auth.user_id or _auth.token_id) or None
     try:
-        job = create_job(
+        job = await create_job(
             filename=filename,
             storage_key=storage_key,
             file_size_bytes=file_size,
@@ -858,35 +876,44 @@ def api_admin_upload(
             from arq import create_pool
             from arq.connections import RedisSettings
 
-            async def _enqueue():
-                redis = await create_pool(RedisSettings.from_dsn(redis_url))
-                await redis.enqueue_job("process_upload_job", job_id)
-
-            asyncio.run(_enqueue())
+            redis = await create_pool(RedisSettings.from_dsn(redis_url))
+            await redis.enqueue_job("process_upload_job", job_id)
         except Exception as e:
-            raise HTTPException(503, f"Failed to enqueue job: {e}") from e
+            raise HTTPException(503, "Failed to enqueue job") from e
     # If no REDIS_URL, job remains queued until worker/Redis is configured
 
-    return {"job_id": job_id, "status": "queued"}
+    payload: dict[str, Any] = {
+        "job_id": job_id,
+        "status": "queued",
+        "validation": {
+            "file_type": validation.file_type,
+            "xml_entries": validation.xml_entries,
+            "valid_xml_entries": validation.valid_xml_entries,
+            "image_entries": validation.image_entries,
+        },
+    }
+    if validation.warnings:
+        payload["validation_warnings"] = validation.warnings[:10]
+    return payload
 
 
 @app.get("/api/admin/jobs")
-def api_admin_jobs_list(
+async def api_admin_jobs_list(
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     _auth: AuthPrincipal = Depends(require_admin_access),
 ):
     """List upload jobs (newest first)."""
-    return {"items": list_jobs(limit=limit, offset=offset)}
+    return {"items": await list_jobs(limit=limit, offset=offset)}
 
 
 @app.get("/api/admin/jobs/{job_id}")
-def api_admin_job_detail(
+async def api_admin_job_detail(
     job_id: str,
     _auth: AuthPrincipal = Depends(require_admin_access),
 ):
     """Get one upload job by id."""
-    job = get_job(job_id)
+    job = await get_job(job_id)
     if not job:
         raise HTTPException(404, "job not found")
     return job
@@ -901,7 +928,7 @@ async def api_admin_job_stream(
     async def _stream() -> AsyncIterator[bytes]:
         terminal = {"completed", "failed", "partial"}
         while True:
-            job = await asyncio.to_thread(get_job, job_id)
+            job = await get_job(job_id)
             if not job:
                 yield _sse_event("error", {"detail": "job not found"})
                 return
@@ -924,19 +951,21 @@ async def api_admin_job_stream(
 
 
 @app.post("/api/admin/jobs/{job_id}/retry")
-def api_admin_job_retry(
+async def api_admin_job_retry(
     job_id: str,
     _auth: AuthPrincipal = Depends(require_admin_access),
 ):
     """Re-queue a failed or partial job for reprocessing (Phase 9, JOBS-04)."""
-    job = retry_job(job_id)
+    job = await retry_job(job_id)
     if not job:
-        job = get_job(job_id)
+        job = await get_job(job_id)
         if not job:
             raise HTTPException(404, "job not found")
+        if job.get("status") == "failed" and job.get("failure_class") == "permanent":
+            raise HTTPException(400, "job cannot be retried because failure is permanent")
         raise HTTPException(
             400,
-            f"job cannot be retried (status: {job.get('status')}); only failed or partial",
+            f"job cannot be retried (status: {job.get('status')}); only transient failed or partial",
         )
     redis_url = os.getenv("REDIS_URL", "").strip()
     if redis_url:
@@ -944,11 +973,8 @@ def api_admin_job_retry(
             from arq import create_pool
             from arq.connections import RedisSettings
 
-            async def _enqueue():
-                redis = await create_pool(RedisSettings.from_dsn(redis_url))
-                await redis.enqueue_job("process_upload_job", job_id)
-
-            asyncio.run(_enqueue())
+            redis = await create_pool(RedisSettings.from_dsn(redis_url))
+            await redis.enqueue_job("process_upload_job", job_id)
         except Exception as e:
             raise HTTPException(503, f"Failed to enqueue retry: {e}") from e
     return job
@@ -958,11 +984,7 @@ def api_admin_job_retry(
 def api_admin_storage_check(_auth: AuthPrincipal = Depends(require_admin_access)):
     """Verify Tigris blob storage: upload a test file and read it back (Phase 1)."""
     if not storage_is_configured():
-        raise HTTPException(
-            503,
-            "Tigris not configured: set AWS_ENDPOINT_URL_S3, AWS_ACCESS_KEY_ID, "
-            "AWS_SECRET_ACCESS_KEY, BUCKET_NAME (e.g. fly storage create).",
-        )
+        raise HTTPException(503, "Object storage is not configured")
     test_key = "_storage_check/test.txt"
     payload = b"GABI Tigris check"
     try:
@@ -970,10 +992,24 @@ def api_admin_storage_check(_auth: AuthPrincipal = Depends(require_admin_access)
         read_back = get_object_bytes(test_key)
         delete_object(test_key)
     except Exception as e:
-        raise HTTPException(503, f"Tigris read/write failed: {e}") from e
+        raise HTTPException(503, "Storage read/write check failed") from e
     if read_back != payload:
         raise HTTPException(503, "Tigris read-back content mismatch")
     return {"ok": True}
+
+
+@app.post("/api/admin/analytics/refresh")
+async def api_admin_analytics_refresh(_auth: AuthPrincipal = Depends(require_admin_access)):
+    try:
+        result = await refresh_analytics_cache(source="admin_api")
+    except Exception as exc:
+        raise HTTPException(503, f"Analytics cache refresh failed: {exc}") from exc
+    return result
+
+
+@app.get("/api/admin/analytics/status")
+async def api_admin_analytics_status(_auth: AuthPrincipal = Depends(require_admin_access)):
+    return await get_analytics_cache_status()
 
 
 # ---------------------------------------------------------------------------
@@ -981,15 +1017,15 @@ def api_admin_storage_check(_auth: AuthPrincipal = Depends(require_admin_access)
 # ---------------------------------------------------------------------------
 
 @app.get("/api/document/{doc_id}")
-def api_document(doc_id: str, _auth: AuthPrincipal = Depends(require_protected_access)):
+async def api_document(doc_id: str):
     """Get full document by UUID."""
-    return _load_document_payload(doc_id)
+    return await _load_document_payload(doc_id)
 
 
 @app.get("/api/document/{doc_id}/pdf")
-def api_document_pdf(doc_id: str, _auth: AuthPrincipal = Depends(require_protected_access)):
+async def api_document_pdf(doc_id: str):
     """Generate a server-side PDF rendition with editorial/two-column layout."""
-    doc = _load_document_payload(doc_id)
+    doc = await _load_document_payload(doc_id)
 
     try:
         from bs4 import BeautifulSoup, Tag
@@ -1374,57 +1410,49 @@ def api_document_pdf(doc_id: str, _auth: AuthPrincipal = Depends(require_protect
 
 
 @app.get("/api/document/{doc_id}/graph")
-def api_document_graph(
+async def api_document_graph(
     doc_id: str,
     depth: int = Query(2, ge=1, le=2),
     per_seed: int = Query(3, ge=1, le=5),
-    _auth: AuthPrincipal = Depends(require_protected_access),
 ):
     """Derived document graph from existing references + search backend."""
-    conn = _conn()
-    try:
-        cur = conn.cursor()
-        cur.execute(
+    async with acquire() as conn:
+        row = await conn.fetchrow(
             """
             SELECT d.id, d.identifica, d.titulo, d.ementa, d.issuing_organ, d.page_number,
                    d.art_type, d.document_number, d.document_year, e.publication_date, e.section
             FROM dou.document d
             JOIN dou.edition e ON e.id = d.edition_id
-            WHERE d.id = %s::uuid
+            WHERE d.id = $1::uuid
             """,
-            (doc_id,),
+            doc_id,
         )
-        row = cur.fetchone()
         if not row:
             raise HTTPException(404, "Documento não encontrado")
-        cols = [desc[0] for desc in cur.description]
-        doc = {k: _ser(v) for k, v in zip(cols, row)}
+        doc = {k: _ser(v) for k, v in dict(row).items()}
 
-        cur.execute(
+        nr_rows = await conn.fetch(
             """
             SELECT reference_type, reference_number, reference_date, reference_text
             FROM dou.normative_reference
-            WHERE document_id = %s::uuid
+            WHERE document_id = $1::uuid
             ORDER BY reference_date NULLS LAST, reference_type, reference_number
             LIMIT 8
             """,
-            (doc_id,),
+            doc_id,
         )
-        normative_refs = [{k: _ser(v) for k, v in r.items()} for r in _rows(cur)]
+        normative_refs = [{k: _ser(v) for k, v in dict(r).items()} for r in nr_rows]
 
-        cur.execute(
+        pr_rows = await conn.fetch(
             """
             SELECT procedure_type, procedure_identifier
             FROM dou.procedure_reference
-            WHERE document_id = %s::uuid
+            WHERE document_id = $1::uuid
             LIMIT 6
             """,
-            (doc_id,),
+            doc_id,
         )
-        procedure_refs = [{k: _ser(v) for k, v in r.items()} for r in _rows(cur)]
-        cur.close()
-    finally:
-        conn.close()
+        procedure_refs = [{k: _ser(v) for k, v in dict(r).items()} for r in pr_rows]
 
     branches: list[dict[str, Any]] = []
 
@@ -1436,7 +1464,7 @@ def api_document_graph(
         )
         if not query:
             continue
-        related_docs: list[dict[str, Any]] = _resolve_reference_targets(
+        related_docs: list[dict[str, Any]] = await _resolve_reference_targets(
             ref,
             exclude_doc_id=doc_id,
             per_seed=per_seed,
@@ -1462,7 +1490,7 @@ def api_document_graph(
             }
         )
 
-    branches.extend(_incoming_normative_branches(doc, per_seed=per_seed))
+    branches.extend(await _incoming_normative_branches(doc, per_seed=per_seed))
 
     for idx, procedure in enumerate(procedure_refs[:3]):
         query = " ".join(
@@ -1520,32 +1548,26 @@ def api_document_graph(
 # ---------------------------------------------------------------------------
 
 @app.get("/api/stats")
-def api_stats():
-    """Search + DB stats."""
-    conn = _conn()
-    try:
-        cur = conn.cursor()
+async def api_stats(_auth: AuthPrincipal = Depends(require_protected_access)):
+    """Search + DB stats (authenticated only — exposes operational details)."""
+    async with acquire() as conn:
         payload = stats_payload()
         search_stats = payload.get("search", {})
 
-        cur.execute("SELECT pg_size_pretty(pg_database_size('gabi'))")
-        db_size = cur.fetchone()[0]
+        row = await conn.fetchrow("SELECT pg_size_pretty(pg_database_size('gabi'))")
+        db_size = row[0]
 
-        cur.execute("SELECT min(publication_date), max(publication_date) FROM dou.edition")
-        dmin, dmax = cur.fetchone()
+        row = await conn.fetchrow("SELECT min(publication_date), max(publication_date) FROM dou.edition")
+        dmin, dmax = row[0], row[1]
 
-        cur.execute("""
+        rows = await conn.fetch("""
             SELECT art_type, count(*) as cnt
             FROM dou.document GROUP BY art_type ORDER BY cnt DESC LIMIT 15
         """)
-        type_dist = [{"type": t, "count": c} for t, c in cur.fetchall()]
+        type_dist = [{"type": r[0], "count": r[1]} for r in rows]
 
-        cur.execute("SELECT count(*) FROM dou.source_zip")
-        zip_count = cur.fetchone()[0]
-
-        cur.close()
-    finally:
-        conn.close()
+        row = await conn.fetchrow("SELECT count(*) FROM dou.source_zip")
+        zip_count = row[0]
 
     return {
         "search_backend": SEARCH_CFG.backend,
@@ -1564,141 +1586,16 @@ def api_stats():
 
 
 @app.get("/api/analytics")
-def api_analytics():
-    """Operational analytics payload for home and analytics views."""
-    conn = _conn()
-    try:
-        cur = conn.cursor()
+async def api_analytics():
+    """Operational analytics payload backed by materialized cache views."""
+    return await load_analytics_payload()
 
-        cur.execute(
-            """
-            SELECT
-                count(*)::bigint AS total_documents,
-                (count(DISTINCT issuing_organ) FILTER (WHERE issuing_organ IS NOT NULL AND issuing_organ <> ''))::bigint AS total_organs,
-                (count(DISTINCT art_type) FILTER (WHERE art_type IS NOT NULL AND art_type <> ''))::bigint AS total_types
-            FROM dou.document
-            """
-        )
-        total_documents, total_organs, total_types = cur.fetchone()
 
-        cur.execute(
-            """
-            SELECT min(publication_date), max(publication_date)
-            FROM dou.edition
-            """
-        )
-        date_min, date_max = cur.fetchone()
-
-        cur.execute(
-            """
-            SELECT
-                date_trunc('month', e.publication_date)::date AS month,
-                count(*) FILTER (WHERE e.section = 'do1' AND NOT COALESCE(e.is_extra, false))::bigint AS do1,
-                count(*) FILTER (WHERE e.section = 'do2')::bigint AS do2,
-                count(*) FILTER (WHERE e.section = 'do3')::bigint AS do3,
-                count(*) FILTER (WHERE COALESCE(e.is_extra, false) OR e.section IN ('do1e', 'e'))::bigint AS extra,
-                count(*)::bigint AS total
-            FROM dou.document d
-            JOIN dou.edition e ON e.id = d.edition_id
-            GROUP BY 1
-            ORDER BY 1 DESC
-            LIMIT 18
-            """
-        )
-        monthly_rows = list(reversed(cur.fetchall()))
-        section_monthly = [
-            {
-                "month": row[0].isoformat() if row[0] else None,
-                "do1": int(row[1] or 0),
-                "do2": int(row[2] or 0),
-                "do3": int(row[3] or 0),
-                "extra": int(row[4] or 0),
-                "total": int(row[5] or 0),
-            }
-            for row in monthly_rows
-        ]
-
-        cur.execute(
-            """
-            SELECT COALESCE(NULLIF(trim(art_type), ''), 'outros') AS art_type, count(*)::bigint AS cnt
-            FROM dou.document
-            GROUP BY 1
-            ORDER BY cnt DESC
-            LIMIT 5
-            """
-        )
-        top_type_rows = cur.fetchall()
-        top_types = [str(row[0]) for row in top_type_rows]
-
-        type_points_by_month: dict[str, dict[str, int]] = {}
-        if top_types:
-            cur.execute(
-                """
-                SELECT
-                    date_trunc('month', e.publication_date)::date AS month,
-                    COALESCE(NULLIF(trim(d.art_type), ''), 'outros') AS art_type,
-                    count(*)::bigint AS cnt
-                FROM dou.document d
-                JOIN dou.edition e ON e.id = d.edition_id
-                WHERE COALESCE(NULLIF(trim(d.art_type), ''), 'outros') = ANY(%s)
-                GROUP BY 1, 2
-                ORDER BY 1 ASC
-                """,
-                (top_types,),
-            )
-            for month_value, art_type_value, count_value in cur.fetchall():
-                month_key = month_value.isoformat() if month_value else ""
-                bucket = type_points_by_month.setdefault(month_key, {})
-                bucket[str(art_type_value)] = int(count_value or 0)
-
-        top_types_monthly = {
-            "months": [item["month"] for item in section_monthly],
-            "series": [
-                {
-                    "key": art_type,
-                    "label": art_type.replace("-", " ").title(),
-                    "total": int(total or 0),
-                    "points": [
-                        type_points_by_month.get(str(item["month"]), {}).get(art_type, 0)
-                        for item in section_monthly
-                    ],
-                }
-                for art_type, total in top_type_rows
-            ],
-        }
-
-        cur.execute(
-            """
-            SELECT issuing_organ, count(*)::bigint AS cnt
-            FROM dou.document
-            WHERE issuing_organ IS NOT NULL AND issuing_organ <> ''
-            GROUP BY issuing_organ
-            ORDER BY cnt DESC
-            LIMIT 8
-            """
-        )
-        top_organs = [
-            {"organ": str(row[0]), "count": int(row[1] or 0)}
-            for row in cur.fetchall()
-        ]
-
-        cur.execute(
-            """
-            SELECT
-                e.section,
-                count(*)::bigint AS cnt
-            FROM dou.document d
-            JOIN dou.edition e ON e.id = d.edition_id
-            GROUP BY e.section
-            ORDER BY cnt DESC
-            """
-        )
-        section_totals = [
-            {"section": str(row[0] or ""), "count": int(row[1] or 0)}
-            for row in cur.fetchall()
-        ]
-
-        cur.execute(
+@app.get("/api/highlights")
+async def api_highlights(limit: int = Query(4, ge=1, le=12)):
+    """Lightweight latest-documents feed for the home page highlights rail."""
+    async with acquire() as conn:
+        rows = await conn.fetch(
             """
             SELECT
                 d.id,
@@ -1712,43 +1609,25 @@ def api_analytics():
             FROM dou.document d
             JOIN dou.edition e ON e.id = d.edition_id
             ORDER BY e.publication_date DESC, d.page_number DESC NULLS LAST, d.id DESC
-            LIMIT 4
-            """
+            LIMIT $1
+            """,
+            limit,
         )
-        latest_documents = []
-        for row in cur.fetchall():
-            latest_documents.append(
-                {
-                    "id": str(row[0]),
-                    "title": str(row[1] or row[2] or "Sem título"),
-                    "snippet": str(row[2] or "").strip() or None,
-                    "issuing_organ": str(row[3] or "").strip() or None,
-                    "art_type": str(row[4] or "").strip() or None,
-                    "pub_date": row[5].isoformat() if row[5] else None,
-                    "section": str(row[6] or ""),
-                    "page": str(row[7]) if row[7] is not None else None,
-                }
-            )
 
-        cur.close()
-    finally:
-        conn.close()
-
-    return {
-        "overview": {
-            "total_documents": int(total_documents or 0),
-            "total_organs": int(total_organs or 0),
-            "total_types": int(total_types or 0),
-            "date_min": date_min.isoformat() if date_min else None,
-            "date_max": date_max.isoformat() if date_max else None,
-            "tracked_months": len(section_monthly),
-        },
-        "section_totals": section_totals,
-        "section_monthly": section_monthly,
-        "top_types_monthly": top_types_monthly,
-        "top_organs": top_organs,
-        "latest_documents": latest_documents,
-    }
+    items = [
+        {
+            "id": str(row[0]),
+            "title": str(row[1] or row[2] or "Sem título"),
+            "snippet": str(row[2] or "").strip() or None,
+            "issuing_organ": str(row[3] or "").strip() or None,
+            "art_type": str(row[4] or "").strip() or None,
+            "pub_date": row[5].isoformat() if row[5] else None,
+            "section": str(row[6] or ""),
+            "page": str(row[7]) if row[7] is not None else None,
+        }
+        for row in rows
+    ]
+    return {"items": items}
 
 
 # ---------------------------------------------------------------------------
@@ -1756,22 +1635,16 @@ def api_analytics():
 # ---------------------------------------------------------------------------
 
 @app.get("/api/types")
-def api_types():
+async def api_types():
     """Distinct art_type values with counts."""
-    conn = _conn()
-    try:
-        cur = conn.cursor()
-        cur.execute("""
+    async with acquire() as conn:
+        rows = await conn.fetch("""
             SELECT art_type, count(*) as cnt
             FROM dou.document
             GROUP BY art_type
             ORDER BY cnt DESC
         """)
-        rows = cur.fetchall()
-        cur.close()
-    finally:
-        conn.close()
-    return [{"type": t, "count": c} for t, c in rows]
+    return [{"type": r[0], "count": r[1]} for r in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -1786,46 +1659,39 @@ class ChatRequest(BaseModel):
 import re as _re
 
 
-def _chat_context(user_msg: str) -> str:
+async def _chat_context(user_msg: str) -> str:
     """Build a factual context block from live DB queries (instant)."""
     parts: list[str] = []
-    conn = _conn(timeout_ms=5000)
     try:
-        cur = conn.cursor()
-        cur.execute("SELECT cs.total_docs FROM dou.bm25_corpus_stats cs")
-        row = cur.fetchone()
-        total_docs = row[0] if row else 0
+        async with acquire(timeout_ms=5000) as conn:
+            row = await conn.fetchrow("SELECT cs.total_docs FROM dou.bm25_corpus_stats cs")
+            total_docs = row[0] if row else 0
 
-        cur.execute("SELECT min(publication_date), max(publication_date) FROM dou.edition")
-        row = cur.fetchone()
-        if row and total_docs:
-            parts.append(f"A base possui {total_docs:,} documentos, de {row[0]} a {row[1]}.")
+            row = await conn.fetchrow("SELECT min(publication_date), max(publication_date) FROM dou.edition")
+            if row and total_docs:
+                parts.append(f"A base possui {total_docs:,} documentos, de {row[0]} a {row[1]}.")
 
-        cur.execute(
-            "SELECT term, cnt FROM dou.suggest_cache "
-            "WHERE cat = 'tipo' ORDER BY cnt DESC LIMIT 8"
-        )
-        types = [f"{r[0]} ({r[1]:,})" for r in cur.fetchall()]
-        if types:
-            parts.append("Tipos mais frequentes: " + ", ".join(types) + ".")
-
-        cur.execute(
-            "SELECT term, cnt FROM dou.suggest_cache "
-            "WHERE cat = 'orgao' AND term ILIKE %s ORDER BY cnt DESC LIMIT 3",
-            (f"%{user_msg}%",),
-        )
-        organs = cur.fetchall()
-        if organs:
-            parts.append(
-                "Órgãos encontrados: "
-                + ", ".join(f"{o[0]} ({o[1]:,} docs)" for o in organs)
-                + "."
+            rows = await conn.fetch(
+                "SELECT term, cnt FROM dou.suggest_cache "
+                "WHERE cat = 'tipo' ORDER BY cnt DESC LIMIT 8"
             )
-        cur.close()
+            types = [f"{r[0]} ({r[1]:,})" for r in rows]
+            if types:
+                parts.append("Tipos mais frequentes: " + ", ".join(types) + ".")
+
+            organs = await conn.fetch(
+                "SELECT term, cnt FROM dou.suggest_cache "
+                "WHERE cat = 'orgao' AND term ILIKE $1 ORDER BY cnt DESC LIMIT 3",
+                f"%{user_msg}%",
+            )
+            if organs:
+                parts.append(
+                    "Órgãos encontrados: "
+                    + ", ".join(f"{o[0]} ({o[1]:,} docs)" for o in organs)
+                    + "."
+                )
     except Exception:
         pass
-    finally:
-        conn.close()
     return "\n".join(parts)
 
 
@@ -1926,7 +1792,7 @@ def _chat_rag_fallback_reply(message: str, sources: list[dict[str, Any]]) -> str
     return "\n".join(lines).strip()
 
 
-def _chat_extract_organ_terms(message: str) -> list[str]:
+async def _chat_extract_organ_terms(message: str) -> list[str]:
     low = message.lower()
     aliases = {
         "anvisa": ["Agência Nacional de Vigilância Sanitária", "ANVISA"],
@@ -1940,27 +1806,23 @@ def _chat_extract_organ_terms(message: str) -> list[str]:
         if alias in low:
             terms.extend(expansions)
 
-    conn = _conn(timeout_ms=5000)
     try:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT term
-            FROM dou.suggest_cache
-            WHERE cat = 'orgao'
-              AND length(term) >= 5
-              AND %s ILIKE '%%' || term || '%%'
-            ORDER BY length(term) DESC, cnt DESC
-            LIMIT 3
-            """,
-            (message,),
-        )
-        terms.extend(str(row[0]) for row in cur.fetchall())
-        cur.close()
+        async with acquire(timeout_ms=5000) as conn:
+            rows = await conn.fetch(
+                """
+                SELECT term
+                FROM dou.suggest_cache
+                WHERE cat = 'orgao'
+                  AND length(term) >= 5
+                  AND $1 ILIKE '%' || term || '%'
+                ORDER BY length(term) DESC, cnt DESC
+                LIMIT 3
+                """,
+                message,
+            )
+            terms.extend(str(row[0]) for row in rows)
     except Exception:
         pass
-    finally:
-        conn.close()
 
     out: list[str] = []
     seen: set[str] = set()
@@ -1972,88 +1834,87 @@ def _chat_extract_organ_terms(message: str) -> list[str]:
     return out
 
 
-def _chat_exact_norm_matches(
+async def _chat_exact_norm_matches(
     norm_query: NormQuery,
     *,
     organ_terms: list[str] | None = None,
     max_results: int = 4,
 ) -> list[dict[str, Any]]:
     organ_terms = [term for term in (organ_terms or []) if str(term).strip()]
-    conn = _conn(timeout_ms=10000)
-    try:
-        cur = conn.cursor()
-        sql = """
-            SELECT d.id AS doc_id, d.id_materia, d.identifica, d.titulo, d.ementa,
-                   d.issuing_organ, d.page_number, d.art_type, e.publication_date AS pub_date,
-                   e.section AS edition_section
-            FROM dou.document d
-            JOIN dou.edition e ON e.id = d.edition_id
-            WHERE (%s::text IS NULL OR d.art_type = %s)
-              AND d.document_number = ANY(%s)
-              AND (%s::int IS NULL OR d.document_year = %s)
-        """
-        params: list[Any] = [
-            norm_query.norm_type,
-            norm_query.norm_type,
-            _resolved_norm_variants(norm_query),
-            norm_query.year,
-            norm_query.year,
-        ]
-        if organ_terms:
-            sql += """
-              AND (
-            """
-            clauses: list[str] = []
-            for term in organ_terms:
-                clauses.append(
-                    "(d.issuing_organ ILIKE %s OR d.identifica ILIKE %s OR d.ementa ILIKE %s OR d.body_plain ILIKE %s)"
-                )
-                like = f"%{term}%"
-                params.extend([like, like, like, like])
-            sql += " OR ".join(clauses) + ")"
+    param_idx = 0
 
+    def next_param():
+        nonlocal param_idx
+        param_idx += 1
+        return f"${param_idx}"
+
+    p_norm_type = next_param()  # $1
+    p_variants = next_param()   # $2
+    p_year = next_param()       # $3
+
+    sql = f"""
+        SELECT d.id AS doc_id, d.id_materia, d.identifica, d.titulo, d.ementa,
+               d.issuing_organ, d.page_number, d.art_type, e.publication_date AS pub_date,
+               e.section AS edition_section
+        FROM dou.document d
+        JOIN dou.edition e ON e.id = d.edition_id
+        WHERE ({p_norm_type}::text IS NULL OR d.art_type = {p_norm_type})
+          AND d.document_number = ANY({p_variants})
+          AND ({p_year}::int IS NULL OR d.document_year = {p_year})
+    """
+    params: list[Any] = [
+        norm_query.norm_type,
+        _resolved_norm_variants(norm_query),
+        norm_query.year,
+    ]
+    if organ_terms:
         sql += """
-            ORDER BY
-              CASE WHEN %s::int IS NOT NULL AND d.document_year = %s THEN 0 ELSE 1 END,
-              e.publication_date DESC
-            LIMIT %s
+          AND (
         """
-        params.extend([norm_query.year, norm_query.year, max_results])
-        cur.execute(sql, params)
-        rows = _rows(cur)
-        cur.close()
-        return rows
-    finally:
-        conn.close()
+        clauses: list[str] = []
+        for term in organ_terms:
+            p_like = next_param()
+            clauses.append(
+                f"(d.issuing_organ ILIKE {p_like} OR d.identifica ILIKE {p_like} OR d.ementa ILIKE {p_like} OR d.body_plain ILIKE {p_like})"
+            )
+            like = f"%{term}%"
+            params.append(like)
+        sql += " OR ".join(clauses) + ")"
+
+    sql += f"""
+        ORDER BY
+          CASE WHEN {p_year}::int IS NOT NULL AND d.document_year = {p_year} THEN 0 ELSE 1 END,
+          e.publication_date DESC
+        LIMIT {next_param()}
+    """
+    params.append(max_results)
+    async with acquire(timeout_ms=10000) as conn:
+        rows = await conn.fetch(sql, *params)
+        return [dict(r) for r in rows]
 
 
-def _chat_corpus_range() -> tuple[str | None, str | None]:
-    conn = _conn(timeout_ms=5000)
+async def _chat_corpus_range() -> tuple[str | None, str | None]:
     try:
-        cur = conn.cursor()
-        cur.execute("SELECT min(publication_date), max(publication_date) FROM dou.edition")
-        row = cur.fetchone()
-        cur.close()
-        if not row:
-            return None, None
-        return (
-            row[0].isoformat() if row[0] else None,
-            row[1].isoformat() if row[1] else None,
-        )
+        async with acquire(timeout_ms=5000) as conn:
+            row = await conn.fetchrow("SELECT min(publication_date), max(publication_date) FROM dou.edition")
+            if not row:
+                return None, None
+            return (
+                row[0].isoformat() if row[0] else None,
+                row[1].isoformat() if row[1] else None,
+            )
     except Exception:
         return None, None
-    finally:
-        conn.close()
 
 
-def _chat_exact_norm_miss_reply(
+async def _chat_exact_norm_miss_reply(
     message: str,
     *,
     norm_query: NormQuery,
     organ_terms: list[str],
     nearby_sources: list[dict[str, Any]],
 ) -> str:
-    date_min, date_max = _chat_corpus_range()
+    date_min, date_max = await _chat_corpus_range()
     norm_label = " ".join(
         part
         for part in [
@@ -2090,9 +1951,9 @@ def _chat_exact_norm_miss_reply(
     return "\n".join(lines).strip()
 
 
-def _chat_rag_context(message: str, *, max_results: int = 4) -> dict[str, Any] | None:
+async def _chat_rag_context(message: str, *, max_results: int = 4) -> dict[str, Any] | None:
     norm_query = detect_legal_norm(message)
-    organ_terms = _chat_extract_organ_terms(message)
+    organ_terms = await _chat_extract_organ_terms(message)
     relation_terms = [
         term
         for term in ["regulamenta", "revoga", "altera", "complementa", "cita"]
@@ -2114,12 +1975,12 @@ def _chat_rag_context(message: str, *, max_results: int = 4) -> dict[str, Any] |
     seen_ids: set[str] = set()
 
     if norm_query is not None:
-        exact_rows = _chat_exact_norm_matches(norm_query, organ_terms=organ_terms, max_results=max_results)
+        exact_rows = await _chat_exact_norm_matches(norm_query, organ_terms=organ_terms, max_results=max_results)
         if not exact_rows and organ_terms:
-            nearby_rows = _chat_exact_norm_matches(norm_query, organ_terms=None, max_results=max_results)
+            nearby_rows = await _chat_exact_norm_matches(norm_query, organ_terms=None, max_results=max_results)
             nearby_sources = [_normalize_chat_source(row) for row in nearby_rows]
             return {
-                "reply": _chat_exact_norm_miss_reply(
+                "reply": await _chat_exact_norm_miss_reply(
                     message,
                     norm_query=norm_query,
                     organ_terms=organ_terms,
@@ -2165,7 +2026,7 @@ def _chat_rag_context(message: str, *, max_results: int = 4) -> dict[str, Any] |
 
         if doc_id:
             try:
-                doc = _load_document_payload(doc_id)
+                doc = await _load_document_payload(doc_id)
                 if isinstance(doc, dict):
                     body_plain = str(doc.get("body_plain") or "").strip()
                     normative_refs = [
@@ -2283,7 +2144,7 @@ def _parse_date_filter(msg: str) -> tuple[str | None, str | None]:
     return date_from, date_to
 
 
-def _chat_search(msg: str) -> str | None:
+async def _chat_search(msg: str) -> str | None:
     """Try to interpret the message as a search query and return formatted results."""
     import logging
     log = logging.getLogger("gabi.chat")
@@ -2325,128 +2186,126 @@ def _chat_search(msg: str) -> str | None:
 
     # Detect organ
     organ = None
-    conn = _conn(timeout_ms=15000)
     try:
-        cur = conn.cursor()
-        # Check if any known organ name appears in the message
-        cur.execute(
-            "SELECT term FROM dou.suggest_cache "
-            "WHERE cat = 'orgao' AND length(term) >= 5 "
-            "AND %s ILIKE '%%' || term || '%%' "
-            "ORDER BY length(term) DESC, cnt DESC LIMIT 1",
-            (msg,),
-        )
-        row = cur.fetchone()
-        if row:
-            # Make sure the matched organ isn't just a type keyword
-            matched_organ = row[0].lower()
-            if not any(kw in matched_organ for kw in type_words_found):
-                organ = row[0]
-
-        if not organ:
-            # Extract capitalized multi-word fragments (potential organ names)
-            words = _re.findall(r'[A-ZÀ-Ú][a-zà-ú]+(?:\s+(?:d[aoe]s?\s+)?[A-ZÀ-Ú][a-zà-ú]+)*', msg)
-            # Also extract ALL-CAPS acronyms (e.g. ANVISA, IBAMA, INSS)
-            acronyms = _re.findall(r'\b[A-ZÀ-Ú]{3,}\b', msg)
-            candidates = [(w, 8) for w in words] + [(a, 2) for a in acronyms]
-            for w, min_len in candidates:
-                if len(w) > min_len and w.lower() not in type_words_found:
-                    cur.execute(
-                        "SELECT term FROM dou.suggest_cache "
-                        "WHERE cat = 'orgao' AND term ~* %s "
-                        "ORDER BY cnt DESC LIMIT 1",
-                        (rf"\y{_re.escape(w)}\y",),
-                    )
-                    row = cur.fetchone()
-                    if row:
-                        organ = row[0]
-                        break
-
-        # If no organ, no type, no person — try to detect general search terms
-        search_intent = bool(
-            organ or art_type or person
-            or _re.search(r'\b(publicaç|publicacoe|documento|norma|sobre|busca|busque|mostr|list|recente|últim|ultimo)', low)
-        )
-
-        if not search_intent:
-            cur.close()
-            return None
-
-        # Build query
-        limit = _parse_limit(msg)
-        date_from, date_to = _parse_date_filter(msg)
-
-        where_parts = ["1=1"]
-        params: list = []
-
-        if organ:
-            where_parts.append("d.issuing_organ = %s")
-            params.append(organ)
-        if art_type:
-            # Look up exact art_type values from DB to use btree index
-            cur.execute(
-                "SELECT DISTINCT term FROM dou.suggest_cache "
-                "WHERE cat = 'tipo' AND term ILIKE %s",
-                (f"%{art_type}%",),
+        async with acquire(timeout_ms=15000) as conn:
+            # Check if any known organ name appears in the message
+            row = await conn.fetchrow(
+                "SELECT term FROM dou.suggest_cache "
+                "WHERE cat = 'orgao' AND length(term) >= 5 "
+                "AND $1 ILIKE '%' || term || '%' "
+                "ORDER BY length(term) DESC, cnt DESC LIMIT 1",
+                msg,
             )
-            matching_types = [r[0] for r in cur.fetchall()]
-            if matching_types:
-                placeholders = ",".join(["%s"] * len(matching_types))
-                where_parts.append(f"d.art_type IN ({placeholders})")
-                params.extend(matching_types)
-            else:
-                where_parts.append("d.art_type ILIKE %s")
-                params.append(f"%{art_type}%")
-        if date_from:
-            where_parts.append("e.publication_date >= %s::date")
-            params.append(date_from)
-        if date_to:
-            where_parts.append("e.publication_date <= %s::date")
-            params.append(date_to)
+            if row:
+                # Make sure the matched organ isn't just a type keyword
+                matched_organ = row[0].lower()
+                if not any(kw in matched_organ for kw in type_words_found):
+                    organ = row[0]
 
-        if person:
-            where_parts.append(
-                "d.body_tsvector @@ websearch_to_tsquery('pg_catalog.portuguese', %s)"
+            if not organ:
+                # Extract capitalized multi-word fragments (potential organ names)
+                words = _re.findall(r'[A-ZÀ-Ú][a-zà-ú]+(?:\s+(?:d[aoe]s?\s+)?[A-ZÀ-Ú][a-zà-ú]+)*', msg)
+                # Also extract ALL-CAPS acronyms (e.g. ANVISA, IBAMA, INSS)
+                acronyms = _re.findall(r'\b[A-ZÀ-Ú]{3,}\b', msg)
+                candidates = [(w, 8) for w in words] + [(a, 2) for a in acronyms]
+                for w, min_len in candidates:
+                    if len(w) > min_len and w.lower() not in type_words_found:
+                        row = await conn.fetchrow(
+                            "SELECT term FROM dou.suggest_cache "
+                            "WHERE cat = 'orgao' AND term ~* $1 "
+                            "ORDER BY cnt DESC LIMIT 1",
+                            rf"\y{_re.escape(w)}\y",
+                        )
+                        if row:
+                            organ = row[0]
+                            break
+
+            # If no organ, no type, no person — try to detect general search terms
+            search_intent = bool(
+                organ or art_type or person
+                or _re.search(r'\b(publicaç|publicacoe|documento|norma|sobre|busca|busque|mostr|list|recente|últim|ultimo)', low)
             )
-            params.append(person)
 
-        # If we only have search_intent from generic words but no filters, do FTS search
-        if len(where_parts) == 1 and not person:
-            # Extract meaningful words (skip stop words) and use FTS
-            stop = {'as', 'os', 'de', 'do', 'da', 'dos', 'das', 'no', 'na', 'nos', 'nas',
-                    'um', 'uma', 'uns', 'umas', 'em', 'por', 'para', 'com', 'que', 'qual',
-                    'quais', 'mais', 'menos', 'últimas', 'últimos', 'ultima', 'ultimo',
-                    'recentes', 'recente', 'primeiro', 'primeira', 'publicações', 'publicacoes',
-                    'documentos', 'documento', 'sobre', 'buscar', 'busque', 'me', 'mostre',
-                    'mostra', 'lista', 'liste'}
-            meaningful = [w for w in _re.findall(r'\w+', low) if len(w) > 2 and w not in stop]
-            if meaningful:
-                terms = " ".join(meaningful[:5])
-                where_parts.append(
-                    "d.body_tsvector @@ websearch_to_tsquery('pg_catalog.portuguese', %s)"
+            if not search_intent:
+                return None
+
+            # Build query
+            limit = _parse_limit(msg)
+            date_from, date_to = _parse_date_filter(msg)
+
+            param_idx = 0
+            def next_param():
+                nonlocal param_idx
+                param_idx += 1
+                return f"${param_idx}"
+
+            where_parts = ["1=1"]
+            params: list = []
+
+            if organ:
+                where_parts.append(f"d.issuing_organ = {next_param()}")
+                params.append(organ)
+            if art_type:
+                # Look up exact art_type values from DB to use btree index
+                type_rows = await conn.fetch(
+                    "SELECT DISTINCT term FROM dou.suggest_cache "
+                    "WHERE cat = 'tipo' AND term ILIKE $1",
+                    f"%{art_type}%",
                 )
-                params.append(terms)
+                matching_types = [r[0] for r in type_rows]
+                if matching_types:
+                    placeholders = ",".join([next_param() for _ in matching_types])
+                    where_parts.append(f"d.art_type IN ({placeholders})")
+                    params.extend(matching_types)
+                else:
+                    where_parts.append(f"d.art_type ILIKE {next_param()}")
+                    params.append(f"%{art_type}%")
+            if date_from:
+                where_parts.append(f"e.publication_date >= {next_param()}::date")
+                params.append(date_from)
+            if date_to:
+                where_parts.append(f"e.publication_date <= {next_param()}::date")
+                params.append(date_to)
 
-        params.append(limit)
+            if person:
+                where_parts.append(
+                    f"d.body_tsvector @@ websearch_to_tsquery('pg_catalog.portuguese', {next_param()})"
+                )
+                params.append(person)
 
-        sql = f"""
-            SELECT d.id, d.identifica, d.ementa, d.art_type, d.issuing_organ,
-                   e.publication_date, e.section
-            FROM dou.document d
-            JOIN dou.edition e ON e.id = d.edition_id
-            WHERE {' AND '.join(where_parts)}
-            ORDER BY e.publication_date DESC
-            LIMIT %s
-        """
-        log.info("chat_search sql=%s params=%s", sql.strip()[:200], params)
-        cur.execute(sql, params)
-        rows = cur.fetchall()
-        cur.close()
+            # If we only have search_intent from generic words but no filters, do FTS search
+            if len(where_parts) == 1 and not person:
+                # Extract meaningful words (skip stop words) and use FTS
+                stop = {'as', 'os', 'de', 'do', 'da', 'dos', 'das', 'no', 'na', 'nos', 'nas',
+                        'um', 'uma', 'uns', 'umas', 'em', 'por', 'para', 'com', 'que', 'qual',
+                        'quais', 'mais', 'menos', 'últimas', 'últimos', 'ultima', 'ultimo',
+                        'recentes', 'recente', 'primeiro', 'primeira', 'publicações', 'publicacoes',
+                        'documentos', 'documento', 'sobre', 'buscar', 'busque', 'me', 'mostre',
+                        'mostra', 'lista', 'liste'}
+                meaningful = [w for w in _re.findall(r'\w+', low) if len(w) > 2 and w not in stop]
+                if meaningful:
+                    terms = " ".join(meaningful[:5])
+                    where_parts.append(
+                        f"d.body_tsvector @@ websearch_to_tsquery('pg_catalog.portuguese', {next_param()})"
+                    )
+                    params.append(terms)
+
+            p_limit = next_param()
+
+            sql = f"""
+                SELECT d.id, d.identifica, d.ementa, d.art_type, d.issuing_organ,
+                       e.publication_date, e.section
+                FROM dou.document d
+                JOIN dou.edition e ON e.id = d.edition_id
+                WHERE {' AND '.join(where_parts)}
+                ORDER BY e.publication_date DESC
+                LIMIT {p_limit}
+            """
+            log.info("chat_search sql=%s params=%s", sql.strip()[:200], params + [limit])
+            rows = await conn.fetch(sql, *params, limit)
     except Exception as exc:
         log.exception("chat_search error: %s", exc)
         return None
-    finally:
-        conn.close()
 
     if not rows:
         parts = []
@@ -2662,7 +2521,7 @@ async def api_chat(
                         },
                     )
                     return
-                yield _sse_event("error", {"detail": str(exc)})
+                yield _sse_event("error", {"detail": "Chat service temporarily unavailable"})
                 return
 
             payload = await finalize(
@@ -2753,14 +2612,14 @@ async def api_chat(
         }
 
     use_rag = _should_use_rag(msg)
-    rag = _chat_rag_context(msg, max_results=min(_parse_limit(msg), 4)) if use_rag else None
+    rag = await _chat_rag_context(msg, max_results=min(_parse_limit(msg), 4)) if use_rag else None
     if payload is not None:
         if stream:
             return await stream_payload(payload, cache_reply=True)
         return await finalize(payload)
 
     if not use_rag:
-        result = _chat_search(msg)
+        result = await _chat_search(msg)
         if result:
             payload = {"reply": result, "model": "gabi"}
             if stream:
@@ -2778,7 +2637,7 @@ async def api_chat(
         return await finalize(payload)
 
     if QWEN_API_KEY:
-        ctx = _chat_context(msg)
+        ctx = await _chat_context(msg)
         system_parts = [SYSTEM_PROMPT]
         if ctx:
             system_parts.append(f"CONTEXTO DA BASE:\n{ctx}")
@@ -2869,30 +2728,23 @@ async def api_chat(
 
 
 @app.get("/api/media/{doc_id}/{media_name}")
-def api_media(
+async def api_media(
     doc_id: str,
     media_name: str,
-    _auth: AuthPrincipal = Depends(require_protected_access),
 ):
     """Serve media from bytea or local cache only."""
-    conn = _conn(timeout_ms=10000)
-    try:
-        cur = conn.cursor()
-        cur.execute("""
+    async with acquire(timeout_ms=10000) as conn:
+        row = await conn.fetchrow("""
             SELECT data, media_type, local_path, availability_status, ingest_checked_at
             FROM dou.document_media
-            WHERE document_id = %s::uuid
+            WHERE document_id = $1::uuid
               AND (
-                    media_name = %s
-                 OR source_filename = %s
-                 OR media_name = regexp_replace(%s, E'\\.[^\\.]+$', '')
+                    media_name = $2
+                 OR source_filename = $2
+                 OR media_name = regexp_replace($2, E'\\.[^\\.]+$', '')
               )
             LIMIT 1
-        """, (doc_id, media_name, media_name, media_name))
-        row = cur.fetchone()
-        cur.close()
-    finally:
-        conn.close()
+        """, doc_id, media_name)
 
     if not row:
         raise HTTPException(404, "Imagem não encontrada")
@@ -2922,6 +2774,41 @@ def api_media(
         media_type=media_type or "image/jpeg",
         headers={"Cache-Control": "public, max-age=86400"},
     )
+
+
+# ---------------------------------------------------------------------------
+# API — Worker proxy (dashboard → worker.internal)
+# ---------------------------------------------------------------------------
+
+
+@app.api_route("/api/worker/{path:path}", methods=["GET", "POST"])
+async def proxy_worker(path: str, request: Request):
+    """Proxy dashboard requests to worker internal API."""
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.request(
+                method=request.method,
+                url=f"{WORKER_BASE}/{path}",
+                headers={
+                    "content-type": request.headers.get(
+                        "content-type", "application/json"
+                    )
+                },
+                content=await request.body() if request.method == "POST" else None,
+                params=dict(request.query_params),
+                timeout=10.0,
+            )
+            return Response(
+                content=resp.content,
+                status_code=resp.status_code,
+                media_type=resp.headers.get("content-type", "application/json"),
+            )
+        except httpx.ConnectError:
+            return Response(
+                content='{"error": "Worker unavailable"}',
+                status_code=503,
+                media_type="application/json",
+            )
 
 
 # ---------------------------------------------------------------------------
