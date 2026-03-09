@@ -7,6 +7,10 @@ import {
   ApiAuthError,
   type SessionStatus,
 } from "@/lib/auth";
+import {
+  loginWithPassword as apiLoginWithPassword,
+  registerUser,
+} from "@/lib/authApi";
 import { AuthContext } from "@/contexts/AuthContext";
 import { clearCachedValue, readCachedValue, writeCachedValue } from "@/lib/clientCache";
 
@@ -81,6 +85,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(buildUserFromSession(session));
   }, []);
 
+  const loginWithPassword = useCallback(async (email: string, password: string) => {
+    const session = await apiLoginWithPassword(email, password);
+    writeCachedValue(SESSION_CACHE_KEY, session, SESSION_CACHE_TTL_MS);
+    setUser(buildUserFromSession(session));
+  }, []);
+
+  const register = useCallback(async (email: string, password: string, displayName: string) => {
+    const session = await registerUser({ email, password, display_name: displayName });
+    writeCachedValue(SESSION_CACHE_KEY, session, SESSION_CACHE_TTL_MS);
+    setUser(buildUserFromSession(session));
+  }, []);
+
   const logout = useCallback(() => {
     clearAccessSession().catch(() => undefined);
     clearCachedValue(SESSION_CACHE_KEY);
@@ -92,7 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isAdmin = roles.includes("admin");
 
   return (
-    <AuthContext.Provider value={{ user, role, roles, isAdmin, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ user, role, roles, isAdmin, isLoading, login, loginWithPassword, register, logout }}>
       {children}
     </AuthContext.Provider>
   );
