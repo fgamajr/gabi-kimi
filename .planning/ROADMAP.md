@@ -24,6 +24,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 10: Legacy Cleanup** - Remove Alpine.js frontend from codebase
 - [x] **Phase 11: Fly.io Migration & Dashboard** - 3-machine Fly.io architecture, autonomous pipeline, admin dashboard (completed 2026-03-09)
 - [x] **Phase 12: Fly.io Pre-flight** - Unified pipeline architectural reference with ULTRA MEGA PROMPT extensions (completed 2026-03-09)
+- [ ] **Phase 13: Worker Proxy Auth & Traceability Fix** - Backend auth guard on worker proxy + stale traceability cleanup
+  **Gap Closure:** Closes gaps from v1.0 audit
 
 ## Phase Details
 
@@ -188,7 +190,7 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12 -> 13
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -203,7 +205,8 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 9. Live Status and Retry | 1/1 | Complete | 2026-03-08 |
 | 10. Legacy Cleanup | 1/1 | Complete | 2026-03-08 |
 | 11. Fly.io Migration & Dashboard | 7/7 | Complete    | 2026-03-09 |
-| 12. Fly.io Pre-flight | 4/4 | Complete   | 2026-03-09 |
+| 12. Fly.io Pre-flight | 4/4 | Complete    | 2026-03-09 |
+| 13. Worker Proxy Auth & Traceability Fix | 0/1 | Not started | - |
 
 ### Phase 12: Fly.io Pre-flight
 
@@ -231,3 +234,15 @@ Plans:
 - [x] 12-02-PLAN.md -- Patches 6-9 (dual-worker, INLABS auth, execution order, usage guide) + validation
 - [ ] 12-03-PLAN.md -- Enrichment pipeline modules + extended ES mapping + SQLite enrichment state
 - [ ] 12-04-PLAN.md -- Search API architecture + UX principles + Postgres tables + cost tracking + watchdog
+
+### Phase 13: Worker Proxy Auth & Traceability Fix
+**Goal:** Close the single integration gap (FLY-03 worker proxy auth) and fix stale traceability metadata from v1.0 audit
+**Depends on:** Phase 11
+**Requirements**: FLY-03
+**Gap Closure:** Closes gaps from v1.0 milestone audit
+**Success Criteria** (what must be TRUE):
+  1. `/api/worker/*` proxy route has `Depends(require_admin_access)` backend auth guard
+  2. REQUIREMENTS.md traceability table shows "Complete" for all 32 phase 11-12 requirements
+
+Plans:
+- [ ] 13-01-PLAN.md -- Add auth guard to worker proxy + fix traceability table
