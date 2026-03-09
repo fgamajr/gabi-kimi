@@ -4,14 +4,14 @@ milestone: v1.0
 milestone_name: milestone
 current_plan: 7
 status: executing
-stopped_at: Completed 12-03-PLAN.md
-last_updated: "2026-03-09T19:55:39.075Z"
+stopped_at: Completed 12-04-PLAN.md
+last_updated: "2026-03-09T20:00:52.055Z"
 last_activity: 2026-03-09
 progress:
   total_phases: 12
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 11
-  completed_plans: 20
+  completed_plans: 21
   percent: 28
 ---
 
@@ -73,6 +73,7 @@ Progress: [██░░░░░░░░] 28%
 | Phase 12 P02 | 2 | 2 tasks | 1 files |
 | Phase 11 P07 | 4 | 2 tasks | 5 files |
 | Phase 12 P03 | 1 | 1 tasks | 1 files |
+| Phase 12 P04 | 3 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -101,6 +102,10 @@ Recent decisions affecting current work:
 - [Phase 11]: Static cron schedule display with client-side relative time; window.confirm for danger zone actions
 - [Phase 12]: Enrichment fields use built-in portuguese analyzer (with stemming) vs pt_folded (no stemming) for existing fields
 - [Phase 12]: Enrichment state decoupled from main pipeline state machine -- runs as post-verification pass
+- [Phase 12]: RRF constant k=60 for hybrid search ranking
+- [Phase 12]: Daily budget default $2.00, monthly cap $30.00 for enrichment cost control
+- [Phase 12]: Holiday calculation via dateutil easter() for variable Brazilian holidays
+- [Phase 12]: Postgres tables use UUID PKs with gen_random_uuid() matching existing auth schema
 
 ### Roadmap Evolution
 
@@ -119,6 +124,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-09T19:55:39.073Z
-Stopped at: Completed 12-03-PLAN.md
+Last session: 2026-03-09T20:00:52.054Z
+Stopped at: Completed 12-04-PLAN.md
 Resume file: None

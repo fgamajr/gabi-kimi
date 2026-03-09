@@ -23,7 +23,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 9: Live Status and Retry** - Real-time SSE progress streaming and one-click job retry
 - [x] **Phase 10: Legacy Cleanup** - Remove Alpine.js frontend from codebase
 - [x] **Phase 11: Fly.io Migration & Dashboard** - 3-machine Fly.io architecture, autonomous pipeline, admin dashboard (completed 2026-03-09)
-- [ ] **Phase 12: Fly.io Pre-flight** - Unified pipeline architectural reference with ULTRA MEGA PROMPT extensions
+- [x] **Phase 12: Fly.io Pre-flight** - Unified pipeline architectural reference with ULTRA MEGA PROMPT extensions (completed 2026-03-09)
 
 ## Phase Details
 
@@ -203,7 +203,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 9. Live Status and Retry | 1/1 | Complete | 2026-03-08 |
 | 10. Legacy Cleanup | 1/1 | Complete | 2026-03-08 |
 | 11. Fly.io Migration & Dashboard | 7/7 | Complete    | 2026-03-09 |
-| 12. Fly.io Pre-flight | 3/4 | In Progress|  |
+| 12. Fly.io Pre-flight | 4/4 | Complete   | 2026-03-09 |
 
 ### Phase 12: Fly.io Pre-flight
 
@@ -224,7 +224,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
   11. Search API architecture documents citizen vs professional modes with hybrid RRF
   12. Cost tracking and budget controls are specified
   13. Holiday-aware watchdog is spec'd with Brazilian holiday calendar
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 
 Plans:
 - [x] 12-01-PLAN.md -- Document skeleton + patches 1-5 (data sources, topology, infrastructure, state machine, reconciler)
