@@ -23,6 +23,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 9: Live Status and Retry** - Real-time SSE progress streaming and one-click job retry
 - [x] **Phase 10: Legacy Cleanup** - Remove Alpine.js frontend from codebase
 - [ ] **Phase 11: Fly.io Migration & Dashboard** - 3-machine Fly.io architecture, autonomous pipeline, admin dashboard
+- [ ] **Phase 12: Fly.io Pre-flight** - Unified pipeline architectural reference with 9 mandatory patches
 
 ## Phase Details
 
@@ -187,7 +188,7 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -202,13 +203,25 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 9. Live Status and Retry | 1/1 | Complete | 2026-03-08 |
 | 10. Legacy Cleanup | 1/1 | Complete | 2026-03-08 |
 | 11. Fly.io Migration & Dashboard | 6/7 | In Progress|  |
+| 12. Fly.io Pre-flight | 0/2 | Not started |  |
 
-### Phase 12: Fly.io pre-flight
+### Phase 12: Fly.io Pre-flight
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Create a complete unified pipeline architectural reference document by applying 9 mandatory patches that correct the topology, document existing infrastructure, add missing lifecycle states, and provide execution guidance for future implementation agents
+**Requirements**: DOC-01, DOC-02, DOC-03, DOC-04, DOC-05, DOC-06, DOC-07, DOC-08, DOC-09
 **Depends on:** Phase 11
-**Plans:** 0 plans
+**Success Criteria** (what must be TRUE):
+  1. AUTONOMOUS_DOU_PIPELINE_PROMPT.md is a complete architectural reference (300+ lines, up from 62)
+  2. 5-app topology diagram is accurate (frontend, web, worker, ES, Redis)
+  3. Existing infrastructure is documented with explicit DO NOT rewrite directives
+  4. FALLBACK_PENDING lifecycle state and dou_catalog_months DDL are specified
+  5. CatalogReconciler MODULE 6B is specified
+  6. Dual-worker distinction (ARQ upload_worker vs autonomous pipeline) is clear
+  7. INLABS auth flow is documented with actual implementation details
+  8. Execution order reflects current codebase state (focus on gaps, not reimplementation)
+  9. Modular usage guidance explains how to consume the document in focused slices
+**Plans:** 2 plans
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 12 to break down)
+- [ ] 12-01-PLAN.md -- Document skeleton + patches 1-5 (data sources, topology, infrastructure, state machine, reconciler)
+- [ ] 12-02-PLAN.md -- Patches 6-9 (dual-worker, INLABS auth, execution order, usage guide) + validation
