@@ -56,7 +56,11 @@ export default function PipelineSettings() {
   const resumeMut = useResumePipeline();
 
   const isPaused = health?.scheduler_paused ?? false;
-  const dbSizeBytes = health?.disk_usage?.db_size_bytes ?? 0;
+  const diskUsage = health?.disk_usage;
+  const dbSizeBytes = diskUsage?.db_size_bytes ?? 0;
+  const totalBytes = diskUsage?.total_bytes ?? 200 * 1024 * 1024;
+  const freeBytes = diskUsage?.free_bytes ?? totalBytes;
+  const usedBytes = totalBytes - freeBytes;
   const dbSizeWarning = dbSizeBytes > 100 * 1024 * 1024; // 100MB threshold
 
   const handlePause = () => {
@@ -140,7 +144,14 @@ export default function PipelineSettings() {
             </span>
           </div>
 
-          {/* Simple bar */}
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-text-secondary">Volume usage</span>
+            <span className="text-sm font-mono font-medium text-text-primary">
+              {formatBytes(usedBytes)} / {formatBytes(totalBytes)}
+            </span>
+          </div>
+
+          {/* Usage bar */}
           <div className="h-2 rounded-full bg-muted overflow-hidden">
             <div
               className={cn(
@@ -149,14 +160,14 @@ export default function PipelineSettings() {
               )}
               style={{
                 width: `${Math.min(
-                  (dbSizeBytes / (200 * 1024 * 1024)) * 100,
+                  (usedBytes / totalBytes) * 100,
                   100
                 )}%`,
               }}
             />
           </div>
           <p className="text-[10px] text-text-tertiary">
-            Estimated capacity: 200 MB volume
+            Free: {formatBytes(freeBytes)}
           </p>
 
           {dbSizeWarning && (

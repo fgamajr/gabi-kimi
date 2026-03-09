@@ -19,6 +19,14 @@ export function usePipelineStatus() {
   });
 }
 
+export function usePipelineStats() {
+  return useQuery({
+    queryKey: ["pipeline", "stats"],
+    queryFn: workerApi.getRegistryStats,
+    refetchInterval: REFRESH_INTERVAL,
+  });
+}
+
 export function usePipelineMonths(year?: number) {
   return useQuery({
     queryKey: ["pipeline", "months", year],
@@ -31,6 +39,14 @@ export function usePipelineRuns(limit = 50) {
   return useQuery({
     queryKey: ["pipeline", "runs", limit],
     queryFn: () => workerApi.getRuns(limit),
+    refetchInterval: REFRESH_INTERVAL,
+  });
+}
+
+export function usePipelineScheduler() {
+  return useQuery({
+    queryKey: ["pipeline", "scheduler"],
+    queryFn: workerApi.getScheduler,
     refetchInterval: REFRESH_INTERVAL,
   });
 }
@@ -56,7 +72,10 @@ export function useTriggerPipeline() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: workerApi.triggerPhase,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["pipeline"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["pipeline"] });
+      qc.invalidateQueries({ queryKey: ["worker"] });
+    },
   });
 }
 
@@ -64,7 +83,10 @@ export function useRetryFile() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: workerApi.retryFile,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["pipeline"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["pipeline"] });
+      qc.invalidateQueries({ queryKey: ["worker"] });
+    },
   });
 }
 
@@ -72,7 +94,10 @@ export function usePausePipeline() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: workerApi.pause,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["worker"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["worker"] });
+      qc.invalidateQueries({ queryKey: ["pipeline"] });
+    },
   });
 }
 
@@ -80,6 +105,9 @@ export function useResumePipeline() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: workerApi.resume,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["worker"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["worker"] });
+      qc.invalidateQueries({ queryKey: ["pipeline"] });
+    },
   });
 }
