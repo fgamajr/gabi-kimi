@@ -1,0 +1,33 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Git
+.git/
+.gitignore
+
+# Development
+.cursor/
+.claude/
+.planning/
+.dev/
+.playwright-cli/
+node_modules/
+output/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# OS artifacts
+.DS_Store
+._*
+Thumbs.db
+
+# Documentation
+*.md
+!README.md
+docs/
+
+# Frontend source (not needed in backend image)
+src/frontend/

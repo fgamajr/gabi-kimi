@@ -13,7 +13,7 @@ export const DocumentTOC: React.FC<DocumentTOCProps> = ({ sections, activeSectio
   const activeSection = sections.find((section) => section.id === activeSectionId);
 
   return (
-    <div className="reader-surface overflow-hidden rounded-[28px] p-4">
+    <nav aria-label="Índice do documento" className="reader-surface overflow-hidden rounded-[28px] p-4">
       <div className="mb-4 border-b border-white/6 pb-4">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -35,7 +35,9 @@ export const DocumentTOC: React.FC<DocumentTOCProps> = ({ sections, activeSectio
           return (
             <button
               key={section.id}
+              type="button"
               onClick={() => onSelect(section)}
+              aria-current={active ? "location" : undefined}
               className={`flex min-h-[48px] w-full items-start gap-3 rounded-[20px] px-4 py-3 text-left text-sm transition-colors ${
                 active
                   ? "border border-primary/15 bg-primary/12 text-primary"
@@ -52,6 +54,6 @@ export const DocumentTOC: React.FC<DocumentTOCProps> = ({ sections, activeSectio
           );
         })}
       </div>
-    </div>
+    </nav>
   );
 };

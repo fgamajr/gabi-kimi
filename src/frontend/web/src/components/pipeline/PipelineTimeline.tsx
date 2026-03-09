@@ -4,6 +4,7 @@ import { usePipelineMonths } from "@/hooks/usePipeline";
 import type { MonthData } from "@/types/pipeline";
 import MonthCard from "./MonthCard";
 import { cn } from "@/lib/utils";
+import WorkerUnavailableState from "./WorkerUnavailableState";
 
 const CURRENT_YEAR = new Date().getFullYear();
 const YEARS = Array.from({ length: CURRENT_YEAR - 2002 + 1 }, (_, i) => CURRENT_YEAR - i);
@@ -23,7 +24,7 @@ function groupByMonth(data: MonthData[]): Map<string, MonthData[]> {
 
 export default function PipelineTimeline() {
   const [selectedYear, setSelectedYear] = useState<number>(CURRENT_YEAR);
-  const { data: months, isLoading } = usePipelineMonths(selectedYear);
+  const { data: months, isLoading, isError, error } = usePipelineMonths(selectedYear);
   const parentRef = useRef<HTMLDivElement>(null);
 
   const grouped = useMemo(() => {
@@ -67,6 +68,11 @@ export default function PipelineTimeline() {
             <div key={i} className="h-16 rounded-xl bg-surface-elevated animate-pulse" />
           ))}
         </div>
+      ) : isError ? (
+        <WorkerUnavailableState
+          title="Timeline indisponível"
+          message={(error as Error | undefined)?.message}
+        />
       ) : grouped.length === 0 ? (
         <div className="flex items-center justify-center py-20">
           <p className="text-sm text-text-tertiary">

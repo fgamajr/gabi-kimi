@@ -8,9 +8,11 @@
 
 Phase 11 transitions GABI from a monolithic web+worker app to a 3-machine Fly.io architecture (WEB, WORKER, ES), replaces the manual JSON catalog with an autonomous SQLite-backed ingestion pipeline, and adds a React admin dashboard for pipeline monitoring. The existing codebase already has substantial pipeline infrastructure (`auto_discovery.py`, `discovery_registry.py`, `zip_downloader.py`, `orchestrator.py`, `es_indexer.py`) that currently targets PostgreSQL as the registry backend. This phase migrates that state to SQLite on the worker volume and adds APScheduler for cron-based orchestration.
 
+The source-of-truth decision has changed from the earlier Phase 11 drafts: live discovery must be INLABS-first, but only for the last 30 days. Public Liferay monthly ZIPs remain the historical and month-close fallback channel. Any implementation that tries to use INLABS beyond that 30-day window is now considered incorrect.
+
 The current Fly.io deployment uses a single app (`gabi-dou-web`) with two process groups (web + worker). Phase 11 splits this into 3 separate Fly apps communicating via `.internal` DNS on Fly's 6PN private network. The dashboard is served as part of the existing React SPA, with the web backend proxying `/api/worker/*` requests to the worker's internal FastAPI.
 
-**Primary recommendation:** Deploy as 3 separate Fly apps (gabi-dou-web, gabi-dou-worker, gabi-dou-es) with independent fly.toml files. Use APScheduler 3.11.x (not 4.x which is alpha). Use `aiosqlite` for async SQLite access in the worker's FastAPI. Reuse existing pipeline modules, adapting them from PostgreSQL-backed registry to SQLite.
+**Primary recommendation:** Deploy as 3 separate Fly apps (gabi-dou-web, gabi-dou-worker, gabi-dou-es) with independent fly.toml files. Use APScheduler 3.11.x (not 4.x which is alpha). Use `aiosqlite` for async SQLite access in the worker's FastAPI. Reuse existing pipeline modules, adapting them from PostgreSQL-backed registry to SQLite, but replace live discovery assumptions with an explicit source selector: `INLABS(last_30_days)` vs `LIFERAY(historical_and_month_close)`.
 
 <user_constraints>
 ## User Constraints (from CONTEXT.md)
@@ -26,7 +28,7 @@ The current Fly.io deployment uses a single app (`gabi-dou-web`) with two proces
 - State machine: DISCOVERED -> QUEUED -> DOWNLOADING -> DOWNLOADED -> EXTRACTING -> EXTRACTED -> INGESTING -> INGESTED -> VERIFIED
 - Failure states: DOWNLOAD_FAILED, EXTRACT_FAILED, INGEST_FAILED, VERIFY_FAILED
 - Retry: up to 3 retries per file
-- Discovery via Liferay JSONWS API with predictive HEAD probe fallback
+- Discovery via INLABS for the last 30 days only; Liferay for historical ingest and month-close fallback
 - Rate limit: max 5 req/s to in.gov.br
 - APScheduler with 5 cron jobs: discovery (23:00), download (23:30), ingest (00:00), verify (01:00), retry (06:00)
 - Worker FastAPI on port 8081 (internal only)
@@ -287,6 +289,23 @@ CREATE INDEX IF NOT EXISTS idx_pipeline_log_run_id ON pipeline_log(run_id);
 CREATE INDEX IF NOT EXISTS idx_pipeline_log_created ON pipeline_log(created_at);
 """
 ```
+
+### Source Policy Guardrail
+Treat source selection as a first-class function, not a loose convention:
+
+```python
+def choose_source(target_date: date, today: date) -> Literal["inlabs", "liferay"]:
+    if target_date < today - timedelta(days=30):
+        return "liferay"
+    return "inlabs"
+```
+
+Then layer the operational fallback on top:
+- `inlabs` fails for a recent file: keep retrying inside the 30-day window
+- once the month archive becomes available on `in.gov.br`, allow a controlled switch to `liferay`
+- never try `inlabs` for dates older than the rolling 30-day window
+
+This guardrail is necessary because earlier local plans assumed Liferay discovery as the primary path. That assumption is now obsolete.
 
 ### Pattern 4: APScheduler with FastAPI Lifespan
 **What:** AsyncIOScheduler started/stopped with FastAPI lifespan context manager.

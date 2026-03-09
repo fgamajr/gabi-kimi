@@ -1,0 +1,66 @@
+{
+  "agent": "qwen",
+  "round": 1,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "critical",
+      "location": "src/backend/worker/downloader.py",
+      "description": "Downloader loads entire files into memory without streaming or disk guard. This will OOM on large DOU PDFs (>100MB) and violates Fly.io memory constraints.",
+      "suggested_fix": "Implement streaming download with tempfile.SpooledTemporaryFile, add 500MB size guard, and stream directly to extractor without full memory load."
+    },
+    {
+      "severity": "high",
+      "location": "src/backend/worker/ingestor.py",
+      "description": "Ingestor indexes directly to ES without BM25-first hybrid approach. Spec requires BM25 first, embeddings later. Current implementation blocks the hybrid search requirement.",
+      "suggested_fix": "Add BM25 field indexing (title, date, section) before embedding pipeline. Create separate index mapping for hybrid search with text_keyword fields."
+    },
+    {
+      "severity": "high",
+      "location": "src/backend/worker/discovery.py",
+      "description": "No INLABS 30-day limitation handling. Discovery doesn't differentiate between recent (INLABS) and historical (Liferay JSON) sources. Will fail after month boundary.",
+      "suggested_fix": "Add date-based routing: items <30 days use INLABS API, older items fallback to Liferay/catalog JSON. Implement month-turn ZIP fallback logic."
+    },
+    {
+      "severity": "medium",
+      "location": "src/backend/worker/verifier.py",
+      "description": "Verifier only checks count. Insufficient for data integrity. No checksum, no schema validation, no ES document count verification against source.",
+      "suggested_fix": "Add SHA256 checksum verification, JSON schema validation for extracted metadata, and ES document count reconciliation."
+    },
+    {
+      "severity": "medium",
+      "location": "src/backend/worker/",
+      "description": "No watchdog/Telegram implementation visible. Spec requires unified cycle with retries, cleanup, and alerting. Missing operational compliance.",
+      "suggested_fix": "Implement watchdog service with Telegram webhook, add retry exponential backoff to all workers, create cleanup job for temp files older than 24h."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "architecture",
+      "location": "src/backend/worker/pipeline.py",
+      "description": "Add state machine guard to prevent re-processing VERIFIED items. Current state flow allows loops on retry."
+    },
+    {
+      "type": "performance",
+      "location": "src/frontend/web/src/pages/PipelinePage.tsx",
+      "description": "Dashboard polling interval should be adaptive: 5s for active pipeline, 60s for idle. Current TanStack Query config likely fixed."
+    },
+    {
+      "type": "compliance",
+      "location": "src/backend/worker/",
+      "description": "Add deterministic ID generation using SHA256(date+section+page+hash) to ensure idempotency across retries."
+    }
+  ],
+  "diffs": [
+    {
+      "file": "src/backend/worker/downloader.py",
+      "hunks": "@@ -15,6 +15,8 @@\n import requests\n+import tempfile\n+from pathlib import Path\n \n class Downloader:\n     def download(self, url: str, doc_id: str) -> bytes:\n-        response = requests.get(url)\n-        return response.content\n+        with tempfile.SpooledTemporaryFile(max_size=100*1024*1024) as f:\n+            response = requests.get(url, stream=True)\n+            for chunk in response.iter_content(chunk_size=8192):\n+                if len(chunk) > 500*1024*1024: raise MemoryError('File too large')\n+                f.write(chunk)\n+            f.seek(0)\n+            return f.read()"
+    }
+  ],
+  "meta": {
+    "tokens_used": 847,
+    "latency_ms": 234,
+    "thinking_tokens": 612
+  },
+  "raw_text": "{\n  \"agent\": \"qwen\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"critical\",\n      \"location\": \"src/backend/worker/downloader.py\",\n      \"description\": \"Downloader loads entire files into memory without streaming or disk guard. This will OOM on large DOU PDFs (>100MB) and violates Fly.io memory constraints.\",\n      \"suggested_fix\": \"Implement streaming download with tempfile.SpooledTemporaryFile, add 500MB size guard, and stream directly to extractor without full memory load.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/backend/worker/ingestor.py\",\n      \"description\": \"Ingestor indexes directly to ES without BM25-first hybrid approach. Spec requires BM25 first, embeddings later. Current implementation blocks the hybrid search requirement.\",\n      \"suggested_fix\": \"Add BM25 field indexing (title, date, section) before embedding pipeline. Create separate index mapping for hybrid search with text_keyword fields.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/backend/worker/discovery.py\",\n      \"description\": \"No INLABS 30-day limitation handling. Discovery doesn't differentiate between recent (INLABS) and historical (Liferay JSON) sources. Will fail after month boundary.\",\n      \"suggested_fix\": \"Add date-based routing: items <30 days use INLABS API, older items fallback to Liferay/catalog JSON. Implement month-turn ZIP fallback logic.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"src/backend/worker/verifier.py\",\n      \"description\": \"Verifier only checks count. Insufficient for data integrity. No checksum, no schema validation, no ES document count verification against source.\",\n      \"suggested_fix\": \"Add SHA256 checksum verification, JSON schema validation for extracted metadata, and ES document count reconciliation.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"src/backend/worker/\",\n      \"description\": \"No watchdog/Telegram implementation visible. Spec requires unified cycle with retries, cleanup, and alerting. Missing operational compliance.\",\n      \"suggested_fix\": \"Implement watchdog service with Telegram webhook, add retry exponential backoff to all workers, create cleanup job for temp files older than 24h.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"architecture\",\n      \"location\": \"src/backend/worker/pipeline.py\",\n      \"description\": \"Add state machine guard to prevent re-processing VERIFIED items. Current state flow allows loops on retry.\"\n    },\n    {\n      \"type\": \"performance\",\n      \"location\": \"src/frontend/web/src/pages/PipelinePage.tsx\",\n      \"description\": \"Dashboard polling interval should be adaptive: 5s for active pipeline, 60s for idle. Current TanStack Query config likely fixed.\"\n    },\n    {\n      \"type\": \"compliance\",\n      \"location\": \"src/backend/worker/\",\n      \"description\": \"Add deterministic ID generation using SHA256(date+section+page+hash) to ensure idempotency across retries.\"\n    }\n  ],\n  \"diffs\": [\n    {\n      \"file\": \"src/backend/worker/downloader.py\",\n      \"hunks\": \"@@ -15,6 +15,8 @@\\n import requests\\n+import tempfile\\n+from pathlib import Path\\n \\n class Downloader:\\n     def download(self, url: str, doc_id: str) -> bytes:\\n-        response = requests.get(url)\\n-        return response.content\\n+        with tempfile.SpooledTemporaryFile(max_size=100*1024*1024) as f:\\n+            response = requests.get(url, stream=True)\\n+            for chunk in response.iter_content(chunk_size=8192):\\n+                if len(chunk) > 500*1024*1024: raise MemoryError('File too large')\\n+                f.write(chunk)\\n+            f.seek(0)\\n+            return f.read()\"\n    }\n  ],\n  \"meta\": {\n    \"tokens_used\": 847,\n    \"latency_ms\": 234,\n    \"thinking_tokens\": 612\n  }\n}"
+}

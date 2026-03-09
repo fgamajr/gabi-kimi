@@ -1,6 +1,7 @@
 """GABI DOU — FastAPI backend for BM25 search + Qwen chat.
 
 Endpoints:
+  GET  /healthz                      (public liveness probe for Fly checks)
   GET  /api/search?q=...&max=20&page=1&date_from=...&date_to=...&section=...&art_type=...
   GET  /api/suggest?q=...            (autocomplete from BM25 terms)
   GET  /api/top-searches?n=10&period=day|week
@@ -18,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 import uuid
 from io import BytesIO
 from html import escape
@@ -127,7 +129,15 @@ DASHSCOPE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completi
 QWEN_API_KEY = os.getenv("QWEN_API_KEY", "")
 QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen-plus")
 
-WORKER_BASE = os.getenv("WORKER_URL", "http://gabi-dou-worker.internal:8081")
+def _default_worker_base() -> str:
+    if _is_production:
+        return "http://gabi-dou-worker.internal:8081"
+    return "http://127.0.0.1:8081"
+
+
+WORKER_BASE = os.getenv("WORKER_URL", _default_worker_base())
+_embedded_worker_lock = asyncio.Lock()
+_embedded_worker_initialized = False
 
 # React SPA only (Phase 10: legacy Alpine.js frontend removed)
 _ROOT_DIR = Path(__file__).resolve().parents[3]
@@ -175,6 +185,99 @@ def _allowed_origins(allowed_hosts: list[str]) -> list[str]:
         origins.extend(local_dev_origins())
     return sorted({origin for origin in origins if origin})
 
+
+async def _ensure_embedded_worker_ready() -> None:
+    """Initialize an in-process worker fallback for local development."""
+    global _embedded_worker_initialized
+    if _embedded_worker_initialized:
+        return
+
+    async with _embedded_worker_lock:
+        if _embedded_worker_initialized:
+            return
+
+        import src.backend.worker.api as worker_api_mod
+        import src.backend.worker.main as worker_main_mod
+        from apscheduler.triggers.interval import IntervalTrigger
+        from src.backend.worker.migration import (
+            bootstrap_registry_if_empty,
+            ensure_registry_seed_audit_trail,
+        )
+        from src.backend.worker.registry import Registry
+        from src.backend.worker.scheduler import configure_scheduler, scheduler, set_registry
+
+        db_path = (
+            os.getenv("REGISTRY_DB_PATH")
+            or os.getenv("REGISTRY_DB")
+            or str(_ROOT_DIR / "ops" / "data" / "registry.db")
+        )
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        registry = Registry(db_path=db_path)
+        await registry.init_db()
+        await bootstrap_registry_if_empty(
+            registry,
+            os.environ.get("ES_URL", "http://es.internal:9200"),
+            _ROOT_DIR / "ops" / "data" / "dou_catalog_registry.json",
+        )
+        await ensure_registry_seed_audit_trail(registry)
+        worker_api_mod._registry = registry
+        set_registry(registry)
+
+        if not scheduler.get_jobs():
+            configure_scheduler()
+        if not scheduler.get_job("heartbeat"):
+            scheduler.add_job(
+                worker_main_mod._heartbeat,
+                IntervalTrigger(seconds=60),
+                id="heartbeat",
+                replace_existing=True,
+                max_instances=1,
+            )
+        if not scheduler.running:
+            scheduler.start()
+        if worker_main_mod._start_time == 0.0:
+            worker_main_mod._start_time = time.monotonic()
+        await worker_main_mod._heartbeat()
+
+        _embedded_worker_initialized = True
+        logger.info("Embedded worker fallback initialized for local dashboard access")
+
+
+async def _proxy_to_worker_app(path: str, request: Request) -> Response:
+    """Proxy a request into the embedded worker ASGI app."""
+    from src.backend.worker.main import app as worker_app
+
+    transport = httpx.ASGITransport(app=worker_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://worker.local") as client:
+        resp = await client.request(
+            method=request.method,
+            url=f"/{path}",
+            headers={
+                "content-type": request.headers.get("content-type", "application/json")
+            },
+            content=await request.body() if request.method in {"POST", "PUT", "PATCH"} else None,
+            params=dict(request.query_params),
+            timeout=10.0,
+        )
+    return Response(
+        content=resp.content,
+        status_code=resp.status_code,
+        media_type=resp.headers.get("content-type", "application/json"),
+    )
+
+
+def _worker_unavailable_response(detail: str) -> Response:
+    payload = {
+        "error": "Worker unavailable",
+        "detail": detail,
+        "target": WORKER_BASE,
+    }
+    return Response(
+        content=json.dumps(payload, ensure_ascii=True),
+        status_code=503,
+        media_type="application/json",
+    )
+
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
@@ -216,6 +319,12 @@ app.add_middleware(
 )
 app.add_middleware(AppSecurityMiddleware, csp=build_content_security_policy())
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
+
+
+@app.get("/healthz")
+async def healthz() -> dict[str, str]:
+    """Public liveness endpoint for platform health checks."""
+    return {"status": "ok", "service": "web"}
 
 
 # ---------------------------------------------------------------------------
@@ -2803,12 +2912,21 @@ async def proxy_worker(path: str, request: Request):
                 status_code=resp.status_code,
                 media_type=resp.headers.get("content-type", "application/json"),
             )
-        except httpx.ConnectError:
-            return Response(
-                content='{"error": "Worker unavailable"}',
-                status_code=503,
-                media_type="application/json",
-            )
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError) as exc:
+            if not _is_production:
+                try:
+                    await _ensure_embedded_worker_ready()
+                    return await _proxy_to_worker_app(path, request)
+                except Exception as fallback_exc:
+                    logger.error(
+                        "Worker proxy failed and embedded fallback also failed: %s",
+                        fallback_exc,
+                        exc_info=True,
+                    )
+                    return _worker_unavailable_response(
+                        f"connect to {WORKER_BASE} failed ({exc}); embedded fallback failed ({fallback_exc})"
+                    )
+            return _worker_unavailable_response(f"connect to {WORKER_BASE} failed ({exc})")
 
 
 # ---------------------------------------------------------------------------

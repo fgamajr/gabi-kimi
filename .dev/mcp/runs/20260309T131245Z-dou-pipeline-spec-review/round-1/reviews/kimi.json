@@ -1,0 +1,94 @@
+{
+  "agent": "kimi",
+  "round": 1,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "src/backend/worker/downloader.py (implícito)",
+      "description": "Downloader carrega arquivos inteiros em memória sem streaming nem guarda em disco. Violação crítica: Fly.io tem limites rígidos de RAM; PDFs do DOU podem ter dezenas de MB, causando OOM kills e perda de estado do worker. Não há tempfile nem backpressure.",
+      "suggested_fix": "Implementar download com streaming para SpooledTemporaryFile (limite de RAM configurável, ex: 5MB) antes de persistir em disco; adicionar disk guard para volumes efêmeros do Fly.io."
+    },
+    {
+      "severity": "high",
+      "location": "src/backend/worker/ingestor.py",
+      "description": "Ingestor indexa diretamente no Elasticsearch sem embeddings, violando a regra 'BM25 primeiro; embeddings depois'. Não há pipeline de vetorização nem índice separado para busca híbrida. O sistema não poderá fazer retrieve semântico.",
+      "suggested_fix": "Criar estágio intermediário EMBEDDING entre EXTRACTED e INGESTING; usar fila async para vetorização (OpenAI/local); implementar índice duplo (BM25 + dense) com search pipeline híbrido no ES 8.x."
+    },
+    {
+      "severity": "high",
+      "location": "src/backend/worker/discovery.py",
+      "description": "Falta lógica de janela de 30 dias para INLABS. O discovery atual consulta Liferay sem filtro temporal explícito nem estratégia de fallback para o ZIP mensal pós-virada. Risco de custo excessivo com INLABS fora do escopo ou perda de dados recentes quando INLABS falhar após o dia 1.",
+      "suggested_fix": "Implementar DateWindowPolicy: (now-30d) usa INLABS API; fallback para Liferay JSONWS; se falhar ou for pós-virada do mês, baixa ZIP mensal do Liferay e extrai catalog.json. Garantir que recentes (<30d) sempre tenham caminho híbrido BM25-first."
+    },
+    {
+      "severity": "high",
+      "location": "src/backend/worker/state_machine.py ou registry.py",
+      "description": "Máquina de estados define transições mas não implementa retry com exponential backoff nem dead-letter queue. Risco de loop infinito em falhas transientes (network blips) e falta de circuit breaker.",
+      "suggested_fix": "Adicionar colunas retry_count, last_attempt, error_message à tabela SQLite; implementar backoff exponencial (2^n segundos) com jitter; estado FAILED após max_retries (ex: 5); watchdog notifica Telegram apenas após DLQ."
+    },
+    {
+      "severity": "medium",
+      "location": "src/backend/worker/extractor.py e downloader.py",
+      "description": "Ausência de mecanismo de cleanup. Arquivos temporários de extração (XML, PDF) acumulam-se no disco sem remoção após INGESTED ou FAILED. Em Fly.io volumes limitados, isso causa falha catastráfica após alguns dias.",
+      "suggested_fix": "Implementar context manager para diretórios temporários; garantir cleanup em transição para VERIFIED ou FAILED; agendamento de retention policy (ex: após 24h de VERIFIED)."
+    },
+    {
+      "severity": "medium",
+      "location": "src/backend/worker/verifier.py",
+      "description": "Verifier apenas confere contagem de documentos, não valida IDs determinísticos nem integridade dos dados. IDs não-determinísticos causarão duplicatas silenciosas no ES quando o worker reiniciar.",
+      "suggested_fix": "Validar que ID é hash determinístico (ex: SHA256 de orgao+data+secao+pagina); verificar checksum do conteúdo indexado; amostragem de query no ES para confirmar indexação real."
+    },
+    {
+      "severity": "medium",
+      "location": "src/backend/worker/watchdog.py (não existe)",
+      "description": "Watchdog/Telegram não implementado. Sem observability proativa, falhas silenciosas (stuck states) só serão detectas manualmente. Violação de compliance operacional.",
+      "suggested_fix": "Implementar watchdog thread separado que consulta estados staleness (>X minutos em DOWNLOADING/etc) e envia alertas Telegram; heartbeat para healthcheck do Fly.io."
+    },
+    {
+      "severity": "medium",
+      "location": "src/backend/worker/database.py",
+      "description": "SQLite não está explicitamente em WAL mode ('simplificado' sugere modo padrão DELETE). Em Fly.io com múltiplas instâncias (se houver), ou até mesmo concorrência single-instance, haverá locks ou corrupção.",
+      "suggested_fix": "Executar 'PRAGMA journal_mode=WAL;' na inicialização; definir timeout de busy adequado (ex: 5000ms); considerar singleton de conexão ou pool thread-local."
+    },
+    {
+      "severity": "medium",
+      "location": "src/frontend/web/PipelinePage.tsx",
+      "description": "Dashboard expõe API workerApi sem clara separação entre leitura (observação) e operação pesada. Risco de usuário acionar ações destrutivas via UI quando o spec define dashboard apenas para observação.",
+      "suggested_fix": "Adicionar middleware de modo read-only para endpoints dashboard; se necessário controle, isolar em CLI ou API separada com auth; documentar que PipelinePage é 'observational only'."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "src/backend/worker/strategy.py (novo)",
+      "description": "Criar módulo de estratégia que encapsula a lógica INLABS vs Liferay vs ZIP, permitindo testes unitários do roteamento de datas e facilitando a mudança de política comercial (ex: alterar 30 dias para 60)."
+    },
+    {
+      "type": "improvement",
+      "location": "src/backend/worker/models.py",
+      "description": "Adicionar campo content_hash na tabela registry para deduplication idempotente e verificação de integridade, garantindo que reprocessamentos não criem duplicatas no ES."
+    },
+    {
+      "type": "improvement",
+      "location": "src/backend/worker/config.py",
+      "description": "Centralizar constantes críticas: INLABS_WINDOW_DAYS=30, MAX_RETRY=5, BACKOFF_BASE=2, TEMP_RETENTION_HOURS=24, garantindo compliance operacional configurável sem mudança de código."
+    }
+  ],
+  "diffs": [
+    {
+      "file": "src/backend/worker/downloader.py",
+      "hunks": "@@ -10,7 +10,12 @@\n-    content = requests.get(url).content\n-    process_in_memory(content)\n+    with requests.get(url, stream=True) as r:\n+        r.raise_for_status()\n+        with SpooledTemporaryFile(max_size=5*1024*1024, mode='w+b') as tmp:\n+            for chunk in r.iter_content(chunk_size=8192):\n+                tmp.write(chunk)\n+            tmp.seek(0)\n+            persist_to_disk(tmp, doc_id)"
+    },
+    {
+      "file": "src/backend/worker/state_machine.py",
+      "hunks": "@@ -25,6 +25,12 @@\n     def transition(self, doc_id, new_state):\n         cur = self.conn.cursor()\n+        cur.execute('''UPDATE documents \n+                      SET retry_count = retry_count + 1,\n+                          last_attempt = datetime('now'),\n+                          next_attempt = datetime('now', '+' || ? || ' seconds')\n+                      WHERE id = ?''', \n+                   (backoff_seconds, doc_id))\n         cur.execute('UPDATE documents SET state = ? WHERE id = ?', \n                    (new_state, doc_id))"
+    }
+  ],
+  "meta": {
+    "tokens_used": 2847,
+    "latency_ms": 1250,
+    "thinking_tokens": 890
+  },
+  "raw_text": "{\n  \"agent\": \"kimi\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/backend/worker/downloader.py (implícito)\",\n      \"description\": \"Downloader carrega arquivos inteiros em memória sem streaming nem guarda em disco. Violação crítica: Fly.io tem limites rígidos de RAM; PDFs do DOU podem ter dezenas de MB, causando OOM kills e perda de estado do worker. Não há tempfile nem backpressure.\",\n      \"suggested_fix\": \"Implementar download com streaming para SpooledTemporaryFile (limite de RAM configurável, ex: 5MB) antes de persistir em disco; adicionar disk guard para volumes efêmeros do Fly.io.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/backend/worker/ingestor.py\",\n      \"description\": \"Ingestor indexa diretamente no Elasticsearch sem embeddings, violando a regra 'BM25 primeiro; embeddings depois'. Não há pipeline de vetorização nem índice separado para busca híbrida. O sistema não poderá fazer retrieve semântico.\",\n      \"suggested_fix\": \"Criar estágio intermediário EMBEDDING entre EXTRACTED e INGESTING; usar fila async para vetorização (OpenAI/local); implementar índice duplo (BM25 + dense) com search pipeline híbrido no ES 8.x.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/backend/worker/discovery.py\",\n      \"description\": \"Falta lógica de janela de 30 dias para INLABS. O discovery atual consulta Liferay sem filtro temporal explícito nem estratégia de fallback para o ZIP mensal pós-virada. Risco de custo excessivo com INLABS fora do escopo ou perda de dados recentes quando INLABS falhar após o dia 1.\",\n      \"suggested_fix\": \"Implementar DateWindowPolicy: (now-30d) usa INLABS API; fallback para Liferay JSONWS; se falhar ou for pós-virada do mês, baixa ZIP mensal do Liferay e extrai catalog.json. Garantir que recentes (<30d) sempre tenham caminho híbrido BM25-first.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/backend/worker/state_machine.py ou registry.py\",\n      \"description\": \"Máquina de estados define transições mas não implementa retry com exponential backoff nem dead-letter queue. Risco de loop infinito em falhas transientes (network blips) e falta de circuit breaker.\",\n      \"suggested_fix\": \"Adicionar colunas retry_count, last_attempt, error_message à tabela SQLite; implementar backoff exponencial (2^n segundos) com jitter; estado FAILED após max_retries (ex: 5); watchdog notifica Telegram apenas após DLQ.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"src/backend/worker/extractor.py e downloader.py\",\n      \"description\": \"Ausência de mecanismo de cleanup. Arquivos temporários de extração (XML, PDF) acumulam-se no disco sem remoção após INGESTED ou FAILED. Em Fly.io volumes limitados, isso causa falha catastráfica após alguns dias.\",\n      \"suggested_fix\": \"Implementar context manager para diretórios temporários; garantir cleanup em transição para VERIFIED ou FAILED; agendamento de retention policy (ex: após 24h de VERIFIED).\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"src/backend/worker/verifier.py\",\n      \"description\": \"Verifier apenas confere contagem de documentos, não valida IDs determinísticos nem integridade dos dados. IDs não-determinísticos causarão duplicatas silenciosas no ES quando o worker reiniciar.\",\n      \"suggested_fix\": \"Validar que ID é hash determinístico (ex: SHA256 de orgao+data+secao+pagina); verificar checksum do conteúdo indexado; amostragem de query no ES para confirmar indexação real.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"src/backend/worker/watchdog.py (não existe)\",\n      \"description\": \"Watchdog/Telegram não implementado. Sem observability proativa, falhas silenciosas (stuck states) só serão detectas manualmente. Violação de compliance operacional.\",\n      \"suggested_fix\": \"Implementar watchdog thread separado que consulta estados staleness (>X minutos em DOWNLOADING/etc) e envia alertas Telegram; heartbeat para healthcheck do Fly.io.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"src/backend/worker/database.py\",\n      \"description\": \"SQLite não está explicitamente em WAL mode ('simplificado' sugere modo padrão DELETE). Em Fly.io com múltiplas instâncias (se houver), ou até mesmo concorrência single-instance, haverá locks ou corrupção.\",\n      \"suggested_fix\": \"Executar 'PRAGMA journal_mode=WAL;' na inicialização; definir timeout de busy adequado (ex: 5000ms); considerar singleton de conexão ou pool thread-local.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"src/frontend/web/PipelinePage.tsx\",\n      \"description\": \"Dashboard expõe API workerApi sem clara separação entre leitura (observação) e operação pesada. Risco de usuário acionar ações destrutivas via UI quando o spec define dashboard apenas para observação.\",\n      \"suggested_fix\": \"Adicionar middleware de modo read-only para endpoints dashboard; se necessário controle, isolar em CLI ou API separada com auth; documentar que PipelinePage é 'observational only'.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"src/backend/worker/strategy.py (novo)\",\n      \"description\": \"Criar módulo de estratégia que encapsula a lógica INLABS vs Liferay vs ZIP, permitindo testes unitários do roteamento de datas e facilitando a mudança de política comercial (ex: alterar 30 dias para 60).\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"src/backend/worker/models.py\",\n      \"description\": \"Adicionar campo content_hash na tabela registry para deduplication idempotente e verificação de integridade, garantindo que reprocessamentos não criem duplicatas no ES.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"src/backend/worker/config.py\",\n      \"description\": \"Centralizar constantes críticas: INLABS_WINDOW_DAYS=30, MAX_RETRY=5, BACKOFF_BASE=2, TEMP_RETENTION_HOURS=24, garantindo compliance operacional configurável sem mudança de código.\"\n    }\n  ],\n  \"diffs\": [\n    {\n      \"file\": \"src/backend/worker/downloader.py\",\n      \"hunks\": \"@@ -10,7 +10,12 @@\\n-    content = requests.get(url).content\\n-    process_in_memory(content)\\n+    with requests.get(url, stream=True) as r:\\n+        r.raise_for_status()\\n+        with SpooledTemporaryFile(max_size=5*1024*1024, mode='w+b') as tmp:\\n+            for chunk in r.iter_content(chunk_size=8192):\\n+                tmp.write(chunk)\\n+            tmp.seek(0)\\n+            persist_to_disk(tmp, doc_id)\"\n    },\n    {\n      \"file\": \"src/backend/worker/state_machine.py\",\n      \"hunks\": \"@@ -25,6 +25,12 @@\\n     def transition(self, doc_id, new_state):\\n         cur = self.conn.cursor()\\n+        cur.execute('''UPDATE documents \\n+                      SET retry_count = retry_count + 1,\\n+                          last_attempt = datetime('now'),\\n+                          next_attempt = datetime('now', '+' || ? || ' seconds')\\n+                      WHERE id = ?''', \\n+                   (backoff_seconds, doc_id))\\n         cur.execute('UPDATE documents SET state = ? WHERE id = ?', \\n                    (new_state, doc_id))\"\n    }\n  ],\n  \"meta\": {\n    \"tokens_used\": 2847,\n    \"latency_ms\": 1250,\n    \"thinking_tokens\": 890\n  }\n}"
+}

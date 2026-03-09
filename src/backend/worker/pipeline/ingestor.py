@@ -1,4 +1,4 @@
-"""Ingestor pipeline module — parses XML and bulk-indexes to Elasticsearch.
+"""BM25 indexing pipeline module — parses XML and bulk-indexes to Elasticsearch.
 
 Reuses INLabsXMLParser from existing codebase. Indexes directly to ES
 without PostgreSQL dependency. Uses httpx for async bulk requests.
@@ -121,14 +121,14 @@ async def run_ingest(
         extract_dir: Base directory containing extracted XML subdirectories
 
     Returns:
-        Stats dict: {"ingested_files": N, "ingested_docs": M, "failed_files": K}
+        Stats dict: {"indexed_files": N, "indexed_docs": M, "failed_files": K}
     """
     extract_base = Path(extract_dir)
     extracted_files = await registry.get_files_by_status(FileStatus.EXTRACTED)
     parser = INLabsXMLParser()
 
-    ingested_files = 0
-    ingested_docs = 0
+    indexed_files = 0
+    indexed_docs = 0
     failed_files = 0
 
     async with httpx.AsyncClient(timeout=60) as client:
@@ -138,8 +138,8 @@ async def run_ingest(
             stem = Path(filename).stem
             file_extract_dir = extract_base / stem
 
-            # Transition to INGESTING
-            await registry.update_status(file_id, FileStatus.INGESTING)
+            # Transition to BM25_INDEXING
+            await registry.update_status(file_id, FileStatus.BM25_INDEXING)
 
             try:
                 if not file_extract_dir.exists():
@@ -178,27 +178,27 @@ async def run_ingest(
 
                 # Update registry
                 await registry.update_file_fields(file_id, doc_count=total_ok)
-                await registry.update_status(file_id, FileStatus.INGESTED)
+                await registry.update_status(file_id, FileStatus.BM25_INDEXED)
                 await registry.add_log_entry(
                     run_id, file_id, "INFO",
-                    f"Ingested {total_ok} docs from {filename} (parse_errors={parse_errors})"
+                    f"BM25 indexed {total_ok} docs from {filename} (parse_errors={parse_errors})"
                 )
-                ingested_files += 1
-                ingested_docs += total_ok
+                indexed_files += 1
+                indexed_docs += total_ok
 
             except Exception as e:
                 error_msg = str(e)
-                logger.error("Ingest failed for %s: %s", filename, error_msg)
-                await registry.update_status(file_id, FileStatus.INGEST_FAILED)
+                logger.error("BM25 indexing failed for %s: %s", filename, error_msg)
+                await registry.update_status(file_id, FileStatus.BM25_INDEX_FAILED)
                 await registry.update_file_fields(file_id, error_message=error_msg)
                 await registry.add_log_entry(
                     run_id, file_id, "ERROR",
-                    f"Ingest failed for {filename}: {error_msg}"
+                    f"BM25 indexing failed for {filename}: {error_msg}"
                 )
                 failed_files += 1
 
     return {
-        "ingested_files": ingested_files,
-        "ingested_docs": ingested_docs,
+        "indexed_files": indexed_files,
+        "indexed_docs": indexed_docs,
         "failed_files": failed_files,
     }

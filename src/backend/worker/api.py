@@ -47,6 +47,7 @@ async def health() -> dict[str, Any]:
         "uptime_seconds": round(get_uptime_seconds(), 1),
         "scheduler_running": sched["running"],
         "scheduler_paused": sched["paused"],
+        "scheduler_jobs": sched["jobs"],
         "last_heartbeat": get_last_heartbeat(),
         "disk_usage": disk,
     }
@@ -69,6 +70,13 @@ async def registry_months(year: int | None = None) -> list[dict[str, Any]]:
     return await reg.get_months(year)
 
 
+@router.get("/registry/stats")
+async def registry_stats() -> dict[str, Any]:
+    """Return dashboard-friendly summary statistics."""
+    reg = _get_registry()
+    return await reg.get_summary_stats()
+
+
 @router.get("/registry/files/{file_id}")
 async def registry_file(file_id: int) -> dict[str, Any]:
     """Return a single file record by ID."""
@@ -89,6 +97,12 @@ async def pipeline_runs(limit: int = Query(50, ge=1, le=500)) -> list[dict[str, 
     return await reg.get_pipeline_runs(limit)
 
 
+@router.get("/pipeline/scheduler")
+async def pipeline_scheduler() -> dict[str, Any]:
+    """Return scheduler status, pause state, and next runs."""
+    return get_scheduler_status()
+
+
 @router.get("/pipeline/logs")
 async def pipeline_logs(
     run_id: str | None = None,
@@ -104,10 +118,10 @@ async def pipeline_logs(
 @router.post("/pipeline/trigger/{phase}")
 async def pipeline_trigger(phase: str) -> dict[str, str]:
     """Trigger a pipeline phase immediately."""
-    if phase not in PHASE_MAP:
+    if phase not in PHASE_MAP and phase != "full":
         raise HTTPException(
             status_code=400,
-            detail=f"Unknown phase: {phase}. Valid: {list(PHASE_MAP.keys())}",
+            detail=f"Unknown phase: {phase}. Valid: {[*PHASE_MAP.keys(), 'full']}",
         )
     result = await trigger_phase(phase)
     return result

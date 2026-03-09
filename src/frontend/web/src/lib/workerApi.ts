@@ -2,27 +2,48 @@ import type {
   HealthStatus,
   RegistryStatus,
   MonthData,
+  RegistryStats,
+  SchedulerStatus,
   FileRecord,
   PipelineRun,
   LogEntry,
 } from "@/types/pipeline";
+import { resolveApiUrl } from "@/lib/runtimeConfig";
 
-const BASE = "/api/worker";
+const BASE = resolveApiUrl("/api/worker");
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, init);
-  if (!res.ok) throw new Error(`Worker API error: ${res.status}`);
+  if (!res.ok) {
+    let detail = `Worker API error: ${res.status}`;
+    try {
+      const text = await res.text();
+      if (text) {
+        try {
+          const payload = JSON.parse(text) as { error?: string; detail?: string };
+          detail = payload.detail || payload.error || text;
+        } catch {
+          detail = text;
+        }
+      }
+    } catch {
+      // Ignore body parsing failures and keep the status-only error.
+    }
+    throw new Error(detail);
+  }
   return res.json();
 }
 
 export const workerApi = {
   getHealth: () => fetchJson<HealthStatus>("/health"),
   getRegistryStatus: () => fetchJson<RegistryStatus>("/registry/status"),
+  getRegistryStats: () => fetchJson<RegistryStats>("/registry/stats"),
   getMonths: (year?: number) =>
     fetchJson<MonthData[]>(`/registry/months${year ? `?year=${year}` : ""}`),
   getFile: (id: number) => fetchJson<FileRecord>(`/registry/files/${id}`),
   getRuns: (limit = 50) =>
     fetchJson<PipelineRun[]>(`/pipeline/runs?limit=${limit}`),
+  getScheduler: () => fetchJson<SchedulerStatus>("/pipeline/scheduler"),
   getLogs: (params: {
     run_id?: string;
     file_id?: number;

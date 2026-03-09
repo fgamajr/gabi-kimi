@@ -9,7 +9,7 @@ primary_region = 'gru'
 
 [env]
   ES_URL = 'http://gabi-dou-es.internal:9200'
-  REGISTRY_DB = '/data/registry.db'
+  REGISTRY_DB_PATH = '/data/registry.db'
   TIGRIS_BUCKET = 'gabi-dou-es-snapshots'
 
 [mounts]

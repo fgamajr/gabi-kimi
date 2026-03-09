@@ -108,6 +108,11 @@ PGPASSWORD=gabi psql -h localhost -p 5433 -U gabi -d gabi \
     -c "REFRESH MATERIALIZED VIEW CONCURRENTLY dou.suggest_cache;" 2>&1 | tee -a "$LOG_FILE" || true
 log "suggest_cache refreshed."
 
+# ---------- Step 5: Refresh analytics cache ----------
+log "Step 5: Refreshing analytics cache materialized views..."
+python3 ops/scripts/refresh_analytics_cache.py 2>&1 | tee -a "$LOG_FILE" || true
+log "analytics cache refreshed."
+
 # ---------- Summary ----------
 DOC_COUNT=$(PGPASSWORD=gabi psql -h localhost -p 5433 -U gabi -d gabi -tAc \
     "SELECT reltuples::bigint FROM pg_class WHERE relname='document'" 2>/dev/null || echo "?")

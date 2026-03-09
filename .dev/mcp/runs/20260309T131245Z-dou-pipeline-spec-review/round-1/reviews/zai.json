@@ -1,0 +1,79 @@
+{
+  "agent": "zai",
+  "round": 1,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "src/backend/worker/ingestor",
+      "description": "Ingestor indexa direto no ES sem implementar pipeline híbrido BM25-first + embeddings posterior. Spec exige 'BM25 primeiro; embeddings depois' para busca semântica progressiva. Atual implementação quebra a estratégia de retrieval híbrido.",
+      "suggested_fix": "Implementar pipeline de ingestão em dois estágios: (1) indexação imediata com mapping BM25, (2) queue assíncrona para geração de embeddings e atualização do documento no ES com campo embedding separado."
+    },
+    {
+      "severity": "high",
+      "location": "src/backend/worker/*",
+      "description": "Ausência de geração de IDs determinísticos. Spec exige 'ids determinísticos' para evitar duplicatas e permitir reprocessamento idempotente. IDs aleatórios ou sequenciais causarão duplicatas em re-runs.",
+      "suggested_fix": "Implementar função hash determinístico baseada em campos estáveis do documento (ex: data_publicacao + numero_diario + secao + id_documento_original). Usar como _id no ES para upsert idempotente."
+    },
+    {
+      "severity": "high",
+      "location": "src/backend/worker/discovery",
+      "description": "Discovery menciona apenas Liferay JSONWS mas spec exige INLABS para auto-discovery e recentes (últimos 30 dias). Gap crítico: não há integração INLABS implementada nem lógica de seleção de fonte baseada em idade.",
+      "suggested_fix": "Implementar discovery híbrido: (1) INLABS API para documentos dos últimos 30 dias, (2) Liferay JSONWS/catalog para histórico e fallback. Adicionar campo 'fonte_discovery' no registry para rastreabilidade."
+    },
+    {
+      "severity": "high",
+      "location": "src/backend/worker/*",
+      "description": "Ausência completa de watchdog e integração Telegram para alertas operacionais. Spec exige 'watchdog/Telegram' para monitoramento autônomo.",
+      "suggested_fix": "Implementar WatchdogService com: health checks periódicos do worker, detecção de stalled jobs (timeout configurável), e integração Telegram Bot API para alertas de falha crítica."
+    },
+    {
+      "severity": "medium",
+      "location": "src/backend/worker/registry",
+      "description": "Registry SQLite 'simplificado' sem confirmação de WAL mode. Spec exige 'SQLite WAL' para operação concorrente leitura/escrita. Modo padrão (DELETE/TRUNCATE) causará bloqueios sob carga.",
+      "suggested_fix": "Adicionar pragma connection.execute('PRAGMA journal_mode=WAL') e pragma synchronous=NORMAL na inicialização do registry. Validar com PRAGMA journal_mode após setup."
+    },
+    {
+      "severity": "medium",
+      "location": "src/backend/worker/downloader",
+      "description": "Downloader baixa tudo em memória sem streaming/disk guard. ZIPs mensais do DOU podem exceder 500MB. Em containers Fly.io com memória limitada (256MB-1GB típico), isso causará OOM.",
+      "suggested_fix": "Implementar streaming download com tempfile em disco ou processamento on-the-fly. Adicionar tamanho_max_bytes configurável com rejeição de arquivos que excedam limite seguro."
+    },
+    {
+      "severity": "medium",
+      "location": "src/backend/worker/*",
+      "description": "Ausência de lógica de retry com backoff e cleanup de recursos órfãos. Spec exige 'ciclo unificado sequencial com retries e cleanup'. Jobs travados ou falhos não têm recovery.",
+      "suggested_fix": "Implementar decorator @retry com exponential backoff para operações de rede/ES. Adicionar job de cleanup periódico que marca jobs stuck (ex: DOWNLOADING > 1h) como FAILED e libera recursos."
+    },
+    {
+      "severity": "medium",
+      "location": "src/backend/worker/discovery",
+      "description": "Sem tratamento para fallback de recentes após virada do mês. Quando documento recente (dia 31) é processado no dia 1 do mês seguinte, INLABS não terá mais o documento. Spec menciona explicitamente essa edge case.",
+      "suggested_fix": "Adicionar lógica de fallback: se data_documento > 30 dias atrás E não encontrado em INLABS, tentar Liferay com lookup no ZIP mensal correspondente."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "src/backend/worker/extractor",
+      "description": "Extractor só extrai XML para diretório temporário sem validação de schema. Considerar validar estrutura XML contra XSD do DOU antes de marcar como EXTRACTED para evitar ingestão de dados malformados."
+    },
+    {
+      "type": "improvement",
+      "location": "src/backend/worker/verifier",
+      "description": "Verifier só confere contagem. Considerar verificar: (1) documento existe no ES via GET, (2) campos obrigatórios presentes, (3) embedding gerado para docs > threshold temporal."
+    },
+    {
+      "type": "improvement",
+      "location": "src/frontend/web",
+      "description": "Dashboard é de 'observação, não de operação pesada'. Validar que PipelinePage não expõe ações destrutivas (delete bulk, reindex full) e foca em métricas de health, throughput e failures recentes."
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 0,
+    "latency_ms": 0,
+    "thinking_tokens": 0
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"zai\",\n  \"round\": 1,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/backend/worker/ingestor\",\n      \"description\": \"Ingestor indexa direto no ES sem implementar pipeline híbrido BM25-first + embeddings posterior. Spec exige 'BM25 primeiro; embeddings depois' para busca semântica progressiva. Atual implementação quebra a estratégia de retrieval híbrido.\",\n      \"suggested_fix\": \"Implementar pipeline de ingestão em dois estágios: (1) indexação imediata com mapping BM25, (2) queue assíncrona para geração de embeddings e atualização do documento no ES com campo embedding separado.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/backend/worker/*\",\n      \"description\": \"Ausência de geração de IDs determinísticos. Spec exige 'ids determinísticos' para evitar duplicatas e permitir reprocessamento idempotente. IDs aleatórios ou sequenciais causarão duplicatas em re-runs.\",\n      \"suggested_fix\": \"Implementar função hash determinístico baseada em campos estáveis do documento (ex: data_publicacao + numero_diario + secao + id_documento_original). Usar como _id no ES para upsert idempotente.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/backend/worker/discovery\",\n      \"description\": \"Discovery menciona apenas Liferay JSONWS mas spec exige INLABS para auto-discovery e recentes (últimos 30 dias). Gap crítico: não há integração INLABS implementada nem lógica de seleção de fonte baseada em idade.\",\n      \"suggested_fix\": \"Implementar discovery híbrido: (1) INLABS API para documentos dos últimos 30 dias, (2) Liferay JSONWS/catalog para histórico e fallback. Adicionar campo 'fonte_discovery' no registry para rastreabilidade.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/backend/worker/*\",\n      \"description\": \"Ausência completa de watchdog e integração Telegram para alertas operacionais. Spec exige 'watchdog/Telegram' para monitoramento autônomo.\",\n      \"suggested_fix\": \"Implementar WatchdogService com: health checks periódicos do worker, detecção de stalled jobs (timeout configurável), e integração Telegram Bot API para alertas de falha crítica.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"src/backend/worker/registry\",\n      \"description\": \"Registry SQLite 'simplificado' sem confirmação de WAL mode. Spec exige 'SQLite WAL' para operação concorrente leitura/escrita. Modo padrão (DELETE/TRUNCATE) causará bloqueios sob carga.\",\n      \"suggested_fix\": \"Adicionar pragma connection.execute('PRAGMA journal_mode=WAL') e pragma synchronous=NORMAL na inicialização do registry. Validar com PRAGMA journal_mode após setup.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"src/backend/worker/downloader\",\n      \"description\": \"Downloader baixa tudo em memória sem streaming/disk guard. ZIPs mensais do DOU podem exceder 500MB. Em containers Fly.io com memória limitada (256MB-1GB típico), isso causará OOM.\",\n      \"suggested_fix\": \"Implementar streaming download com tempfile em disco ou processamento on-the-fly. Adicionar tamanho_max_bytes configurável com rejeição de arquivos que excedam limite seguro.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"src/backend/worker/*\",\n      \"description\": \"Ausência de lógica de retry com backoff e cleanup de recursos órfãos. Spec exige 'ciclo unificado sequencial com retries e cleanup'. Jobs travados ou falhos não têm recovery.\",\n      \"suggested_fix\": \"Implementar decorator @retry com exponential backoff para operações de rede/ES. Adicionar job de cleanup periódico que marca jobs stuck (ex: DOWNLOADING > 1h) como FAILED e libera recursos.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"src/backend/worker/discovery\",\n      \"description\": \"Sem tratamento para fallback de recentes após virada do mês. Quando documento recente (dia 31) é processado no dia 1 do mês seguinte, INLABS não terá mais o documento. Spec menciona explicitamente essa edge case.\",\n      \"suggested_fix\": \"Adicionar lógica de fallback: se data_documento > 30 dias atrás E não encontrado em INLABS, tentar Liferay com lookup no ZIP mensal correspondente.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"src/backend/worker/extractor\",\n      \"description\": \"Extractor só extrai XML para diretório temporário sem validação de schema. Considerar validar estrutura XML contra XSD do DOU antes de marcar como EXTRACTED para evitar ingestão de dados malformados.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"src/backend/worker/verifier\",\n      \"description\": \"Verifier só confere contagem. Considerar verificar: (1) documento existe no ES via GET, (2) campos obrigatórios presentes, (3) embedding gerado para docs > threshold temporal.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"src/frontend/web\",\n      \"description\": \"Dashboard é de 'observação, não de operação pesada'. Validar que PipelinePage não expõe ações destrutivas (delete bulk, reindex full) e foca em métricas de health, throughput e failures recentes.\"\n    }\n  ],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 0,\n    \"latency_ms\": 0,\n    \"thinking_tokens\": 0\n  }\n}\n```"
+}

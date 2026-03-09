@@ -1,0 +1,78 @@
+{
+  "agent": "qwen",
+  "round": 2,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "high",
+      "location": "src/backend/worker/source_router.py (proposto)",
+      "description": "SourceRouter usa idade fixa (25/35 dias) sem mecanismo de detecção dinâmica da disponibilidade real do INLABS. Se INLABS remover dados em 28 dias em vez de 30, o router continuará tentando INLABS inutilmente na zona de overlap.",
+      "suggested_fix": "Adicionar probe de disponibilidade por data no SourceRouter: tentar HEAD no INLABS para a edição específica antes de incluir na lista de fontes. Cache do resultado por 1h para evitar chamadas repetidas."
+    },
+    {
+      "severity": "high",
+      "location": "src/backend/worker/downloader.py (proposto)",
+      "description": "Streaming para tempfile não especifica handling de download parcial/corrompido. Se conexão cair em 90% do ZIP, o arquivo parcial permanece em disco sem detecção até extração falhar.",
+      "suggested_fix": "Implementar download com Content-Length validation prévia + verificação de bytes escritos vs esperado antes de marcar DOWNLOADED. Adicionar estado DOWNLOAD_CORRUPTED distinto de FAILED."
+    },
+    {
+      "severity": "medium",
+      "location": "src/backend/worker/registry.py (SQLite PRAGMAs)",
+      "description": "WAL mode em volumes Fly.io (network-attached storage) pode ter comportamento diferente de disco local. WAL files (-wal, -shm) podem não ser sincronizados corretamente em storage remoto.",
+      "suggested_fix": "Adicionar teste de concorrência real no deploy inicial: worker escrevendo + dashboard lendo simultaneamente por 10min. Fallback para DELETE mode se SQLITE_BUSY persistir."
+    },
+    {
+      "severity": "medium",
+      "location": "src/backend/worker/watchdog.py (proposto)",
+      "description": "Alertas Telegram para cada FAILED state causam alert fatigue. Edição com 500 atos pode gerar 500 alertas se todos falharem no ingest.",
+      "suggested_fix": "Implementar agregação de alertas: 1 alerta por edição com contagem de falhas, não por documento. Threshold configurável (ex: alerta só se >10% dos atos falharem)."
+    },
+    {
+      "severity": "medium",
+      "location": "src/backend/worker/retry.py (proposto)",
+      "description": "Estado RETRY_PENDING requer query pattern não especificado: como o worker descobre quais entries estão em RETRY_PENDING com next_attempt_at <= now? Polling eficiente não está definido.",
+      "suggested_fix": "Adicionar índice em (state, next_attempt_at) no SQLite. Worker faz query seletiva: SELECT WHERE state='RETRY_PENDING' AND next_attempt_at <= datetime('now'). Considerar fila separada para retries."
+    },
+    {
+      "severity": "low",
+      "location": "src/backend/worker/ingestor.py (IDs determinísticos)",
+      "description": "Migração de dados existentes não é coberta. Se já houver dados no ES/SQLite sem deterministic_id, o schema novo criará inconsistência entre histórico e novos dados.",
+      "suggested_fix": "Adicionar script de migração one-time: recalcula deterministic_id para entries existentes, detecta duplicatas potenciais, merge manual necessário antes de ativar UNIQUE constraint."
+    },
+    {
+      "severity": "low",
+      "location": "spec original (BM25-first híbrido)",
+      "description": "Veredito não define critério de transição de 'híbrido BM25-first' para modo normal. Quando o histórico 'completa'? 30 dias? 90 dias? Quem decide?",
+      "suggested_fix": "Adicionar config TRANSITION_DAYS=90 no config.py. Após 90 dias de operação, INLABS cobre todo o histórico relevante e fallback Liferay torna-se raro. Documentar decisão."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "src/backend/worker/source_router.py",
+      "description": "Adicionar métrica de fonte usada (INLABS vs LIFERAY) no registry para monitorar eficácia do router ao longo do tempo."
+    },
+    {
+      "type": "improvement",
+      "location": "src/backend/worker/watchdog.py",
+      "description": "Incluir healthcheck endpoint que Fly.io possa usar para restart automático se worker travar (retorna 503 se stale > 1h)."
+    },
+    {
+      "type": "improvement",
+      "location": "src/backend/worker/es_mapping.py",
+      "description": "Adicionar alias strategy (dou-articles-v1 → dou-articles) para permitir reindex sem downtime futuro."
+    },
+    {
+      "type": "improvement",
+      "location": "fly.toml",
+      "description": "Especificar machine_type = 'performance-1x' (2GB RAM) como mínimo, não 'cpu-1x-256mb'. Documentar custo mensal estimado."
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 1847,
+    "latency_ms": 342,
+    "thinking_tokens": 1200
+  },
+  "raw_text": "{\n  \"agent\": \"qwen\",\n  \"round\": 2,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/backend/worker/source_router.py (proposto)\",\n      \"description\": \"SourceRouter usa idade fixa (25/35 dias) sem mecanismo de detecção dinâmica da disponibilidade real do INLABS. Se INLABS remover dados em 28 dias em vez de 30, o router continuará tentando INLABS inutilmente na zona de overlap.\",\n      \"suggested_fix\": \"Adicionar probe de disponibilidade por data no SourceRouter: tentar HEAD no INLABS para a edição específica antes de incluir na lista de fontes. Cache do resultado por 1h para evitar chamadas repetidas.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/backend/worker/downloader.py (proposto)\",\n      \"description\": \"Streaming para tempfile não especifica handling de download parcial/corrompido. Se conexão cair em 90% do ZIP, o arquivo parcial permanece em disco sem detecção até extração falhar.\",\n      \"suggested_fix\": \"Implementar download com Content-Length validation prévia + verificação de bytes escritos vs esperado antes de marcar DOWNLOADED. Adicionar estado DOWNLOAD_CORRUPTED distinto de FAILED.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"src/backend/worker/registry.py (SQLite PRAGMAs)\",\n      \"description\": \"WAL mode em volumes Fly.io (network-attached storage) pode ter comportamento diferente de disco local. WAL files (-wal, -shm) podem não ser sincronizados corretamente em storage remoto.\",\n      \"suggested_fix\": \"Adicionar teste de concorrência real no deploy inicial: worker escrevendo + dashboard lendo simultaneamente por 10min. Fallback para DELETE mode se SQLITE_BUSY persistir.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"src/backend/worker/watchdog.py (proposto)\",\n      \"description\": \"Alertas Telegram para cada FAILED state causam alert fatigue. Edição com 500 atos pode gerar 500 alertas se todos falharem no ingest.\",\n      \"suggested_fix\": \"Implementar agregação de alertas: 1 alerta por edição com contagem de falhas, não por documento. Threshold configurável (ex: alerta só se >10% dos atos falharem).\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"src/backend/worker/retry.py (proposto)\",\n      \"description\": \"Estado RETRY_PENDING requer query pattern não especificado: como o worker descobre quais entries estão em RETRY_PENDING com next_attempt_at <= now? Polling eficiente não está definido.\",\n      \"suggested_fix\": \"Adicionar índice em (state, next_attempt_at) no SQLite. Worker faz query seletiva: SELECT WHERE state='RETRY_PENDING' AND next_attempt_at <= datetime('now'). Considerar fila separada para retries.\"\n    },\n    {\n      \"severity\": \"low\",\n      \"location\": \"src/backend/worker/ingestor.py (IDs determinísticos)\",\n      \"description\": \"Migração de dados existentes não é coberta. Se já houver dados no ES/SQLite sem deterministic_id, o schema novo criará inconsistência entre histórico e novos dados.\",\n      \"suggested_fix\": \"Adicionar script de migração one-time: recalcula deterministic_id para entries existentes, detecta duplicatas potenciais, merge manual necessário antes de ativar UNIQUE constraint.\"\n    },\n    {\n      \"severity\": \"low\",\n      \"location\": \"spec original (BM25-first híbrido)\",\n      \"description\": \"Veredito não define critério de transição de 'híbrido BM25-first' para modo normal. Quando o histórico 'completa'? 30 dias? 90 dias? Quem decide?\",\n      \"suggested_fix\": \"Adicionar config TRANSITION_DAYS=90 no config.py. Após 90 dias de operação, INLABS cobre todo o histórico relevante e fallback Liferay torna-se raro. Documentar decisão.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"src/backend/worker/source_router.py\",\n      \"description\": \"Adicionar métrica de fonte usada (INLABS vs LIFERAY) no registry para monitorar eficácia do router ao longo do tempo.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"src/backend/worker/watchdog.py\",\n      \"description\": \"Incluir healthcheck endpoint que Fly.io possa usar para restart automático se worker travar (retorna 503 se stale > 1h).\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"src/backend/worker/es_mapping.py\",\n      \"description\": \"Adicionar alias strategy (dou-articles-v1 → dou-articles) para permitir reindex sem downtime futuro.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"fly.toml\",\n      \"description\": \"Especificar machine_type = 'performance-1x' (2GB RAM) como mínimo, não 'cpu-1x-256mb'. Documentar custo mensal estimado.\"\n    }\n  ],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 1847,\n    \"latency_ms\": 342,\n    \"thinking_tokens\": 1200\n  }\n}"
+}

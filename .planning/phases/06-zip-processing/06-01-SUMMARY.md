@@ -74,7 +74,7 @@ None.
 
 ## Self-Check: PASSED
 
-- ZIP Slip check present in ingest_zip (path validation). documents_dup/documents_failed updated in both ingest paths. Worker sets partial and passes counts. Commit 9819e99 present.
+- ZIP Slip check present in ingest_zip (path validation). documents_dup/documents_failed updated in both ingest paths. Worker sets partial and passes counts. Commits 9819e99, bb8bd85 present.
 
 ---
 *Phase: 06-zip-processing*

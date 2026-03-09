@@ -1,0 +1,56 @@
+{
+  "agent": "kimi",
+  "round": 2,
+  "verdict": "REQUEST_CHANGES",
+  "objections": [
+    {
+      "severity": "critical",
+      "location": "src/backend/worker/registry.py / fly.toml",
+      "description": "SQLite WAL configuration (P1.5) is ineffective and dangerous without explicit Fly.io Volume mount. Fly.io machines have ephemeral root filesystems; any restart, deployment, or machine replacement wipes the SQLite database located at /app or /tmp. This destroys the entire job registry and state machine, causing duplicate ingestion or total data loss.",
+      "suggested_fix": "Add P0 requirement: Mount Fly Volume at /data in fly.toml ([[mounts]] section). Force database path to /data/registry.db. Verify at startup that the path is writable and persists across SIGTERM/SIGINT."
+    },
+    {
+      "severity": "critical",
+      "location": "src/backend/worker/extractor.py",
+      "description": "Round 1 fixes ZIP streaming download but ignores XML extraction memory footprint. DOU XML files can exceed 500MB uncompressed. Using DOM-based parsing (ElementTree.parse or xml.dom.minidom) loads the entire tree into memory, triggering OOM-kill immediately after download and nullifying the streaming architecture.",
+      "suggested_fix": "Mandate iterative parsing using xml.etree.ElementTree.iterparse with strict element.clear() and parent.remove() after yielding each document node. Ensure extractor yields documents as a generator, maintaining constant memory regardless of XML file size."
+    },
+    {
+      "severity": "high",
+      "location": "src/backend/api/search.py (missing architecture)",
+      "description": "Converged verdict incorrectly dismisses 'BM25-first híbrido' as conflation with discovery. The user task explicitly requires this as a search-layer strategy for recent documents (≤30 days). The verdict omits the query architecture entirely: no hybrid query template (combining BM25 text scores with reserved dense_vector knn), no recency boosting (decay function), and no routing logic between BM25-only (recent) and hybrid (historical) modes.",
+      "suggested_fix": "Add P1 requirement for Search API: Implement hybrid query using boolean should clauses or RRF (Reciprocal Rank Fusion). For recent documents (source=INLABS or age≤30), use BM25-only with script_score exponential decay on date field. For historical, combine BM25 + knn (weight 0 until embeddings ready). Expose via /search?strategy=recent|hybrid|auto."
+    },
+    {
+      "severity": "high",
+      "location": "Section 6 (R1)",
+      "description": "Factual error in infrastructure sizing: Fly.io performance-1x provides 1GB RAM, not 2GB as stated. With Python overhead (3-5x for XML processing), streaming a 1GB ZIP requires ~2-3GB RAM. Recommending performance-1x guarantees OOM under production load.",
+      "suggested_fix": "Correct to performance-2x (2GB RAM) minimum for workers, or dedicated-cpu-1x with 2GB RAM. Validate with memory profiling using tracemalloc during 600MB fixture processing."
+    },
+    {
+      "severity": "medium",
+      "location": "src/backend/worker/es_mapping.py",
+      "description": "Proposes single static index 'v1' without ILM or rollover. DOU produces daily editions; at ~2k docs/day, this exceeds 700k docs/year. Single shard growth causes query latency degradation, long recovery times, and eventual shard size limits (50GB+). No index template or time-based routing defined.",
+      "suggested_fix": "Implement monthly indices (dou-2024-01, dou-2024-02) using date math in index names. Create index template for auto-provisioning. Use alias 'dou-write' for ingestion and 'dou-read' for dashboard searches spanning multiple indices."
+    }
+  ],
+  "suggestions": [
+    {
+      "type": "improvement",
+      "location": "src/backend/worker/source_router.py",
+      "description": "Add circuit breaker for INLABS: after 3 consecutive 5xx errors within 5 minutes, short-circuit INLABS attempts for 30 minutes to avoid hammering a degraded service, forcing immediate fallback to Liferay and reducing latency on degraded paths."
+    },
+    {
+      "type": "improvement",
+      "location": "src/backend/worker/watchdog.py",
+      "description": "Add I/O pressure monitoring (iostat/iowait) to detect SQLite WAL contention on shared Fly.io volumes. Alert if iowait >40% for 2 minutes, as this indicates volume saturation masquerading as application health."
+    }
+  ],
+  "diffs": [],
+  "meta": {
+    "tokens_used": 0,
+    "latency_ms": 0,
+    "thinking_tokens": 0
+  },
+  "raw_text": "```json\n{\n  \"agent\": \"kimi\",\n  \"round\": 2,\n  \"verdict\": \"REQUEST_CHANGES\",\n  \"objections\": [\n    {\n      \"severity\": \"critical\",\n      \"location\": \"src/backend/worker/registry.py / fly.toml\",\n      \"description\": \"SQLite WAL configuration (P1.5) is ineffective and dangerous without explicit Fly.io Volume mount. Fly.io machines have ephemeral root filesystems; any restart, deployment, or machine replacement wipes the SQLite database located at /app or /tmp. This destroys the entire job registry and state machine, causing duplicate ingestion or total data loss.\",\n      \"suggested_fix\": \"Add P0 requirement: Mount Fly Volume at /data in fly.toml ([[mounts]] section). Force database path to /data/registry.db. Verify at startup that the path is writable and persists across SIGTERM/SIGINT.\"\n    },\n    {\n      \"severity\": \"critical\",\n      \"location\": \"src/backend/worker/extractor.py\",\n      \"description\": \"Round 1 fixes ZIP streaming download but ignores XML extraction memory footprint. DOU XML files can exceed 500MB uncompressed. Using DOM-based parsing (ElementTree.parse or xml.dom.minidom) loads the entire tree into memory, triggering OOM-kill immediately after download and nullifying the streaming architecture.\",\n      \"suggested_fix\": \"Mandate iterative parsing using xml.etree.ElementTree.iterparse with strict element.clear() and parent.remove() after yielding each document node. Ensure extractor yields documents as a generator, maintaining constant memory regardless of XML file size.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"src/backend/api/search.py (missing architecture)\",\n      \"description\": \"Converged verdict incorrectly dismisses 'BM25-first híbrido' as conflation with discovery. The user task explicitly requires this as a search-layer strategy for recent documents (≤30 days). The verdict omits the query architecture entirely: no hybrid query template (combining BM25 text scores with reserved dense_vector knn), no recency boosting (decay function), and no routing logic between BM25-only (recent) and hybrid (historical) modes.\",\n      \"suggested_fix\": \"Add P1 requirement for Search API: Implement hybrid query using boolean should clauses or RRF (Reciprocal Rank Fusion). For recent documents (source=INLABS or age≤30), use BM25-only with script_score exponential decay on date field. For historical, combine BM25 + knn (weight 0 until embeddings ready). Expose via /search?strategy=recent|hybrid|auto.\"\n    },\n    {\n      \"severity\": \"high\",\n      \"location\": \"Section 6 (R1)\",\n      \"description\": \"Factual error in infrastructure sizing: Fly.io performance-1x provides 1GB RAM, not 2GB as stated. With Python overhead (3-5x for XML processing), streaming a 1GB ZIP requires ~2-3GB RAM. Recommending performance-1x guarantees OOM under production load.\",\n      \"suggested_fix\": \"Correct to performance-2x (2GB RAM) minimum for workers, or dedicated-cpu-1x with 2GB RAM. Validate with memory profiling using tracemalloc during 600MB fixture processing.\"\n    },\n    {\n      \"severity\": \"medium\",\n      \"location\": \"src/backend/worker/es_mapping.py\",\n      \"description\": \"Proposes single static index 'v1' without ILM or rollover. DOU produces daily editions; at ~2k docs/day, this exceeds 700k docs/year. Single shard growth causes query latency degradation, long recovery times, and eventual shard size limits (50GB+). No index template or time-based routing defined.\",\n      \"suggested_fix\": \"Implement monthly indices (dou-2024-01, dou-2024-02) using date math in index names. Create index template for auto-provisioning. Use alias 'dou-write' for ingestion and 'dou-read' for dashboard searches spanning multiple indices.\"\n    }\n  ],\n  \"suggestions\": [\n    {\n      \"type\": \"improvement\",\n      \"location\": \"src/backend/worker/source_router.py\",\n      \"description\": \"Add circuit breaker for INLABS: after 3 consecutive 5xx errors within 5 minutes, short-circuit INLABS attempts for 30 minutes to avoid hammering a degraded service, forcing immediate fallback to Liferay and reducing latency on degraded paths.\"\n    },\n    {\n      \"type\": \"improvement\",\n      \"location\": \"src/backend/worker/watchdog.py\",\n      \"description\": \"Add I/O pressure monitoring (iostat/iowait) to detect SQLite WAL contention on shared Fly.io volumes. Alert if iowait >40% for 2 minutes, as this indicates volume saturation masquerading as application health.\"\n    }\n  ],\n  \"diffs\": [],\n  \"meta\": {\n    \"tokens_used\": 0,\n    \"latency_ms\": 0,\n    \"thinking_tokens\": 0\n  }\n}\n```"
+}

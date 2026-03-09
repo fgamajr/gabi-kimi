@@ -15,6 +15,10 @@ export interface SessionStatus {
   principal?: {
     label?: string;
     source?: string;
+    user_id?: string;
+    roles?: string[];
+    email?: string | null;
+    status?: string | null;
   };
   expires_in_sec?: number;
 }
@@ -68,7 +72,9 @@ export async function createAccessSession(accessKey: string): Promise<SessionSta
     throw new Error(`Session bootstrap error: ${response.status}`);
   }
 
-  return response.json();
+  const payload = await response.json();
+  window.dispatchEvent(new Event("gabi-auth-changed"));
+  return payload;
 }
 
 export async function clearAccessSession() {
@@ -76,4 +82,5 @@ export async function clearAccessSession() {
     method: "DELETE",
     credentials: "include",
   });
+  window.dispatchEvent(new Event("gabi-auth-changed"));
 }

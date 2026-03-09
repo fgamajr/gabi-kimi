@@ -5,7 +5,11 @@ import json
 import pytest
 import pytest_asyncio
 
-from src.backend.worker.migration import migrate_catalog_to_sqlite
+from src.backend.worker.migration import (
+    bootstrap_registry_if_empty,
+    ensure_registry_seed_audit_trail,
+    migrate_catalog_to_sqlite,
+)
 from src.backend.worker.registry import FileStatus
 
 
@@ -72,8 +76,8 @@ async def test_migration_creates_records(registry, catalog_path, monkeypatch):
     assert stats["total"] == 4
 
 
-async def test_ingested_files_marked_correctly(registry, catalog_path, monkeypatch):
-    """Files with matching (year_month, section) in ES are marked INGESTED."""
+async def test_covered_files_marked_verified(registry, catalog_path, monkeypatch):
+    """Files with matching (year_month, section) in ES are marked VERIFIED."""
     _mock_es_coverage([("2026-01", "do1")], monkeypatch)
 
     await migrate_catalog_to_sqlite(
@@ -84,10 +88,10 @@ async def test_ingested_files_marked_correctly(registry, catalog_path, monkeypat
 
     file_rec = await registry.get_file_by_filename("S01012026.zip")
     assert file_rec is not None
-    assert file_rec["status"] == "INGESTED"
+    assert file_rec["status"] == "VERIFIED"
 
 
-async def test_non_ingested_files_marked_discovered(registry, catalog_path, monkeypatch):
+async def test_non_covered_files_marked_discovered(registry, catalog_path, monkeypatch):
     """Files without ES match are marked DISCOVERED."""
     _mock_es_coverage([("2026-01", "do1")], monkeypatch)
 
@@ -125,7 +129,7 @@ async def test_migration_idempotent(registry, catalog_path, monkeypatch):
 
 
 async def test_migration_returns_stats(registry, catalog_path, monkeypatch):
-    """Stats are returned (total, ingested, discovered counts)."""
+    """Stats are returned (total, verified, discovered counts)."""
     _mock_es_coverage([("2026-01", "do1"), ("2025-03", "do3")], monkeypatch)
 
     stats = await migrate_catalog_to_sqlite(
@@ -134,5 +138,83 @@ async def test_migration_returns_stats(registry, catalog_path, monkeypatch):
         es_url="http://localhost:9200",
     )
     assert stats["total"] == 4
-    assert stats["ingested"] == 2
+    assert stats["verified"] == 2
     assert stats["discovered"] == 2
+
+
+async def test_bootstrap_registry_if_empty_populates_from_catalog(registry, catalog_path, monkeypatch):
+    """Empty registries are auto-populated from the catalog."""
+    _mock_es_coverage([], monkeypatch)
+
+    stats = await bootstrap_registry_if_empty(
+        registry,
+        es_url="http://localhost:9200",
+        catalog_path=catalog_path,
+    )
+
+    assert stats is not None
+    counts = await registry.get_status_counts()
+    assert sum(counts.values()) == 4
+    runs = await registry.get_pipeline_runs(limit=5)
+    assert len(runs) == 1
+    assert runs[0]["phase"] == "catalog-bootstrap"
+
+
+async def test_ensure_registry_seed_audit_trail_backfills_initial_run(registry):
+    """Seeded registries without historical runs get a synthetic audit entry once."""
+    await registry.insert_file("existing.zip", "do1", "2026-01")
+
+    run_id = await ensure_registry_seed_audit_trail(registry)
+
+    assert run_id is not None
+    runs = await registry.get_pipeline_runs(limit=5)
+    assert len(runs) == 1
+    assert runs[0]["phase"] == "state-seed"
+
+    second_run_id = await ensure_registry_seed_audit_trail(registry)
+    assert second_run_id is None
+
+
+async def test_bootstrap_registry_if_empty_is_noop_when_already_populated(registry, catalog_path, monkeypatch):
+    """Bootstrap does not rerun when the registry already has rows."""
+    _mock_es_coverage([], monkeypatch)
+    await registry.insert_file("existing.zip", "do1", "2026-01")
+
+    stats = await bootstrap_registry_if_empty(
+        registry,
+        es_url="http://localhost:9200",
+        catalog_path=catalog_path,
+    )
+
+    assert stats is None
+
+
+async def test_migration_accepts_grouped_catalog_layout(registry, tmp_path, monkeypatch):
+    """The real catalog layout maps year_month -> filenames and folder_ids by month."""
+    catalog = {
+        "group_id": "49035712",
+        "folder_ids": {"2002-01": 50300469, "2024-12": 685674000},
+        "files": {
+            "2002-01": ["S01012002.zip", "S02012002.zip", "S03012002.zip"],
+            "2024-12": ["S01122024_Parte_01.zip", "S01122024_Parte_02.zip", "S02122024.zip"],
+        },
+    }
+    path = tmp_path / "grouped_catalog.json"
+    path.write_text(json.dumps(catalog))
+    _mock_es_coverage([], monkeypatch)
+
+    stats = await migrate_catalog_to_sqlite(
+        catalog_path=str(path),
+        registry=registry,
+        es_url="http://localhost:9200",
+    )
+
+    assert stats["total"] == 6
+    jan = await registry.get_file_by_filename("S01012002.zip")
+    assert jan is not None
+    assert jan["section"] == "do1"
+    assert jan["folder_id"] == 50300469
+
+    split = await registry.get_file_by_filename("S01122024_Parte_01.zip")
+    assert split is not None
+    assert split["section"] == "do1"

@@ -1,197 +1,188 @@
-import { useState, useRef, useEffect } from "react";
+import { useMemo, useState } from "react";
+import { FileText, Filter } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+
 import { usePipelineLogs, usePipelineRuns } from "@/hooks/usePipeline";
-import type { LogEntry } from "@/types/pipeline";
-import { cn } from "@/lib/utils";
-import { ArrowDown, Filter } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import WorkerUnavailableState from "./WorkerUnavailableState";
 
 const LEVELS = ["ALL", "INFO", "WARNING", "ERROR"] as const;
-type LevelFilter = (typeof LEVELS)[number];
 
-function formatTimestamp(dateStr: string): string {
-  const d = new Date(dateStr);
-  return d.toLocaleTimeString("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
+function levelClass(level: string): string {
+  switch (level) {
+    case "ERROR":
+      return "bg-red-500/10 text-red-300";
+    case "WARNING":
+      return "bg-amber-500/10 text-amber-300";
+    default:
+      return "bg-muted text-text-secondary";
+  }
 }
 
-function LevelBadge({ level }: { level: string }) {
-  return (
-    <span
-      className={cn(
-        "inline-block min-w-[56px] text-center text-[10px] font-semibold px-1.5 py-0.5 rounded",
-        level === "INFO" && "bg-zinc-500/15 text-zinc-400",
-        level === "WARNING" && "bg-yellow-500/15 text-yellow-400",
-        level === "ERROR" && "bg-red-500/15 text-red-400",
-        level !== "INFO" &&
-          level !== "WARNING" &&
-          level !== "ERROR" &&
-          "bg-zinc-500/15 text-zinc-400"
-      )}
-    >
-      {level}
-    </span>
-  );
+function formatLogTime(dateStr: string): string {
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "medium",
+    timeZone: "UTC",
+  }).format(new Date(dateStr));
 }
 
 export default function PipelineLogs() {
-  const [levelFilter, setLevelFilter] = useState<LevelFilter>("ALL");
-  const [runFilter, setRunFilter] = useState<string>("");
-  const [fileFilter, setFileFilter] = useState<string>("");
-  const [autoScroll, setAutoScroll] = useState(true);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { data: runs, isError: runsError, error: runsFailure } = usePipelineRuns(25);
 
-  const { data: runs } = usePipelineRuns(20);
+  const [level, setLevel] = useState(searchParams.get("level") ?? "ALL");
+  const [runId, setRunId] = useState(searchParams.get("run") ?? "ALL");
+  const [fileId, setFileId] = useState(searchParams.get("file") ?? "");
 
-  const params: Parameters<typeof usePipelineLogs>[0] = {
-    limit: 200,
-    ...(levelFilter !== "ALL" && { level: levelFilter }),
-    ...(runFilter && { run_id: runFilter }),
-    ...(fileFilter && { file_id: parseInt(fileFilter, 10) || undefined }),
+  const queryParams = useMemo(
+    () => ({
+      run_id: runId !== "ALL" ? runId : undefined,
+      file_id: fileId ? Number(fileId) : undefined,
+      level: level !== "ALL" ? level : undefined,
+      limit: 200,
+    }),
+    [fileId, level, runId]
+  );
+
+  const { data: logs, isLoading, isError: logsError, error: logsFailure } = usePipelineLogs(queryParams);
+
+  const syncSearchParams = (next: { level?: string; run?: string; file?: string }) => {
+    const params = new URLSearchParams(searchParams);
+    params.set("tab", "logs");
+    if (next.level) params.set("level", next.level);
+    if (next.run) params.set("run", next.run);
+    if (next.file !== undefined) {
+      if (next.file) params.set("file", next.file);
+      else params.delete("file");
+    }
+    setSearchParams(params, { replace: true });
   };
 
-  const { data: logs, isLoading } = usePipelineLogs(params);
-
-  // Auto-scroll to bottom when new logs arrive
-  useEffect(() => {
-    if (autoScroll && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [logs, autoScroll]);
+  if (runsError || logsError) {
+    const message = [runsFailure, logsFailure].find(Boolean);
+    return (
+      <WorkerUnavailableState
+        title="Logs indisponíveis"
+        message={(message as Error | undefined)?.message}
+      />
+    );
+  }
 
   return (
-    <div className="space-y-4">
-      {/* Filter bar */}
-      <div className="rounded-xl border border-border bg-surface-elevated p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Filter className="w-3.5 h-3.5 text-text-tertiary" />
-          <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
-            Filters
-          </h3>
+    <div className="space-y-6">
+      <section className="rounded-2xl border border-border bg-surface-elevated p-5 shadow-sm">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-text-primary">Filtros</h2>
+            <p className="text-xs text-text-secondary">Refine por nível, execução ou arquivo específico.</p>
+          </div>
+          <Filter className="h-4 w-4 text-primary" />
         </div>
-        <div className="flex flex-wrap gap-3 items-end">
-          {/* Level filter */}
-          <div className="space-y-1">
-            <label className="text-[10px] text-text-tertiary uppercase font-medium">
-              Level
-            </label>
-            <div className="flex gap-0.5 rounded-lg border border-border p-0.5">
-              {LEVELS.map((level) => (
-                <button
-                  key={level}
-                  onClick={() => setLevelFilter(level)}
-                  className={cn(
-                    "px-2.5 py-1 text-xs font-medium rounded-md transition-colors",
-                    levelFilter === level
-                      ? "bg-primary/15 text-primary"
-                      : "text-text-tertiary hover:text-text-secondary"
-                  )}
-                >
-                  {level}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Run filter */}
-          <div className="space-y-1">
-            <label className="text-[10px] text-text-tertiary uppercase font-medium">
-              Run
-            </label>
-            <select
-              value={runFilter}
-              onChange={(e) => setRunFilter(e.target.value)}
-              className="block rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
-            >
-              <option value="">All runs</option>
-              {runs?.map((run) => (
-                <option key={run.id} value={run.id}>
-                  {run.phase} - {run.id.slice(0, 8)}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* File ID filter */}
-          <div className="space-y-1">
-            <label className="text-[10px] text-text-tertiary uppercase font-medium">
-              File ID
-            </label>
-            <input
-              type="text"
-              value={fileFilter}
-              onChange={(e) => setFileFilter(e.target.value)}
-              placeholder="e.g. 42"
-              className="block w-24 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-primary"
-            />
-          </div>
-
-          {/* Auto-scroll toggle */}
-          <button
-            onClick={() => setAutoScroll((v) => !v)}
-            className={cn(
-              "inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors",
-              autoScroll
-                ? "border-primary/40 text-primary bg-primary/10"
-                : "border-border text-text-tertiary hover:text-text-secondary"
-            )}
+        <div className="grid gap-3 md:grid-cols-[180px_minmax(0,1fr)_160px_auto]">
+          <Select
+            value={level}
+            onValueChange={(value) => {
+              setLevel(value);
+              syncSearchParams({ level: value });
+            }}
           >
-            <ArrowDown className="w-3 h-3" />
-            Auto-scroll
-          </button>
-        </div>
-      </div>
+            <SelectTrigger>
+              <SelectValue placeholder="Level" />
+            </SelectTrigger>
+            <SelectContent>
+              {LEVELS.map((item) => (
+                <SelectItem key={item} value={item}>{item}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-      {/* Log stream */}
-      <div className="rounded-xl border border-border bg-surface-elevated">
-        <div
-          ref={scrollRef}
-          className="max-h-[600px] overflow-y-auto p-2"
-        >
-          {isLoading ? (
-            <div className="space-y-1 p-2">
-              {[1, 2, 3, 4, 5].map((i) => (
-                <div
-                  key={i}
-                  className="h-5 rounded bg-muted animate-pulse"
-                />
+          <Select
+            value={runId}
+            onValueChange={(value) => {
+              setRunId(value);
+              syncSearchParams({ run: value });
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Run" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">Todos os runs</SelectItem>
+              {runs?.map((run) => (
+                <SelectItem key={run.id} value={run.id}>
+                  {run.phase} · {run.id.slice(0, 8)}
+                </SelectItem>
               ))}
-            </div>
-          ) : logs && logs.length > 0 ? (
-            <div className="space-y-px">
-              {logs.map((entry: LogEntry) => (
-                <div
-                  key={entry.id}
-                  className={cn(
-                    "flex items-start gap-2 px-2 py-1 rounded text-xs hover:bg-muted/50 transition-colors",
-                    entry.level === "ERROR" && "bg-red-500/5"
-                  )}
-                >
-                  <span className="text-text-tertiary font-mono shrink-0 pt-px">
-                    {formatTimestamp(entry.created_at)}
-                  </span>
-                  <LevelBadge level={entry.level} />
-                  <span className="text-text-primary font-mono break-all leading-relaxed">
-                    {entry.message}
-                  </span>
-                  {entry.file_id && (
-                    <span className="shrink-0 text-primary/70 font-mono text-[10px] pt-px">
-                      file:{entry.file_id}
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="flex items-center justify-center py-12">
-              <p className="text-sm text-text-tertiary">
-                No logs matching filters
-              </p>
-            </div>
-          )}
+            </SelectContent>
+          </Select>
+
+          <Input
+            inputMode="numeric"
+            placeholder="file_id"
+            value={fileId}
+            onChange={(event) => setFileId(event.target.value)}
+            onBlur={() => syncSearchParams({ file: fileId })}
+          />
+
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              setLevel("ALL");
+              setRunId("ALL");
+              setFileId("");
+              setSearchParams({ tab: "logs" }, { replace: true });
+            }}
+          >
+            Limpar
+          </Button>
         </div>
-      </div>
+      </section>
+
+      <section className="rounded-2xl border border-border bg-surface-elevated p-0 shadow-sm">
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <div>
+            <h2 className="text-sm font-semibold text-text-primary">Event stream</h2>
+            <p className="text-xs text-text-secondary">Últimos 200 eventos estruturados do pipeline.</p>
+          </div>
+          <FileText className="h-4 w-4 text-primary" />
+        </div>
+        <ScrollArea className="h-[540px]">
+          <div className="divide-y divide-border/70">
+            {isLoading ? (
+              <div className="p-5 text-sm text-text-tertiary">Carregando logs...</div>
+            ) : logs?.length ? logs.map((log) => (
+              <div key={log.id} className="space-y-2 px-5 py-4 font-mono text-xs">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-text-tertiary">{formatLogTime(log.created_at)}</span>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${levelClass(log.level)}`}>
+                    {log.level}
+                  </span>
+                  {log.run_id ? <span className="rounded-full bg-muted px-2 py-0.5 text-text-secondary">run {log.run_id.slice(0, 8)}</span> : null}
+                  {log.file_id ? <span className="rounded-full bg-muted px-2 py-0.5 text-text-secondary">file {log.file_id}</span> : null}
+                </div>
+                <p className="whitespace-pre-wrap break-words text-text-primary">{log.message}</p>
+              </div>
+            )) : (
+              <div className="p-5 text-sm text-text-tertiary">
+                {!runs?.length
+                  ? "Nenhum evento ainda. O registry foi carregado, mas o pipeline ainda não executou fases."
+                  : "Nenhum log corresponde aos filtros atuais."}
+              </div>
+            )}
+          </div>
+        </ScrollArea>
+      </section>
     </div>
   );
 }

@@ -77,3 +77,30 @@ async def test_download_rate_limiting(registry):
     """Rate limiting enforces max 5 req/s between downloads."""
     from src.backend.worker.pipeline.downloader import RATE_LIMIT_DELAY
     assert RATE_LIMIT_DELAY == 0.2  # 1/5 = 0.2s between requests
+
+
+async def test_download_uses_inlabs_for_recent_source(registry, tmp_path, monkeypatch):
+    """INLABS-sourced files are downloaded through the authenticated client path."""
+    monkeypatch.setenv("INLABS_EMAIL", "fernando@example.com")
+    monkeypatch.setenv("INLABS_PASSWORD", "secret")
+
+    file_id = await registry.insert_file(
+        "2026-03-09-DO1.zip",
+        "do1",
+        "2026-03",
+        publication_date="2026-03-09",
+        source="inlabs",
+        file_url="https://inlabs.in.gov.br/index.php?p=2026-03-09&dl=2026-03-09-DO1.zip",
+    )
+    await registry.update_status(file_id, FileStatus.QUEUED)
+
+    async def fake_download(publication_date, section, destination, *, today=None):
+        destination.write_bytes(b"PK\x03\x04inlabs content")
+
+    with patch("src.backend.worker.pipeline.downloader.INLabsClient.download", new=AsyncMock(side_effect=fake_download)):
+        run_id = await registry.create_pipeline_run("download")
+        result = await run_download(registry, run_id, download_dir=str(tmp_path))
+
+    assert result["downloaded"] == 1
+    file_rec = await registry.get_file(file_id)
+    assert file_rec["status"] == FileStatus.DOWNLOADED.value

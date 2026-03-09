@@ -30,8 +30,8 @@ function extractDates(doc: Document): string[] {
       const text = textContent(el);
       const m = text.match(/\d{4}-\d{2}-\d{2}/);
       if (m) dates.push(m[0]);
+      el.childNodes.forEach(walk);
     }
-    el.childNodes.forEach(walk);
   };
   walk(doc.documentElement);
   return dates;

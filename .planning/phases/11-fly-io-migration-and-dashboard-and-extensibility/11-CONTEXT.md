@@ -41,13 +41,17 @@ This phase delivers three interconnected capabilities:
 - All timestamps UTC ISO 8601
 - Worker owns SQLite; web queries via internal API proxy
 
-### Discovery — Liferay Crawler
-- Primary: Liferay JSONWS API (`/api/jsonws/dlapp/get-folders` and `/get-file-entries`)
-- Fallback: Predictive HEAD probes on predicted URLs
-- Rate limit: max 5 req/s to in.gov.br
-- Schedule: daily at 23:00 UTC
-- Source catalog: `ops/data/dou_catalog_registry.json` (group_id=49035712, folder_ids, files)
-- URL pattern: `https://www.in.gov.br/documents/{GROUP_ID}/{FOLDER_ID}/{FILENAME}`
+### Discovery — Dual Source Strategy
+- INLABS is the primary discovery channel for new publications, but only within its rolling availability window of the last 30 days
+- Historical coverage and older backfill remain on public Liferay monthly ZIPs using `ops/data/dou_catalog_registry.json`
+- Operational rule:
+  - Historical (`<= 2019`) -> Liferay only
+  - Recent already mapped in the JSON catalog (`2020+`) -> Liferay allowed for backfill and month-close fallback
+  - Future / day-to-day auto-discovery (`now - 30 days` to today) -> INLABS first
+  - If INLABS fails for recent content, fallback is not “probe ancient INLABS”; fallback is to wait for the month archive to land in `in.gov.br` Liferay and then ingest from there
+- Liferay JSONWS / HEAD probing stays as a backfill and emergency source, not the primary live-discovery path
+- Rate limit: max 5 req/s per host
+- Schedule: discovery loop every 12 hours, with retry checks every 2 hours
 
 ### Pipeline Orchestrator
 - APScheduler with 5 cron jobs: discovery (23:00), download (23:30), ingest (00:00), verify (01:00), retry (06:00)
@@ -56,6 +60,7 @@ This phase delivers three interconnected capabilities:
 - Heartbeat every 60s for dashboard health check
 - Idempotent: re-running any phase produces same result
 - Fail small: one file failing does not stop the batch
+- Hybrid search must remain usable before the historical corpus is complete; BM25 is the base availability layer, embeddings are additive
 
 ### Worker Internal API
 - FastAPI on port 8081 (internal only)
@@ -94,6 +99,8 @@ This phase delivers three interconnected capabilities:
 - Error toast implementation details
 - Virtual scrolling decision for timeline (867 files)
 - Disk space monitoring thresholds
+- How to encode the INLABS 30-day boundary in code so the worker cannot accidentally request older content from INLABS
+- Month-close fallback policy for recent files that missed INLABS but become available as monthly Liferay ZIPs
 
 </decisions>
 

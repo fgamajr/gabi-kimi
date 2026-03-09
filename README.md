@@ -21,6 +21,14 @@ The current retrieval stack is:
 
 `ZIP catalog -> ZIP download -> XML parse -> dou.* ingest -> chunk backfill -> BM25 + Elasticsearch + vector index -> ops/bin/web_server.py / ops/bin/mcp_es_server.py`
 
+For the zero-touch worker/dashboard target architecture, see [docs/runbooks/AUTONOMOUS_DOU_PIPELINE.md](docs/runbooks/AUTONOMOUS_DOU_PIPELINE.md).
+
+For the autonomous worker track, the source-of-truth strategy is hybrid:
+
+- `INLABS` is only valid for the most recent 30 days and should be treated as the primary source for new daily discovery.
+- `Liferay` direct URLs / catalog remain the source for historical backfill and the safety net for recent editions once they roll into the monthly archive.
+- The system must not attempt historical backfills through INLABS.
+
 ## Stack
 
 - Python 3.12+
@@ -165,6 +173,60 @@ MCP:
 .venv/bin/python ops/bin/mcp_server.py
 ```
 
+### 7. Admin upload em dev (opcional)
+
+Para testar o fluxo de upload de XML/ZIP (admin) **localmente**:
+
+1. **Pilha:** Suba a infra com MinIO (storage S3-compatível):
+   ```bash
+   cd ops/local && docker compose up -d
+   ```
+   Isso sobe Postgres, Elasticsearch, Redis e **MinIO** (API em `9000`, console em `9001`).
+
+2. **Bucket:** Crie o bucket no MinIO (uma vez):
+   ```bash
+   .venv/bin/python ops/scripts/create_minio_bucket.py
+   ```
+   Ou manualmente em http://localhost:9001 (login `minioadmin` / `minioadmin`) → bucket `gabi-dou-uploads`.
+
+3. **.env:** No seu `.env`, descomente/configure o bloco do MinIO e um token admin:
+   - `AWS_ENDPOINT_URL_S3=http://localhost:9000`
+   - `AWS_ACCESS_KEY_ID=minioadmin`
+   - `AWS_SECRET_ACCESS_KEY=minioadmin`
+   - `BUCKET_NAME=gabi-dou-uploads`
+   - `S3_PATH_STYLE=true`
+   - `GABI_API_TOKENS=dev-admin:dev-admin-token` e `GABI_ADMIN_TOKEN_LABELS=dev-admin` (para testes).
+
+4. **Web e worker:** Com a infra e o bucket prontos:
+   ```bash
+   .venv/bin/python ops/bin/web_server.py --port 8000
+   ```
+   Em outro terminal:
+   ```bash
+   .venv/bin/arq src.backend.workers.arq_worker.WorkerSettings
+   ```
+
+5. **Teste rápido:** `GET /api/admin/storage-check` com `Authorization: Bearer dev-admin-token` deve retornar 200. **Teste E2E** (storage-check + upload + poll do job):
+   ```bash
+   GABI_ADMIN_TOKEN=dev-admin-token ./ops/scripts/e2e_admin_upload.sh
+   ```
+
+6. **Teste com ZIP do catálogo (mesma rota que o download “de 2004”):** O arquivo `ops/data/dou_catalog_registry.json` alimenta as rotas de download. Para baixar **um mês** (ex.: 2004-01) com esse fluxo e enviar o ZIP pela rota de admin:
+   ```bash
+   # Web e worker precisam estar rodando (passos 4 e 5 acima)
+   GABI_ADMIN_TOKEN=dev-admin-token python ops/scripts/test_admin_upload_from_catalog.py --year 2004 --month 1
+   ```
+   O script usa `zip_downloader.build_targets` + `download_zip` (mesmo código do pipeline) e depois `POST /api/admin/upload`. Se o ZIP já existir em `ops/data/zips/` (ex.: de um sync anterior), use `--zip ops/data/zips/2004-01_DO1.zip` para só testar o upload.
+
+7. **Cache de analytics (sem pesar o startup do web):**
+   O web não faz mais `refresh` do cache analítico por padrão no boot. Para atualizar manualmente ou via cron:
+   ```bash
+   .venv/bin/python ops/scripts/refresh_analytics_cache.py
+   ```
+   O `ops/scripts/daily_sync.sh` já chama esse refresh ao final do sync. Em produção/Fly, mantenha `GABI_ANALYTICS_CACHE_REFRESH_ON_STARTUP=false` e use esse script em job agendado ou deixe o worker atualizar após ingests.
+
+Detalhes e troubleshooting: [docs/runbooks/DEV_UPLOAD_LOCAL.md](docs/runbooks/DEV_UPLOAD_LOCAL.md).
+
 ## Search Modes
 
 ### PostgreSQL BM25
@@ -246,7 +308,8 @@ Minimum secrets bootstrap:
 ```bash
 fly secrets set \
   PGPASSWORD='...' \
-  GABI_API_TOKENS='ops:token-1,reader:token-2' \
+  GABI_API_TOKENS='admin:token-admin,reader:token-2' \
+  GABI_ADMIN_TOKEN_LABELS='admin' \
   GABI_AUTH_SECRET='troque-por-um-segredo-forte' \
   QWEN_API_KEY='...' \
   -a gabi-dou-web
@@ -265,12 +328,38 @@ Frontend static deploy:
 fly deploy -c ops/deploy/frontend-static/fly.toml
 ```
 
+## Identity Bootstrap
+
+The backend now bootstraps a minimal identity schema in Postgres on startup:
+
+- `auth.user`
+- `auth.role`
+- `auth.user_role`
+- `auth.api_token`
+
+Roles `user` and `admin` are created automatically. Tokens from `GABI_API_TOKENS`
+are synced into `auth.api_token` and linked to service-account users. A token gets
+the `admin` role when:
+
+- its label starts with `admin`, or
+- its label is listed in `GABI_ADMIN_TOKEN_LABELS`
+
+Minimal admin endpoints:
+
+- `GET /api/admin/roles`
+- `GET /api/admin/users`
+- `POST /api/admin/users`
+- `PUT /api/admin/users/{user_id}/roles`
+
 ## Documentation Status
 
 The authoritative operator docs are:
 
 - [README.md](/home/parallels/dev/gabi-kimi/README.md)
 - [docs/runbooks/PIPELINE.md](/home/parallels/dev/gabi-kimi/docs/runbooks/PIPELINE.md)
+- [docs/runbooks/DEV_UPLOAD_LOCAL.md](/home/parallels/dev/gabi-kimi/docs/runbooks/DEV_UPLOAD_LOCAL.md) — admin upload em dev (MinIO, worker, E2E)
+- [docs/runbooks/FLY_TIGRIS_STORAGE.md](/home/parallels/dev/gabi-kimi/docs/runbooks/FLY_TIGRIS_STORAGE.md) — Tigris no Fly
+- [docs/runbooks/FLY_WORKER_ARQ.md](/home/parallels/dev/gabi-kimi/docs/runbooks/FLY_WORKER_ARQ.md) — worker ARQ no Fly
 - [docs/runbooks/FLY_WEB_SECURITY.md](/home/parallels/dev/gabi-kimi/docs/runbooks/FLY_WEB_SECURITY.md)
 - [docs/runbooks/FLY_SPLIT_DEPLOY.md](/home/parallels/dev/gabi-kimi/docs/runbooks/FLY_SPLIT_DEPLOY.md)
 - [docs/meta/DOCS_RECONCILIATION.md](/home/parallels/dev/gabi-kimi/docs/meta/DOCS_RECONCILIATION.md)

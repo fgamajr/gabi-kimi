@@ -23,10 +23,14 @@ async def test_discovery_returns_new_files_count(registry):
         {"fileName": "S02012026.zip", "fileEntryId": 101, "title": "S02012026.zip"},
     ]
 
-    with patch("src.backend.worker.pipeline.discovery._fetch_liferay_folders", new_callable=AsyncMock) as mock_fold, \
-         patch("src.backend.worker.pipeline.discovery._fetch_liferay_files", new_callable=AsyncMock) as mock_fls:
+    with patch("src.backend.worker.pipeline.discovery._discover_recent_inlabs_files", new_callable=AsyncMock) as mock_inlabs, \
+         patch("src.backend.worker.pipeline.discovery._fetch_liferay_folders", new_callable=AsyncMock) as mock_fold, \
+         patch("src.backend.worker.pipeline.discovery._fetch_liferay_files", new_callable=AsyncMock) as mock_fls, \
+         patch("src.backend.worker.pipeline.discovery._month_overlaps_recent_window") as mock_recent:
+        mock_inlabs.return_value = {"new_files": 0, "existing_files": 0, "login_failed": False}
         mock_fold.return_value = mock_folders
         mock_fls.return_value = mock_files
+        mock_recent.return_value = False
 
         run_id = await registry.create_pipeline_run("discovery")
         result = await run_discovery(registry, run_id, "http://localhost:9200")
@@ -47,10 +51,14 @@ async def test_discovery_skips_existing_files(registry):
         {"fileName": "S02012026.zip", "fileEntryId": 101, "title": "S02012026.zip"},
     ]
 
-    with patch("src.backend.worker.pipeline.discovery._fetch_liferay_folders", new_callable=AsyncMock) as mock_fold, \
-         patch("src.backend.worker.pipeline.discovery._fetch_liferay_files", new_callable=AsyncMock) as mock_fls:
+    with patch("src.backend.worker.pipeline.discovery._discover_recent_inlabs_files", new_callable=AsyncMock) as mock_inlabs, \
+         patch("src.backend.worker.pipeline.discovery._fetch_liferay_folders", new_callable=AsyncMock) as mock_fold, \
+         patch("src.backend.worker.pipeline.discovery._fetch_liferay_files", new_callable=AsyncMock) as mock_fls, \
+         patch("src.backend.worker.pipeline.discovery._month_overlaps_recent_window") as mock_recent:
+        mock_inlabs.return_value = {"new_files": 0, "existing_files": 0, "login_failed": False}
         mock_fold.return_value = mock_folders
         mock_fls.return_value = mock_files
+        mock_recent.return_value = False
 
         run_id = await registry.create_pipeline_run("discovery")
         result = await run_discovery(registry, run_id, "http://localhost:9200")
@@ -67,8 +75,10 @@ async def test_discovery_rate_limiting_semaphore(registry):
 
 async def test_discovery_fallback_head_probes(registry):
     """Fallback to HEAD probes when Liferay API returns error."""
-    with patch("src.backend.worker.pipeline.discovery._fetch_liferay_folders", new_callable=AsyncMock) as mock_fold, \
+    with patch("src.backend.worker.pipeline.discovery._discover_recent_inlabs_files", new_callable=AsyncMock) as mock_inlabs, \
+         patch("src.backend.worker.pipeline.discovery._fetch_liferay_folders", new_callable=AsyncMock) as mock_fold, \
          patch("src.backend.worker.pipeline.discovery._probe_head_fallback", new_callable=AsyncMock) as mock_probe:
+        mock_inlabs.return_value = {"new_files": 0, "existing_files": 0, "login_failed": False}
         mock_fold.side_effect = Exception("Liferay API unavailable")
         mock_probe.return_value = [
             {"fileName": "S01012026.zip", "section": "do1", "year_month": "2026-01"},
@@ -79,6 +89,21 @@ async def test_discovery_fallback_head_probes(registry):
 
     assert result["new_files"] == 1
     assert result.get("fallback_used", False) is True
+
+
+async def test_discovery_prefers_inlabs_for_recent_window(registry):
+    """Recent INLABS discovery contributes recent daily files before Liferay archives."""
+    with patch("src.backend.worker.pipeline.discovery._discover_recent_inlabs_files", new_callable=AsyncMock) as mock_inlabs, \
+         patch("src.backend.worker.pipeline.discovery._fetch_liferay_folders", new_callable=AsyncMock) as mock_fold:
+        mock_inlabs.return_value = {"new_files": 2, "existing_files": 1, "login_failed": False}
+        mock_fold.return_value = []
+
+        run_id = await registry.create_pipeline_run("discovery")
+        result = await run_discovery(registry, run_id, "http://localhost:9200")
+
+    assert result["new_files"] == 2
+    assert result["existing_files"] == 1
+    assert result["inlabs_new_files"] == 2
 
 
 async def test_discovery_filename_parsing(registry):

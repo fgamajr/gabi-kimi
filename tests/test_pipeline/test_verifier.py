@@ -12,34 +12,42 @@ from src.backend.worker.pipeline.verifier import run_verify
 pytestmark = pytest.mark.asyncio
 
 
-async def _setup_ingested_file(registry, filename="S01012026.zip", doc_count=100):
-    """Insert file and transition to INGESTED with a doc_count."""
+async def _setup_embedded_file(registry, filename="S01012026.zip", doc_count=100):
+    """Insert file and transition to EMBEDDED with a doc_count."""
     file_id = await registry.insert_file(filename, "do1", "2026-01")
     await registry.update_status(file_id, FileStatus.QUEUED)
     await registry.update_status(file_id, FileStatus.DOWNLOADING)
     await registry.update_status(file_id, FileStatus.DOWNLOADED)
     await registry.update_status(file_id, FileStatus.EXTRACTING)
     await registry.update_status(file_id, FileStatus.EXTRACTED)
-    await registry.update_status(file_id, FileStatus.INGESTING)
-    await registry.update_status(file_id, FileStatus.INGESTED)
+    await registry.update_status(file_id, FileStatus.BM25_INDEXING)
+    await registry.update_status(file_id, FileStatus.BM25_INDEXED)
+    await registry.update_status(file_id, FileStatus.EMBEDDING)
+    await registry.update_status(file_id, FileStatus.EMBEDDED)
     await registry.update_file_fields(file_id, doc_count=doc_count)
     return file_id
 
 
 async def test_verify_match_transitions_to_verified(registry):
     """run_verify queries ES doc count and transitions to VERIFIED on match."""
-    file_id = await _setup_ingested_file(registry, doc_count=100)
+    file_id = await _setup_embedded_file(registry, doc_count=100)
 
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {"count": 100}
-    mock_response.raise_for_status = MagicMock()
+    count_response = MagicMock()
+    count_response.status_code = 200
+    count_response.json.return_value = {"count": 100}
+    count_response.raise_for_status = MagicMock()
+
+    embedding_response = MagicMock()
+    embedding_response.status_code = 200
+    embedding_response.json.return_value = {"hits": {"hits": [{"_id": "doc1"}]}}
+    embedding_response.raise_for_status = MagicMock()
 
     with patch("src.backend.worker.pipeline.verifier.httpx.AsyncClient") as mock_client_cls:
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.get = AsyncMock(return_value=count_response)
+        mock_client.post = AsyncMock(return_value=embedding_response)
         mock_client_cls.return_value = mock_client
 
         run_id = await registry.create_pipeline_run("verify")
@@ -54,19 +62,25 @@ async def test_verify_match_transitions_to_verified(registry):
 
 async def test_verify_mismatch_transitions_to_verify_failed(registry):
     """Mismatch (outside 5% tolerance) transitions to VERIFY_FAILED."""
-    file_id = await _setup_ingested_file(registry, doc_count=100)
+    file_id = await _setup_embedded_file(registry, doc_count=100)
 
     # ES returns 80 docs (20% off - outside 5% tolerance)
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {"count": 80}
-    mock_response.raise_for_status = MagicMock()
+    count_response = MagicMock()
+    count_response.status_code = 200
+    count_response.json.return_value = {"count": 80}
+    count_response.raise_for_status = MagicMock()
+
+    embedding_response = MagicMock()
+    embedding_response.status_code = 200
+    embedding_response.json.return_value = {"hits": {"hits": [{"_id": "doc1"}]}}
+    embedding_response.raise_for_status = MagicMock()
 
     with patch("src.backend.worker.pipeline.verifier.httpx.AsyncClient") as mock_client_cls:
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.get = AsyncMock(return_value=count_response)
+        mock_client.post = AsyncMock(return_value=embedding_response)
         mock_client_cls.return_value = mock_client
 
         run_id = await registry.create_pipeline_run("verify")
@@ -79,8 +93,8 @@ async def test_verify_mismatch_transitions_to_verify_failed(registry):
 
 async def test_verify_stats_return(registry):
     """Stats return verified and failed counts."""
-    await _setup_ingested_file(registry, filename="good.zip", doc_count=50)
-    await _setup_ingested_file(registry, filename="bad.zip", doc_count=100)
+    await _setup_embedded_file(registry, filename="good.zip", doc_count=50)
+    await _setup_embedded_file(registry, filename="bad.zip", doc_count=100)
 
     def _make_response(count):
         resp = MagicMock()
@@ -103,6 +117,11 @@ async def test_verify_stats_return(registry):
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.get = mock_get
+        mock_embedding = MagicMock()
+        mock_embedding.status_code = 200
+        mock_embedding.json.return_value = {"hits": {"hits": [{"_id": "doc1"}]}}
+        mock_embedding.raise_for_status = MagicMock()
+        mock_client.post = AsyncMock(return_value=mock_embedding)
         mock_client_cls.return_value = mock_client
 
         run_id = await registry.create_pipeline_run("verify")

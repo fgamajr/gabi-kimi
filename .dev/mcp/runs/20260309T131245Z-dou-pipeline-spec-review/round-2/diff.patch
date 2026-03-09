@@ -1,0 +1,932 @@
+--- before
++++ after
+@@ -1,13 +1,25 @@
+-VEREDITO CONVERGIDO — Análise Adversarial Multi-Agente (Round 1)
++VEREDITO CONVERGIDO — Análise Adversarial Multi-Agente (Round 2)
+ Pipeline Autônomo DOU · Fly.io + SQLite WAL + ES 8.x + React Dashboard
+ 
+ ═══════════════════════════════════════════════════════════════════════
+ 1. RESUMO DO CONSENSO
+ ═══════════════════════════════════════════════════════════════════════
+ 
+-Todos os 4 agentes (claude/architect, kimi/challenger, qwen/synthesizer, zai/auditor) emitiram REQUEST_CHANGES unânime. Há convergência total em 6 gaps e convergência forte em 4 adicionais. Nenhuma objeção foi contestada por outro agente — indicando que o delta entre spec e código é estrutural, não cosmético.
+-
+-Nível de risco atual: PRODUÇÃO INVIÁVEL sem as correções P0/P1.
++Round 1: 4/4 agentes REQUEST_CHANGES — gaps estruturais.
++Round 2: 4/4 agentes REQUEST_CHANGES — gaps de design refinados.
++
++Round 2 introduziu 21 objeções (3 critical, 7 high, 8 medium, 3 low).
++Todas válidas após triagem cruzada. O artefato abaixo incorpora todas
++as correções, rejeita apenas sugestões contraditórias (documentadas na
++Seção 3), e produz um plano executável sem ambiguidades.
++
++Nível de risco: PRODUÇÃO INVIÁVEL sem P0. Operação autônoma inviável sem P1.
++
++DECISÃO ARQUITETURAL FUNDAMENTAL (Round 2):
++  Design assume SINGLE WORKER PROCESS + SINGLE FLY.IO MACHINE.
++  Dashboard é read-only via conexão SQLite ?mode=ro.
++  Se escala horizontal for necessária, migrar para PostgreSQL + fila.
++  Esta decisão simplifica toda a análise de concorrência.
+ 
+ ═══════════════════════════════════════════════════════════════════════
+ 2. LISTA PRIORIZADA DE MUDANÇAS
+@@ -17,354 +29,567 @@
+ P0 — BLOQUEIO DE PRODUÇÃO (resolver antes de qualquer deploy)
+ ──────────────────────────────────────────────────────────────────────
+ 
+-P0.1 ▸ DOWNLOADER: OOM por carga em memória
+-  Consenso: 4/4 agentes (claude=critical, kimi=high, qwen=critical, zai=medium)
++P0.0 ▸ FLY.IO VOLUME MOUNT: SQLite em filesystem efêmero
++  Consenso: kimi=critical, zai=implied, claude=implied, qwen=implied
+   Severidade consolidada: CRITICAL
+   
+-  Problema: Downloader carrega ZIP inteiro em memória. DOU ZIPs excedem 500MB.
+-  Fly.io workers com 256-512MB RAM sofrem OOM-kill imediato. Sem backpressure,
+-  sem abort por tamanho, sem cleanup de temp files.
++  Problema: Fly.io machines têm root filesystem efêmero. Sem volume
++  mount explícito, qualquer restart/deploy/machine replacement destrói
++  o SQLite registry e todos os temp files. Isto invalida TODA a state
++  machine — é o gap mais fundamental do sistema.
+   
+   Correção obrigatória:
+-    - Streaming download para tempfile em disco (não SpooledTemporaryFile — o
+-      fallback para disco do Spooled derrota o propósito quando o arquivo
+-      é SEMPRE grande)
+-    - Chunked transfer com hashlib incremental (SHA-256) para integridade
+-    - MAX_DOWNLOAD_SIZE configurável (default 1GB), abort + transição FAILED
++    - fly.toml: [[mounts]] source="dou_data" destination="/data"
++    - Database path: /data/registry.db (nunca /app ou /tmp)
++    - Temp files: /data/tmp/ (mesmo volume, mesmo lifecycle)
++    - Startup check: verify /data is writable, log volume size
++    - SIGTERM handler: flush WAL (PRAGMA wal_checkpoint(TRUNCATE))
++      antes de exit para garantir consistência pós-restart
++    - Documentar: volume mínimo 10GB, criar via `fly volumes create`
++  
++  Localização: fly.toml (NOVO/REFACTOR), src/backend/worker/startup.py
++  Esforço: ~1h
++  Teste: deploy → restart → verificar registry.db intacto
++
++P0.1 ▸ DOWNLOADER: OOM por carga em memória + extractor DOM-based
++  Consenso: 4/4 agentes (Round 1 + kimi Round 2 adiciona extractor)
++  Severidade consolidada: CRITICAL
++  
++  Problema DUPLO:
++  (a) Downloader carrega ZIP inteiro em memória → OOM em Fly.io.
++  (b) Extractor usa DOM parsing (ElementTree.parse) para XMLs que
++      excedem 500MB descomprimidos → OOM IMEDIATO após download,
++      anulando qualquer fix de streaming no downloader.
++  
++  Correção obrigatória — Downloader:
++    - Streaming download para NamedTemporaryFile em /data/tmp/
++    - Chunked transfer (64KB chunks)
++    - MAX_DOWNLOAD_SIZE configurável (default 1GB), abort + FAILED
++    - Disk space check pré-download (500MB livres) E periódico
++      (a cada 50MB escritos, abort se < 200MB livres)
++    - Content-Length validation: comparar bytes escritos vs header
++      antes de marcar DOWNLOADED. Se mismatch → FAILED (não estado
++      separado DOWNLOAD_CORRUPTED — complexidade desnecessária;
++      last_error captura o motivo)
++    - ZIP integrity: zipfile.testzip() após download completo
++      (usa CRC32 interno do ZIP — mais apropriado que SHA-256 sem
++      fonte de comparação)
++    - content_fingerprint (SHA-256): armazenado para audit trail e
++      detecção de re-download diferente, NÃO para validação contra
++      fonte externa (INLABS/Liferay não fornecem checksums)
+     - Context manager com cleanup em finally block
+-    - Disk space pre-check antes de iniciar (mín. 500MB livres)
+-  
+-  Localização: src/backend/worker/downloader.py
+-  Esforço: ~4h
+-  Teste: download de fixture 600MB deve completar com <50MB RSS;
+-         fixture 1.1GB deve abortar em FAILED
+-
+-P0.2 ▸ DISCOVERY: Ausência de roteamento temporal INLABS ↔ Liferay
+-  Consenso: 4/4 agentes (claude=critical, kimi=high, qwen=high, zai=high)
++    - Pipeline estritamente sequencial por edição: download → extract
++      → ingest → cleanup antes da próxima. Single-flight lock no
++      scheduler (trivial com single worker process)
++  
++  Correção obrigatória — Extractor:
++    - xml.etree.ElementTree.iterparse() com element.clear() e
++      parent.remove() após yield de cada nó de documento
++    - Extractor é um GENERATOR: yield de documentos individuais,
++      memória constante independente do tamanho do XML
++    - Backpressure natural: ingestor consome do generator, extractor
++      não acumula documentos em lista
++  
++  Localização: src/backend/worker/downloader.py,
++               src/backend/worker/extractor.py
++  Esforço: ~6h (4h downloader + 2h extractor)
++  Teste: ZIP 600MB + XML 500MB descomprimido → RSS < 100MB durante
++         todo o pipeline; ZIP 1.1GB → abort em FAILED
++
++P0.2 ▸ DISCOVERY/DOWNLOAD: Roteamento temporal com separação de fases
++  Consenso: 4/4 agentes, claude Round 2 adiciona critical refinement
+   Severidade consolidada: CRITICAL
+   
+-  Problema: Código atual usa Liferay JSONWS + HEAD probe sem distinguir
+-  janela INLABS (30 dias) do histórico. Não existe lógica para:
+-    (a) Rotear INLABS quando data < 30 dias
+-    (b) Fallback para Liferay/catalog JSON quando data > 30 dias
+-    (c) Edge case pós-virada de mês: edição do dia 31 consultada no dia 1
+-        seguinte — INLABS não terá mais, ZIP mensal no Liferay pode não
+-        estar disponível ainda
+-  
+-  Correção obrigatória:
+-    Criar módulo SourceRouter (ou DateWindowPolicy):
+-    
+-    resolve_sources(edition_date: date) -> list[Source]:
+-      age = (today - edition_date).days
+-      if age <= 25:
+-        return [INLABS]
+-      elif age <= 35:  # zona de sobreposição/transição
+-        return [INLABS, LIFERAY_ZIP, CATALOG_JSON]
+-      else:
+-        return [LIFERAY_ZIP, CATALOG_JSON]
+-    
+-    - Downloader tenta fontes em ordem; primeira que retorna 200 vence
+-    - Campo source registrado no registry para rastreabilidade
+-    - Testes obrigatórios: dia 25, 29, 30, 31, 35, 60
+-    - Testes de virada de mês: edição 2024-01-31 consultada em 2024-02-01
+-  
+-  Localização: src/backend/worker/source_router.py (NOVO)
+-               src/backend/worker/discovery.py (REFACTOR)
+-  Esforço: ~6h
+-  
+-  Nota de divergência resolvida: Kimi sugere "BM25-first para recentes"
+-  como parte do discovery. Isso é conflação de conceitos. BM25-first é
+-  estratégia de BUSCA (ingestor/mapping), não de discovery. Discovery
+-  resolve ONDE buscar o ZIP/XML. Mantemos separados.
++  Problema (refinado Round 2): O SourceRouter Round 1 conflata duas
++  preocupações distintas:
++    (1) DISCOVERY: onde obter metadados/listagem de edições
++    (2) DOWNLOAD: onde obter o ZIP/XML payload
++  
++  INLABS pode responder discovery (listar edições) mas falhar no
++  download (rate limit). Liferay pode ter o ZIP mas não o catálogo
++  atualizado. Um flat list[Source] não distingue esses papéis e
++  produzirá gaps silenciosos de dados na janela de sobreposição.
++  
++  Adicionalmente (zai Round 2): INLABS conta dias CORRIDOS, não
++  úteis. Na virada de mês com feriados, existe race condition onde
++  INLABS remove conteúdo antes do ZIP mensal Liferay estar disponível.
++  
++  Correção obrigatória — SourceRouter com duas fases:
++  
++    @dataclass
++    class DiscoverySource:
++        name: str          # "INLABS" | "LIFERAY_CATALOG"
++        endpoint: str
++        probe: Callable    # HEAD/GET para verificar disponibilidade
++    
++    @dataclass  
++    class DownloadSource:
++        name: str          # "INLABS" | "LIFERAY_ZIP" | "CATALOG_JSON"
++        url: str
++        edition_meta: EditionMetadata  # propagado do discovery
++    
++    def resolve_discovery_sources(edition_date: date) -> list[DiscoverySource]:
++        """Onde buscar metadados/listagem."""
++        age = _calendar_days_age(edition_date)  # America/Sao_Paulo
++        if age <= 25:
++            return [INLABS_DISCOVERY]
++        elif age <= 40:  # overlap ampliado (Round 2: era 35, agora 40)
++            return [INLABS_DISCOVERY, LIFERAY_CATALOG]
++        else:
++            return [LIFERAY_CATALOG]
++    
++    def resolve_download_sources(
++        edition_date: date,
++        edition_meta: EditionMetadata
++    ) -> list[DownloadSource]:
++        """Onde baixar o payload, dado metadados já resolvidos."""
++        age = _calendar_days_age(edition_date)
++        sources = []
++        if age <= 40:
++            sources.append(INLABS_DOWNLOAD(edition_meta))
++        sources.append(LIFERAY_ZIP(edition_meta))
++        sources.append(CATALOG_JSON(edition_meta))
++        return sources
++  
++    - Downloader tenta fontes em ordem; primeira 200 vence
++    - Se TODAS as fontes falharem: estado EDITION_UNAVAILABLE com
++      retry em 24h (coluna unavailable_since no registry)
++    - Campo source registrado no registry: INLABS | LIFERAY_ZIP |
++      CATALOG_JSON
++    - Overlap ampliado para 40 dias (era 35): ZIP mensal Liferay pode
++      atrasar até 10 dias úteis (~14 corridos); 40 dias cobre feriados
++    - Todas as comparações de data: timezone America/Sao_Paulo explícito
++    - Probe de disponibilidade: HEAD request com cache 1h por
++      (source, edition_date) para evitar chamadas repetidas (qwen)
++  
++    Circuit breaker (kimi suggestion, incorporado):
++    - Após 3 erros 5xx consecutivos do INLABS em 5 minutos,
++      short-circuit INLABS por 30 minutos → fallback direto Liferay
++    - Estado do circuit breaker em memória (single process, não precisa
++      persistir)
++  
++  Localização: src/backend/worker/source_router.py (NOVO),
++               src/backend/worker/discovery.py (REFACTOR),
++               src/backend/worker/downloader.py (REFACTOR)
++  Esforço: ~8h
++  Testes obrigatórios:
++    - Dia 25, 29, 30, 31, 35, 40, 60
++    - Virada de mês: edição 2024-01-31 consultada em 2024-02-01
++    - INLABS discovery OK + download 429 → fallback Liferay download
++    - Todas as fontes 404 → EDITION_UNAVAILABLE + retry 24h
++    - Circuit breaker: 3x 503 → skip INLABS por 30min
++    - Timezone: consulta às 23:59 BRT vs 00:01 BRT do dia seguinte
+ 
+ ──────────────────────────────────────────────────────────────────────
+ P1 — GAPS ESTRUTURAIS (resolver antes de operação autônoma)
+ ──────────────────────────────────────────────────────────────────────
+ 
+-P1.1 ▸ IDs DETERMINÍSTICOS: Ausência causa duplicatas em re-runs
+-  Consenso: 4/4 agentes
+-  
+-  Problema: Sem ID determinístico, re-discovery cria entradas duplicadas
+-  no SQLite e documentos duplicados no ES. Qualquer restart do worker
+-  polui os dados.
+-  
+-  Correção:
+-    - Esquema de ID: sha256(f"{edition_date}|{section}|{page}|{ordinal}")
+-      truncado a 32 hex chars → "dou-{hex32}"
+-    - SQLite: UNIQUE constraint na coluna deterministic_id,
+-      INSERT OR IGNORE para idempotência
+-    - ES: usar deterministic_id como _id no index call
+-    - Teste: rodar discovery 2x para mesma data → 0 linhas novas
+-  
+-  Localização: src/backend/worker/registry.py, src/backend/worker/ingestor.py
++P1.0 ▸ SCHEMA MIGRATION + PRAGMAS: Fundação unificada
++  Consenso: claude Round 2 (dependency chain), todos Round 1 (PRAGMAs)
++  Severidade consolidada: HIGH (bloqueio de dependência para P1.1-P1.5)
++  
++  Problema: Round 1 separou PRAGMAs (P1.5), IDs (P1.1), retry cols
++  (P1.4), source col (P1.2) em itens distintos com dependências
++  cruzadas quebradas. SourceRouter precisa de coluna 'source' que
++  estava definida no ES mapping item. Sprint ordering impossível.
++  
++  Correção: MIGRATION SCRIPT ÚNICO executado no startup:
++  
++    -- migration_001.sql
++    PRAGMA journal_mode=WAL;
++    PRAGMA busy_timeout=5000;
++    PRAGMA synchronous=NORMAL;
++    PRAGMA foreign_keys=ON;
++    
++    CREATE TABLE IF NOT EXISTS editions (
++      id                  INTEGER PRIMARY KEY,
++      deterministic_id    TEXT UNIQUE NOT NULL,
++      edition_date        TEXT NOT NULL,       -- ISO 8601
++      section             TEXT NOT NULL,
++      state               TEXT NOT NULL DEFAULT 'DISCOVERED',
++      source              TEXT,                -- INLABS|LIFERAY_ZIP|CATALOG_JSON
++      content_fingerprint TEXT,                -- SHA-256 do ZIP/payload
++      retry_count         INTEGER NOT NULL DEFAULT 0,
++      previous_state      TEXT,                -- para re-entry pós retry
++      last_error          TEXT,
++      next_attempt_at     TEXT,                -- ISO 8601 datetime
++      unavailable_since   TEXT,                -- ISO 8601 datetime
++      version             INTEGER NOT NULL DEFAULT 1,
++      created_at          TEXT NOT NULL DEFAULT (datetime('now')),
++      updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
++    );
++    
++    CREATE INDEX IF NOT EXISTS idx_state_next_attempt
++      ON editions(state, next_attempt_at);
++    
++    CREATE INDEX IF NOT EXISTS idx_edition_date
++      ON editions(edition_date);
++    
++    -- Schema versioning
++    CREATE TABLE IF NOT EXISTS schema_version (
++      version INTEGER PRIMARY KEY,
++      applied_at TEXT NOT NULL DEFAULT (datetime('now'))
++    );
++  
++    - Post-migration: validar journal_mode = 'wal' via SELECT
++    - Dashboard: conexão separada com ?mode=ro
++    - Startup check: se volume não montado, FATAL exit (não criar
++      DB em filesystem efêmero)
++    - Worker single-process lock: advisory lock file /data/worker.lock
++      com PID check. Se lock existe e PID vivo → FATAL exit.
++  
++  Localização: src/backend/worker/migrations/ (NOVO),
++               src/backend/worker/registry.py (REFACTOR)
+   Esforço: ~3h
+-
+-P1.2 ▸ ES INDEX MAPPING: BM25-first sem analyzer português
+-  Consenso: 4/4 agentes
+-  
+-  Problema: Mapping auto-gerado pelo ES. Sem analyzer português, sem
+-  field boost em título/ementa, sem campo dense_vector reservado.
+-  Reindexação futura será custosa (~milhões de docs).
+-  
+-  Correção:
+-    - Mapping explícito versionado (v1):
+-      · text fields: analyzer "brazilian" (built-in snowball)
+-      · titulo/ementa: boost 2.0
+-      · campo "embedding": type dense_vector, dims=1024,
+-        similarity=cosine, index=false (ativado quando embeddings chegarem)
+-      · campo "source": keyword (INLABS/LIFERAY)
+-    - Script de criação de índice idempotente (PUT com if_not_exists)
+-    - Usar Bulk API com batches de 500 docs (não chamadas individuais)
++  Teste: startup 2x → segundo processo falha com lock error;
++         WAL mode confirmado; read-only connection funciona
++
++P1.1 ▸ IDs DETERMINÍSTICOS: Esquema robusto com suporte a retificações
++  Consenso: 4/4 agentes, claude Round 2 refina esquema
++  Severidade consolidada: HIGH
++  
++  Problema (refinado): O esquema Round 1 usa page+ordinal — ambos são
++  artefatos de parsing instáveis. Se o XML parser muda ordenação ou
++  DOU reestrutura seção, IDs mudam. INSERT OR IGNORE descarta
++  retificações legítimas silenciosamente.
++  
++  Correção:
++    Esquema de ID em duas camadas:
++    
++    1. Identity key (primary, determinístico):
++       deterministic_id = sha256(f"{edition_date}|{section}|{act_type}|{act_identifier}")
++       Onde act_identifier é o identificador oficial do ato extraído
++       do XML (ex: "PORTARIA Nº 123", "INSTRUÇÃO NORMATIVA Nº 45").
++       Truncado a 32 hex → prefixo "dou-{hex32}"
++    
++    2. Content fingerprint (dedup):
++       content_fingerprint = sha256(normalized_body_text)
++       Coluna separada para detecção de mudança de conteúdo.
++    
++    Comportamento no conflito:
++    - Mesmo deterministic_id + mesmo content_fingerprint → SKIP (idempotente)
++    - Mesmo deterministic_id + content_fingerprint diferente → UPSERT
++      (retificação: incrementa version, atualiza body no ES)
++    - deterministic_id diferente + mesmo content_fingerprint → FLAG
++      como potencial duplicata (log warning, ingerir normalmente)
++    
++    SQL:
++      INSERT INTO editions (...) VALUES (...)
++      ON CONFLICT(deterministic_id) DO UPDATE SET
++        content_fingerprint = excluded.content_fingerprint,
++        version = version + 1,
++        state = 'DISCOVERED',
++        updated_at = datetime('now')
++      WHERE excluded.content_fingerprint != editions.content_fingerprint;
++    
++    Fallback para atos sem identificador oficial (avisos genéricos):
++      act_identifier = f"page_{page}_ord_{ordinal}" 
++      (documentar como caso degradado; ~5% dos atos)
++  
++  Localização: src/backend/worker/id_generator.py (NOVO),
++               src/backend/worker/registry.py,
++               src/backend/worker/ingestor.py
++  Esforço: ~4h
++  Teste: discovery 2x mesma data → 0 linhas novas; retificação →
++         version incrementa; 2 atos body idêntico IDs diferentes → warning
++
++P1.2 ▸ ES INDEX: Mapping BM25 + Aliases + Monthly Indices
++  Consenso: 4/4 agentes, kimi Round 2 adiciona ILM, claude Round 2
++  remove dense_vector prematuro
++  Severidade consolidada: HIGH
++  
++  Problema:
++  (a) Mapping auto-gerado. Sem analyzer português, sem field boost.
++  (b) dense_vector dims=1024 hardcoded é custo REAL, não zero:
++      mapping conflict garantido quando modelo for escolhido com dims
++      diferentes. Reindex obrigatório.
++  (c) Índice único cresce sem bound (700k+ docs/ano), degradação de
++      query e recovery time.
++  
++  Correção:
++    - NÃO adicionar dense_vector ao v1 mapping.
++    - Documentar embedding strategy em ADR: quando modelo for
++      escolhido, criar template v2 com dims corretos + alias swap.
++    
++    Index template (aplicado automaticamente a novos índices):
++    
++      PUT _index_template/dou-template
++      {
++        "index_patterns": ["dou-*"],
++        "template": {
++          "settings": {
++            "number_of_shards": 1,
++            "number_of_replicas": 0,  // single node
++            "analysis": {
++              "analyzer": {
++                "dou_brazilian": {
++                  "type": "custom",
++                  "tokenizer": "standard",
++                  "filter": ["lowercase", "brazilian_stem"]
++                }
++              }
++            }
++          },
++          "mappings": {
++            "properties": {
++              "titulo":       {"type": "text", "analyzer": "dou_brazilian", "boost": 2.0},
++              "ementa":       {"type": "text", "analyzer": "dou_brazilian", "boost": 1.5},
++              "body":         {"type": "text", "analyzer": "dou_brazilian"},
++              "edition_date": {"type": "date"},
++              "section":      {"type": "keyword"},
++              "act_type":     {"type": "keyword"},
++              "source":       {"type": "keyword"},
++              "version":      {"type": "integer"},
++              "orgao":        {"type": "keyword"}
++            }
++          }
++        }
++      }
++    
++    Monthly indices: dou-2024-01, dou-2024-02, etc.
++    - Ingestor calcula index name: f"dou-{edition_date[:7]}"
++    - Aliases:
++      · dou-write: aponta para índice do mês corrente (atualizado por
++        script no primeiro dia do mês ou auto-criado pelo template)
++      · dou-read: wildcard pattern dou-* (busca todos os meses)
++    - Bulk API: batches de 500 docs (não chamadas individuais)
++    - Upsert no ES: usar deterministic_id como _id → update on conflict
++    
++    ADR para embeddings (doc, não código):
++      "Quando modelo for selecionado: criar dou-template-v2 com
++       dense_vector field do dims correto. Reindexar meses existentes
++       via _reindex API. Alias swap dou-read para novos índices.
++       Estimativa: ~2h de reindex para 1M docs em single node."
+   
+   Localização: src/backend/worker/es_mapping.py (NOVO),
+-               src/backend/worker/ingestor.py (REFACTOR)
++               src/backend/worker/ingestor.py (REFACTOR),
++               docs/adr/002-embeddings-strategy.md (NOVO)
++  Esforço: ~5h
++  Teste: criar template → criar índice dou-2024-01 → inserir doc →
++         busca com termo em português retorna com stemming;
++         bulk 500 docs em < 2s
++
++P1.3 ▸ SEARCH API: BM25-first híbrido para recentes
++  Consenso: kimi Round 2 = high (nova objeção válida), user task explícito
++  Severidade consolidada: HIGH
++  
++  Problema (novo, Round 2): O veredito Round 1 descartou "BM25-first
++  para recentes" como conflação com discovery. Kimi está CORRETO: o
++  user task diz explicitamente "recente deve continuar funcionando via
++  híbrido BM25-first até o histórico completar". Isso é estratégia de
++  BUSCA, não de discovery. O artefato não define query architecture.
++  
++  Correção:
++    Search endpoint: GET /api/search?q=...&strategy=auto|bm25|hybrid
++    
++    Strategy "auto" (default):
++      - Calcula coverage do índice (dias desde primeira edição ingerida)
++      - Se coverage < TRANSITION_DAYS (config, default 90):
++        usa BM25-only com recency boost
++      - Se coverage >= TRANSITION_DAYS:
++        usa BM25 + knn quando embeddings disponíveis, BM25-only caso contrário
++    
++    Strategy "bm25":
++      {
++        "query": {
++          "function_score": {
++            "query": {
++              "multi_match": {
++                "query": "...",
++                "fields": ["titulo^2", "ementa^1.5", "body"],
++                "type": "best_fields"
++              }
++            },
++            "functions": [{
++              "exp": {
++                "edition_date": {
++                  "origin": "now",
++                  "scale": "30d",
++                  "decay": 0.5
++                }
++              }
++            }]
++          }
++        }
++      }
++    
++    Strategy "hybrid" (futuro, quando embeddings existirem):
++      - RRF (Reciprocal Rank Fusion) combinando BM25 + knn
++      - Weight configurável via config
++      - Até lá, "hybrid" degrada gracefully para "bm25"
++    
++    Config:
++      TRANSITION_DAYS=90  # quando considerar histórico "completo"
++      SEARCH_DEFAULT_STRATEGY="auto"
++  
++  Localização: src/backend/api/search.py (NOVO),
++               src/backend/worker/config.py
+   Esforço: ~4h
+-
+-P1.3 ▸ WATCHDOG + TELEGRAM: Operação cega sem alertas
+-  Consenso: 4/4 agentes
+-  
+-  Problema: Worker pode falhar silenciosamente. Sem alertas, ninguém
+-  detecta stale jobs, FAILED states, ou edições faltantes até que
+-  usuários reclamem. Viola compliance operacional.
+-  
+-  Correção:
+-    Módulo watchdog.py (~200 LOC):
+-    - Executa após cada ciclo do pipeline
+-    - Checks:
+-      · Stale: entradas em DOWNLOADING/EXTRACTING/INGESTING > 30min
+-      · Failed: qualquer entrada em FAILED desde último check
+-      · Missing: dia útil sem DOU descoberto até 10h BRT
+-      · Disk: espaço livre < 500MB no volume
+-      · ES: cluster health != green/yellow
+-    - Telegram Bot API: alertas imediatos para critical,
+-      digest diário às 11h BRT com contagens
+-    - Healthcheck endpoint GET /health para Fly.io machine checks
+-  
+-  Localização: src/backend/worker/watchdog.py (NOVO)
++  Teste: busca BM25 com recency decay retorna docs recentes primeiro;
++         strategy=hybrid sem embeddings → mesmos resultados que bm25
++
++P1.4 ▸ WATCHDOG + TELEGRAM: Com rate limiting e agregação
++  Consenso: 4/4 agentes, zai Round 2 adiciona rate limiting
++  Severidade consolidada: HIGH
++  
++  Problema (refinado Round 2): Alert fatigue + Telegram rate limits.
++  Telegram limita ~20 msg/min para grupo. Pipeline em loop de falha
++  pode silenciar o canal de alertas justamente quando mais necessário.
++  
++  Correção:
++    Módulo watchdog.py (~300 LOC):
++    
++    Checks (executados após cada ciclo):
++    - Stale: DOWNLOADING|EXTRACTING|INGESTING|VERIFYING > 30min
++    - Stale retry: RETRY_PENDING com next_attempt_at < now() - 5min
++    - Failed: entradas em FAILED desde último check
++    - Unavailable: entradas em EDITION_UNAVAILABLE > 48h
++    - Missing edition: dia útil sem DOU descoberto até 12h BRT
++      (era 10h; grace period ampliado para publicações atrasadas)
++      Feriados: lista hardcoded de ~12 feriados nacionais/ano,
++      atualizada anualmente. Ponto facultativo → não alertar.
++      Edições extras: discovery verifica seção 'extra' em TODO run,
++      inclusive fins de semana.
++      Missing edition alert = WARNING, não CRITICAL.
++    - Disk: espaço livre < 500MB
++    - ES: cluster health != green/yellow
++    
++    Alert system:
++    - Deduplication: hash(tipo + contexto) como chave
++    - Cooldown: 5min entre alertas idênticos
++    - Burst limit: 10 alertas/minuto
++    - Overflow: digest agregado a cada 15min
++    - Fallback: se Telegram retorna 429, log CRITICAL local
++    - Métricas: alerts_sent, alerts_suppressed, alerts_failed
++    - Agregação por edição: "Edição 2024-01-15: 47/500 atos FAILED"
++      (não 47 alertas individuais)
++    - Digest diário: 11h BRT com contagens consolidadas
++    
++    Healthcheck endpoint: GET /health
++    Response:
++      {
++        "status": "ok|degraded|down",
++        "last_cycle_at": "2024-01-15T10:30:00-03:00",
++        "pending_count": 5,
++        "failed_count": 0,
++        "disk_free_mb": 4200,
++        "es_status": "green",
++        "worker_pid": 12345,
++        "uptime_seconds": 86400
++      }
++    - Fly.io: configurar http_checks com /health, interval=30s,
++      restart se 503 por 3 minutos consecutivos
++  
++  Localização: src/backend/worker/watchdog.py (NOVO),
++               src/backend/worker/alerts.py (NOVO)
++  Esforço: ~5h
++
++P1.5 ▸ RETRY: State-machine-aware com persistência atômica
++  Consenso: 4/4 agentes, claude Round 2 refina atomicidade
++  Severidade consolidada: HIGH
++  
++  Problema (refinado Round 2):
++  (a) Retry metadata deve ser escrita atomicamente com state transition
++  (b) In-process sleep durante backoff perde retry_count se worker morre
++  (c) RETRY_PENDING deve ser restrito a estados com operações transientes
++  
++  Correção:
++    Transição atômica (single UPDATE, não multi-step):
++      UPDATE editions SET
++        state = 'RETRY_PENDING',
++        previous_state = :current_state,
++        retry_count = retry_count + 1,
++        next_attempt_at = :calculated_next,
++        last_error = :error_msg,
++        updated_at = datetime('now')
++      WHERE id = :id AND state = :current_state;  -- optimistic lock
++    
++    Retry-eligible states (restritos):
++      DOWNLOADING, EXTRACTING, INGESTING, VERIFYING
++      (NÃO: DISCOVERED, QUEUED, VERIFIED, CLEANED)
++    
++    Transient errors (retry):
++      HTTP 5xx, ConnectionError, Timeout, ES TransportError
++    Non-transient (fail imediato):
++      HTTP 404, HTTP 403, ValidationError, ParseError
++    
++    Backoff: delay = base * 2^attempt + random(0, base)
++    Config: MAX_RETRIES=3, BACKOFF_BASE_SECONDS=5
++    
++    Worker loop (NOT in-process sleep):
++      1. Query: SELECT WHERE state='RETRY_PENDING'
++         AND next_attempt_at <= datetime('now')
++         ORDER BY next_attempt_at LIMIT 1
++      2. Re-entry: restore to previous_state, execute phase
++      3. Se max_retries excedido → FAILED + watchdog notifica
++    
++    Index em (state, next_attempt_at) já definido em P1.0.
++  
++  Localização: src/backend/worker/retry.py (NOVO),
++               src/backend/worker/registry.py
+   Esforço: ~4h
+-
+-P1.4 ▸ RETRY COM BACKOFF: Pipeline frágil a falhas transientes
+-  Consenso: 4/4 agentes
+-  
+-  Problema: Sem retry, HTTP 503 do INLABS ou connection reset do Liferay
+-  causa FAILED permanente. Pipeline tem baixa reliability.
+-  
+-  Correção:
+-    - Colunas no SQLite: retry_count, last_error, next_attempt_at
+-    - Decorator @retryable(max_retries=3, base_delay=5, transient_only=True)
+-    - Transient: HTTP 5xx, ConnectionError, Timeout, ES TransportError
+-    - Non-transient (fail imediato): HTTP 404, HTTP 403, ValidationError
+-    - Backoff: delay = base * 2^attempt + random(0, base)
+-    - Após max_retries → FAILED + watchdog notifica
+-    - Estado RETRY_PENDING entre tentativas (distinguível de FAILED)
+-  
+-  Localização: src/backend/worker/retry.py (NOVO),
+-               src/backend/worker/registry.py (ALTER TABLE)
+-  Esforço: ~4h
+-
+-P1.5 ▸ SQLite PRAGMA CONFIG: WAL mode não confirmado
+-  Consenso: 4/4 agentes
+-  
+-  Problema: "Simplificado" sugere journal_mode padrão (DELETE).
+-  Dashboard lendo enquanto worker escreve causará SQLITE_BUSY.
+-  
+-  Correção:
+-    Na inicialização da conexão:
+-      PRAGMA journal_mode=WAL;
+-      PRAGMA busy_timeout=5000;
+-      PRAGMA synchronous=NORMAL;
+-      PRAGMA foreign_keys=ON;
+-    - Validar journal_mode pós-set
+-    - Dashboard API usa conexão read-only separada (?mode=ro)
+-    - Teste: escrita concorrente + leitura não retorna SQLITE_BUSY
+-  
+-  Localização: src/backend/worker/registry.py
+-  Esforço: ~1h
+-
+-──────────────────────────────────────────────────────────────────────
+-P2 — HARDENING OPERACIONAL (resolver na primeira semana)
+-──────────────────────────────────────────────────────────────────────
+-
+-P2.1 ▸ VERIFIER: Só checa contagem, não integridade
+-  Consenso: 4/4 agentes
+-  
+-  Correção:
+-    - Comparar XML count vs ES count por deterministic_id
+-    - Spot-check: N=10 docs aleatórios, verificar body não-vazio
+-    - IDs no registry vs IDs no ES devem ser 1:1
+-    - Estado VERIFY_FAILED (não VERIFIED) em caso de mismatch
+-    - Log detalhado para watchdog
+-  Esforço: ~3h
+-
+-P2.2 ▸ CLEANUP DE DISCO: XMLs acumulam sem bound
+-  Consenso: 3/4 agentes (claude, kimi, zai)
+-  
+-  Correção:
+-    - Fase cleanup no pipeline: apaga diretórios de edições VERIFIED > 24h
+-    - Disk space check pré-extração (mín. 500MB livres)
+-    - Disk metric no watchdog health check
++  Teste: HTTP 503 durante download → RETRY_PENDING → re-entry em
++         DOWNLOADING → sucesso; worker kill durante backoff → restart →
++         retry executa no tempo correto
++
++P1.6 ▸ STRUCTURED LOGGING: Fundação de observabilidade
++  Consenso: claude Round 2 (promover a P1), zai Round 2 (implicit)
++  Severidade consolidada: HIGH (promovido de P3 Round 1)
++  
++  Problema: Sem structured logging, debug de qualquer P0/P1 issue em
++  Fly.io é grep em texto unstructured via `fly logs`. Correlation IDs
++  inexistentes tornam impossível rastrear um ciclo completo.
++  
++  Correção:
++    - structlog com JSON output
++    - Campos obrigatórios em todo log:
++      · cycle_id: UUID gerado no início de cada ciclo do pipeline
++      · edition_date: quando aplicável
++      · state: estado atual da edição
++      · source: INLABS|LIFERAY_ZIP|CATALOG_JSON
++      · phase: discovery|download|extract|ingest|verify|cleanup
++    - Log levels: DEBUG (campo-nível), INFO (transições), WARNING
++      (retries, degradation), ERROR (failures), CRITICAL (OOM, disk)
++    - Fly.io: logs vão para stdout → `fly logs` captura automaticamente
++  
++  Localização: src/backend/worker/logging_config.py (NOVO)
+   Esforço: ~2h
+ 
+-P2.3 ▸ DASHBOARD READ-ONLY: Sem guardrails de observação
+-  Consenso: 3/4 agentes (claude, kimi, zai)
+-  
+-  Correção:
+-    - Worker API expõe apenas GET endpoints para dashboard
+-    - Mutations (se existirem) requerem admin token via header
+-    - TanStack Query: staleTime >= 30s, polling adaptativo
+-      (5s durante ciclo ativo, 60s idle)
+-    - Badge visual "Read-Only Dashboard" no UI
+-  Esforço: ~2h
+-
+-──────────────────────────────────────────────────────────────────────
+-P3 — MELHORIAS (backlog priorizado)
+-──────────────────────────────────────────────────────────────────────
+-
+-P3.1  Structured logging (JSON) com correlation IDs — essencial para
+-      debug remoto em Fly.io. structlog ou wrapper mínimo.
+-      Campos obrigatórios: cycle_id, edition_date, state, source.
+-
+-P3.2  Catalog JSON cache local (SQLite ou flat file, TTL 1h) para
+-      reduzir carga no Liferay e resiliência offline.
+-
+-P3.3  ES Bulk API (batches 500-1000) em vez de index individual.
+-      Edição com 2000+ atos levará minutos vs segundos.
+-
+-P3.4  Timeline Gantt no dashboard: barras por edição mostrando
+-      duração de cada estado. Transforma status page em observability.
+-
+-P3.5  Documentar topologia Fly.io: fly.toml, machine size (mínimo
+-      performance-1x com 1GB RAM dado o streaming de ZIPs),
+-      volume size (10GB mín.), ES connectivity, cron trigger.
+-
+-P3.6  Config centralizada (config.py): INLABS_WINDOW_DAYS=30,
+-      MAX_RETRY=3, BACKOFF_BASE=5, CLEANUP_RETENTION_H=24,
+-      MAX_DOWNLOAD_BYTES=1GB. Evita magic numbers espalhados.
+-
+-P3.7  XSD validation no extractor antes de marcar EXTRACTED.
+-      Previne ingestão de XML malformado.
+-
+-═══════════════════════════════════════════════════════════════════════
+-3. DIVERGÊNCIAS RESOLVIDAS
+-═══════════════════════════════════════════════════════════════════════
+-
+-Divergência 1 — Severidade do downloader OOM
+-  claude=critical, kimi=high, qwen=critical, zai=medium
+-  Resolução: CRITICAL. Em Fly.io 256-512MB, é OOM garantido com DOU ZIPs.
+-  Zai subestimou porque tratou como "medium" genérico; o contexto de
+-  memória constrained do Fly.io eleva a critical.
+-
+-Divergência 2 — Embeddings: implementar agora ou reservar campo?
+-  kimi: "Criar estágio EMBEDDING entre EXTRACTED e INGESTING"
+-  claude/zai: "Reservar dense_vector no mapping, implementar depois"
+-  Resolução: RESERVAR CAMPO AGORA, IMPLEMENTAR DEPOIS. A spec diz
+-  "BM25 primeiro; embeddings depois". Adicionar um estágio EMBEDDING
+-  agora é premature — não há modelo escolhido, não há infra GPU, e o
+-  worker sequential não deve bloquear ingestão esperando vetorização.
+-  O campo dense_vector com index=false é o custo zero correto.
+-
+-Divergência 3 — SpooledTemporaryFile vs tempfile direto em disco
+-  kimi/qwen: SpooledTemporaryFile com max_size
+-  claude: tempfile em disco direto
+-  Resolução: TEMPFILE EM DISCO DIRETO. SpooledTemporaryFile mantém
+-  conteúdo em memória até max_size, depois copia para disco — mas
+-  DOU ZIPs são SEMPRE grandes. O spill threshold é overhead inútil.
+-  NamedTemporaryFile com delete=True é mais simples e correto.
+-
+-Divergência 4 — Zona de sobreposição no SourceRouter
+-  claude: 5 dias de overlap
+-  Análise: 5 dias é estreito demais para a realidade operacional.
+-  Resolução: 10 dias de overlap (age 25-35), porque:
+-    - INLABS pode ter latência de remoção pós-30 dias
+-    - ZIP mensal no Liferay pode atrasar até ~5 dias úteis
+-    - Overlap largo é barato (tenta INLABS primeiro, fallback rápido)
+-
+-═══════════════════════════════════════════════════════════════════════
+-4. DECISÃO DE ARQUITETURA: NOVA STATE MACHINE
+-═══════════════════════════════════════════════════════════════════════
+-
+-Estado atual:
+-  DISCOVERED → QUEUED → DOWNLOADING → DOWNLOADED → EXTRACTING →
+-  EXTRACTED → INGESTING → INGESTED → VERIFIED
+-
+-Estado proposto (mínimo viável):
+-  DISCOVERED → QUEUED → DOWNLOADING → DOWNLOADED → EXTRACTING →
+-  EXTRACTED → INGESTING → INGESTED → VERIFYING → VERIFIED
+-                                                 ↘ VERIFY_FAILED
+-  Qualquer estado → RETRY_PENDING (com retry_count, next_attempt_at)
+-  RETRY_PENDING → estado anterior (re-entry)
+-  Qualquer estado → FAILED (após max_retries ou erro non-transient)
+-  VERIFIED → CLEANED (após cleanup de arquivos temporários)
+-
+-Adições:
+-  - RETRY_PENDING: distingue "vai tentar de novo" de "morto"
+-  - VERIFY_FAILED: distingue "verificação rodou e falhou" de "não verificou"
+-  - CLEANED: confirma que temp files foram removidos
+-  - Coluna source: INLABS | LIFERAY_ZIP | CATALOG_JSON
+-
+-═══════════════════════════════════════════════════════════════════════
+-5. ORDEM DE EXECUÇÃO RECOMENDADA
+-═══════════════════════════════════════════════════════════════════════
+-
+-Sprint 1 (semana 1 — gate para deploy):
+-  1. P1.5 SQLite PRAGMAs (1h) — fundação para tudo
+-  2. P1.1 IDs determinísticos (3h) — registry precisa antes de tudo
+-  3. P0.1 Downloader streaming (4h) — desbloqueia operação
+-  4. P0.2 SourceRouter temporal (6h) — desbloqueia completude
+-  5. P1.4 Retry com backoff (4h) — desbloqueia reliability
+-
+-Sprint 2 (semana 2 — gate para operação autônoma):
+-  6. P1.2 ES mapping BM25 + Bulk API (4h)
+-  7. P1.3 Watchdog + Telegram (4h)
+-  8. P2.1 Verifier integridade (3h)
+-  9. P2.2 Cleanup disco (2h)
+-  10. P2.3 Dashboard read-only (2h)
+-
+-Sprint 3 (semana 3 — hardening):
+-  11. P3.1 Structured logging
+-  12. P3.6 Config centralizada
+-  13. P3.2 Catalog cache
+-  14. P3.3 ES Bulk (se não feito em P1.2)
+-  15. P3.5 Documentação Fly.io
+-
+-Total estimado: ~42h de desenvolvimento + testes
+-
+-═══════════════════════════════════════════════════════════════════════
+-6. RISCOS RESIDUAIS PÓS-CORREÇÃO
+-═══════════════════════════════════════════════════════════════════════
+-
+-R1. Fly.io machine size: cpu-1x-256mb é insuficiente para streaming
+-    de ZIPs + extração XML + indexação ES. Mínimo recomendado:
+-    performance-1x (1 shared CPU, 2GB RAM). Validar com load test.
+-
+-R2. Volume size: DOU acumula ~2GB/mês em XMLs antes de cleanup.
+-    Volume de 10GB dá ~5 meses de buffer. Monitorar.
+-
+-R3. ES single-node: se ES está em Fly.io também, um volume corruption
+-    perde o índice inteiro. Garantir snapshots automáticos para S3/R2.
+-
+-R4. INLABS API stability: sem SLA público. O SourceRouter mitiga
+-    com fallback, mas latência de detecção de indisponibilidade
+-    depende do timeout configurado (recomendado: 30s connect, 120s read).
+-
+-R5. Embeddings futuras: o campo reservado no mapping assume dims=1024.
+-    Se o modelo escolhido usar dims diferentes, é preciso reindex.
+-    Mitigação: documentar a decisão; quando escolher modelo, criar
+-    índice v2 e alias swap.
+-
+-═══════════════════════════════════════════════════════════════════════
+-7. CRITÉRIOS DE ACEITAÇÃO PARA ROUND 2
+-═══════════════════════════════════════════════════════════════════════
+-
+-Para que os agentes emitam APPROVED no próximo round:
+-
+-  □ Downloader faz streaming para disco com size guard e cleanup
+-  □ SourceRouter implementado com testes de boundary (dia 25/30/35)
+-  □ IDs determinísticos com UNIQUE constraint e teste de idempotência
+-  □ ES mapping explícito com analyzer brasileiro e campo embedding reservado
+-  □ SQLite PRAGMAs (WAL, busy_timeout, synchronous) verificáveis
+-  □ Retry com backoff em operações de rede/ES
+-  □ Watchdog funcional com pelo menos 1 canal de alerta (Telegram)
+-  □ Verifier checa integridade além de contagem
+-  □ Dashboard não expõe mutations sem auth
+-  □ Cleanup de temp files pós-VERIFIED implementado
++P1.7 ▸ CONFIG CENTRALIZADA: Eliminar magic numbers
++  Consenso: zai Round 2 (promover a P1)
++  Severidade consolidada: HIGH (promovido de P3 Round 1)
++  
++  Problema: Constantes espalhadas pelo código impedem ajuste fino em
++  produção. Prereq para operação autônoma.
++  
++  Correção:
++    src/backend/worker/config.py:
++    
++    @dataclass(frozen=True)
++    class PipelineConfig:
++        # Source routing
++        INLABS_WINDOW_DAYS: int = 30
++        OVERLAP_EXTRA_DAYS: int = 10       # total overlap = 30+10 = 40
++        TRANSITION_DAYS: int = 90          # BM25-first → hybrid
++        
++        # Download
++        MAX_DOWNLOAD_BYTES: int = 1_073_741_824  # 1GB
++        MIN_DISK_FREE_MB: int = 500
++        DOWNLOAD_CHUNK_SIZE: int = 65_536  # 64KB
++        CONNECT_TIMEOUT_S: int = 30
++        READ_TIMEOUT_S: int = 120
++        
++        # Retry
++        MAX_RETRIES: int = 3
++        BACKOFF_BASE_S: int = 5
++        
++        # Circuit breaker
++        CB_FAILURE_THRESHOLD: int = 3
++        CB_WINDOW_S: int = 300             # 5 min
++        CB_COOLDOWN_S: int = 1800          # 30 min
++        
++        # Cleanup
++        CLEANUP_RETENTION_H: int = 24
++        
++        # ES
++        ES_BULK_BATCH_SIZE

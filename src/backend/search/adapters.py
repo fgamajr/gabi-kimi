@@ -502,7 +502,7 @@ class PGSearchAdapter:
         conn = psycopg2.connect(self._dsn)
         conn.autocommit = True
         cur = conn.cursor()
-        cur.execute(f"SET statement_timeout = {timeout_ms}")
+        cur.execute("SET statement_timeout = %s", (timeout_ms,))
         cur.close()
         return conn
 

@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { FileUp, FileCode, Loader2, ClipboardPaste, ListTodo } from "lucide-react";
 import { toast } from "sonner";
@@ -23,6 +23,7 @@ export default function AdminUploadPage() {
   const [pasteUploading, setPasteUploading] = useState(false);
   const [pasteProgress, setPasteProgress] = useState(0);
   const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleFileSelect = useCallback((selected: File | null) => {
     setFile(selected);
@@ -84,6 +85,10 @@ export default function AdminUploadPage() {
     handleFileSelect(f);
     e.target.value = "";
   };
+
+  const openFilePicker = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
 
   const startUpload = async () => {
     if (!file) return;
@@ -165,19 +170,28 @@ export default function AdminUploadPage() {
               )}
             >
               <input
+                ref={fileInputRef}
                 type="file"
                 accept={ACCEPT}
                 className="hidden"
                 id="admin-upload-file"
                 onChange={onFileInputChange}
               />
-              <label htmlFor="admin-upload-file" className="cursor-pointer block">
+              <div aria-describedby="admin-upload-help">
                 <FileCode className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
                 <p className="text-sm font-medium text-foreground">
-                  Arraste um arquivo aqui ou clique para escolher
+                  Arraste um arquivo aqui ou escolha no dispositivo
                 </p>
-                <p className="text-xs text-muted-foreground mt-1">.xml ou .zip, até 200 MB</p>
-              </label>
+                <p id="admin-upload-help" className="text-xs text-muted-foreground mt-1">.xml ou .zip, até 200 MB</p>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="mt-4 min-h-[44px]"
+                  onClick={openFilePicker}
+                >
+                  Escolher arquivo
+                </Button>
+              </div>
             </div>
 
             {file && (
@@ -205,7 +219,7 @@ export default function AdminUploadPage() {
                   </div>
                 )}
                 {uploading && (
-                  <div className="space-y-2">
+                  <div className="space-y-2" aria-live="polite">
                     <Progress value={progress} className="h-2" />
                     <p className="text-xs text-muted-foreground flex items-center gap-1">
                       <Loader2 className="w-3 h-3 animate-spin" /> Enviando… {progress}%
@@ -238,7 +252,7 @@ export default function AdminUploadPage() {
               disabled={pasteUploading}
             />
             {pasteUploading && (
-              <div className="space-y-2">
+              <div className="space-y-2" aria-live="polite">
                 <Progress value={pasteProgress} className="h-2" />
                 <p className="text-xs text-muted-foreground flex items-center gap-1">
                   <Loader2 className="w-3 h-3 animate-spin" /> Enviando… {pasteProgress}%

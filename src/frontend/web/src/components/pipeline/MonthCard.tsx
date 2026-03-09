@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import * as Collapsible from "@radix-ui/react-collapsible";
-import { ChevronDown, RotateCcw } from "lucide-react";
+import { ChevronDown, FileText, RotateCcw } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import type { MonthData, FileStatus } from "@/types/pipeline";
 import { useRetryFile } from "@/hooks/usePipeline";
 import { toast } from "sonner";
 import FileStatusBadge from "./FileStatusBadge";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 interface MonthCardProps {
   month: string;
@@ -43,6 +45,10 @@ function isFailed(status: FileStatus): boolean {
   return status.endsWith("_FAILED");
 }
 
+function formatSectionLabel(section: string): string {
+  return section.toUpperCase();
+}
+
 function formatFileSize(bytes: number | null): string {
   if (bytes === null || bytes === undefined) return "-";
   if (bytes < 1024) return `${bytes} B`;
@@ -50,10 +56,44 @@ function formatFileSize(bytes: number | null): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function formatTimestamp(value: string | null): string {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+    timeZone: "UTC",
+  }).format(new Date(value));
+}
+
+function formatDuration(file: MonthData): string {
+  const start = file.queued_at ?? file.discovered_at;
+  const end = file.verified_at
+    ?? file.embedded_at
+    ?? file.bm25_indexed_at
+    ?? file.ingested_at
+    ?? file.extracted_at
+    ?? file.downloaded_at
+    ?? file.updated_at;
+  if (!start || !end) return "-";
+  const diffMs = new Date(end).getTime() - new Date(start).getTime();
+  if (!Number.isFinite(diffMs) || diffMs <= 0) return "-";
+  const totalMinutes = Math.round(diffMs / 60000);
+  if (totalMinutes < 1) return "<1m";
+  if (totalMinutes < 60) return `${totalMinutes}m`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+}
+
 export default function MonthCard({ month, files }: MonthCardProps) {
   const [open, setOpen] = useState(false);
   const retryMut = useRetryFile();
+  const navigate = useNavigate();
   const agg = aggregateStatus(files);
+  const totals = useMemo(() => ({
+    verified: files.filter((file) => file.status === "VERIFIED").length,
+    failed: files.filter((file) => isFailed(file.status)).length,
+  }), [files]);
 
   const handleRetry = (fileId: number) => {
     retryMut.mutate(fileId, {
@@ -66,12 +106,20 @@ export default function MonthCard({ month, files }: MonthCardProps) {
     <Collapsible.Root open={open} onOpenChange={setOpen}>
       <Collapsible.Trigger asChild>
         <button className="w-full flex items-center justify-between rounded-xl bg-surface-elevated border border-border p-4 hover:ring-1 hover:ring-primary/20 transition-all text-left group">
-          <div className="flex items-center gap-3">
-            <span className={cn("h-2.5 w-2.5 rounded-full", AGG_COLORS[agg])} />
-            <span className="font-medium text-text-primary capitalize">
-              {formatMonthLabel(month)}
-            </span>
-            <span className="text-xs text-text-tertiary">{files.length} files</span>
+          <div className="flex min-w-0 items-center gap-3">
+            <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full", AGG_COLORS[agg])} />
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-text-primary capitalize">
+                  {formatMonthLabel(month)}
+                </span>
+                <span className="text-xs text-text-tertiary">{files.length} arquivos</span>
+              </div>
+              <p className="text-xs text-text-tertiary">
+                {totals.verified} verificados
+                {totals.failed > 0 ? ` · ${totals.failed} falhas` : ""}
+              </p>
+            </div>
           </div>
           <ChevronDown
             className={cn(
@@ -84,39 +132,61 @@ export default function MonthCard({ month, files }: MonthCardProps) {
 
       <Collapsible.Content className="overflow-hidden data-[state=open]:animate-fade-in">
         <div className="mt-1 rounded-xl bg-surface-elevated border border-border divide-y divide-border/50">
-          {files.map((file, idx) => {
+          {files.map((file) => {
             const sectionCls = SECTION_CLASSES[file.section] ?? "section-badge-e";
             return (
-              <div key={`${file.year_month}-${file.section}-${idx}`} className="px-4 py-3">
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span
-                      className={cn(
-                        "inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase",
-                        sectionCls
-                      )}
-                    >
-                      {file.section}
-                    </span>
-                    <span className="text-sm text-text-primary truncate">
-                      {file.year_month}_{file.section}
-                    </span>
-                    <FileStatusBadge status={file.status} />
-                  </div>
-                  <div className="flex items-center gap-3 text-xs text-text-tertiary shrink-0">
-                    {file.doc_count !== null && (
-                      <span>{file.doc_count} docs</span>
-                    )}
-                    {isFailed(file.status) && (
-                      <button
-                        onClick={() => handleRetry(idx)}
-                        disabled={retryMut.isPending}
-                        className="inline-flex items-center gap-1 text-xs text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
+              <div key={file.id} className="px-4 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-2">
+                    <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                      <span
+                        className={cn(
+                          "inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase",
+                          sectionCls
+                        )}
                       >
-                        <RotateCcw className="w-3 h-3" />
+                        {formatSectionLabel(file.section)}
+                      </span>
+                      <span className="truncate text-sm font-medium text-text-primary">
+                        {file.filename}
+                      </span>
+                      <FileStatusBadge status={file.status} />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-tertiary">
+                      <span>{file.doc_count ?? 0} docs</span>
+                      <span>{formatFileSize(file.file_size_bytes)}</span>
+                      <span>retries: {file.retry_count}</span>
+                      <span>duração: {formatDuration(file)}</span>
+                      <span>última atividade: {formatTimestamp(file.updated_at)}</span>
+                    </div>
+                    {file.error_message ? (
+                      <p className="text-xs text-red-400">{file.error_message}</p>
+                    ) : null}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {isFailed(file.status) ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleRetry(file.id)}
+                        disabled={retryMut.isPending}
+                        className="border-red-400/30 text-red-300 hover:bg-red-500/10 hover:text-red-200"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
                         Retry
-                      </button>
-                    )}
+                      </Button>
+                    ) : null}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => navigate(`/pipeline?tab=logs&file=${file.id}`)}
+                      className="h-8 px-2 text-xs text-text-secondary"
+                    >
+                      <FileText className="mr-1 h-3.5 w-3.5" />
+                      Logs
+                    </Button>
                   </div>
                 </div>
               </div>
