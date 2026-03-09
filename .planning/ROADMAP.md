@@ -208,7 +208,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 ### Phase 12: Fly.io Pre-flight
 
 **Goal:** Create a complete unified pipeline architectural reference document by applying 9 mandatory patches and extending with ULTRA MEGA PROMPT architectural specifications (enrichment pipeline, search API, cost controls, holiday watchdog)
-**Requirements**: DOC-01, DOC-02, DOC-03, DOC-04, DOC-05, DOC-06, DOC-07, DOC-08, DOC-09
+**Requirements**: DOC-01, DOC-02, DOC-03, DOC-04, DOC-05, DOC-06, DOC-07, DOC-08, DOC-09, DOC-10, DOC-11, DOC-12, DOC-13
 **Depends on:** Phase 11
 **Success Criteria** (what must be TRUE):
   1. AUTONOMOUS_DOU_PIPELINE_PROMPT.md is a complete architectural reference (300+ lines, up from 62)
