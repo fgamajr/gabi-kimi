@@ -1,0 +1,34 @@
+# Fly.io — GABI Worker (Python pipeline)
+# Internal-only background worker; runs APScheduler for DOU sync + ingestion
+
+app = 'gabi-dou-worker'
+primary_region = 'gru'
+
+[build]
+  dockerfile = 'ops/deploy/worker/Dockerfile'
+
+[env]
+  ES_URL = 'http://gabi-dou-es.internal:9200'
+  REGISTRY_DB = '/data/registry.db'
+  TIGRIS_BUCKET = 'gabi-dou-es-snapshots'
+
+[mounts]
+  source = 'gabi_worker_data'
+  destination = '/data'
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '512mb'
+
+[deploy]
+  strategy = 'immediate'
+
+[checks]
+  [checks.worker_health]
+    port = 8081
+    type = 'http'
+    method = 'GET'
+    path = '/health'
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '30s'
