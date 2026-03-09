@@ -60,11 +60,11 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Autonomous Pipeline
 
 - [x] **PIPE-01**: SQLite registry in WAL mode tracks all DOU files with state machine (DISCOVERED → ... → VERIFIED)
-- [ ] **PIPE-02**: Discovery crawls Liferay JSONWS API to find new DOU publications, rate-limited to 5 req/s
-- [ ] **PIPE-03**: Downloader fetches ZIPs from in.gov.br with rate limiting and retry (up to 3 retries)
-- [ ] **PIPE-04**: Extractor handles multi-era ZIP formats (2002-2018 vs 2019+), detects encoding (chardet)
-- [ ] **PIPE-05**: Ingestor parses XML, normalizes, and bulk-indexes to ES (bypasses PostgreSQL)
-- [ ] **PIPE-06**: Verifier confirms doc counts in ES match expected counts per file
+- [x] **PIPE-02**: Discovery crawls Liferay JSONWS API to find new DOU publications, rate-limited to 5 req/s
+- [x] **PIPE-03**: Downloader fetches ZIPs from in.gov.br with rate limiting and retry (up to 3 retries)
+- [x] **PIPE-04**: Extractor handles multi-era ZIP formats (2002-2018 vs 2019+), detects encoding (chardet)
+- [x] **PIPE-05**: Ingestor parses XML, normalizes, and bulk-indexes to ES (bypasses PostgreSQL)
+- [x] **PIPE-06**: Verifier confirms doc counts in ES match expected counts per file
 - [ ] **PIPE-07**: APScheduler runs 5 cron jobs (discovery 23:00, download 23:30, ingest 00:00, verify 01:00, retry 06:00)
 - [x] **PIPE-08**: Migration script converts `dou_catalog_registry.json` to SQLite, cross-references ES for already-ingested files
 
@@ -136,11 +136,11 @@ Deferred to future release. Tracked but not in current roadmap.
 | FLY-03 | Phase 11 | Not started |
 | FLY-04 | Phase 11 | Not started |
 | PIPE-01 | Phase 11 | Not started |
-| PIPE-02 | Phase 11 | Not started |
-| PIPE-03 | Phase 11 | Not started |
-| PIPE-04 | Phase 11 | Not started |
-| PIPE-05 | Phase 11 | Not started |
-| PIPE-06 | Phase 11 | Not started |
+| PIPE-02 | Phase 11 | Complete |
+| PIPE-03 | Phase 11 | Complete |
+| PIPE-04 | Phase 11 | Complete |
+| PIPE-05 | Phase 11 | Complete |
+| PIPE-06 | Phase 11 | Complete |
 | PIPE-07 | Phase 11 | Not started |
 | PIPE-08 | Phase 11 | Not started |
 | DASH-01 | Phase 11 | Not started |
