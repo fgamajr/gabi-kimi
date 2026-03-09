@@ -78,6 +78,20 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **DASH-06**: Settings tab shows schedule config, disk usage, danger zone
 - [x] **DASH-07**: Dashboard auto-refreshes every 30s via React Query
 
+## Phase 12 Requirements
+
+### Documentation Patches
+
+- [ ] **DOC-01**: CRITICAL SOURCE WINDOW RULE block inserted verbatim (INLABS 30-day window, fallback strategy)
+- [ ] **DOC-02**: 5-app topology diagram replaces incorrect 3-app diagram (frontend, web, worker, ES, Redis)
+- [ ] **DOC-03**: EXISTING INFRASTRUCTURE section documents implemented features with DO NOT rewrite directives
+- [ ] **DOC-04**: FALLBACK_PENDING lifecycle state documented with dou_catalog_months DDL
+- [ ] **DOC-05**: Catalog Reconciler MODULE 6B documented with class docstring specification
+- [ ] **DOC-06**: Dual-worker clarification distinguishes ARQ upload_worker from autonomous pipeline worker
+- [ ] **DOC-07**: INLABS auth details documented (login flow, cookie, rate limits, audit logging)
+- [ ] **DOC-08**: Execution order updated to reflect current codebase state (5-step gap-focused plan)
+- [ ] **DOC-09**: Modular usage note explains how to consume the document as focused slices
+
 ## v2 Requirements
 
 Deferred to future release. Tracked but not in current roadmap.
@@ -150,13 +164,23 @@ Deferred to future release. Tracked but not in current roadmap.
 | DASH-05 | Phase 11 | Not started |
 | DASH-06 | Phase 11 | Not started |
 | DASH-07 | Phase 11 | Not started |
+| DOC-01 | Phase 12 | Not started |
+| DOC-02 | Phase 12 | Not started |
+| DOC-03 | Phase 12 | Not started |
+| DOC-04 | Phase 12 | Not started |
+| DOC-05 | Phase 12 | Not started |
+| DOC-06 | Phase 12 | Not started |
+| DOC-07 | Phase 12 | Not started |
+| DOC-08 | Phase 12 | Not started |
+| DOC-09 | Phase 12 | Not started |
 
 **Coverage:**
 - v1 requirements: 26 total (all complete)
 - Phase 11 requirements: 19 total
-- Mapped to phases: 45
+- Phase 12 requirements: 9 total
+- Mapped to phases: 54
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-08*
-*Last updated: 2026-03-09 after Phase 11 requirement definition*
+*Last updated: 2026-03-09 after Phase 12 requirement definition*
