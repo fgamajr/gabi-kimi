@@ -87,10 +87,10 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **DOC-03**: EXISTING INFRASTRUCTURE section documents implemented features with DO NOT rewrite directives
 - [x] **DOC-04**: FALLBACK_PENDING lifecycle state documented with dou_catalog_months DDL
 - [x] **DOC-05**: Catalog Reconciler MODULE 6B documented with class docstring specification
-- [ ] **DOC-06**: Dual-worker clarification distinguishes ARQ upload_worker from autonomous pipeline worker
-- [ ] **DOC-07**: INLABS auth details documented (login flow, cookie, rate limits, audit logging)
-- [ ] **DOC-08**: Execution order updated to reflect current codebase state (5-step gap-focused plan)
-- [ ] **DOC-09**: Modular usage note explains how to consume the document as focused slices
+- [x] **DOC-06**: Dual-worker clarification distinguishes ARQ upload_worker from autonomous pipeline worker
+- [x] **DOC-07**: INLABS auth details documented (login flow, cookie, rate limits, audit logging)
+- [x] **DOC-08**: Execution order updated to reflect current codebase state (5-step gap-focused plan)
+- [x] **DOC-09**: Modular usage note explains how to consume the document as focused slices
 
 ## v2 Requirements
 
