@@ -173,7 +173,7 @@ Plans:
   3. Web proxies /api/worker/* to worker.internal:8081 for dashboard access
   4. Pipeline autonomously discovers, downloads, extracts, ingests, and verifies DOU publications
   5. Admin dashboard shows pipeline health, timeline, scheduler status, logs, and settings
-**Plans:** 2/7 plans executed
+**Plans:** 3/7 plans executed
 
 Plans:
 - [ ] 11-01-PLAN.md -- ES + Worker Fly.io deployment configs
@@ -201,4 +201,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 8. Job Dashboard | 1/1 | Complete | 2026-03-08 |
 | 9. Live Status and Retry | 1/1 | Complete | 2026-03-08 |
 | 10. Legacy Cleanup | 1/1 | Complete | 2026-03-08 |
-| 11. Fly.io Migration & Dashboard | 2/7 | In Progress|  |
+| 11. Fly.io Migration & Dashboard | 3/7 | In Progress|  |
