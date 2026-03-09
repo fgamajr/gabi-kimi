@@ -4,14 +4,14 @@ milestone: v1.0
 milestone_name: milestone
 current_plan: 7
 status: executing
-stopped_at: Completed 11-07-PLAN.md
-last_updated: "2026-03-09T18:34:12.294Z"
+stopped_at: Completed 12-03-PLAN.md
+last_updated: "2026-03-09T19:55:39.075Z"
 last_activity: 2026-03-09
 progress:
   total_phases: 12
-  completed_phases: 2
-  total_plans: 9
-  completed_plans: 19
+  completed_phases: 1
+  total_plans: 11
+  completed_plans: 20
   percent: 28
 ---
 
@@ -72,6 +72,7 @@ Progress: [██░░░░░░░░] 28%
 | Phase 12 P01 | 2 | 2 tasks | 1 files |
 | Phase 12 P02 | 2 | 2 tasks | 1 files |
 | Phase 11 P07 | 4 | 2 tasks | 5 files |
+| Phase 12 P03 | 1 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -98,6 +99,8 @@ Recent decisions affecting current work:
 - [Phase 12]: Document written in English, preserving INLABS reference links; patches 6-9 deferred to Plan 02
 - [Phase 12]: INLABS auth details pulled from actual inlabs_client.py; rate limiting and audit logging marked as DOCUMENTED REQUIREMENTS
 - [Phase 11]: Static cron schedule display with client-side relative time; window.confirm for danger zone actions
+- [Phase 12]: Enrichment fields use built-in portuguese analyzer (with stemming) vs pt_folded (no stemming) for existing fields
+- [Phase 12]: Enrichment state decoupled from main pipeline state machine -- runs as post-verification pass
 
 ### Roadmap Evolution
 
@@ -116,6 +119,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-09T18:30:07.125Z
-Stopped at: Completed 11-07-PLAN.md
+Last session: 2026-03-09T19:55:39.073Z
+Stopped at: Completed 12-03-PLAN.md
 Resume file: None
