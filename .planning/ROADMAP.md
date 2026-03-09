@@ -203,7 +203,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 9. Live Status and Retry | 1/1 | Complete | 2026-03-08 |
 | 10. Legacy Cleanup | 1/1 | Complete | 2026-03-08 |
 | 11. Fly.io Migration & Dashboard | 6/7 | In Progress|  |
-| 12. Fly.io Pre-flight | 0/2 | Not started |  |
+| 12. Fly.io Pre-flight | 1/2 | In Progress|  |
 
 ### Phase 12: Fly.io Pre-flight
 
@@ -220,7 +220,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
   7. INLABS auth flow is documented with actual implementation details
   8. Execution order reflects current codebase state (focus on gaps, not reimplementation)
   9. Modular usage guidance explains how to consume the document in focused slices
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 - [ ] 12-01-PLAN.md -- Document skeleton + patches 1-5 (data sources, topology, infrastructure, state machine, reconciler)

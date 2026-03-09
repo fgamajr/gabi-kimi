@@ -82,11 +82,11 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Documentation Patches
 
-- [ ] **DOC-01**: CRITICAL SOURCE WINDOW RULE block inserted verbatim (INLABS 30-day window, fallback strategy)
-- [ ] **DOC-02**: 5-app topology diagram replaces incorrect 3-app diagram (frontend, web, worker, ES, Redis)
-- [ ] **DOC-03**: EXISTING INFRASTRUCTURE section documents implemented features with DO NOT rewrite directives
-- [ ] **DOC-04**: FALLBACK_PENDING lifecycle state documented with dou_catalog_months DDL
-- [ ] **DOC-05**: Catalog Reconciler MODULE 6B documented with class docstring specification
+- [x] **DOC-01**: CRITICAL SOURCE WINDOW RULE block inserted verbatim (INLABS 30-day window, fallback strategy)
+- [x] **DOC-02**: 5-app topology diagram replaces incorrect 3-app diagram (frontend, web, worker, ES, Redis)
+- [x] **DOC-03**: EXISTING INFRASTRUCTURE section documents implemented features with DO NOT rewrite directives
+- [x] **DOC-04**: FALLBACK_PENDING lifecycle state documented with dou_catalog_months DDL
+- [x] **DOC-05**: Catalog Reconciler MODULE 6B documented with class docstring specification
 - [ ] **DOC-06**: Dual-worker clarification distinguishes ARQ upload_worker from autonomous pipeline worker
 - [ ] **DOC-07**: INLABS auth details documented (login flow, cookie, rate limits, audit logging)
 - [ ] **DOC-08**: Execution order updated to reflect current codebase state (5-step gap-focused plan)
