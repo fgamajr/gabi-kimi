@@ -45,6 +45,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     registry = Registry(db_path=db_path)
     await registry.init_db()
     set_registry(registry)
+
+    # Set registry on API module for route handlers
+    import src.backend.worker.api as api_mod
+    api_mod._registry = registry
+
     logger.info("Registry initialized at %s", db_path)
 
     # Register ES snapshot repo (non-blocking, warn on failure)
