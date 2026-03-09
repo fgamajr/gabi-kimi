@@ -184,6 +184,22 @@ STILL PENDING:
 
 ---
 
+## PATCH 6 -- Two Different Workers -- Do Not Confuse
+
+The GABI DOU system has TWO completely separate worker processes. Confusing them is a common and dangerous mistake.
+
+1. **ARQ `upload_worker`** -- Runs on the **WEB app** (`gabi-dou-web`) as a Fly.io process group. Handles MANUAL admin ZIP/XML uploads via the `/api/admin/upload` endpoint. Processes jobs from the ARQ task queue (Redis-backed). Codepath: `src/backend/workers/arq_worker.py`. Entrypoint: `arq src.backend.workers.arq_worker.WorkerSettings`.
+
+2. **Autonomous pipeline worker** -- Runs on **its own Fly.io app** (`gabi-dou-worker`) as a separate machine. Handles SCHEDULED discovery, download, extraction, BM25 indexing, embedding, and verification of DOU publications. Codepath: `src/backend/worker/main.py`. Binds to `:8081` (internal only).
+
+**What they share:** Redis (ARQ task queue for upload_worker, rate limiting for both apps).
+
+**What they do NOT share:** Codebase paths, lifecycle management, scheduling logic, data flow, or Fly.io process groups.
+
+**RULE: An agent must NEVER attempt to merge these two systems, run autonomous pipeline tasks through ARQ, or confuse their codepaths.**
+
+---
+
 ## MODULE 1: State Machine
 
 The pipeline worker tracks every DOU file through a registry-backed lifecycle. The current `FileStatus` enum defines these states:
@@ -238,7 +254,32 @@ CREATE TABLE dou_catalog_months (
 
 ## MODULE 2: Discovery / Download
 
-Already implemented. The discovery module handles both INLABS (recent 30-day window) and Liferay (historical catalog) sources. Source routing is automatic based on publication date. Details will be expanded in Plan 02.
+Already implemented. The discovery module handles both INLABS (recent 30-day window) and Liferay (historical catalog) sources. Source routing is automatic based on publication date.
+
+### PATCH 7 -- INLABS Authentication Details
+
+The `INLabsClient` class (`src/backend/worker/inlabs_client.py`) implements the official INLABS login and download flow.
+
+**IMPLEMENTED (in codebase):**
+
+| Detail | Value |
+|--------|-------|
+| Login endpoint | `POST https://inlabs.in.gov.br/logar.php` |
+| Login payload | `email` + `password` (form-encoded, `application/x-www-form-urlencoded`) |
+| Origin header | `origem: 736372697074` (hex-encoded string, decodes to `script`) |
+| Session cookie | `inlabs_session_cookie` (set by server after successful login) |
+| Download URL pattern | `GET https://inlabs.in.gov.br/index.php?p=YYYY-MM-DD&dl=YYYY-MM-DD-DOx.zip` |
+| Valid sections | `DO1`, `DO2`, `DO3`, `DO1E`, `DO2E`, `DO3E` |
+| Window enforcement | `MAX_LOOKBACK_DAYS = 30` -- raises `InlabsWindowError` if date is older |
+| Auto re-login | Transparent -- `download()` checks for cookie presence before each request; calls `login()` automatically if cookie is missing or expired |
+| Session management | Handled by `httpx.AsyncClient` cookie jar; `INLabsClient` owns the client lifecycle |
+| HTTP client | `httpx.AsyncClient` with 60s timeout, follow_redirects=True |
+| Streaming download | ZIP files downloaded via `client.stream("GET", ...)` for memory efficiency |
+
+**DOCUMENTED REQUIREMENTS (not yet in code):**
+
+- **Rate limiting:** Max 5 requests/second to INLABS endpoints. This is a planned safeguard to avoid being blocked by Imprensa Nacional. NOT YET IMPLEMENTED.
+- **Audit logging:** Log every INLABS interaction (login attempts, downloads, failures) for operational auditability. NOT YET IMPLEMENTED.
 
 ## MODULE 3: Extractor
 
@@ -296,14 +337,72 @@ The orchestrator coordinates all pipeline modules via APScheduler. It runs disco
 
 ---
 
-## PATCHES 6-9 (To Be Applied in Plan 02)
+## PATCH 8 -- EXECUTION ORDER (adjusted for current codebase state)
 
-The following patches are specified in the PRD but will be applied in Plan 02:
+Many modules are ALREADY IMPLEMENTED. Focus on gaps.
 
-- **PATCH 6** -- Two-worker disambiguation (ARQ upload_worker vs autonomous pipeline worker)
-- **PATCH 7** -- INLABS auth details expansion for MODULE 2
-- **PATCH 8** -- Updated execution order adjusted for current codebase state
-- **PATCH 9** -- Modular prompt usage guidance (meta section)
+```
+STEP 1: Resolve Fly PENDING items
+  1a. Validate .internal connectivity (web → worker → ES) on Fly
+  1b. Size volumes (worker: 10GB, ES: 50GB)
+  1c. Set all secrets on both web and worker apps
+  1d. Test first-boot with empty worker volume
+  1e. Test worker restart recovery from volume-only state
+
+STEP 2: Implement open gaps
+  2a. Persist pause/resume state in SQLite (not in-memory)
+  2b. Implement dou_catalog_months table + CatalogReconciler
+  2c. Implement FALLBACK_PENDING state + delayed Liferay recovery
+  2d. Add watchdog holiday awareness (at minimum: Carnival, major national holidays)
+  2e. Implement re-embed backfill policy for legacy corpus
+
+STEP 3: Validate external integrations on Fly
+  3a. INLABS login + download from GRU region
+  3b. OpenAI embeddings with cost-limited sample (10 docs)
+  3c. Telegram alert delivery
+  3d. ES snapshot to Tigris + test restore
+
+STEP 4: Dashboard E2E against real worker
+  4a. Dashboard renders real pipeline state (not synthetic seed)
+  4b. Catalog coverage view (which months known vs ingested)
+  4c. Trigger and retry actions work through the proxy
+
+STEP 5: Initial bulk load + go live
+  5a. Bootstrap registry from JSON catalog
+  5b. Process historical backlog (Liferay URLs)
+  5c. Enable INLABS daily discovery
+  5d. Verify hybrid search works with partial corpus
+  5e. Fernando stops touching it
+```
+
+---
+
+## Official References
+
+- **Official INLABS repository:** `https://github.com/Imprensa-Nacional/inlabs`
+- **INLABS README notes:** XML/PDF available since January 1, 2020. The 30-day download window is a PROJECT constraint enforced in code (`MAX_LOOKBACK_DAYS = 30`), not a publicly documented INLABS limitation.
+- **Login endpoint:** `POST https://inlabs.in.gov.br/logar.php`
+- **Session cookie:** `inlabs_session_cookie`
+- **Download pattern:** `GET https://inlabs.in.gov.br/index.php?p=YYYY-MM-DD&dl=YYYY-MM-DD-DOx.zip`
+
+---
+
+## PATCH 9 -- COMO USAR
+
+### Recommended Execution Strategy
+
+This unified prompt is an ARCHITECTURAL REFERENCE, not a single execution blob.
+
+Use it as context, but execute in FOCUSED SLICES:
+
+1. One prompt per Fly PENDING item
+2. One prompt for the catalog extension model
+3. One prompt for the delayed Liferay fallback
+4. One prompt for watchdog hardening
+5. One prompt for dashboard E2E
+
+Each slice should reference this document as context plus the runbook:
+  docs/runbooks/AUTONOMOUS_DOU_STATUS_AND_FLY_PREFLIGHT.md
 
 ---
 
@@ -314,3 +413,7 @@ The following patches are specified in the PRD but will be applied in Plan 02:
 - **Fly web security:** [FLY_WEB_SECURITY.md](FLY_WEB_SECURITY.md)
 - **Fly split deploy:** [FLY_SPLIT_DEPLOY.md](FLY_SPLIT_DEPLOY.md)
 - **Official INLABS repository:** `https://github.com/Imprensa-Nacional/inlabs`
+
+---
+
+*Document generated: 2026-03-09. Source: PRD-unified-prompt-patches.md*
