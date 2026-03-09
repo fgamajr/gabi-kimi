@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: User Auth
-current_plan: 2
+current_plan: 2 of 2
 status: executing
-stopped_at: Completed 14-01-PLAN.md
-last_updated: "2026-03-09T23:14:46.000Z"
+stopped_at: Completed 14-02-PLAN.md
+last_updated: "2026-03-09T23:22:27.963Z"
 last_activity: 2026-03-09
 progress:
   total_phases: 1
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
+  completed_plans: 2
   percent: 50
 ---
 
@@ -45,15 +45,19 @@ Progress: [=====-----] 50%
 - [14-01]: Pinned bcrypt<5.0 for passlib compatibility
 - [14-01]: Password users store user UUID as session sub, resolved via resolve_identity_for_user_id fallback
 - [14-01]: DB-based brute-force tracking in auth.login_attempt table
+- [Phase 14]: Login page dual-mode: email+password primary, token secondary toggle
+- [Phase 14]: Portuguese error messages mapped from HTTP status codes (401, 409, 422, 429)
+- [Phase 14]: All form inputs use text-base (16px) to prevent iOS auto-zoom
 
 ### Performance Metrics
 
 | Phase | Plan | Duration | Tasks | Files |
 |-------|------|----------|-------|-------|
 | 14    | 01   | 4min     | 2     | 6     |
+| Phase 14 P02 | 3min | 3 tasks | 6 files |
 
 ## Session Continuity
 
-Last session: 2026-03-09
-Stopped at: Completed 14-01-PLAN.md
+Last session: 2026-03-09T23:22:27.962Z
+Stopped at: Completed 14-02-PLAN.md
 Resume: `/gsd:execute-phase 14` (plan 02 next)

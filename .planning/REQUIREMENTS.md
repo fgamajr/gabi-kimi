@@ -32,11 +32,11 @@ Requirements for v1.1 release. Public-facing email+password authentication.
 
 ### Frontend
 
-- [ ] **UI-01**: Login page with email+password as primary, "chave de acesso" as secondary link
-- [ ] **UI-02**: Register page with name, email, password fields
-- [ ] **UI-03**: Mobile-first inputs (font >= 16px, autocomplete attributes)
-- [ ] **UI-04**: Show/hide password toggle, inline error display, loading state on buttons
-- [ ] **UI-05**: Redirect to home after successful login/register
+- [x] **UI-01**: Login page with email+password as primary, "chave de acesso" as secondary link
+- [x] **UI-02**: Register page with name, email, password fields
+- [x] **UI-03**: Mobile-first inputs (font >= 16px, autocomplete attributes)
+- [x] **UI-04**: Show/hide password toggle, inline error display, loading state on buttons
+- [x] **UI-05**: Redirect to home after successful login/register
 
 ### Coexistence
 
@@ -85,11 +85,11 @@ Deferred to future release.
 | SEC-05 | Phase 14 | Complete |
 | SEC-06 | Phase 14 | Complete |
 | SEC-07 | Phase 14 | Complete |
-| UI-01 | Phase 14 | Pending |
-| UI-02 | Phase 14 | Pending |
-| UI-03 | Phase 14 | Pending |
-| UI-04 | Phase 14 | Pending |
-| UI-05 | Phase 14 | Pending |
+| UI-01 | Phase 14 | Complete |
+| UI-02 | Phase 14 | Complete |
+| UI-03 | Phase 14 | Complete |
+| UI-04 | Phase 14 | Complete |
+| UI-05 | Phase 14 | Complete |
 | COEX-01 | Phase 14 | Complete |
 | COEX-02 | Phase 14 | Complete |
 | COEX-03 | Phase 14 | Complete |
