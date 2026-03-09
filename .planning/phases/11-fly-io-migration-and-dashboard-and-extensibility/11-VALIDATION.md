@@ -38,17 +38,19 @@ created: 2026-03-09
 
 | Task ID | Plan | Wave | Requirement | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|-----------|-------------------|-------------|--------|
-| 11-01-01 | 01 | 1 | SQLite registry | unit | `pytest tests/test_pipeline/test_registry.py` | ❌ W0 | ⬜ pending |
-| 11-01-02 | 01 | 1 | State machine | unit | `pytest tests/test_pipeline/test_registry.py::test_transitions` | ❌ W0 | ⬜ pending |
-| 11-02-01 | 02 | 1 | Discovery crawler | integration | `pytest tests/test_pipeline/test_discovery.py` | ❌ W0 | ⬜ pending |
-| 11-03-01 | 03 | 2 | Downloader | unit | `pytest tests/test_pipeline/test_downloader.py` | ❌ W0 | ⬜ pending |
-| 11-04-01 | 04 | 2 | Extractor | unit | `pytest tests/test_pipeline/test_extractor.py` | ❌ W0 | ⬜ pending |
-| 11-05-01 | 05 | 2 | ES Ingestor | integration | `pytest tests/test_pipeline/test_ingestor.py` | ❌ W0 | ⬜ pending |
-| 11-06-01 | 06 | 3 | Verifier | integration | `pytest tests/test_pipeline/test_verifier.py` | ❌ W0 | ⬜ pending |
-| 11-07-01 | 07 | 3 | Orchestrator | unit | `pytest tests/test_pipeline/test_orchestrator.py` | ❌ W0 | ⬜ pending |
-| 11-08-01 | 08 | 3 | Worker internal API | integration | `pytest tests/test_pipeline/test_worker_api.py` | ❌ W0 | ⬜ pending |
-| 11-09-01 | 09 | 4 | Dashboard React | component | `cd src/frontend/web && npx vitest run src/test/pipeline-dashboard.test.tsx` | ❌ W0 | ⬜ pending |
-| 11-10-01 | 10 | 5 | Fly.io deploy | manual | N/A | N/A | ⬜ pending |
+| 11-01-01 | 01 | 1 | Fly.io ES config | file check | `test -f ops/deploy/es/fly.toml && grep -q gabi-dou-es ops/deploy/es/fly.toml` | N/A | ⬜ pending |
+| 11-01-02 | 01 | 1 | Fly.io Worker config | file check | `test -f ops/deploy/worker/fly.toml && grep -q gabi-dou-worker ops/deploy/worker/fly.toml` | N/A | ⬜ pending |
+| 11-02-01 | 02 | 1 | SQLite registry | unit | `pytest tests/test_pipeline/test_registry.py` | ❌ W0 | ⬜ pending |
+| 11-02-02 | 02 | 1 | State machine + migration | unit | `pytest tests/test_pipeline/test_registry.py::test_transitions tests/test_pipeline/test_migration.py` | ❌ W0 | ⬜ pending |
+| 11-03-01 | 03 | 1 | Discovery + downloader | unit | `pytest tests/test_pipeline/test_discovery.py tests/test_pipeline/test_downloader.py` | ❌ W0 | ⬜ pending |
+| 11-03-02 | 03 | 1 | Extractor + ingestor + verifier | unit | `pytest tests/test_pipeline/test_extractor.py tests/test_pipeline/test_ingestor.py tests/test_pipeline/test_verifier.py` | ❌ W0 | ⬜ pending |
+| 11-04-01 | 04 | 2 | Scheduler + snapshots | import | `python -c "from src.backend.worker.scheduler import scheduler; from src.backend.worker.snapshots import create_snapshot"` | N/A | ⬜ pending |
+| 11-04-02 | 04 | 2 | Worker API | integration | `pytest tests/test_pipeline/test_worker_api.py` | ❌ W0 | ⬜ pending |
+| 11-05-01 | 05 | 3 | Web proxy + fly.toml | integration | `python -c "from src.backend.apps.web_server import app" && grep -q ES_URL ops/deploy/web/fly.toml` | N/A | ⬜ pending |
+| 11-05-02 | 05 | 3 | Dashboard types/hooks | typecheck | `cd src/frontend/web && npx tsc --noEmit src/types/pipeline.ts src/hooks/usePipeline.ts` | N/A | ⬜ pending |
+| 11-06-01 | 06 | 3 | Dashboard Overview + Timeline | typecheck | `cd src/frontend/web && npx tsc --noEmit` | N/A | ⬜ pending |
+| 11-07-01 | 07 | 4 | Dashboard Pipeline + Logs + Settings | typecheck | `cd src/frontend/web && npx tsc --noEmit` | N/A | ⬜ pending |
+| 11-07-02 | 07 | 4 | Visual verification | manual | User visual check at /pipeline | N/A | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -59,13 +61,13 @@ created: 2026-03-09
 - [ ] `tests/test_pipeline/` — directory structure
 - [ ] `tests/test_pipeline/conftest.py` — shared fixtures (SQLite in-memory, mock ES, mock Liferay)
 - [ ] `tests/test_pipeline/test_registry.py` — stubs for SQLite registry + state machine
+- [ ] `tests/test_pipeline/test_migration.py` — stubs for migration script
 - [ ] `tests/test_pipeline/test_discovery.py` — stubs for Liferay crawler
 - [ ] `tests/test_pipeline/test_downloader.py` — stubs for ZIP downloader
 - [ ] `tests/test_pipeline/test_extractor.py` — stubs for ZIP extractor
 - [ ] `tests/test_pipeline/test_ingestor.py` — stubs for ES ingestor
 - [ ] `tests/test_pipeline/test_verifier.py` — stubs for post-ingest verifier
-- [ ] `tests/test_pipeline/test_orchestrator.py` — stubs for pipeline orchestrator
-- [ ] `tests/test_pipeline/test_worker_api.py` — stubs for worker internal API
+- [ ] `tests/test_pipeline/test_worker_api.py` — stubs for worker internal API (integration)
 
 ---
 
