@@ -70,9 +70,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Admin Dashboard
 
-- [ ] **DASH-01**: Pipeline page with tab navigation (Overview, Timeline, Pipeline, Logs, Settings)
-- [ ] **DASH-02**: Overview tab shows health badge, metric cards, recent activity, coverage by year, quick actions
-- [ ] **DASH-03**: Timeline tab shows month-by-month detail with per-file status, retry/log actions
+- [x] **DASH-01**: Pipeline page with tab navigation (Overview, Timeline, Pipeline, Logs, Settings)
+- [x] **DASH-02**: Overview tab shows health badge, metric cards, recent activity, coverage by year, quick actions
+- [x] **DASH-03**: Timeline tab shows month-by-month detail with per-file status, retry/log actions
 - [ ] **DASH-04**: Pipeline tab shows scheduler status, next run times, execution history
 - [ ] **DASH-05**: Logs tab shows filterable event log stream (by level, file, run)
 - [ ] **DASH-06**: Settings tab shows schedule config, disk usage, danger zone
