@@ -48,6 +48,36 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **CLEN-01**: Legacy Alpine.js frontend (`web/index.html`) removed from codebase
 
+## Phase 11 Requirements
+
+### Fly.io Multi-App Infrastructure
+
+- [ ] **FLY-01**: Elasticsearch runs on a dedicated Fly.io machine (performance-2x, 4GB RAM, 50GB volume) with single-node config
+- [ ] **FLY-02**: Worker runs on a dedicated Fly.io machine (shared-cpu-1x, 512MB, volume at /data) with APScheduler + internal FastAPI
+- [ ] **FLY-03**: Web FastAPI proxies `/api/worker/*` requests to `worker.internal:8081` via httpx
+- [ ] **FLY-04**: All 3 machines in `gru` region, communicating via `.internal` DNS (6PN private network)
+
+### Autonomous Pipeline
+
+- [ ] **PIPE-01**: SQLite registry in WAL mode tracks all DOU files with state machine (DISCOVERED → ... → VERIFIED)
+- [ ] **PIPE-02**: Discovery crawls Liferay JSONWS API to find new DOU publications, rate-limited to 5 req/s
+- [ ] **PIPE-03**: Downloader fetches ZIPs from in.gov.br with rate limiting and retry (up to 3 retries)
+- [ ] **PIPE-04**: Extractor handles multi-era ZIP formats (2002-2018 vs 2019+), detects encoding (chardet)
+- [ ] **PIPE-05**: Ingestor parses XML, normalizes, and bulk-indexes to ES (bypasses PostgreSQL)
+- [ ] **PIPE-06**: Verifier confirms doc counts in ES match expected counts per file
+- [ ] **PIPE-07**: APScheduler runs 5 cron jobs (discovery 23:00, download 23:30, ingest 00:00, verify 01:00, retry 06:00)
+- [ ] **PIPE-08**: Migration script converts `dou_catalog_registry.json` to SQLite, cross-references ES for already-ingested files
+
+### Admin Dashboard
+
+- [ ] **DASH-01**: Pipeline page with tab navigation (Overview, Timeline, Pipeline, Logs, Settings)
+- [ ] **DASH-02**: Overview tab shows health badge, metric cards, recent activity, coverage by year, quick actions
+- [ ] **DASH-03**: Timeline tab shows month-by-month detail with per-file status, retry/log actions
+- [ ] **DASH-04**: Pipeline tab shows scheduler status, next run times, execution history
+- [ ] **DASH-05**: Logs tab shows filterable event log stream (by level, file, run)
+- [ ] **DASH-06**: Settings tab shows schedule config, disk usage, danger zone
+- [ ] **DASH-07**: Dashboard auto-refreshes every 30s via React Query
+
 ## v2 Requirements
 
 Deferred to future release. Tracked but not in current roadmap.
@@ -101,12 +131,32 @@ Deferred to future release. Tracked but not in current roadmap.
 | JOBS-05 | Phase 9 | Complete |
 | JOBS-06 | Phase 8 | Complete |
 | CLEN-01 | Phase 10 | Complete |
+| FLY-01 | Phase 11 | Not started |
+| FLY-02 | Phase 11 | Not started |
+| FLY-03 | Phase 11 | Not started |
+| FLY-04 | Phase 11 | Not started |
+| PIPE-01 | Phase 11 | Not started |
+| PIPE-02 | Phase 11 | Not started |
+| PIPE-03 | Phase 11 | Not started |
+| PIPE-04 | Phase 11 | Not started |
+| PIPE-05 | Phase 11 | Not started |
+| PIPE-06 | Phase 11 | Not started |
+| PIPE-07 | Phase 11 | Not started |
+| PIPE-08 | Phase 11 | Not started |
+| DASH-01 | Phase 11 | Not started |
+| DASH-02 | Phase 11 | Not started |
+| DASH-03 | Phase 11 | Not started |
+| DASH-04 | Phase 11 | Not started |
+| DASH-05 | Phase 11 | Not started |
+| DASH-06 | Phase 11 | Not started |
+| DASH-07 | Phase 11 | Not started |
 
 **Coverage:**
-- v1 requirements: 26 total
-- Mapped to phases: 26
+- v1 requirements: 26 total (all complete)
+- Phase 11 requirements: 19 total
+- Mapped to phases: 45
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-08*
-*Last updated: 2026-03-08 after roadmap creation*
+*Last updated: 2026-03-09 after Phase 11 requirement definition*
