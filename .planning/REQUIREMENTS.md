@@ -54,7 +54,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **FLY-01**: Elasticsearch runs on a dedicated Fly.io machine (performance-2x, 4GB RAM, 50GB volume) with single-node config
 - [x] **FLY-02**: Worker runs on a dedicated Fly.io machine (shared-cpu-1x, 512MB, volume at /data) with APScheduler + internal FastAPI
-- [ ] **FLY-03**: Web FastAPI proxies `/api/worker/*` requests to `worker.internal:8081` via httpx
+- [x] **FLY-03**: Web FastAPI proxies `/api/worker/*` requests to `worker.internal:8081` via httpx
 - [x] **FLY-04**: All 3 machines in `gru` region, communicating via `.internal` DNS (6PN private network)
 
 ### Autonomous Pipeline
@@ -76,7 +76,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **DASH-04**: Pipeline tab shows scheduler status, next run times, execution history
 - [ ] **DASH-05**: Logs tab shows filterable event log stream (by level, file, run)
 - [ ] **DASH-06**: Settings tab shows schedule config, disk usage, danger zone
-- [ ] **DASH-07**: Dashboard auto-refreshes every 30s via React Query
+- [x] **DASH-07**: Dashboard auto-refreshes every 30s via React Query
 
 ## v2 Requirements
 
