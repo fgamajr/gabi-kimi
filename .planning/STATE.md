@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.0
-milestone_name: milestone
-current_plan: 1
-status: complete
-stopped_at: Phase 13 Plan 01 complete
-last_updated: "2026-03-09T22:14:24Z"
+milestone_name: GABI Admin Upload
+current_plan: null
+status: milestone_complete
+stopped_at: v1.0 milestone archived
+last_updated: "2026-03-09T22:30:00.000Z"
 last_activity: 2026-03-09
 progress:
   total_phases: 13
-  completed_phases: 3
-  total_plans: 1
+  completed_phases: 13
+  total_plans: 22
   completed_plans: 22
   percent: 100
 ---
@@ -19,114 +19,20 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-08)
+See: .planning/PROJECT.md (updated 2026-03-09)
 
-**Core value:** Admins can upload DOU documents (XML/ZIP) and see them ingested into the search index via background processing
-**Current focus:** Phase 13 - Worker Proxy Auth & Traceability (complete)
+**Core value:** Users can find any published legal act in the DOU quickly and read it in a clean, professional interface
+**Current focus:** Planning next milestone
 
 ## Current Position
 
-Phase: 13 of 13 (Worker Proxy Auth & Traceability)
-Current Plan: 1 (complete)
-Total Plans in Phase: 1
-Status: Complete
-Last activity: 2026-03-09
+Milestone v1.0 GABI Admin Upload: SHIPPED 2026-03-09
+All 13 phases complete, 22 plans executed, 64 requirements satisfied.
 
-Progress: [██████████] 100%
-
-## Performance Metrics
-
-**Velocity:**
-- Total plans completed: 0
-- Average duration: -
-- Total execution time: 0 hours
-
-**By Phase:**
-
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| - | - | - | - |
-
-**Recent Trend:**
-- Last 5 plans: none
-- Trend: N/A
-
-*Updated after each plan completion*
-| Phase 01-storage-foundation P01 | 15 | 4 tasks | 5 files |
-| Phase 02-job-control-schema P01 | 12 | 3 tasks | 3 files |
-| Phase 03-upload-api P01 | 10 | 2 tasks | 2 files |
-| Phase 04-worker-infrastructure P01 | 12 | 4 tasks | 6 files |
-| Phase 05-single-xml-processing P01 | 18 | 3 tasks | 3 files |
-| Phase 05-single-xml-processing P01 | 18 | 3 tasks | 3 files |
-| Phase 06-zip-processing P01 | 15 | 1 tasks | 2 files |
-| Phase 07-upload-ui P01 | 25 | 1 tasks | 5 files |
-| Phase 08-job-dashboard P01 | 20 | 1 tasks | 5 files |
-| Phase 09-live-status-and-retry P01 | 25 | 1 tasks | 4 files |
-| Phase 10-legacy-cleanup P01 | 15 | 1 tasks | 6 files |
-| Phase 11-fly-io-migration P01 | 1 | 2 tasks | 7 files |
-| Phase 11 P02 | 4 | 2 tasks | 6 files |
-| Phase 11 P03 | 7 | 2 tasks | 11 files |
-| Phase 11 P04 | 3 | 2 tasks | 5 files |
-| Phase 11 P05 | 3 | 2 tasks | 6 files |
-| Phase 11 P06 | 4 | 2 tasks | 10 files |
-| Phase 12 P01 | 2 | 2 tasks | 1 files |
-| Phase 12 P02 | 2 | 2 tasks | 1 files |
-| Phase 11 P07 | 4 | 2 tasks | 5 files |
-| Phase 12 P03 | 1 | 1 tasks | 1 files |
-| Phase 12 P04 | 3 | 1 tasks | 1 files |
-| Phase 13 P01 | 6 | 2 tasks | 3 files |
-
-## Accumulated Context
-
-### Decisions
-
-Decisions are logged in PROJECT.md Key Decisions table.
-Recent decisions affecting current work:
-
-- [Roadmap]: Worker runs as separate Fly.io process group (not BackgroundTask) to avoid OOM on 512MB web machine
-- [Roadmap]: Upload streams directly to Tigris (no local disk buffering) due to ephemeral Fly.io disk
-- [Roadmap]: ARQ + Redis for task queue (Redis already deployed for search caching)
-- [Phase 06-zip-processing]: ZIP Slip: reject path traversal/absolute paths before extract; abort entire ZIP. Partial success: per-article exceptions do not rollback; commit at end.
-- [Phase 07-upload-ui]: Upload progress via XHR; paste tab sends Blob as pasted.xml; XML preview best-effort client-side.
-- [Phase 08-job-dashboard]: Job detail as modal; audit log read-only, no delete.
-- [Phase 09-live-status-and-retry]: SSE stream polls get_job every 1s; retry_job resets to queued and enqueues.
-- [Phase 10-legacy-cleanup]: Single frontend: React SPA only; backend serves src/frontend/web exclusively.
-- [Phase 11-01]: ES health check via /_cluster/health using [checks] block; Worker health on 8081; immediate deploy strategy for single instances.
-- [Phase 11]: Public get_db() context manager for Registry; schema uses discovered_at; bulk_insert_with_status bypasses validation for migration
-- [Phase 11-03]: Used chardet for encoding detection with latin-1 fallback; ZIP Slip protection via path validation; Bulk batch size 300 for ES; 5% tolerance on verification
-- [Phase 11]: APScheduler pause flag pattern for scheduler pause/resume; module-level _registry injection in api and scheduler modules during lifespan
-- [Phase 11]: Worker proxy uses httpx.AsyncClient with 10s timeout and 503 fallback on ConnectError
-- [Phase 11]: No admin auth guard on proxy route — worker is internal-only via .internal networking (CLOSED in Phase 13)
-- [Phase 13]: Admin auth guard + 60/min rate limit + env toggle on /api/worker/* proxy; access logging always active; per-principal rate limiting
-- [Phase 11]: Radix Tabs + virtual scrolling for pipeline dashboard; MonthCard uses Radix Collapsible
-- [Phase 12]: Document written in English, preserving INLABS reference links; patches 6-9 deferred to Plan 02
-- [Phase 12]: INLABS auth details pulled from actual inlabs_client.py; rate limiting and audit logging marked as DOCUMENTED REQUIREMENTS
-- [Phase 11]: Static cron schedule display with client-side relative time; window.confirm for danger zone actions
-- [Phase 12]: Enrichment fields use built-in portuguese analyzer (with stemming) vs pt_folded (no stemming) for existing fields
-- [Phase 12]: Enrichment state decoupled from main pipeline state machine -- runs as post-verification pass
-- [Phase 12]: RRF constant k=60 for hybrid search ranking
-- [Phase 12]: Daily budget default $2.00, monthly cap $30.00 for enrichment cost control
-- [Phase 12]: Holiday calculation via dateutil easter() for variable Brazilian holidays
-- [Phase 12]: Postgres tables use UUID PKs with gen_random_uuid() matching existing auth schema
-
-### Roadmap Evolution
-
-- Phase 11 added: Fly.io migration and dashboard and extensibility
-- Phase 12 added: Fly.io pre-flight
-- Phase 13 added: Worker proxy auth & traceability (gap closure)
-
-### Pending Todos
-
-None yet.
-
-### Blockers/Concerns
-
-- DOUIngestor interface may assume CLI context; may need refactoring when called from worker (Phase 5)
-- CRSS-1 sealing for upload-ingested articles needs clarification (Phase 5)
-- Tigris virtual-hosted style S3 addressing needs verification (Phase 1)
+Next: `/gsd:new-milestone` to define v1.1 scope.
 
 ## Session Continuity
 
-Last session: 2026-03-09T22:14:24Z
-Stopped at: Completed 13-01-PLAN.md
-Resume file: .planning/phases/13-worker-proxy-auth-and-traceability/13-01-SUMMARY.md
+Last session: 2026-03-09
+Stopped at: v1.0 milestone archived
+Resume: Start new milestone with `/gsd:new-milestone`
