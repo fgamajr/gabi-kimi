@@ -3,10 +3,10 @@
 The verifier NEVER relies on internal DB IDs.
 Only the envelope contract + data ordering determine the result.
 """
+
 from __future__ import annotations
 
 import json
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -17,6 +17,7 @@ from src.backend.commitment.anchor import compute_commitment
 @dataclass(slots=True)
 class VerificationResult:
     """Result of an independent verification."""
+
     matches: bool
     expected_root: str
     computed_root: str
@@ -66,9 +67,7 @@ def verify_against_envelope(
 
     root_matches = expected_root == computed_root
     count_matches = expected_count == computed_count
-    snapshot_match = (
-        log_high_water == computed["snapshot"]["log_high_water_mark"]
-    )
+    snapshot_match = log_high_water == computed["snapshot"]["log_high_water_mark"]
 
     # Check interpretation contract if provided
     contract_match = True

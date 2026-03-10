@@ -5,9 +5,13 @@ app = 'gabi-dou-web'
 primary_region = 'gru'
 
 [build]
-  dockerfile = 'ops/deploy/web/Dockerfile'
+  # Dockerfile path is relative to this config dir → ops/deploy/web/Dockerfile
+  # Context = repo root so COPY ops/... and src/... in Dockerfile resolve
+  dockerfile = 'Dockerfile'
+  context = '../..'
 
 [env]
+  LOG_LEVEL = 'INFO'
   # DB connection — internal Fly networking (6PN)
   PG_DSN = 'host=gabi-dou-db.internal port=5432 dbname=gabi user=gabi'
   # PG password comes from fly secrets

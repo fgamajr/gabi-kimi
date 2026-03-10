@@ -116,7 +116,9 @@ class ChatSecurity:
             )
         return risk
 
-    async def get_cached_reply(self, message: str, history: list[dict[str, str]] | None = None) -> dict[str, Any] | None:
+    async def get_cached_reply(
+        self, message: str, history: list[dict[str, str]] | None = None
+    ) -> dict[str, Any] | None:
         fingerprint = prompt_fingerprint(message, history)
         if self._redis is not None:
             raw = await self._redis.get(self._k("cache", fingerprint))
@@ -165,7 +167,9 @@ class ChatSecurity:
             score = await self._redis.incrby(score_key, weight)
             await self._redis.expire(score_key, self._score_ttl_sec)
             if score >= self._block_threshold:
-                await self._redis.set(self._k("block", fingerprint), str(now + self._block_time_sec), ex=self._block_time_sec)
+                await self._redis.set(
+                    self._k("block", fingerprint), str(now + self._block_time_sec), ex=self._block_time_sec
+                )
             log_security_event(
                 "chat_abuse_score_updated",
                 event=event,

@@ -77,9 +77,7 @@ class AppSecurityMiddleware(BaseHTTPMiddleware):
             os.getenv("GABI_MAX_BODY_SIZE_BYTES"),
             2 * 1024 * 1024,
         )
-        self._protected_prefixes = tuple(
-            protected_prefixes or ("/api/chat", "/api/document", "/api/media")
-        )
+        self._protected_prefixes = tuple(protected_prefixes or ("/api/chat", "/api/document", "/api/media"))
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
@@ -116,9 +114,11 @@ class AppSecurityMiddleware(BaseHTTPMiddleware):
         suspicious = (
             ".." in decoded_path
             or "%2e%2e" in decoded_path
-            or "%2f" in decoded_path and ".." in decoded_path
+            or "%2f" in decoded_path
+            and ".." in decoded_path
             or "\\.." in decoded_path
-            or "%5c" in decoded_path and ".." in decoded_path
+            or "%5c" in decoded_path
+            and ".." in decoded_path
         )
         if not suspicious:
             return

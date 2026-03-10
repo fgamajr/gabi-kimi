@@ -20,6 +20,7 @@ Usage:
     # Dry run (discovery only)
     python -m src.backend.ingest.orchestrator --days 1 --dry-run
 """
+
 from __future__ import annotations
 
 import argparse
@@ -27,12 +28,11 @@ import json
 import os
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from src.backend.ingest.auto_discovery import discover_new_publications
 from src.backend.ingest.bulk_pipeline import PipelineResult, run_pipeline
 from src.backend.ingest.date_selector import DateRange
 
@@ -41,9 +41,11 @@ from src.backend.ingest.date_selector import DateRange
 # Configuration
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class PipelineConfig:
     """Configuration for automated pipeline runs."""
+
     # Data directory
     data_dir: Path = Path("ops/data/inlabs")
 
@@ -81,6 +83,7 @@ class PipelineConfig:
 # Logging
 # ---------------------------------------------------------------------------
 
+
 def _log(msg: str) -> None:
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{ts}] {msg}", file=sys.stderr, flush=True)
@@ -89,6 +92,7 @@ def _log(msg: str) -> None:
 # ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
+
 
 class PipelineOrchestrator:
     """Coordinates the complete ingestion pipeline."""
@@ -128,9 +132,11 @@ class PipelineOrchestrator:
 
     def run(self) -> PipelineResult:
         """Execute the full pipeline with error handling and retries."""
-        _log(f"Pipeline orchestrator started")
-        _log(f"Configuration: auto_discover={self.config.auto_discover}, "
-             f"seal={self.config.seal_commitment}, dry_run={self.config.dry_run}")
+        _log("Pipeline orchestrator started")
+        _log(
+            f"Configuration: auto_discover={self.config.auto_discover}, "
+            f"seal={self.config.seal_commitment}, dry_run={self.config.dry_run}"
+        )
 
         try:
             # Phase 1: Discovery
@@ -214,7 +220,7 @@ class PipelineOrchestrator:
         total_duration_ms = int((time.monotonic() - self.start_time) * 1000)
 
         _log(f"\n{'=' * 60}")
-        _log(f"PIPELINE COMPLETE")
+        _log("PIPELINE COMPLETE")
         _log(f"{'=' * 60}")
 
         # Phase summary
@@ -278,9 +284,11 @@ class PipelineOrchestrator:
 # Configuration loading
 # ---------------------------------------------------------------------------
 
+
 def load_config_from_yaml(path: Path) -> PipelineConfig:
     """Load pipeline configuration from YAML file."""
     import yaml
+
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
 
     config = PipelineConfig()
@@ -348,6 +356,7 @@ def load_config_from_yaml(path: Path) -> PipelineConfig:
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def main() -> int:
     p = argparse.ArgumentParser(
         description="Automated DOU ingestion pipeline orchestrator",
@@ -356,78 +365,100 @@ def main() -> int:
 
     # Configuration
     p.add_argument(
-        "--config", type=Path, default=None,
+        "--config",
+        type=Path,
+        default=None,
         help="Path to YAML configuration file",
     )
 
     # Date selection
     p.add_argument(
-        "--days", type=int, default=1,
+        "--days",
+        type=int,
+        default=1,
         help="Number of days to process (default: 1)",
     )
 
     # Discovery
     p.add_argument(
-        "--auto-discover", action="store_true", default=True,
+        "--auto-discover",
+        action="store_true",
+        default=True,
         help="Automatically discover new publications (default: enabled)",
     )
     p.add_argument(
-        "--no-auto-discover", action="store_false", dest="auto_discover",
+        "--no-auto-discover",
+        action="store_false",
+        dest="auto_discover",
         help="Disable automatic discovery",
     )
 
     # Download
     p.add_argument(
-        "--sections", nargs="+", default=None,
+        "--sections",
+        nargs="+",
+        default=None,
         help="Sections to download (e.g. do1 do2 do3). Default: all",
     )
     p.add_argument(
-        "--no-extras", action="store_true",
+        "--no-extras",
+        action="store_true",
         help="Skip extra edition detection",
     )
 
     # Ingestion
     p.add_argument(
-        "--seal", action="store_true", default=True,
+        "--seal",
+        action="store_true",
+        default=True,
         help="Seal batch with CRSS-1 commitment (default: enabled)",
     )
     p.add_argument(
-        "--no-seal", action="store_false", dest="seal",
+        "--no-seal",
+        action="store_false",
+        dest="seal",
         help="Skip commitment sealing",
     )
     p.add_argument(
-        "--sources", type=Path, default=None,
+        "--sources",
+        type=Path,
+        default=None,
         help="Path to sources YAML file",
     )
     p.add_argument(
-        "--identity", type=Path, default=None,
+        "--identity",
+        type=Path,
+        default=None,
         help="Path to identity YAML file",
     )
 
     # Database
     p.add_argument(
         "--dsn",
-        default=os.environ.get(
-            "GABI_DSN", "host=localhost port=5433 dbname=gabi user=gabi password=gabi"
-        ),
+        default=os.environ.get("GABI_DSN", "host=localhost port=5433 dbname=gabi user=gabi password=gabi"),
         help="PostgreSQL DSN",
     )
 
     # Data directory
     p.add_argument(
-        "--data-dir", type=Path, default=Path("ops/data/inlabs"),
+        "--data-dir",
+        type=Path,
+        default=Path("ops/data/inlabs"),
         help="Directory for ZIP downloads (default: ops/data/inlabs)",
     )
 
     # Reporting
     p.add_argument(
-        "--report-output", type=Path, default=None,
+        "--report-output",
+        type=Path,
+        default=None,
         help="Path to write JSON report file",
     )
 
     # Dry run
     p.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run",
+        action="store_true",
         help="Dry run: discover only, don't download or ingest",
     )
 

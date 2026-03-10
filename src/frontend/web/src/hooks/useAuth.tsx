@@ -45,6 +45,7 @@ function buildUserFromSession(session: SessionStatus): User | null {
     status: session.principal?.status === "suspended" ? "suspended" : "active",
     sessionSource: source,
     isServiceAccount: source === "bearer" || source === "session",
+    emailVerified: session.principal?.email_verified ?? true,
   };
 }
 

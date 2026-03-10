@@ -21,6 +21,8 @@ const ChatPage = lazy(() => import("@/pages/ChatPage"));
 const FavoritosPage = lazy(() => import("@/pages/FavoritosPage"));
 const LoginPage = lazy(() => import("@/pages/LoginPage"));
 const RegisterPage = lazy(() => import("@/pages/RegisterPage"));
+const ForgotPasswordPage = lazy(() => import("@/pages/ForgotPasswordPage"));
+const ResetPasswordPage = lazy(() => import("@/pages/ResetPasswordPage"));
 const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
 const UserSettingsPage = lazy(() => import("@/pages/UserSettingsPage"));
 const AdminUsersPage = lazy(() => import("@/pages/AdminUsersPage"));
@@ -87,6 +89,8 @@ const App = () => (
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/cadastro" element={<RegisterPage />} />
                 <Route path="/register" element={<RegisterPage />} />
+                <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                <Route path="/reset-password" element={<ResetPasswordPage />} />
                 <Route element={<AppShell />}>
                   <Route path="/" element={<HomePage />} />
                   <Route path="/busca" element={<SearchPage />} />

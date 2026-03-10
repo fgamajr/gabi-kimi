@@ -1,4 +1,5 @@
 """Blob storage for GABI (Tigris/S3-compatible on Fly.io)."""
+
 from src.backend.storage.tigris import (
     get_s3_client,
     get_bucket_name,

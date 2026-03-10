@@ -6,6 +6,7 @@ Usage:
   python3 -m src.backend.ingest.embedding_pipeline sync
   python3 -m src.backend.ingest.embedding_pipeline stats
 """
+
 from __future__ import annotations
 
 import argparse
@@ -101,10 +102,7 @@ class EmbedConfig:
 
 
 def _load_embed_config() -> EmbedConfig:
-    api_key = (
-        os.getenv("EMBED_API_KEY", "").strip()
-        or os.getenv("OPENAI_API_KEY", "").strip()
-    )
+    api_key = os.getenv("EMBED_API_KEY", "").strip() or os.getenv("OPENAI_API_KEY", "").strip()
     return EmbedConfig(
         provider=(os.getenv("EMBED_PROVIDER", "hash").strip().lower()),
         model=os.getenv("EMBED_MODEL", "text-embedding-3-small").strip(),
@@ -157,9 +155,7 @@ class HashEmbeddingProvider(EmbeddingProvider):
 class OpenAICompatEmbeddingProvider(EmbeddingProvider):
     def __init__(self, cfg: EmbedConfig) -> None:
         if not cfg.api_key:
-            raise RuntimeError(
-                "EMBED_API_KEY or OPENAI_API_KEY is required for openai-compatible provider"
-            )
+            raise RuntimeError("EMBED_API_KEY or OPENAI_API_KEY is required for openai-compatible provider")
         self.cfg = cfg
         self.client = httpx.Client(
             timeout=cfg.timeout_sec,
@@ -195,10 +191,7 @@ class OpenAICompatEmbeddingProvider(EmbeddingProvider):
         except httpx.HTTPStatusError as ex:
             if ex.response.status_code == 400 and len(texts) > 1:
                 mid = max(1, len(texts) // 2)
-                _log(
-                    "embedding payload too large; splitting batch "
-                    f"size={len(texts)} into {mid}+{len(texts) - mid}"
-                )
+                _log(f"embedding payload too large; splitting batch size={len(texts)} into {mid}+{len(texts) - mid}")
                 return self._embed_rows(texts[:mid]) + self._embed_rows(texts[mid:])
             raise
         rows = data.get("data", [])
@@ -325,9 +318,7 @@ class ESChunksClient:
                         err = row.get("error")
                         first_error = json.dumps(err, ensure_ascii=True) if err else f"status={status}"
             if failed:
-                raise RuntimeError(
-                    f"bulk indexing failed: failed={failed} ok={ok} first_error={first_error}"
-                )
+                raise RuntimeError(f"bulk indexing failed: failed={failed} ok={ok} first_error={first_error}")
             return ok, failed
         raise RuntimeError(f"bulk failed after retries: {last_error}")
 

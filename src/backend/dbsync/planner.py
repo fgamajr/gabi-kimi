@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 
 from src.backend.dbsync.loader import EntitySpec, FieldSpec, SourceModelSpec
 
@@ -95,11 +94,11 @@ def _add_entity_table(plan: DesiredSchemaPlan, ent: EntitySpec) -> None:
         table = DesiredTable(schema=ent.namespace, name=ent.table)
         plan.tables[key] = table
 
-    for field in ent.fields:
-        if field.type == "array":
+    for f in ent.fields:
+        if f.type == "array":
             # Arrays are represented by junction tables, not inline columns.
             continue
-        col = _field_to_column(field)
+        col = _field_to_column(f)
         table.columns[col.name] = col
 
     if ent.primary_key_field not in table.columns:
@@ -119,21 +118,19 @@ def _add_entity_constraints(
 ) -> None:
     table = plan.tables[(ent.namespace, ent.table)]
 
-    for field in ent.fields:
-        if field.type != "ref" or not field.ref:
+    for f in ent.fields:
+        if f.type != "ref" or not f.ref:
             continue
-        target_entity = str(field.ref.get("entity", ""))
-        target_field = str(field.ref.get("field", "id"))
+        target_entity = str(f.ref.get("entity", ""))
+        target_field = str(f.ref.get("field", "id"))
         target = entity_table_map.get((ent.namespace, target_entity))
         if not target:
-            raise PlanningError(
-                f"reference target not found for {ent.namespace}.{ent.table}.{field.name}: {target_entity}"
-            )
-        fk_name = _safe_name(f"fk_{ent.table}_{field.name}_{target[1]}_{target_field}")
+            raise PlanningError(f"reference target not found for {ent.namespace}.{ent.table}.{f.name}: {target_entity}")
+        fk_name = _safe_name(f"fk_{ent.table}_{f.name}_{target[1]}_{target_field}")
         table.fks.append(
             DesiredFK(
                 name=fk_name,
-                column=field.name,
+                column=f.name,
                 ref_schema=target[0],
                 ref_table=target[1],
                 ref_column=target_field,
@@ -158,24 +155,24 @@ def _add_entity_constraints(
 
 
 def _add_array_junction_tables(plan: DesiredSchemaPlan, ent: EntitySpec) -> None:
-    for field in ent.fields:
-        if field.type != "array" or not field.items:
+    for f in ent.fields:
+        if f.type != "array" or not f.items:
             continue
 
         j_schema = ent.namespace
-        j_table_name = _safe_name(f"{ent.table}__{field.name}")
+        j_table_name = _safe_name(f"{ent.table}__{f.name}")
         key = (j_schema, j_table_name)
         if key in plan.tables:
             continue
 
-        item_type = str(field.items.get("type", "string"))
+        item_type = str(f.items.get("type", "string"))
         j_table = DesiredTable(schema=j_schema, name=j_table_name)
         parent_fk_col = _safe_name(f"{ent.table}_id")
         j_table.columns[parent_fk_col] = DesiredColumn(name=parent_fk_col, pg_type="uuid", nullable=False)
         j_table.columns["position"] = DesiredColumn(name="position", pg_type="integer", nullable=False)
 
         if item_type == "object":
-            nested = field.items.get("fields") or {}
+            nested = f.items.get("fields") or {}
             for nested_name, nested_def in nested.items():
                 ntype = str((nested_def or {}).get("type", "string"))
                 pg_type = TYPE_MAP.get(ntype, "text")

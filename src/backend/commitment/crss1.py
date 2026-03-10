@@ -7,6 +7,7 @@ Invariants enforced:
   INV-2   event_type is first data field
   INV-3   sort_key follows frozen ordering contract
 """
+
 from __future__ import annotations
 
 import hashlib

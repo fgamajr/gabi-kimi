@@ -12,12 +12,11 @@ Usage:
   python3 -m src.backend.ingest.bm25_indexer search "portaria saúde"      # search
   python3 -m src.backend.ingest.bm25_indexer stats                        # index statistics
 """
+
 from __future__ import annotations
 
 import argparse
-import math
 import os
-import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -34,9 +33,11 @@ DEFAULT_DSN = (
     f"password={os.getenv('PGPASSWORD', 'gabi')}"
 )
 
+
 def _connect(dsn: str):
     """Return a psycopg2 connection."""
     import psycopg2
+
     return psycopg2.connect(dsn)
 
 
@@ -54,7 +55,7 @@ _DDL_PATH = Path(__file__).resolve().parent.parent / "dbsync" / "bm25_schema.sql
 
 def apply_ddl(conn) -> None:
     """Apply bm25_schema.sql to the database."""
-    ddl = _DDL_PATH.read_text(encoding="utf-8")
+    _ = _DDL_PATH.read_text(encoding="utf-8")  # ensure file exists
     _log(f"Applying DDL from {_DDL_PATH.name} ...")
 
     # Split on semicolons and execute each statement separately
@@ -395,16 +396,17 @@ def populate_word_counts(conn, batch_size: int = _BATCH_SIZE) -> int:
         updated += n
         elapsed = time.time() - t0
         rate = updated / elapsed if elapsed > 0 else 0
-        _log(f"  {updated:,}/{total:,} ({100*updated/total:.1f}%) — {rate:.0f} docs/s")
+        _log(f"  {updated:,}/{total:,} ({100 * updated / total:.1f}%) — {rate:.0f} docs/s")
 
     conn.commit()
-    _log(f"✓ Word counts populated: {updated:,} docs in {time.time()-t0:.1f}s")
+    _log(f"✓ Word counts populated: {updated:,} docs in {time.time() - t0:.1f}s")
     return updated
 
 
 # ---------------------------------------------------------------------------
 # Refresh materialized views
 # ---------------------------------------------------------------------------
+
 
 def refresh_matviews(conn) -> dict[str, Any]:
     """Refresh bm25_term_stats and bm25_corpus_stats. Returns stats."""
@@ -436,6 +438,7 @@ def refresh_matviews(conn) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Full build
 # ---------------------------------------------------------------------------
+
 
 def cmd_build(args) -> None:
     """Full build: DDL → word counts → materialized views."""
@@ -469,6 +472,7 @@ def cmd_build(args) -> None:
 # Refresh (incremental)
 # ---------------------------------------------------------------------------
 
+
 def cmd_refresh(args) -> None:
     """Incremental refresh: update new word counts + refresh matviews."""
     conn = _connect(args.dsn)
@@ -496,6 +500,7 @@ def cmd_refresh(args) -> None:
 # Search
 # ---------------------------------------------------------------------------
 
+
 def cmd_search(args) -> None:
     """Run a BM25 search and display results."""
     conn = _connect(args.dsn)
@@ -509,18 +514,23 @@ def cmd_search(args) -> None:
 
     try:
         if args.date_from or args.date_to or args.section or args.art_type:
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT doc_id, score, identifica, ementa, art_type,
                        pub_date, edition_section, snippet
                 FROM dou.bm25_search_filtered(%s, %s, %s, %s, %s, %s)
-            """, (query, limit, args.date_from, args.date_to,
-                  args.section, args.art_type))
+            """,
+                (query, limit, args.date_from, args.date_to, args.section, args.art_type),
+            )
         else:
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT doc_id, score, identifica, ementa, art_type,
                        pub_date, edition_section, snippet
                 FROM dou.bm25_search(%s, %s)
-            """, (query, limit))
+            """,
+                (query, limit),
+            )
 
         rows = cur.fetchall()
         elapsed = time.time() - t0
@@ -529,9 +539,9 @@ def cmd_search(args) -> None:
             print(f"\nNo results for '{query}' ({elapsed:.3f}s)")
             return
 
-        print(f"\n{'='*80}")
+        print(f"\n{'=' * 80}")
         print(f"BM25 RESULTS: '{query}'  ({len(rows)} hits, {elapsed:.3f}s)")
-        print(f"{'='*80}")
+        print(f"{'=' * 80}")
 
         for i, row in enumerate(rows, 1):
             doc_id, score, identifica, ementa, art_type, pub_date, section, snippet = row
@@ -549,7 +559,7 @@ def cmd_search(args) -> None:
                 print(f"  ...{snip}...")
             print(f"  ID: {doc_id}")
 
-        print(f"\n{'='*80}")
+        print(f"\n{'=' * 80}")
 
     finally:
         cur.close()
@@ -559,6 +569,7 @@ def cmd_search(args) -> None:
 # ---------------------------------------------------------------------------
 # Stats
 # ---------------------------------------------------------------------------
+
 
 def cmd_stats(args) -> None:
     """Show BM25 index statistics."""
@@ -598,7 +609,7 @@ def cmd_stats(args) -> None:
         """)
         print("\nTop-20 terms by document frequency:")
         print(f"  {'lexeme':30s} {'doc_freq':>12s} {'total_freq':>12s}")
-        print(f"  {'-'*30} {'-'*12} {'-'*12}")
+        print(f"  {'-' * 30} {'-' * 12} {'-' * 12}")
         for lex, df, tf in cur.fetchall():
             print(f"  {lex:30s} {df:>12,} {tf:>12,}")
 
@@ -611,24 +622,25 @@ def cmd_stats(args) -> None:
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
-    p = argparse.ArgumentParser(
-        description="BM25 index builder and search for DOU documents"
-    )
+    p = argparse.ArgumentParser(description="BM25 index builder and search for DOU documents")
     p.add_argument("--dsn", default=DEFAULT_DSN, help="PostgreSQL DSN")
 
     sub = p.add_subparsers(dest="command", required=True)
 
     # build
     bp = sub.add_parser("build", help="Full BM25 index build (DDL + word counts + matviews)")
-    bp.add_argument("--batch-size", type=int, default=_BATCH_SIZE,
-                    help=f"Word count update batch size (default: {_BATCH_SIZE})")
+    bp.add_argument(
+        "--batch-size", type=int, default=_BATCH_SIZE, help=f"Word count update batch size (default: {_BATCH_SIZE})"
+    )
     bp.set_defaults(func=cmd_build)
 
     # refresh
     rp = sub.add_parser("refresh", help="Incremental refresh (new docs + matview refresh)")
-    rp.add_argument("--batch-size", type=int, default=_BATCH_SIZE,
-                    help=f"Word count update batch size (default: {_BATCH_SIZE})")
+    rp.add_argument(
+        "--batch-size", type=int, default=_BATCH_SIZE, help=f"Word count update batch size (default: {_BATCH_SIZE})"
+    )
     rp.set_defaults(func=cmd_refresh)
 
     # search

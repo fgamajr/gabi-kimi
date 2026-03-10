@@ -3,9 +3,9 @@
 Starts FastAPI on port 8081 with APScheduler running cron jobs for the
 DOU ingestion pipeline. Only accessible via Fly.io internal network.
 """
+
 from __future__ import annotations
 
-import logging
 import os
 import time
 from contextlib import asynccontextmanager
@@ -15,7 +15,19 @@ from typing import AsyncIterator
 
 from fastapi import FastAPI
 
+from src.backend.core.logging import configure_logging, get_logger
 from src.backend.worker.registry import Registry
+
+_sentry_dsn = os.environ.get("SENTRY_DSN_WORKER", "").strip()
+if _sentry_dsn:
+    import sentry_sdk
+
+    sentry_sdk.init(
+        dsn=_sentry_dsn,
+        environment=os.environ.get("ENVIRONMENT", os.environ.get("GABI_ENV", "development")),
+        traces_sample_rate=0,
+        send_default_pii=False,
+    )
 from src.backend.worker.migration import (
     bootstrap_registry_if_empty,
     ensure_registry_seed_audit_trail,
@@ -28,7 +40,8 @@ from src.backend.worker.scheduler import (
 )
 from src.backend.worker.snapshots import register_snapshot_repo
 
-logger = logging.getLogger(__name__)
+configure_logging(service="worker")
+logger = get_logger(__name__)
 
 _start_time: float = 0.0
 _last_heartbeat: str = ""
@@ -80,6 +93,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # Set registry on API module for route handlers
     import src.backend.worker.api as api_mod
+
     api_mod._registry = registry
 
     logger.info("Registry initialized at %s", db_path)
@@ -101,8 +115,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from apscheduler.triggers.interval import IntervalTrigger
 
     scheduler.add_job(
-        _heartbeat, IntervalTrigger(seconds=60),
-        id="heartbeat", replace_existing=True, max_instances=1,
+        _heartbeat,
+        IntervalTrigger(seconds=60),
+        id="heartbeat",
+        replace_existing=True,
+        max_instances=1,
     )
 
     scheduler.start()

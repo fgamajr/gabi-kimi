@@ -12,6 +12,7 @@ Sanitization:
 
 Promoted from ops/scripts/inlabs_parser.py during repository consolidation (2026-03-03).
 """
+
 from __future__ import annotations
 
 import re
@@ -36,18 +37,18 @@ class DOUArticle:
     name: str
 
     # Publication info
-    pub_name: str        # DO1, DO1E, DO2, DO3, etc.
-    pub_date: str        # DD/MM/YYYY
+    pub_name: str  # DO1, DO1E, DO2, DO3, etc.
+    pub_date: str  # DD/MM/YYYY
     edition_number: str
     number_page: str
     pdf_page: str
 
     # Content classification
-    art_type: str        # Portaria, Resolução, etc.
-    art_category: str    # Full organizational path (slash-delimited)
-    art_class: str       # 12-level hierarchy code (colon-delimited)
-    art_size: str        # Font size
-    art_notes: str       # Extra edition markers
+    art_type: str  # Portaria, Resolução, etc.
+    art_category: str  # Full organizational path (slash-delimited)
+    art_class: str  # 12-level hierarchy code (colon-delimited)
+    art_size: str  # Font size
+    art_notes: str  # Extra edition markers
 
     # Highlight flags
     highlight_type: str
@@ -57,12 +58,12 @@ class DOUArticle:
     highlight_image_name: str
 
     # Body content
-    identifica: str      # Title/identification
-    data: str            # Date field (often empty)
-    ementa: str          # Summary/abstract
-    titulo: str          # Title
-    sub_titulo: str      # Subtitle
-    texto: str           # Full HTML content
+    identifica: str  # Title/identification
+    data: str  # Date field (often empty)
+    ementa: str  # Summary/abstract
+    titulo: str  # Title
+    sub_titulo: str  # Subtitle
+    texto: str  # Full HTML content
 
     # --- derived properties ---
 
@@ -85,9 +86,16 @@ class DOUArticle:
 # Valid pubName values
 # ---------------------------------------------------------------------------
 
-VALID_PUB_NAMES: frozenset[str] = frozenset({
-    "DO1", "DO1E", "DO2", "DO2E", "DO3", "DO3E",
-})
+VALID_PUB_NAMES: frozenset[str] = frozenset(
+    {
+        "DO1",
+        "DO1E",
+        "DO2",
+        "DO2E",
+        "DO3",
+        "DO3E",
+    }
+)
 
 
 class XMLParseError(ValueError):
@@ -226,43 +234,126 @@ class INLabsXMLParser:
 # Page-fragment detection (Bug 3: page-break continuations)
 # ---------------------------------------------------------------------------
 
-_SEPARATOR_RE = re.compile(r'^[_\-]{2,}')
-_STARTS_LOWERCASE_RE = re.compile(r'^[a-záàâãéêíóôõúüç]')
-_WORD_BREAK_HYPHEN_RE = re.compile(r'\w-$')
+_SEPARATOR_RE = re.compile(r"^[_\-]{2,}")
+_STARTS_LOWERCASE_RE = re.compile(r"^[a-záàâãéêíóôõúüç]")
+_WORD_BREAK_HYPHEN_RE = re.compile(r"\w-$")
 
 # Art types that are always section headers, never real acts.
 # These appear in TCU session publications where cases are grouped by ministry.
-_SECTION_HEADER_TYPES: frozenset[str] = frozenset({
-    "MINISTÉRIO",
-})
+_SECTION_HEADER_TYPES: frozenset[str] = frozenset(
+    {
+        "MINISTÉRIO",
+    }
+)
 _TCU_CATEGORY_RE = re.compile(r"Tribunal\s+de\s+Contas\s+da\s+Uni[aã]o", re.IGNORECASE)
-_FRAGMENT_ART_TYPES: frozenset[str] = frozenset({
-    "AV",  # broken "AVISO"
-    "VO",  # broken "EXECUTIVO"
-})
+_FRAGMENT_ART_TYPES: frozenset[str] = frozenset(
+    {
+        "AV",  # broken "AVISO"
+        "VO",  # broken "EXECUTIVO"
+    }
+)
 
 # Known valid act types (from frequency analysis of 2002 data).
 # Documents whose art_type is in this set are NEVER treated as fragments.
-_KNOWN_ACT_TYPES: frozenset[str] = frozenset({
-    "PORTARIA", "DECRETO", "RESOLUÇÃO", "EXTRATO", "AVISO", "ATO", "EDITAL",
-    "RETIFICAÇÃO", "DESPACHO", "DESPACHOS", "PORTARIAS", "EXTRATOS", "AVISOS",
-    "RESULTADO", "RESULTADOS", "PREGÃO", "TOMADA", "CONCORRÊNCIA", "CONVITE",
-    "ATA", "ATOS", "EDITAIS", "COMUNICADO", "CIRCULAR", "LEI", "DECRETOS",
-    "ANEXO", "INSTRUÇÃO", "INSTRUÇÃO NORMATIVA", "DELIBERAÇÃO", "DECISÃO",
-    "DECISÕES", "ACÓRDÃO", "ACÓRDÃOS", "SÚMULA", "PARECER", "PARECERES",
-    "MEDIDA", "RESOLUÇÃO-RE", "RESOLUÇÃO-RDC", "RESOLUÇÕES", "RESOLUÇÕES-RDC",
-    "RETIFICAÇÕES", "CONCORRÊNCIAS", "CONCORRENCIA", "CARTA-CONVITE",
-    "CARTA-CIRCULAR", "LEILÃO", "DISPENSA", "INEXIGIBILIDADE", "SOLUÇÃO",
-    "SOLUÇÕES", "PAUTA", "PAUTAS", "RELATÓRIO", "AUTORIZAÇÃO", "ADITAMENTO",
-    "PROPOSTA", "CONVÊNIO", "PROTOCOLO", "CONTRATO", "DECLARAÇÃO",
-    "APOSENTADORIA", "PENSÃO", "DEMONSTRATIVO", "DEMONSTRAÇÃO",
-    "DEMONSTRAÇÕES", "BALANÇO", "BALANCETE", "CONSULTA", "EMENTÁRIO",
-    "EMENTÁRIOS", "PROCESSO", "TOMADAS", "JUSTIFICATIVA", "PRESTAÇÃO",
-    "NOTA", "NOTAS", "RESUMO", "JULGAMENTO", "SESSÃO", "ALTERAÇÃO",
-    "ORDEM", "QUADRO", "ARTIGO", "SEÇÃO", "CAPÍTULO", "CONJUNTO",
-    "EDITAL-RF-ADJ", "PROVIMENTO", "REGULAMENTO", "REGIMENTO",
-    "RELAÇÃO", "PROGRAMA", "TERMO",
-})
+_KNOWN_ACT_TYPES: frozenset[str] = frozenset(
+    {
+        "PORTARIA",
+        "DECRETO",
+        "RESOLUÇÃO",
+        "EXTRATO",
+        "AVISO",
+        "ATO",
+        "EDITAL",
+        "RETIFICAÇÃO",
+        "DESPACHO",
+        "DESPACHOS",
+        "PORTARIAS",
+        "EXTRATOS",
+        "AVISOS",
+        "RESULTADO",
+        "RESULTADOS",
+        "PREGÃO",
+        "TOMADA",
+        "CONCORRÊNCIA",
+        "CONVITE",
+        "ATA",
+        "ATOS",
+        "EDITAIS",
+        "COMUNICADO",
+        "CIRCULAR",
+        "LEI",
+        "DECRETOS",
+        "ANEXO",
+        "INSTRUÇÃO",
+        "INSTRUÇÃO NORMATIVA",
+        "DELIBERAÇÃO",
+        "DECISÃO",
+        "DECISÕES",
+        "ACÓRDÃO",
+        "ACÓRDÃOS",
+        "SÚMULA",
+        "PARECER",
+        "PARECERES",
+        "MEDIDA",
+        "RESOLUÇÃO-RE",
+        "RESOLUÇÃO-RDC",
+        "RESOLUÇÕES",
+        "RESOLUÇÕES-RDC",
+        "RETIFICAÇÕES",
+        "CONCORRÊNCIAS",
+        "CONCORRENCIA",
+        "CARTA-CONVITE",
+        "CARTA-CIRCULAR",
+        "LEILÃO",
+        "DISPENSA",
+        "INEXIGIBILIDADE",
+        "SOLUÇÃO",
+        "SOLUÇÕES",
+        "PAUTA",
+        "PAUTAS",
+        "RELATÓRIO",
+        "AUTORIZAÇÃO",
+        "ADITAMENTO",
+        "PROPOSTA",
+        "CONVÊNIO",
+        "PROTOCOLO",
+        "CONTRATO",
+        "DECLARAÇÃO",
+        "APOSENTADORIA",
+        "PENSÃO",
+        "DEMONSTRATIVO",
+        "DEMONSTRAÇÃO",
+        "DEMONSTRAÇÕES",
+        "BALANÇO",
+        "BALANCETE",
+        "CONSULTA",
+        "EMENTÁRIO",
+        "EMENTÁRIOS",
+        "PROCESSO",
+        "TOMADAS",
+        "JUSTIFICATIVA",
+        "PRESTAÇÃO",
+        "NOTA",
+        "NOTAS",
+        "RESUMO",
+        "JULGAMENTO",
+        "SESSÃO",
+        "ALTERAÇÃO",
+        "ORDEM",
+        "QUADRO",
+        "ARTIGO",
+        "SEÇÃO",
+        "CAPÍTULO",
+        "CONJUNTO",
+        "EDITAL-RF-ADJ",
+        "PROVIMENTO",
+        "REGULAMENTO",
+        "REGIMENTO",
+        "RELAÇÃO",
+        "PROGRAMA",
+        "TERMO",
+    }
+)
 
 
 def is_page_fragment(article: DOUArticle) -> bool:
@@ -290,7 +381,7 @@ def is_page_fragment(article: DOUArticle) -> bool:
         return True
 
     # art_type starts with ( or digit or * → continuation content
-    if art and art[0] in '(*':
+    if art and art[0] in "(*":
         return True
     if art and art[0].isdigit():
         return True
@@ -327,7 +418,7 @@ def is_page_fragment(article: DOUArticle) -> bool:
 # ---------------------------------------------------------------------------
 
 # Dot-leader pattern: ".PORTARIA 16, GM, 24-01-2002 . . . . . . . . .91"
-_INDEX_DOT_LEADER_RE = re.compile(r'\.{3,}\s*\d+\s*$', re.MULTILINE)
+_INDEX_DOT_LEADER_RE = re.compile(r"\.{3,}\s*\d+\s*$", re.MULTILINE)
 
 
 def is_index_document(article: DOUArticle) -> bool:
@@ -371,7 +462,7 @@ _ACT_HEADER_RE = re.compile(
 _P_TAG_RE = re.compile(r"<p\s[^>]*>", re.IGNORECASE)
 
 _BLOB_MIN_LENGTH = 15000  # body_html must be at least this long to attempt splitting
-_BLOB_MIN_ACTS = 2        # need at least 2 act headers to justify splitting
+_BLOB_MIN_ACTS = 2  # need at least 2 act headers to justify splitting
 
 
 def _find_act_boundaries(html: str) -> list[tuple[int, str]]:
@@ -386,7 +477,7 @@ def _find_act_boundaries(html: str) -> list[tuple[int, str]]:
         close = html.find("</p>", m.end())
         if close == -1:
             continue
-        tag_content = html[m.end():close]
+        tag_content = html[m.end() : close]
         # Strip inner HTML tags to get text
         text = re.sub(r"<[^>]+>", "", tag_content).strip()
         if not text:
@@ -449,7 +540,8 @@ def split_blob_acts(article: DOUArticle, base_id_materia: str = "") -> list[DOUA
         m = re.match(
             r"(PORTARIA|RESOLUÇÃO|INSTRUÇÃO NORMATIVA|DESPACHO|DECRETO|"
             r"EDITAL|ATO|CIRCULAR|MEDIDA PROVISÓRIA)",
-            identifica, re.IGNORECASE,
+            identifica,
+            re.IGNORECASE,
         )
         return m.group(1) if m else article.art_type
 
@@ -491,6 +583,7 @@ def split_blob_acts(article: DOUArticle, base_id_materia: str = "") -> list[DOUA
 # ---------------------------------------------------------------------------
 # Convenience helpers
 # ---------------------------------------------------------------------------
+
 
 def parse_directory(directory: Path | str) -> list[DOUArticle]:
     """Parse all ``*.xml`` files in *directory*, skipping failures."""

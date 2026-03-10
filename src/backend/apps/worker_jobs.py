@@ -1,4 +1,5 @@
 """Admin upload job lifecycle (admin.worker_jobs). Queryable from FastAPI, status transitions enforced."""
+
 from __future__ import annotations
 
 import json
@@ -101,7 +102,12 @@ async def create_job(
             RETURNING
                 {_JOB_COLUMNS}
             """,
-            filename, storage_key, file_size_bytes, file_type, uploaded_by, max_retries,
+            filename,
+            storage_key,
+            file_size_bytes,
+            file_type,
+            uploaded_by,
+            max_retries,
         )
         return dict(row) if row else {}
 
@@ -132,7 +138,8 @@ async def list_jobs(limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
             ORDER BY created_at DESC
             LIMIT $1 OFFSET $2
             """,
-            limit, offset,
+            limit,
+            offset,
         )
         return [dict(r) for r in rows]
 

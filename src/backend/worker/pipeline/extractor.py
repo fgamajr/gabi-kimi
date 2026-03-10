@@ -3,9 +3,9 @@
 Handles both 2002-2018 and 2019+ ZIP formats, detects encoding with chardet,
 and provides ZIP Slip protection.
 """
+
 from __future__ import annotations
 
-import logging
 import os
 import zipfile
 from pathlib import Path
@@ -13,9 +13,10 @@ from typing import Any
 
 import chardet
 
+from src.backend.core.logging import bind_pipeline, get_logger
 from src.backend.worker.registry import FileStatus, Registry
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 DEFAULT_DOWNLOAD_DIR = "/data/tmp"
 _XML_EXTENSIONS = frozenset({".xml"})
@@ -94,6 +95,7 @@ async def run_extract(
 
     for file_rec in downloaded_files:
         file_id = file_rec["id"]
+        bind_pipeline(file_id=file_id)
         filename = file_rec["filename"]
         zip_path = download_path / filename
         stem = Path(filename).stem
@@ -123,9 +125,7 @@ async def run_extract(
 
                     # ZIP Slip protection
                     if not _is_safe_path(extract_dir, entry_name):
-                        logger.warning(
-                            "ZIP Slip rejected: %s in %s", entry_name, filename
-                        )
+                        logger.warning("ZIP Slip rejected: %s in %s", entry_name, filename)
                         continue
 
                     # Extract to flat directory (use only the filename, not nested paths)
@@ -145,9 +145,7 @@ async def run_extract(
                             content = raw_data.decode("latin-1")
                             encoding = "latin-1"
                         except UnicodeDecodeError:
-                            logger.warning(
-                                "Cannot decode %s in %s", entry_name, filename
-                            )
+                            logger.warning("Cannot decode %s in %s", entry_name, filename)
                             continue
 
                     # Write decoded content as UTF-8
@@ -159,10 +157,7 @@ async def run_extract(
             # Update registry
             await registry.update_file_fields(file_id, doc_count=xml_count)
             await registry.update_status(file_id, FileStatus.EXTRACTED)
-            await registry.add_log_entry(
-                run_id, file_id, "INFO",
-                f"Extracted {xml_count} XMLs from {filename}"
-            )
+            await registry.add_log_entry(run_id, file_id, "INFO", f"Extracted {xml_count} XMLs from {filename}")
             extracted += 1
 
         except Exception as e:
@@ -170,10 +165,7 @@ async def run_extract(
             logger.error("Extraction failed for %s: %s", filename, error_msg)
             await registry.update_status(file_id, FileStatus.EXTRACT_FAILED)
             await registry.update_file_fields(file_id, error_message=error_msg)
-            await registry.add_log_entry(
-                run_id, file_id, "ERROR",
-                f"Extraction failed for {filename}: {error_msg}"
-            )
+            await registry.add_log_entry(run_id, file_id, "ERROR", f"Extraction failed for {filename}: {error_msg}")
             failed += 1
 
     return {"extracted": extracted, "failed": failed, "total_xmls": total_xmls}

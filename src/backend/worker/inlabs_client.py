@@ -4,6 +4,7 @@ This mirrors the official login/download flow from the Imprensa Nacional
 repository, while making the 30-day retention rule explicit in code so the
 worker never attempts historical backfills through INLABS.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -68,9 +69,7 @@ class INLabsClient:
         if normalized_section not in VALID_SECTIONS:
             raise ValueError(f"Unsupported INLABS section: {section}")
         if not INLabsClient.supports_date(publication_date, today=today):
-            raise InlabsWindowError(
-                "INLABS only serves the last 30 days; use Liferay/catalog for older data"
-            )
+            raise InlabsWindowError("INLABS only serves the last 30 days; use Liferay/catalog for older data")
 
         day = publication_date.isoformat()
         filename = f"{day}-{normalized_section}.zip"

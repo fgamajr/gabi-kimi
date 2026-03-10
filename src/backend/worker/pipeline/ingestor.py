@@ -3,11 +3,10 @@
 Reuses INLabsXMLParser from existing codebase. Indexes directly to ES
 without PostgreSQL dependency. Uses httpx for async bulk requests.
 """
+
 from __future__ import annotations
 
-import hashlib
 import json
-import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -17,13 +16,13 @@ import httpx
 from src.backend.ingest.normalizer import (
     _compute_natural_key_hash,
     normalize_pub_date,
-    normalize_section,
     strip_html,
 )
+from src.backend.core.logging import bind_pipeline, get_logger
 from src.backend.ingest.xml_parser import INLabsXMLParser, DOUArticle
 from src.backend.worker.registry import FileStatus, Registry
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 BULK_BATCH_SIZE = 300
 ES_INDEX = "gabi_documents_v1"
@@ -134,6 +133,7 @@ async def run_ingest(
     async with httpx.AsyncClient(timeout=60) as client:
         for file_rec in extracted_files:
             file_id = file_rec["id"]
+            bind_pipeline(file_id=file_id)
             filename = file_rec["filename"]
             stem = Path(filename).stem
             file_extract_dir = extract_base / stem
@@ -171,7 +171,7 @@ async def run_ingest(
                 total_failed = 0
 
                 for i in range(0, len(bulk_docs), BULK_BATCH_SIZE):
-                    batch = bulk_docs[i:i + BULK_BATCH_SIZE]
+                    batch = bulk_docs[i : i + BULK_BATCH_SIZE]
                     ok, fail = await _bulk_index(client, es_url, batch)
                     total_ok += ok
                     total_failed += fail
@@ -180,8 +180,10 @@ async def run_ingest(
                 await registry.update_file_fields(file_id, doc_count=total_ok)
                 await registry.update_status(file_id, FileStatus.BM25_INDEXED)
                 await registry.add_log_entry(
-                    run_id, file_id, "INFO",
-                    f"BM25 indexed {total_ok} docs from {filename} (parse_errors={parse_errors})"
+                    run_id,
+                    file_id,
+                    "INFO",
+                    f"BM25 indexed {total_ok} docs from {filename} (parse_errors={parse_errors})",
                 )
                 indexed_files += 1
                 indexed_docs += total_ok
@@ -192,8 +194,7 @@ async def run_ingest(
                 await registry.update_status(file_id, FileStatus.BM25_INDEX_FAILED)
                 await registry.update_file_fields(file_id, error_message=error_msg)
                 await registry.add_log_entry(
-                    run_id, file_id, "ERROR",
-                    f"BM25 indexing failed for {filename}: {error_msg}"
+                    run_id, file_id, "ERROR", f"BM25 indexing failed for {filename}: {error_msg}"
                 )
                 failed_files += 1
 

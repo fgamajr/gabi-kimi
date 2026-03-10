@@ -72,7 +72,7 @@ def load_source_models(path: str | Path) -> list[SourceModelSpec]:
             table = str(ent.get("table") or entity_name)
 
             identity = ent.get("identity") or {}
-            pk = ((identity.get("primary_key") or {}).get("field") or "id")
+            pk = (identity.get("primary_key") or {}).get("field") or "id"
 
             raw_fields = ent.get("fields") or {}
             fields: list[FieldSpec] = []

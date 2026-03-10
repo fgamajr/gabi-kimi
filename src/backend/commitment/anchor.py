@@ -9,6 +9,7 @@ Invariants enforced:
   INV-5   Interpretation contract hashes from rule file bytes.
   INV-6   observation_stats with duplicate_skipped_count.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -19,16 +20,14 @@ from pathlib import Path
 from typing import Any
 
 import psycopg
-from psycopg import IsolationLevel
 
 from src.backend.commitment.crss1 import (
     CRSS_VERSION,
     FIELD_ORDER,
     SORT_KEY_FIELDS,
     canonical_bytes,
-    leaf_hash,
 )
-from src.backend.commitment.tree import build_tree, MerkleTree
+from src.backend.commitment.tree import build_tree
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +105,7 @@ _ROW_KEYS = (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _row_to_record(row: tuple) -> dict[str, Any]:
     """Map a DB row to a record dict. Values are already clean (MECH-2)."""
     return dict(zip(_ROW_KEYS, row))
@@ -130,6 +130,7 @@ def _log(msg: str) -> None:
 # ---------------------------------------------------------------------------
 # Core computation
 # ---------------------------------------------------------------------------
+
 
 def compute_commitment(
     dsn: str,
@@ -280,6 +281,7 @@ def compute_commitment(
 # ---------------------------------------------------------------------------
 # File + DB persistence
 # ---------------------------------------------------------------------------
+
 
 def anchor_to_file(
     dsn: str,

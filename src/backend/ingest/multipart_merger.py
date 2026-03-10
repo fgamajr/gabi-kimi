@@ -9,10 +9,11 @@ them into unified ``MergedArticle`` instances.
 
 Approximately 2.5% of DOU XMLs are multi-part.
 """
+
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from src.backend.ingest.xml_parser import DOUArticle, is_page_fragment
@@ -22,6 +23,7 @@ from src.backend.ingest.xml_parser import DOUArticle, is_page_fragment
 # Dataclasses
 # ---------------------------------------------------------------------------
 
+
 @dataclass(slots=True)
 class MergedArticle:
     """A (possibly merged) DOU article with provenance info.
@@ -29,18 +31,19 @@ class MergedArticle:
     For single-part articles, ``parts`` has one element and
     ``is_multipart`` is False.
     """
+
     article: DOUArticle
     xml_paths: list[Path]
     is_multipart: bool
     part_count: int
-    base_id_materia: str     # idMateria without the -N suffix
+    base_id_materia: str  # idMateria without the -N suffix
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-_MULTIPART_RE = re.compile(r'^(.*?)-(\d+)$')
+_MULTIPART_RE = re.compile(r"^(.*?)-(\d+)$")
 
 
 def _parse_id_from_filename(filename: str) -> tuple[str, int]:
@@ -136,6 +139,7 @@ def _merge_articles(base_id: str, parts: list[tuple[int, DOUArticle, Path]]) -> 
 # Public API
 # ---------------------------------------------------------------------------
 
+
 def group_and_merge(
     articles: list[tuple[DOUArticle, Path]],
 ) -> list[MergedArticle]:
@@ -168,13 +172,15 @@ def group_and_merge(
         if len(parts) == 1:
             # Single document (no merge needed)
             _, article, path = parts[0]
-            result.append(MergedArticle(
-                article=article,
-                xml_paths=[path],
-                is_multipart=False,
-                part_count=1,
-                base_id_materia=base_id,
-            ))
+            result.append(
+                MergedArticle(
+                    article=article,
+                    xml_paths=[path],
+                    is_multipart=False,
+                    part_count=1,
+                    base_id_materia=base_id,
+                )
+            )
         else:
             # Multi-part → merge
             result.append(_merge_articles(base_id, parts))
@@ -185,6 +191,7 @@ def group_and_merge(
 # ---------------------------------------------------------------------------
 # Page-fragment merging (Bug 3: page-break continuations)
 # ---------------------------------------------------------------------------
+
 
 def merge_page_fragments(articles: list[MergedArticle]) -> list[MergedArticle]:
     """Merge page-fragment documents into their preceding parent article.
@@ -220,18 +227,30 @@ def merge_page_fragments(articles: list[MergedArticle]) -> list[MergedArticle]:
                 # Rebuild parent article with merged texto
                 pa = parent.article
                 merged_article = DOUArticle(
-                    id=pa.id, id_materia=pa.id_materia, id_oficio=pa.id_oficio,
-                    name=pa.name, pub_name=pa.pub_name, pub_date=pa.pub_date,
-                    edition_number=pa.edition_number, number_page=pa.number_page,
-                    pdf_page=pa.pdf_page, art_type=pa.art_type,
-                    art_category=pa.art_category, art_class=pa.art_class,
-                    art_size=pa.art_size, art_notes=pa.art_notes,
+                    id=pa.id,
+                    id_materia=pa.id_materia,
+                    id_oficio=pa.id_oficio,
+                    name=pa.name,
+                    pub_name=pa.pub_name,
+                    pub_date=pa.pub_date,
+                    edition_number=pa.edition_number,
+                    number_page=pa.number_page,
+                    pdf_page=pa.pdf_page,
+                    art_type=pa.art_type,
+                    art_category=pa.art_category,
+                    art_class=pa.art_class,
+                    art_size=pa.art_size,
+                    art_notes=pa.art_notes,
                     highlight_type=pa.highlight_type,
                     highlight_priority=pa.highlight_priority,
-                    highlight=pa.highlight, highlight_image=pa.highlight_image,
+                    highlight=pa.highlight,
+                    highlight_image=pa.highlight_image,
                     highlight_image_name=pa.highlight_image_name,
-                    identifica=pa.identifica, data=pa.data, ementa=pa.ementa,
-                    titulo=pa.titulo, sub_titulo=pa.sub_titulo,
+                    identifica=pa.identifica,
+                    data=pa.data,
+                    ementa=pa.ementa,
+                    titulo=pa.titulo,
+                    sub_titulo=pa.sub_titulo,
                     texto=merged_texto,
                 )
                 result[-1] = MergedArticle(

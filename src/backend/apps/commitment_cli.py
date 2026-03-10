@@ -9,6 +9,7 @@ Usage:
     python3 ops/bin/commitment_cli.py compute --dsn "..." --out envelope.json
     python3 ops/bin/commitment_cli.py verify  --dsn "..." --envelope envelope.json
 """
+
 from __future__ import annotations
 
 import argparse
@@ -91,8 +92,9 @@ def main() -> int:
     p_compute.add_argument("--sources", help="Path to sources YAML (for interpretation contract)")
     p_compute.add_argument("--identity", help="Path to identity YAML (for interpretation contract)")
     p_compute.add_argument("--dump-records", help="Debug: dump canonical record lines to file")
-    p_compute.add_argument("--no-persist", action="store_true",
-                           help="Do not persist commitment to registry.commitments")
+    p_compute.add_argument(
+        "--no-persist", action="store_true", help="Do not persist commitment to registry.commitments"
+    )
 
     # verify
     p_verify = sub.add_parser("verify", help="Verify registry against published envelope")

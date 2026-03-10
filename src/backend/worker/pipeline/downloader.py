@@ -4,11 +4,11 @@ Downloads ZIP files from in.gov.br with rate limiting (max 5 req/s),
 computes SHA256 hashes, and transitions files through the registry
 state machine.
 """
+
 from __future__ import annotations
 
 import asyncio
 import hashlib
-import logging
 import os
 from datetime import date
 from pathlib import Path
@@ -16,11 +16,12 @@ from typing import Any
 
 import requests
 
+from src.backend.core.logging import bind_pipeline, get_logger
 from src.backend.ingest.zip_downloader import _build_session, _random_ua
 from src.backend.worker.inlabs_client import INLabsClient
 from src.backend.worker.registry import FileStatus, Registry
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 RATE_LIMIT_DELAY = 0.2  # 1/5 = 0.2s -> max 5 req/s
 DEFAULT_DOWNLOAD_DIR = "/data/tmp"
@@ -92,6 +93,7 @@ async def run_download(
     try:
         for i, file_rec in enumerate(queued_files):
             file_id = file_rec["id"]
+            bind_pipeline(file_id=file_id)
             filename = file_rec["filename"]
             source = (file_rec.get("source") or "liferay").lower()
             file_url = file_rec.get("file_url") or ""
@@ -150,8 +152,10 @@ async def run_download(
                 )
                 await registry.update_status(file_id, FileStatus.DOWNLOADED)
                 await registry.add_log_entry(
-                    run_id, file_id, "INFO",
-                    f"Downloaded {filename} from {source}: {file_size:,} bytes, sha256={sha256[:16]}..."
+                    run_id,
+                    file_id,
+                    "INFO",
+                    f"Downloaded {filename} from {source}: {file_size:,} bytes, sha256={sha256[:16]}...",
                 )
                 downloaded += 1
             else:
@@ -160,10 +164,7 @@ async def run_download(
                     local_path.unlink()
                 await registry.update_status(file_id, FileStatus.DOWNLOAD_FAILED)
                 await registry.update_file_fields(file_id, error_message=error)
-                await registry.add_log_entry(
-                    run_id, file_id, "ERROR",
-                    f"Download failed for {filename}: {error}"
-                )
+                await registry.add_log_entry(run_id, file_id, "ERROR", f"Download failed for {filename}: {error}")
                 failed += 1
 
             # Rate limit between downloads

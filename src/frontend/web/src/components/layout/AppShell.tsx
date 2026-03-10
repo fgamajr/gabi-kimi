@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { EmailVerificationBanner } from "@/components/EmailVerificationBanner";
 import { useEffect, useRef, useState } from "react";
 
 const NAV_ITEMS = [
@@ -271,8 +272,9 @@ export default function AppShell() {
         ref={mainRef}
         role="main"
         tabIndex={-1}
-        className="flex-1 md:ml-[72px] pb-20 md:pb-0 focus:outline-none"
+        className="flex-1 md:ml-[72px] pb-20 md:pb-0 focus:outline-none flex flex-col"
       >
+        <EmailVerificationBanner />
         <Outlet />
       </main>
 

@@ -13,6 +13,7 @@ Usage (from pipeline):
     ingestor = DOUIngestor(dsn)
     result = ingestor.ingest_zip(zip_path)
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -28,10 +29,6 @@ from pathlib import Path
 from typing import Any
 
 from src.backend.ingest.html_extractor import (
-    ImageRef,
-    NormRef,
-    ProcRef,
-    Signature,
     extract_document_number,
     extract_images,
     extract_issuing_organ,
@@ -44,8 +41,6 @@ from src.backend.ingest.html_extractor import _extract_signatures_precise as ext
 from src.backend.ingest.image_checker import (
     check_document_images,
     checked_image_row,
-    media_name_from_ref,
-    resolve_external_media_url,
     rewrite_document_html_images,
     summarize_checked_images,
 )
@@ -63,17 +58,19 @@ from src.backend.ingest.xml_parser import DOUArticle, INLabsXMLParser, is_index_
 # Result dataclasses
 # ---------------------------------------------------------------------------
 
+
 @dataclass(slots=True)
 class ZIPIngestResult:
     """Result of ingesting one ZIP or single XML into dou.* schema."""
+
     zip_path: Path
     success: bool = True
     xml_count: int = 0
     image_count: int = 0
     articles_found: int = 0  # article count after merge/filter (for worker_jobs)
     documents_inserted: int = 0
-    documents_dup: int = 0    # skipped (ON CONFLICT id_materia)
-    documents_failed: int = 0 # per-article insert/parse errors (PROC-05)
+    documents_dup: int = 0  # skipped (ON CONFLICT id_materia)
+    documents_failed: int = 0  # per-article insert/parse errors (PROC-05)
     media_inserted: int = 0
     signatures_inserted: int = 0
     norm_refs_inserted: int = 0
@@ -89,6 +86,7 @@ class ZIPIngestResult:
 @dataclass(slots=True)
 class BatchIngestResult:
     """Aggregate result of ingesting a batch of ZIPs."""
+
     zips_processed: int = 0
     zips_succeeded: int = 0
     zips_failed: int = 0
@@ -107,6 +105,7 @@ class BatchIngestResult:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _sha256_file(path: Path) -> str:
     """Compute SHA-256 hex digest of a file."""
@@ -140,6 +139,7 @@ def _log(msg: str) -> None:
 # ---------------------------------------------------------------------------
 # DOUIngestor
 # ---------------------------------------------------------------------------
+
 
 class DOUIngestor:
     """Ingest DOU ZIPs into the ``dou.*`` PostgreSQL schema."""
@@ -234,13 +234,15 @@ class DOUIngestor:
             if len(segments) > 1:
                 _log(f"  split blob {ma.base_id_materia} → {len(segments)} acts")
                 for seg in segments:
-                    filtered.append(MergedArticle(
-                        article=seg,
-                        xml_paths=ma.xml_paths,
-                        is_multipart=ma.is_multipart,
-                        part_count=ma.part_count,
-                        base_id_materia=seg.id_materia,
-                    ))
+                    filtered.append(
+                        MergedArticle(
+                            article=seg,
+                            xml_paths=ma.xml_paths,
+                            is_multipart=ma.is_multipart,
+                            part_count=ma.part_count,
+                            base_id_materia=seg.id_materia,
+                        )
+                    )
             else:
                 filtered.append(ma)
         merged_articles = filtered
@@ -277,14 +279,23 @@ class DOUIngestor:
 
             # Insert source_zip
             source_zip_id = self._upsert_source_zip(
-                cur, zip_filename, zip_month, zip_section, zip_sha,
-                zip_size, len(xml_files), len(image_files),
+                cur,
+                zip_filename,
+                zip_month,
+                zip_section,
+                zip_sha,
+                zip_size,
+                len(xml_files),
+                len(image_files),
             )
 
             for ma in merged_articles:
                 try:
                     counts = self._insert_document(
-                        cur, ma, source_zip_id, image_lookup,
+                        cur,
+                        ma,
+                        source_zip_id,
+                        image_lookup,
                     )
                     if counts.get("inserted"):
                         result.documents_inserted += 1
@@ -299,9 +310,7 @@ class DOUIngestor:
                     result.images_unknown += counts["images_unknown"]
                 except Exception as ex:
                     result.documents_failed += 1
-                    result.errors.append(
-                        f"insert doc {ma.base_id_materia}: {ex}"
-                    )
+                    result.errors.append(f"insert doc {ma.base_id_materia}: {ex}")
 
             conn.commit()
         except Exception as ex:
@@ -348,13 +357,15 @@ class DOUIngestor:
             segments = split_blob_acts(ma.article, base_id_materia=ma.base_id_materia)
             if len(segments) > 1:
                 for seg in segments:
-                    filtered.append(MergedArticle(
-                        article=seg,
-                        xml_paths=ma.xml_paths,
-                        is_multipart=ma.is_multipart,
-                        part_count=ma.part_count,
-                        base_id_materia=seg.id_materia,
-                    ))
+                    filtered.append(
+                        MergedArticle(
+                            article=seg,
+                            xml_paths=ma.xml_paths,
+                            is_multipart=ma.is_multipart,
+                            part_count=ma.part_count,
+                            base_id_materia=seg.id_materia,
+                        )
+                    )
             else:
                 filtered.append(ma)
         merged_articles = filtered
@@ -372,13 +383,22 @@ class DOUIngestor:
             conn.autocommit = False
             cur = conn.cursor()
             source_zip_id = self._upsert_source_zip(
-                cur, file_filename, file_month, file_section, file_sha,
-                file_size, 1, 0,
+                cur,
+                file_filename,
+                file_month,
+                file_section,
+                file_sha,
+                file_size,
+                1,
+                0,
             )
             for ma in merged_articles:
                 try:
                     counts = self._insert_document(
-                        cur, ma, source_zip_id, image_lookup,
+                        cur,
+                        ma,
+                        source_zip_id,
+                        image_lookup,
                     )
                     if counts.get("inserted"):
                         result.documents_inserted += 1
@@ -408,36 +428,53 @@ class DOUIngestor:
     # -- DB operations --
 
     def _upsert_source_zip(
-        self, cur: Any,
-        filename: str, month: str | None, section: str | None,
-        sha256: str, size_bytes: int, xml_count: int, image_count: int,
+        self,
+        cur: Any,
+        filename: str,
+        month: str | None,
+        section: str | None,
+        sha256: str,
+        size_bytes: int,
+        xml_count: int,
+        image_count: int,
     ) -> str:
         """Insert source_zip row, return id. Skip on conflict."""
-        cur.execute("""
+        cur.execute(
+            """
             INSERT INTO dou.source_zip (filename, month, section, sha256, size_bytes, xml_count, image_count)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (filename) DO UPDATE SET filename = EXCLUDED.filename
             RETURNING id
-        """, (filename, month, section, sha256, size_bytes, xml_count, image_count))
+        """,
+            (filename, month, section, sha256, size_bytes, xml_count, image_count),
+        )
         return str(cur.fetchone()[0])
 
     def _upsert_edition(
-        self, cur: Any,
-        pub_date: Any, edition_number: str | None,
-        section: str, is_extra: bool, source_zip_id: str,
+        self,
+        cur: Any,
+        pub_date: Any,
+        edition_number: str | None,
+        section: str,
+        is_extra: bool,
+        source_zip_id: str,
     ) -> str:
         """Insert edition row, return id. Upsert on conflict."""
-        cur.execute("""
+        cur.execute(
+            """
             INSERT INTO dou.edition (publication_date, edition_number, section, is_extra, source_zip_id)
             VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT (publication_date, edition_number, section)
             DO UPDATE SET source_zip_id = EXCLUDED.source_zip_id
             RETURNING id
-        """, (pub_date, edition_number, section, is_extra, source_zip_id))
+        """,
+            (pub_date, edition_number, section, is_extra, source_zip_id),
+        )
         return str(cur.fetchone()[0])
 
     def _insert_document(
-        self, cur: Any,
+        self,
+        cur: Any,
         ma: MergedArticle,
         source_zip_id: str,
         image_lookup: dict[str, Path],
@@ -466,7 +503,12 @@ class DOUIngestor:
 
         # Upsert edition
         edition_id = self._upsert_edition(
-            cur, pub_date, edition_number, section, is_extra, source_zip_id,
+            cur,
+            pub_date,
+            edition_number,
+            section,
+            is_extra,
+            source_zip_id,
         )
 
         # Extract structured fields
@@ -487,7 +529,8 @@ class DOUIngestor:
         source_xml = ma.xml_paths[0].name if ma.xml_paths else None
 
         # Insert document
-        cur.execute("""
+        cur.execute(
+            """
             INSERT INTO dou.document (
                 edition_id, id_materia, id_oficio, xml_name,
                 art_type, art_type_raw, art_category, art_class, page_number,
@@ -507,15 +550,34 @@ class DOUIngestor:
             )
             ON CONFLICT (id_materia) DO NOTHING
             RETURNING id
-        """, (
-            edition_id, ma.base_id_materia, article.id_oficio, article.name,
-            art_type_norm, article.art_type, article.art_category, art_class_arr, article.number_page,
-            article.identifica, article.ementa, article.titulo, article.sub_titulo,
-            article.texto, body_plain,
-            doc_number, doc_year, issuing_organ,
-            content_hash, natural_key_hash, strategy,
-            source_xml, ma.is_multipart, ma.part_count if ma.is_multipart else None,
-        ))
+        """,
+            (
+                edition_id,
+                ma.base_id_materia,
+                article.id_oficio,
+                article.name,
+                art_type_norm,
+                article.art_type,
+                article.art_category,
+                art_class_arr,
+                article.number_page,
+                article.identifica,
+                article.ementa,
+                article.titulo,
+                article.sub_titulo,
+                article.texto,
+                body_plain,
+                doc_number,
+                doc_year,
+                issuing_organ,
+                content_hash,
+                natural_key_hash,
+                strategy,
+                source_xml,
+                ma.is_multipart,
+                ma.part_count if ma.is_multipart else None,
+            ),
+        )
 
         row = cur.fetchone()
         if row is None:
@@ -529,7 +591,8 @@ class DOUIngestor:
         checked_images = check_document_images(doc_id=doc_id, refs=image_refs, image_lookup=image_lookup)
         for item in checked_images:
             row = checked_image_row(item)
-            cur.execute("""
+            cur.execute(
+                """
                 INSERT INTO dou.document_media (
                     document_id, media_name, media_type, file_extension,
                     data, size_bytes, sequence_in_document, source_filename, external_url,
@@ -543,27 +606,29 @@ class DOUIngestor:
                     %s, %s, %s, %s,
                     %s, %s
                 )
-            """, (
-                doc_id,
-                row["media_name"],
-                row["media_type"],
-                row["file_extension"],
-                item.data,
-                row["size_bytes"],
-                row["position_in_doc"],
-                row["source_filename"],
-                row["original_url"],
-                row["original_url"],
-                row["availability_status"],
-                row["alt_text"],
-                row["context_hint"],
-                row["fallback_text"],
-                row["local_path"],
-                row["width_px"],
-                row["height_px"],
-                row["ingest_timestamp"],
-                row["retry_count"],
-            ))
+            """,
+                (
+                    doc_id,
+                    row["media_name"],
+                    row["media_type"],
+                    row["file_extension"],
+                    item.data,
+                    row["size_bytes"],
+                    row["position_in_doc"],
+                    row["source_filename"],
+                    row["original_url"],
+                    row["original_url"],
+                    row["availability_status"],
+                    row["alt_text"],
+                    row["context_hint"],
+                    row["fallback_text"],
+                    row["local_path"],
+                    row["width_px"],
+                    row["height_px"],
+                    row["ingest_timestamp"],
+                    row["retry_count"],
+                ),
+            )
             counts["media"] += 1
 
         image_summary = summarize_checked_images(checked_images)
@@ -580,35 +645,48 @@ class DOUIngestor:
         # --- Insert signatures ---
         signatures = extract_signatures(article.texto)
         for sig in signatures:
-            cur.execute("""
+            cur.execute(
+                """
                 INSERT INTO dou.document_signature (
                     document_id, person_name, role_title, sequence_in_document
                 ) VALUES (%s, %s, %s, %s)
-            """, (doc_id, sig.person_name, sig.role_title, sig.sequence))
+            """,
+                (doc_id, sig.person_name, sig.role_title, sig.sequence),
+            )
             counts["signatures"] += 1
 
         # --- Insert normative references ---
         norm_refs = extract_normative_references(body_plain)
         for nr in norm_refs:
-            cur.execute("""
+            cur.execute(
+                """
                 INSERT INTO dou.normative_reference (
                     document_id, reference_type, reference_number,
                     reference_date, reference_text, issuing_body
                 ) VALUES (%s, %s, %s, %s, %s, %s)
-            """, (
-                doc_id, nr.reference_type, nr.reference_number,
-                nr.reference_date, nr.reference_text, nr.issuing_body,
-            ))
+            """,
+                (
+                    doc_id,
+                    nr.reference_type,
+                    nr.reference_number,
+                    nr.reference_date,
+                    nr.reference_text,
+                    nr.issuing_body,
+                ),
+            )
             counts["norm_refs"] += 1
 
         # --- Insert procedure references ---
         proc_refs = extract_procedure_references(body_plain)
         for pr in proc_refs:
-            cur.execute("""
+            cur.execute(
+                """
                 INSERT INTO dou.procedure_reference (
                     document_id, procedure_type, procedure_identifier
                 ) VALUES (%s, %s, %s)
-            """, (doc_id, pr.procedure_type, pr.procedure_identifier))
+            """,
+                (doc_id, pr.procedure_type, pr.procedure_identifier),
+            )
             counts["proc_refs"] += 1
 
         return counts
@@ -616,7 +694,9 @@ class DOUIngestor:
     # -- Batch API --
 
     def ingest_batch(
-        self, zip_paths: list[Path], workers: int = 1,
+        self,
+        zip_paths: list[Path],
+        workers: int = 1,
     ) -> BatchIngestResult:
         """Ingest multiple ZIPs sequentially.
 
@@ -661,6 +741,7 @@ class DOUIngestor:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _infer_zip_meta(filename: str) -> tuple[str | None, str | None]:
     """Infer month and section from ZIP filename.
 
@@ -669,12 +750,12 @@ def _infer_zip_meta(filename: str) -> tuple[str | None, str | None]:
         "S01092020.zip"             → ("2020-09", "do1")
     """
     # Try structured name first
-    m = re.match(r'^(\d{4}-\d{2})_(do\d\w?)_', filename, re.IGNORECASE)
+    m = re.match(r"^(\d{4}-\d{2})_(do\d\w?)_", filename, re.IGNORECASE)
     if m:
         return m.group(1), m.group(2).lower()
 
     # Try INLabs native name: S{section}{MMYYYY}.zip
-    m = re.match(r'^S(\d{2})(\d{2})(\d{4})', filename)
+    m = re.match(r"^S(\d{2})(\d{2})(\d{4})", filename)
     if m:
         sec_code = m.group(1)
         month = m.group(2)
@@ -702,6 +783,7 @@ def _cleanup_dir(d: Path) -> None:
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def main() -> int:
     import argparse
 
@@ -709,14 +791,14 @@ def main() -> int:
         description="Ingest DOU ZIPs into dou.* PostgreSQL schema",
     )
     p.add_argument(
-        "--data-dir", type=Path, required=True,
+        "--data-dir",
+        type=Path,
+        required=True,
         help="Directory containing ZIP files",
     )
     p.add_argument(
         "--dsn",
-        default=os.environ.get(
-            "GABI_DSN", "host=localhost port=5433 dbname=gabi user=gabi password=gabi"
-        ),
+        default=os.environ.get("GABI_DSN", "host=localhost port=5433 dbname=gabi user=gabi password=gabi"),
         help="PostgreSQL DSN",
     )
     p.add_argument("--limit", type=int, default=0, help="Max ZIPs to process (0=all)")
@@ -726,7 +808,7 @@ def main() -> int:
     # Discover ZIPs
     zips = sorted(args.data_dir.glob("*.zip"))
     if args.limit > 0:
-        zips = zips[:args.limit]
+        zips = zips[: args.limit]
 
     if not zips:
         _log(f"No ZIP files found in {args.data_dir}")

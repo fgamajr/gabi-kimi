@@ -13,6 +13,7 @@ Usage:
     python -m src.backend.ingest.catalog_scraper --start-year 2002 --end-year 2026
     python -m src.backend.ingest.catalog_scraper --start-year 2020 --end-year 2026 --download ops/data/catalog_zips
 """
+
 from __future__ import annotations
 
 import argparse
@@ -38,8 +39,18 @@ CATALOG_URL = "https://www.in.gov.br/acesso-a-informacao/dados-abertos/base-de-d
 GROUP_ID = "49035712"
 
 MONTHS_PT: list[str] = [
-    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+    "Janeiro",
+    "Fevereiro",
+    "Março",
+    "Abril",
+    "Maio",
+    "Junho",
+    "Julho",
+    "Agosto",
+    "Setembro",
+    "Outubro",
+    "Novembro",
+    "Dezembro",
 ]
 
 # Regex to extract folderId and filename from download links
@@ -60,9 +71,11 @@ _USER_AGENTS: list[str] = [
 # Data classes
 # ---------------------------------------------------------------------------
 
+
 @dataclass(slots=True)
 class MonthEntry:
     """Catalog entry for one year-month."""
+
     year: int
     month: int
     folder_id: int | None = None
@@ -91,6 +104,7 @@ class MonthEntry:
 # Logging
 # ---------------------------------------------------------------------------
 
+
 def _log(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
 
@@ -98,6 +112,7 @@ def _log(msg: str) -> None:
 # ---------------------------------------------------------------------------
 # HTTP
 # ---------------------------------------------------------------------------
+
 
 def _build_session(max_retries: int = 3) -> requests.Session:
     session = requests.Session()
@@ -110,17 +125,20 @@ def _build_session(max_retries: int = 3) -> requests.Session:
     adapter = HTTPAdapter(max_retries=retry, pool_connections=5, pool_maxsize=5)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
-    session.headers.update({
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
-        "Accept-Encoding": "gzip, deflate, br",
-    })
+    session.headers.update(
+        {
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+            "Accept-Encoding": "gzip, deflate, br",
+        }
+    )
     return session
 
 
 # ---------------------------------------------------------------------------
 # Scraping
 # ---------------------------------------------------------------------------
+
 
 def scrape_month(
     year: int,
@@ -220,8 +238,10 @@ def scrape_all(
 
         status = "OK" if entry.folder_id else entry.error or "empty"
         files_str = ", ".join(entry.files) if entry.files else "none"
-        _log(f"[{idx:3d}/{total}] {entry.month_str}: folderId={entry.folder_id or '???':>12}  "
-             f"files=[{files_str}]  {status}")
+        _log(
+            f"[{idx:3d}/{total}] {entry.month_str}: folderId={entry.folder_id or '???':>12}  "
+            f"files=[{files_str}]  {status}"
+        )
 
         entries.append(entry)
 
@@ -237,6 +257,7 @@ def scrape_all(
 # ---------------------------------------------------------------------------
 # Registry output
 # ---------------------------------------------------------------------------
+
 
 def build_registry(entries: list[MonthEntry]) -> dict[str, Any]:
     """Build a month→folderId registry from scraped entries.
@@ -300,20 +321,19 @@ def write_registry(registry: dict[str, Any], output_path: Path) -> None:
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
-    p = argparse.ArgumentParser(
-        description="Scrape DOU catalog to build folderId registry"
+    p = argparse.ArgumentParser(description="Scrape DOU catalog to build folderId registry")
+    p.add_argument("--start-year", type=int, default=2002, help="First year to scrape (default: 2002)")
+    p.add_argument("--end-year", type=int, default=2026, help="Last year to scrape (default: 2026)")
+    p.add_argument("--end-month", type=int, default=None, help="Last month in end year (default: current month)")
+    p.add_argument(
+        "--output",
+        type=str,
+        default="ops/data/dou_catalog_registry.json",
+        help="Output JSON path (default: ops/data/dou_catalog_registry.json)",
     )
-    p.add_argument("--start-year", type=int, default=2002,
-                   help="First year to scrape (default: 2002)")
-    p.add_argument("--end-year", type=int, default=2026,
-                   help="Last year to scrape (default: 2026)")
-    p.add_argument("--end-month", type=int, default=None,
-                   help="Last month in end year (default: current month)")
-    p.add_argument("--output", type=str, default="ops/data/dou_catalog_registry.json",
-                   help="Output JSON path (default: ops/data/dou_catalog_registry.json)")
-    p.add_argument("--delay", type=float, default=0.5,
-                   help="Delay between requests in seconds (default: 0.5)")
+    p.add_argument("--delay", type=float, default=0.5, help="Delay between requests in seconds (default: 0.5)")
     args = p.parse_args()
 
     entries = scrape_all(
@@ -329,9 +349,9 @@ def main() -> None:
     write_registry(registry, output_path)
 
     # Summary
-    _log(f"\n{'='*60}")
-    _log(f"CATALOG SCRAPE COMPLETE")
-    _log(f"{'='*60}")
+    _log(f"\n{'=' * 60}")
+    _log("CATALOG SCRAPE COMPLETE")
+    _log(f"{'=' * 60}")
     _log(f"Total months scraped: {registry['total_months']}")
     _log(f"Months with data:     {registry['months_with_data']}")
     _log(f"Months missing:       {registry['months_missing']}")
@@ -352,17 +372,17 @@ def main() -> None:
             prev_fid = fid
 
         if jumps:
-            _log(f"\nPlatform migration jumps detected:")
+            _log("\nPlatform migration jumps detected:")
             for month, old, new in jumps:
-                _log(f"  {month}: {old:>12} → {new:>12} (jump: {new-old:+,})")
+                _log(f"  {month}: {old:>12} → {new:>12} (jump: {new - old:+,})")
 
     if registry["errors"]:
-        _log(f"\nFirst 10 errors:")
+        _log("\nFirst 10 errors:")
         for month, err in list(registry["errors"].items())[:10]:
             _log(f"  {month}: {err}")
 
     _log(f"\nRegistry saved to: {output_path}")
-    _log(f"{'='*60}")
+    _log(f"{'=' * 60}")
 
 
 if __name__ == "__main__":

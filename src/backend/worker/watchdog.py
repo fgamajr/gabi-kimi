@@ -3,6 +3,7 @@
 Runs periodically (e.g. every 6h). Each rule fires at most once per 6 hours.
 Holidays are stored in pipeline_config (editable) with default Brazilian calendar.
 """
+
 from __future__ import annotations
 
 import logging
@@ -46,7 +47,7 @@ def _brazilian_holidays_for_year(year: int, fixed_csv: str = DEFAULT_HOLIDAYS_FI
         e = easter(year)
         out.add(e - timedelta(days=48))  # Carnival Monday
         out.add(e - timedelta(days=47))  # Carnival Tuesday
-        out.add(e - timedelta(days=2))   # Good Friday
+        out.add(e - timedelta(days=2))  # Good Friday
         out.add(e + timedelta(days=60))  # Corpus Christi
     return out
 
@@ -228,9 +229,15 @@ class Watchdog:
 
         # ES unhealthy
         if not es_green:
-            results["es_unhealthy"] = {"fired": True, "severity": "CRITICAL", "message": "ES cluster status is not green."}
+            results["es_unhealthy"] = {
+                "fired": True,
+                "severity": "CRITICAL",
+                "message": "ES cluster status is not green.",
+            }
             if await self._can_alert("es_unhealthy"):
-                alerts.append({"rule_id": "es_unhealthy", "severity": "CRITICAL", "message": "ES cluster status is not green."})
+                alerts.append(
+                    {"rule_id": "es_unhealthy", "severity": "CRITICAL", "message": "ES cluster status is not green."}
+                )
                 await self._record_alert("es_unhealthy")
         else:
             results["es_unhealthy"] = {"fired": False, "severity": None, "message": None}
@@ -267,6 +274,7 @@ async def _send_telegram(text: str) -> None:
         return
     try:
         import httpx
+
         async with httpx.AsyncClient() as client:
             await client.post(
                 f"https://api.telegram.org/bot{token}/sendMessage",

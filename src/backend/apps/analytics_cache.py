@@ -227,10 +227,7 @@ async def load_analytics_payload() -> dict[str, Any]:
             LIMIT 8
             """
         )
-        top_organs = [
-            {"organ": str(row["issuing_organ"]), "count": int(row["cnt"] or 0)}
-            for row in top_organ_rows
-        ]
+        top_organs = [{"organ": str(row["issuing_organ"]), "count": int(row["cnt"] or 0)} for row in top_organ_rows]
 
         section_total_rows = await conn.fetch(
             """
@@ -240,8 +237,7 @@ async def load_analytics_payload() -> dict[str, Any]:
             """
         )
         section_totals = [
-            {"section": str(row["section"] or ""), "count": int(row["cnt"] or 0)}
-            for row in section_total_rows
+            {"section": str(row["section"] or ""), "count": int(row["cnt"] or 0)} for row in section_total_rows
         ]
 
         latest_rows = await conn.fetch(

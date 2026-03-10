@@ -3,6 +3,7 @@
 Config from env: AWS_ENDPOINT_URL_S3, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, BUCKET_NAME.
 See docs/runbooks/FLY_TIGRIS_STORAGE.md for creating and binding the bucket.
 """
+
 from __future__ import annotations
 
 import os

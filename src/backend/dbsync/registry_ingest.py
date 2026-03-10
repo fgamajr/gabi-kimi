@@ -74,9 +74,7 @@ def _norm(v: Any) -> str:
     return s
 
 
-def _field_value(
-    field_name: str, doc: dict[str, str], pub: dict[str, str], source: dict[str, Any]
-) -> str:
+def _field_value(field_name: str, doc: dict[str, str], pub: dict[str, str], source: dict[str, Any]) -> str:
     if field_name == "issuing_organ_normalized":
         return doc.get("issuing_organ") or doc.get("issuing_authority") or ""
     if field_name == "title_normalized":
@@ -108,12 +106,7 @@ def _canonicalize_content(text: str, steps: list[str]) -> str:
         elif s == "normalize_whitespace":
             out = re.sub(r"\s+", " ", out).strip()
         elif s == "normalize_quotes":
-            out = (
-                out.replace("\u201c", '"')
-                .replace("\u201d", '"')
-                .replace("\u2018", "'")
-                .replace("`", "'")
-            )
+            out = out.replace("\u201c", '"').replace("\u201d", '"').replace("\u2018", "'").replace("`", "'")
         elif s == "remove_page_headers":
             out = re.sub(r"(?im)^\s*di[aá]rio oficial da uni[aã]o.*$", "", out)
     return out
@@ -155,16 +148,12 @@ def _hash_record(
 # ---------------------------------------------------------------------------
 
 
-def _evidence_edition_id(
-    pub_date: str, edition_number: str, section: str, listing_sha256: str
-) -> str:
+def _evidence_edition_id(pub_date: str, edition_number: str, section: str, listing_sha256: str) -> str:
     """edition_id = sha256(publication_date | edition_number | section | listing_sha256)"""
     return _sha(f"{pub_date}|{edition_number}|{section}|{listing_sha256 or ''}")
 
 
-def _evidence_occurrence_hash(
-    edition_id: str, page_number: str, source_url: str
-) -> str:
+def _evidence_occurrence_hash(edition_id: str, page_number: str, source_url: str) -> str:
     """occurrence_hash = sha256(edition_id | page_number | source_url_canonical)"""
     return _sha(f"{edition_id}|{page_number}|{source_url}")
 
@@ -264,20 +253,12 @@ def _load_ingest_records(
             edition_number = pub.get("edition_number") or ""
             edition_section = pub.get("edition_section") or ""
             page_number = pub.get("page_number") or ""
-            source_url = _field_value(
-                "source_url_canonical", doc_norm, pub_norm, source
-            )
+            source_url = _field_value("source_url_canonical", doc_norm, pub_norm, source)
 
             # Evidence-anchored hashes (computed HERE, not from identity_analyzer)
-            listing_sha = _lookup_listing_sha256(
-                listing_index, pub_date or "", edition_section
-            )
-            edition_id = _evidence_edition_id(
-                pub_date or "", edition_number, edition_section, listing_sha
-            )
-            occurrence_hash = _evidence_occurrence_hash(
-                edition_id, page_number, source_url
-            )
+            listing_sha = _lookup_listing_sha256(listing_index, pub_date or "", edition_section)
+            edition_id = _evidence_edition_id(pub_date or "", edition_number, edition_section, listing_sha)
+            occurrence_hash = _evidence_occurrence_hash(edition_id, page_number, source_url)
 
             out.append(
                 {
@@ -509,9 +490,7 @@ def ingest_records(
                     # Retry with exponential backoff to reduce contention.
                     time.sleep(0.01 * (2 ** (attempt - 1)))
                     if attempt == MAX_SERIALIZATION_RETRIES:
-                        _log(
-                            f"  WARN: serialization exhausted for {rec.get('source_file')}"
-                        )
+                        _log(f"  WARN: serialization exhausted for {rec.get('source_file')}")
                         result.errors.append(
                             {
                                 "file": rec.get("source_file"),
@@ -612,14 +591,9 @@ def ingest_and_seal(
         raise
     except Exception as ex:
         _log(f"FATAL: commitment seal or anchor chain failed: {ex}")
-        raise IngestionUnsealedError(
-            f"ingestion completed but src/backend/commitment/anchor failed: {ex}"
-        ) from ex
+        raise IngestionUnsealedError(f"ingestion completed but src/backend/commitment/anchor failed: {ex}") from ex
 
-    _log(
-        f"BATCH SEALED + ANCHORED: high_water={result.log_high_water} "
-        f"commitment={result.commitment_root[:16]}..."
-    )
+    _log(f"BATCH SEALED + ANCHORED: high_water={result.log_high_water} commitment={result.commitment_root[:16]}...")
     return result
 
 
@@ -648,14 +622,10 @@ def main() -> int:
     import argparse
     import os
 
-    p = argparse.ArgumentParser(
-        description="Registry ingestion engine — sealed archival ingestion"
-    )
+    p = argparse.ArgumentParser(description="Registry ingestion engine — sealed archival ingestion")
     p.add_argument(
         "--dsn",
-        default=os.environ.get(
-            "GABI_DSN", "host=localhost port=5433 dbname=gabi user=gabi password=gabi"
-        ),
+        default=os.environ.get("GABI_DSN", "host=localhost port=5433 dbname=gabi user=gabi password=gabi"),
     )
     p.add_argument("--enriched-dir", required=True, type=Path)
     p.add_argument("--identity", required=True, type=Path)

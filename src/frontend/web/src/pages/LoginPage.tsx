@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate, useSearchParams, Link } from "react-router-dom";
+import { useNavigate, useSearchParams, useLocation, Link } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useI18n } from "@/hooks/useI18n";
 import { Loader2, LockKeyhole, LogIn, Eye, EyeOff, Mail } from "lucide-react";
@@ -13,7 +13,9 @@ export default function LoginPage() {
   const { login, loginWithPassword } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();
+  const location = useLocation();
   const redirect = params.get("redirect") || "/";
+  const flashMessage = (location.state as { message?: string } | null)?.message;
 
   const [mode, setMode] = useState<LoginMode>("password");
 
@@ -128,9 +130,17 @@ export default function LoginPage() {
 
               {/* Password */}
               <div className="space-y-1.5">
-                <label htmlFor="login-password" className="text-xs font-medium text-text-secondary">
-                  Senha
-                </label>
+                <div className="flex items-center justify-between">
+                  <label htmlFor="login-password" className="text-xs font-medium text-text-secondary">
+                    Senha
+                  </label>
+                  <Link
+                    to="/forgot-password"
+                    className="text-xs text-primary hover:text-primary/80 transition-colors"
+                  >
+                    Esqueceu sua senha?
+                  </Link>
+                </div>
                 <div className="relative flex items-center gap-3 rounded-xl border border-border bg-surface-elevated px-4 py-3 focus-within:border-primary focus-within:ring-1 focus-within:ring-ring transition-colors">
                   <LockKeyhole className="w-4 h-4 text-text-tertiary shrink-0" />
                   <input
@@ -242,6 +252,13 @@ export default function LoginPage() {
             {t("login.continueAsGuest")}
           </Link>
         </div>
+
+        {/* Flash message (e.g. after password reset) */}
+        {flashMessage && !error && (
+          <p className="text-xs text-foreground font-medium bg-primary/10 rounded-lg px-3 py-2">
+            {flashMessage}
+          </p>
+        )}
 
         {/* Error display */}
         {error && (

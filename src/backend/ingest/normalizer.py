@@ -8,12 +8,12 @@ Two output modes:
   2. ``article_to_ingest_record()`` → dict compatible with the
      registry.* CTE state machine (natural_key_hash, content_hash, etc.)
 """
+
 from __future__ import annotations
 
 import hashlib
 import re
 from datetime import date, datetime
-from pathlib import Path
 from typing import Any
 
 from src.backend.ingest.xml_parser import DOUArticle
@@ -22,6 +22,7 @@ from src.backend.ingest.xml_parser import DOUArticle
 # ---------------------------------------------------------------------------
 # Primitive normalizers
 # ---------------------------------------------------------------------------
+
 
 def normalize_pub_date(raw: str) -> date | None:
     """Convert DD/MM/YYYY to ``datetime.date``, or None on failure."""
@@ -71,6 +72,7 @@ def _sha(s: str) -> str:
 # Content canonicalization (matches registry_ingest._canonicalize_content)
 # ---------------------------------------------------------------------------
 
+
 def _canonicalize_content(text: str, steps: list[str] | None = None) -> str:
     """Apply canonicalization steps to body text."""
     if steps is None:
@@ -87,10 +89,7 @@ def _canonicalize_content(text: str, steps: list[str] | None = None) -> str:
         elif s == "normalize_whitespace":
             out = re.sub(r"\s+", " ", out).strip()
         elif s == "normalize_quotes":
-            out = (
-                out.replace("\u201c", '"').replace("\u201d", '"')
-                .replace("\u2018", "'").replace("`", "'")
-            )
+            out = out.replace("\u201c", '"').replace("\u201d", '"').replace("\u2018", "'").replace("`", "'")
         elif s == "remove_page_headers":
             out = re.sub(r"(?im)^\s*di[aá]rio oficial da uni[aã]o.*$", "", out)
     return out
@@ -99,6 +98,7 @@ def _canonicalize_content(text: str, steps: list[str] | None = None) -> str:
 # ---------------------------------------------------------------------------
 # Mode 1: normalize_article → flat dict for legal_publication.* schema
 # ---------------------------------------------------------------------------
+
 
 def normalize_article(article: DOUArticle) -> dict:
     """Transform a ``DOUArticle`` into a flat dict matching the PG schema.
@@ -126,6 +126,7 @@ def normalize_article(article: DOUArticle) -> dict:
 # ---------------------------------------------------------------------------
 # Mode 2: article_to_ingest_record → dict for registry.* CTE
 # ---------------------------------------------------------------------------
+
 
 def _extract_doc_number(identifica: str, art_type: str) -> str:
     """Try to extract a document number from Identifica field.
@@ -229,14 +230,10 @@ def article_to_ingest_record(
     content_hash = _sha(body_canonical)
 
     # Edition ID = sha256(pub_date | edition_number | section | listing_sha256)
-    edition_id = _sha(
-        f"{pub_date_iso or ''}|{edition_number or ''}|{section}|{zip_sha256}"
-    )
+    edition_id = _sha(f"{pub_date_iso or ''}|{edition_number or ''}|{section}|{zip_sha256}")
 
     # Occurrence hash = sha256(edition_id | page_number | source_url_canonical)
-    occurrence_hash = _sha(
-        f"{edition_id}|{page_number or ''}|{source_url or ''}"
-    )
+    occurrence_hash = _sha(f"{edition_id}|{page_number or ''}|{source_url or ''}")
 
     return {
         "occurrence_hash": occurrence_hash,

@@ -49,6 +49,10 @@ Progress: [=====-----] 50%
 - [Phase 14]: Portuguese error messages mapped from HTTP status codes (401, 409, 422, 429)
 - [Phase 14]: All form inputs use text-base (16px) to prevent iOS auto-zoom
 
+### Roadmap Evolution
+
+- Phase 15 added: Fly flies
+
 ### Performance Metrics
 
 | Phase | Plan | Duration | Tasks | Files |

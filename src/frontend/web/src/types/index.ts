@@ -24,6 +24,8 @@ export interface User {
   status: "active" | "suspended";
   sessionSource?: string;
   isServiceAccount?: boolean;
+  /** When false, show email verification banner. Default true for token/session users. */
+  emailVerified?: boolean;
 }
 
 export interface AdminStats {

@@ -1,4 +1,5 @@
 """Image availability checking, caching, and HTML rewriting for DOU documents."""
+
 from __future__ import annotations
 
 import asyncio
@@ -84,9 +85,7 @@ def infer_context_hint(
     context_snippet: str | None = None,
     width_px: int | None = None,
 ) -> str:
-    haystack = " ".join(
-        part for part in [source_filename or "", alt_text or "", context_snippet or ""] if part
-    ).strip()
+    haystack = " ".join(part for part in [source_filename or "", alt_text or "", context_snippet or ""] if part).strip()
     if _TABLE_HINT_RE.search(haystack):
         return "table"
     if _SIGNATURE_HINT_RE.search(haystack):
@@ -172,7 +171,9 @@ async def _check_document_images_async(
 
     timeout = httpx.Timeout(5.0, connect=5.0)
     limits = httpx.Limits(max_connections=8, max_keepalive_connections=4)
-    async with httpx.AsyncClient(timeout=timeout, limits=limits, headers={"User-Agent": "gabi-image-checker/1.0"}) as client:
+    async with httpx.AsyncClient(
+        timeout=timeout, limits=limits, headers={"User-Agent": "gabi-image-checker/1.0"}
+    ) as client:
         tasks = [
             _classify_one_image(
                 client=client,

@@ -4,21 +4,22 @@ Reads the DOU catalog JSON, queries Elasticsearch to determine which
 (year_month, section) combinations are already indexed, and populates
 the SQLite registry with appropriate statuses.
 """
+
 from __future__ import annotations
 
 import argparse
 import asyncio
 import json
-import logging
 from pathlib import Path
 from typing import Any
 
 import httpx
 
+from src.backend.core.logging import get_logger
 from src.backend.worker.pipeline.discovery import parse_dou_filename
 from src.backend.worker.registry import FileStatus, Registry
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 async def _get_es_coverage(es_url: str) -> set[tuple[str, str]]:
@@ -51,10 +52,7 @@ async def _get_es_coverage(es_url: str) -> set[tuple[str, str]]:
         return set()
 
     buckets = data.get("aggregations", {}).get("coverage", {}).get("buckets", [])
-    return {
-        (b["key"]["year_month"], b["key"]["section"])
-        for b in buckets
-    }
+    return {(b["key"]["year_month"], b["key"]["section"]) for b in buckets}
 
 
 async def migrate_catalog_to_sqlite(
@@ -132,7 +130,9 @@ async def migrate_catalog_to_sqlite(
     }
     logger.info(
         "Migration complete: %d total, %d verified, %d discovered",
-        stats["total"], stats["verified"], stats["discovered"],
+        stats["total"],
+        stats["verified"],
+        stats["discovered"],
     )
     return stats
 
@@ -255,15 +255,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Migrate DOU catalog JSON to SQLite")
     parser.add_argument("--catalog", required=True, help="Path to catalog JSON file")
     parser.add_argument("--db", default="/data/registry.db", help="SQLite DB path")
-    parser.add_argument(
-        "--es-url", default="http://es.internal:9200", help="Elasticsearch URL"
-    )
+    parser.add_argument("--es-url", default="http://es.internal:9200", help="Elasticsearch URL")
     args = parser.parse_args()
 
     async def main():
         reg = Registry(db_path=args.db)
         await reg.init_db()
         stats = await migrate_catalog_to_sqlite(args.catalog, reg, args.es_url)
-        print(f"Migration stats: {stats}")
+        logger.info("Migration stats: %s", stats)
 
     asyncio.run(main())

@@ -6,6 +6,7 @@ Run worker:
 
 Enqueue: process_upload_job(job_id) after POST /api/admin/upload creates a job.
 """
+
 from __future__ import annotations
 
 import os
@@ -236,7 +237,9 @@ async def process_upload_job(ctx: dict, job_id: str) -> None:
                 "stage": "ingest",
                 "warnings": result.errors[:10],
                 "parse_errors": result.parse_errors,
-            } if err_msg else None,
+            }
+            if err_msg
+            else None,
         )
 
 
@@ -255,6 +258,7 @@ def _redis_settings() -> RedisSettings:
 
 class WorkerSettings:
     """ARQ worker config. Used by CLI: arq src.backend.workers.arq_worker.WorkerSettings."""
+
     functions = [test_task, process_upload_job]
     on_startup = _on_startup
     on_shutdown = _on_shutdown

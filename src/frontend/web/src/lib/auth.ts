@@ -19,6 +19,7 @@ export interface SessionStatus {
     roles?: string[];
     email?: string | null;
     status?: string | null;
+    email_verified?: boolean;
   };
   expires_in_sec?: number;
 }

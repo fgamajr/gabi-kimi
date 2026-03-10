@@ -29,5 +29,6 @@ Thumbs.db
 !README.md
 docs/
 
-# Frontend source (not needed in backend image)
-src/frontend/
+# Frontend source excluded from backend images only
+# (frontend-static Dockerfile needs src/frontend/web/)
+# src/frontend/  -- removed: breaks frontend-static build

@@ -10,6 +10,7 @@ Usage:
     async with get_pool().acquire() as conn:
         row = await conn.fetchrow("SELECT $1::int", 42)
 """
+
 from __future__ import annotations
 
 import os

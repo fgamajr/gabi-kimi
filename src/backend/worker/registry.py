@@ -4,6 +4,7 @@ Tracks lifecycle of every DOU file through discovery -> download -> extract ->
 BM25 index -> embedding -> verify stages. Uses WAL mode for concurrent
 reader/writer access.
 """
+
 from __future__ import annotations
 
 import enum
@@ -221,8 +222,18 @@ class Registry:
                    (filename, section, year_month, publication_date, source, folder_id, file_url, status,
                     discovered_at, updated_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (filename, section, year_month, publication_date, source, folder_id, file_url,
-                 FileStatus.DISCOVERED.value, now, now),
+                (
+                    filename,
+                    section,
+                    year_month,
+                    publication_date,
+                    source,
+                    folder_id,
+                    file_url,
+                    FileStatus.DISCOVERED.value,
+                    now,
+                    now,
+                ),
             )
             await db.commit()
             return cursor.lastrowid or 0
@@ -230,29 +241,21 @@ class Registry:
     async def get_file_by_filename(self, filename: str) -> dict[str, Any] | None:
         """Look up a file by filename."""
         async with self.get_db() as db:
-            cursor = await db.execute(
-                "SELECT * FROM dou_files WHERE filename = ?", (filename,)
-            )
+            cursor = await db.execute("SELECT * FROM dou_files WHERE filename = ?", (filename,))
             row = await cursor.fetchone()
             return dict(row) if row else None
 
     async def get_file(self, file_id: int) -> dict[str, Any] | None:
         """Look up a file by id."""
         async with self.get_db() as db:
-            cursor = await db.execute(
-                "SELECT * FROM dou_files WHERE id = ?", (file_id,)
-            )
+            cursor = await db.execute("SELECT * FROM dou_files WHERE id = ?", (file_id,))
             row = await cursor.fetchone()
             return dict(row) if row else None
 
-    async def update_status(
-        self, file_id: int, new_status: FileStatus, *, _skip_validation: bool = False
-    ) -> None:
+    async def update_status(self, file_id: int, new_status: FileStatus, *, _skip_validation: bool = False) -> None:
         """Update file status with transition validation."""
         async with self.get_db() as db:
-            cursor = await db.execute(
-                "SELECT status FROM dou_files WHERE id = ?", (file_id,)
-            )
+            cursor = await db.execute("SELECT status FROM dou_files WHERE id = ?", (file_id,))
             row = await cursor.fetchone()
             if row is None:
                 raise ValueError(f"File {file_id} not found")
@@ -261,9 +264,7 @@ class Registry:
             if not _skip_validation:
                 allowed = VALID_TRANSITIONS.get(current, set())
                 if new_status not in allowed:
-                    raise ValueError(
-                        f"Invalid transition: {current.value} -> {new_status.value}"
-                    )
+                    raise ValueError(f"Invalid transition: {current.value} -> {new_status.value}")
 
             now = _now()
             ts_col = _STATUS_TIMESTAMP_COL.get(new_status)
@@ -292,9 +293,7 @@ class Registry:
             )
             await db.commit()
 
-    async def get_files_by_status(
-        self, status: FileStatus, limit: int = 100
-    ) -> list[dict[str, Any]]:
+    async def get_files_by_status(self, status: FileStatus, limit: int = 100) -> list[dict[str, Any]]:
         """Get files with a given status."""
         async with self.get_db() as db:
             cursor = await db.execute(
@@ -360,9 +359,7 @@ class Registry:
         """Get count of files by status."""
         counts = {status.value: 0 for status in FileStatus}
         async with self.get_db() as db:
-            cursor = await db.execute(
-                "SELECT status, COUNT(*) as cnt FROM dou_files GROUP BY status"
-            )
+            cursor = await db.execute("SELECT status, COUNT(*) as cnt FROM dou_files GROUP BY status")
             rows = await cursor.fetchall()
             for row in rows:
                 counts[row["status"]] = row["cnt"]
@@ -464,14 +461,11 @@ class Registry:
                    SET status = ?, completed_at = ?, files_processed = ?,
                        files_succeeded = ?, files_failed = ?, error_message = ?
                    WHERE id = ?""",
-                (status, _now(), files_processed, files_succeeded,
-                 files_failed, error_message, run_id),
+                (status, _now(), files_processed, files_succeeded, files_failed, error_message, run_id),
             )
             await db.commit()
 
-    async def add_log_entry(
-        self, run_id: str, file_id: int | None, level: str, message: str
-    ) -> None:
+    async def add_log_entry(self, run_id: str, file_id: int | None, level: str, message: str) -> None:
         """Add a log entry for a pipeline run."""
         async with self.get_db() as db:
             await db.execute(
@@ -519,18 +513,14 @@ class Registry:
     async def retry_file(self, file_id: int) -> None:
         """Retry a failed file -- increments retry_count, resets to QUEUED."""
         async with self.get_db() as db:
-            cursor = await db.execute(
-                "SELECT retry_count, status FROM dou_files WHERE id = ?", (file_id,)
-            )
+            cursor = await db.execute("SELECT retry_count, status FROM dou_files WHERE id = ?", (file_id,))
             row = await cursor.fetchone()
             if row is None:
                 raise ValueError(f"File {file_id} not found")
 
             new_count = row["retry_count"] + 1
             if new_count > MAX_RETRIES:
-                raise ValueError(
-                    f"File {file_id} has exceeded max retries ({MAX_RETRIES})"
-                )
+                raise ValueError(f"File {file_id} has exceeded max retries ({MAX_RETRIES})")
 
             await db.execute(
                 "UPDATE dou_files SET status = ?, retry_count = ?, updated_at = ?, error_message = NULL WHERE id = ?",
@@ -544,10 +534,16 @@ class Registry:
         async with self.get_db() as db:
             rows = [
                 (
-                    f["filename"], f["section"], f["year_month"],
-                    f.get("publication_date"), f.get("source", "liferay"),
-                    f.get("folder_id"), f.get("file_url"),
-                    f.get("status", FileStatus.DISCOVERED.value), now, now,
+                    f["filename"],
+                    f["section"],
+                    f["year_month"],
+                    f.get("publication_date"),
+                    f.get("source", "liferay"),
+                    f.get("folder_id"),
+                    f.get("file_url"),
+                    f.get("status", FileStatus.DISCOVERED.value),
+                    now,
+                    now,
                 )
                 for f in files
             ]
@@ -592,17 +588,13 @@ class Registry:
         if sum(status_counts.values()) > 0:
             return True
         async with self.get_db() as db:
-            cursor = await db.execute(
-                "SELECT 1 FROM dou_catalog_months LIMIT 1"
-            )
+            cursor = await db.execute("SELECT 1 FROM dou_catalog_months LIMIT 1")
             return (await cursor.fetchone()) is not None
 
     async def get_config(self, key: str) -> str | None:
         """Get a value from pipeline_config."""
         async with self.get_db() as db:
-            cursor = await db.execute(
-                "SELECT value FROM pipeline_config WHERE key = ?", (key,)
-            )
+            cursor = await db.execute("SELECT value FROM pipeline_config WHERE key = ?", (key,))
             row = await cursor.fetchone()
             return row["value"] if row else None
 
@@ -638,13 +630,9 @@ class Registry:
         from datetime import timedelta
 
         ref = today or date.today()
-        window_end = ref - timedelta(days=INLABS_WINDOW_DAYS)
-        closing_threshold = ref - timedelta(days=INLABS_WINDOW_DAYS - WINDOW_CLOSING_DAYS_LEFT)
 
         async with self.get_db() as db:
-            cursor = await db.execute(
-                "SELECT year_month FROM dou_catalog_months ORDER BY year_month"
-            )
+            cursor = await db.execute("SELECT year_month FROM dou_catalog_months ORDER BY year_month")
             months = [row["year_month"] for row in await cursor.fetchall()]
 
         updated = 0
@@ -769,24 +757,15 @@ async def _ensure_registry_columns(db: aiosqlite.Connection) -> None:
     if "publication_date" not in columns:
         await db.execute("ALTER TABLE dou_files ADD COLUMN publication_date TEXT")
     if "source" not in columns:
-        await db.execute(
-            "ALTER TABLE dou_files ADD COLUMN source TEXT NOT NULL DEFAULT 'liferay'"
-        )
+        await db.execute("ALTER TABLE dou_files ADD COLUMN source TEXT NOT NULL DEFAULT 'liferay'")
     if "bm25_indexed_at" not in columns:
         await db.execute("ALTER TABLE dou_files ADD COLUMN bm25_indexed_at TEXT")
     if "embedded_at" not in columns:
         await db.execute("ALTER TABLE dou_files ADD COLUMN embedded_at TEXT")
 
+    await db.execute("UPDATE dou_files SET status = 'BM25_INDEXING' WHERE status = 'INGESTING'")
+    await db.execute("UPDATE dou_files SET status = 'BM25_INDEXED' WHERE status = 'INGESTED'")
+    await db.execute("UPDATE dou_files SET status = 'BM25_INDEX_FAILED' WHERE status = 'INGEST_FAILED'")
     await db.execute(
-        "UPDATE dou_files SET status = 'BM25_INDEXING' WHERE status = 'INGESTING'"
-    )
-    await db.execute(
-        "UPDATE dou_files SET status = 'BM25_INDEXED' WHERE status = 'INGESTED'"
-    )
-    await db.execute(
-        "UPDATE dou_files SET status = 'BM25_INDEX_FAILED' WHERE status = 'INGEST_FAILED'"
-    )
-    await db.execute(
-        "UPDATE dou_files SET bm25_indexed_at = COALESCE(bm25_indexed_at, ingested_at) "
-        "WHERE ingested_at IS NOT NULL"
+        "UPDATE dou_files SET bm25_indexed_at = COALESCE(bm25_indexed_at, ingested_at) WHERE ingested_at IS NOT NULL"
     )

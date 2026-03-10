@@ -5,7 +5,8 @@ app = 'gabi-dou-es'
 primary_region = 'gru'
 
 [build]
-  dockerfile = 'ops/deploy/es/Dockerfile'
+  dockerfile = 'Dockerfile'
+  context = '../..'
 
 [mounts]
   source = 'gabi_es_data'

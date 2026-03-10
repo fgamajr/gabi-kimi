@@ -1,4 +1,5 @@
 """Search backend adapter layer (pg/es) with shared response normalization."""
+
 from __future__ import annotations
 
 from collections import OrderedDict
@@ -89,11 +90,9 @@ class SearchAdapter(Protocol):
         section: str | None = None,
         art_type: str | None = None,
         issuing_organ: str | None = None,
-    ) -> dict[str, Any]:
-        ...
+    ) -> dict[str, Any]: ...
 
-    def suggest(self, *, query: str, limit: int = 10) -> dict[str, Any]:
-        ...
+    def suggest(self, *, query: str, limit: int = 10) -> dict[str, Any]: ...
 
 
 def _rows(cur) -> list[dict[str, Any]]:
@@ -108,13 +107,7 @@ def _serialize(v: Any) -> Any:
 
 
 def _query_text(query: str) -> str:
-    return (
-        query.replace("\u201c", '"')
-        .replace("\u201d", '"')
-        .replace("\u2018", "'")
-        .replace("\u2019", "'")
-        .strip()
-    )
+    return query.replace("\u201c", '"').replace("\u201d", '"').replace("\u2018", "'").replace("\u2019", "'").strip()
 
 
 def _infer_request_filters(
@@ -361,11 +354,7 @@ def _normalize_rerank_text(value: str) -> str:
 
 def _rerank_terms(value: str) -> list[str]:
     norm = _normalize_rerank_text(value)
-    return [
-        token
-        for token in re.findall(r"[a-z0-9]+", norm)
-        if len(token) > 1 and token not in _RERANK_STOPWORDS
-    ]
+    return [token for token in re.findall(r"[a-z0-9]+", norm) if len(token) > 1 and token not in _RERANK_STOPWORDS]
 
 
 def _semantic_query_hint(query: str) -> bool:
@@ -386,13 +375,9 @@ def _is_hard_filter_query(
 def _norm_clause_should(norm_query: NormQuery) -> list[dict[str, Any]]:
     should: list[dict[str, Any]] = []
     if norm_query.norm_type:
-        should.append(
-            {"term": {"art_type.keyword": {"value": norm_query.norm_type, "boost": 10.0}}}
-        )
+        should.append({"term": {"art_type.keyword": {"value": norm_query.norm_type, "boost": 10.0}}})
     for variant in norm_query.number_variants:
-        should.append(
-            {"term": {"document_number": {"value": variant, "boost": 24.0}}}
-        )
+        should.append({"term": {"document_number": {"value": variant, "boost": 24.0}}})
         if norm_query.norm_type:
             should.append(
                 {
@@ -576,7 +561,7 @@ class PGSearchAdapter:
             FROM dou.document d
             JOIN dou.edition e ON e.id = d.edition_id
             LEFT JOIN dou.normative_reference nr ON nr.document_id = d.id
-            WHERE {' AND '.join(where_parts)}
+            WHERE {" AND ".join(where_parts)}
               AND (
                     d.document_number = ANY(%s)
                     OR (%s::text[] <> '{{}}'::text[] AND lower(coalesce(d.identifica, '')) = ANY(%s))
@@ -653,8 +638,7 @@ class PGSearchAdapter:
 
             if q.strip() != "*" and not issuing_organ and not art_type:
                 cur.execute(
-                    "SELECT cat, term FROM dou.suggest_cache "
-                    "WHERE cat IN ('orgao','tipo') AND term = %s LIMIT 1",
+                    "SELECT cat, term FROM dou.suggest_cache WHERE cat IN ('orgao','tipo') AND term = %s LIMIT 1",
                     (q.strip(),),
                 )
                 match = cur.fetchone()
@@ -693,7 +677,7 @@ class PGSearchAdapter:
                            left(d.body_plain, 200) AS snippet
                     FROM dou.document d
                     JOIN dou.edition e ON e.id = d.edition_id
-                    WHERE {' AND '.join(where_parts)}
+                    WHERE {" AND ".join(where_parts)}
                     ORDER BY e.publication_date DESC
                     LIMIT %s
                 """
@@ -848,9 +832,7 @@ class ESSearchAdapter:
             must_clause: list[dict[str, Any]] = [{"match_all": {}}]
             highlight = None
         else:
-            must_clause = [
-                _lexical_query_clause(q, norm_query)
-            ]
+            must_clause = [_lexical_query_clause(q, norm_query)]
             highlight = {
                 "max_analyzed_offset": 999999,
                 "pre_tags": [">>>"],

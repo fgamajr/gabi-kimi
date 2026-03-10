@@ -4,6 +4,7 @@ Runs weekly: (1) transitions DOWNLOAD_FAILED to FALLBACK_PENDING when aged out o
 and retries exhausted; (2) finds months in FALLBACK_ELIGIBLE, probes Liferay for monthly ZIPs,
 and transitions FALLBACK_PENDING files to DOWNLOADING when the ZIP is available.
 """
+
 from __future__ import annotations
 
 import logging
@@ -63,15 +64,11 @@ async def transition_aged_failures_to_fallback(registry: Registry) -> int:
     for f in files:
         if (f.get("retry_count") or 0) < MAX_RETRIES:
             continue
-        ref = _date_from_publication_or_month(
-            f.get("publication_date"), f.get("year_month") or ""
-        )
+        ref = _date_from_publication_or_month(f.get("publication_date"), f.get("year_month") or "")
         if ref >= cutoff:
             continue
         try:
-            await registry.update_status(
-                f["id"], FileStatus.FALLBACK_PENDING, _skip_validation=True
-            )
+            await registry.update_status(f["id"], FileStatus.FALLBACK_PENDING, _skip_validation=True)
             count += 1
         except Exception as e:
             logger.warning("Failed to transition file %s to FALLBACK_PENDING: %s", f.get("id"), e)
@@ -92,7 +89,9 @@ async def run_reconciliation(registry: Registry, run_id: str | None = None) -> d
     aged = await transition_aged_failures_to_fallback(registry)
     if aged > 0 and run_id:
         await registry.add_log_entry(
-            run_id, None, "INFO",
+            run_id,
+            None,
+            "INFO",
             f"Transitioned {aged} DOWNLOAD_FAILED files to FALLBACK_PENDING (aged out of INLABS window).",
         )
 
@@ -111,9 +110,7 @@ async def run_reconciliation(registry: Registry, run_id: str | None = None) -> d
                 logger.debug("Skipping month %s: no folder_id", year_month)
                 continue
 
-            files = await registry.get_files_by_status_and_month(
-                FileStatus.FALLBACK_PENDING, year_month
-            )
+            files = await registry.get_files_by_status_and_month(FileStatus.FALLBACK_PENDING, year_month)
             if not files:
                 continue
 
@@ -128,13 +125,13 @@ async def run_reconciliation(registry: Registry, run_id: str | None = None) -> d
                             file_url=url,
                             source="liferay",
                         )
-                        await registry.update_status(
-                            f["id"], FileStatus.DOWNLOADING, _skip_validation=True
-                        )
+                        await registry.update_status(f["id"], FileStatus.DOWNLOADING, _skip_validation=True)
                         recovered_this_month += 1
                         if run_id:
                             await registry.add_log_entry(
-                                run_id, f["id"], "INFO",
+                                run_id,
+                                f["id"],
+                                "INFO",
                                 f"Recovered via Liferay fallback: {filename}",
                             )
                     except Exception as e:
@@ -147,11 +144,14 @@ async def run_reconciliation(registry: Registry, run_id: str | None = None) -> d
                 recovered_files += recovered_this_month
                 logger.info(
                     "Reconciler: recovered %d files for %s via Liferay",
-                    recovered_this_month, year_month,
+                    recovered_this_month,
+                    year_month,
                 )
                 if run_id:
                     await registry.add_log_entry(
-                        run_id, None, "INFO",
+                        run_id,
+                        None,
+                        "INFO",
                         f"Recovered {recovered_this_month} files for {year_month} via Liferay monthly ZIP",
                     )
 

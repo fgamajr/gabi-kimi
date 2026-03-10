@@ -22,13 +22,12 @@ Usage:
     # Limit number of ZIPs per run
     python -m src.backend.ingest.sync_pipeline --limit 20
 """
+
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
-import sys
 import time
 from dataclasses import dataclass, field
 from datetime import date
@@ -36,7 +35,6 @@ from pathlib import Path
 from typing import Any
 
 from src.backend.ingest.catalog_scraper import (
-    MonthEntry,
     build_registry,
     scrape_all,
     write_registry,
@@ -44,7 +42,6 @@ from src.backend.ingest.catalog_scraper import (
 from src.backend.ingest.dou_ingest import BatchIngestResult, DOUIngestor, _log
 from src.backend.ingest import zip_downloader as _zd
 from src.backend.ingest.zip_downloader import (
-    DownloadResult,
     ZIPTarget,
     download_zip,
     load_folder_registry,
@@ -59,9 +56,11 @@ from src.backend.ingest.zip_downloader import (
 # Data classes
 # ---------------------------------------------------------------------------
 
+
 @dataclass(slots=True)
 class SyncPlan:
     """Plan computed by comparing catalog vs DB."""
+
     available: list[dict[str, Any]] = field(default_factory=list)
     ingested: set[str] = field(default_factory=set)
     missing: list[dict[str, Any]] = field(default_factory=list)
@@ -73,6 +72,7 @@ class SyncPlan:
 @dataclass(slots=True)
 class SyncResult:
     """Aggregate result of a sync run."""
+
     plan: SyncPlan | None = None
     downloaded: int = 0
     download_failed: int = 0
@@ -85,6 +85,7 @@ class SyncResult:
 # ---------------------------------------------------------------------------
 # Discovery — catalog side
 # ---------------------------------------------------------------------------
+
 
 def discover_available(
     registry_path: Path | None = None,
@@ -122,13 +123,15 @@ def discover_available(
             section = _filename_to_section(filename)
             url = f"{BASE_DOCUMENT_URL}/{GROUP_ID}/{folder_id}/{filename}"
 
-            entries.append({
-                "month": month_key,
-                "filename": filename,
-                "section": section,
-                "folder_id": folder_id,
-                "url": url,
-            })
+            entries.append(
+                {
+                    "month": month_key,
+                    "filename": filename,
+                    "section": section,
+                    "folder_id": folder_id,
+                    "url": url,
+                }
+            )
 
     return entries
 
@@ -145,6 +148,7 @@ def _filename_to_section(fname: str) -> str | None:
 # ---------------------------------------------------------------------------
 # Discovery — DB side
 # ---------------------------------------------------------------------------
+
 
 def discover_ingested(dsn: str) -> set[str]:
     """Query dou.source_zip for filenames already ingested.
@@ -174,7 +178,7 @@ def _extract_native_filename(local_filename: str) -> str | None:
     "2002-01_do1_S01012002.zip" → "S01012002.zip"
     "S01012002.zip"             → "S01012002.zip"
     """
-    m = re.search(r'(S\d{2}(?:E)?\d{6}(?:_Parte\w+)?\.zip)', local_filename, re.IGNORECASE)
+    m = re.search(r"(S\d{2}(?:E)?\d{6}(?:_Parte\w+)?\.zip)", local_filename, re.IGNORECASE)
     if m:
         return m.group(1)
     return local_filename
@@ -183,6 +187,7 @@ def _extract_native_filename(local_filename: str) -> str | None:
 # ---------------------------------------------------------------------------
 # Delta computation
 # ---------------------------------------------------------------------------
+
 
 def compute_sync_plan(
     available: list[dict[str, Any]],
@@ -208,7 +213,6 @@ def compute_sync_plan(
             ingested_native.add(native)
 
     # Find missing
-    months_with_all: set[str] = set()
     months_with_some: set[str] = set()
     months_seen: set[str] = set()
 
@@ -243,6 +247,7 @@ def compute_sync_plan(
 # ---------------------------------------------------------------------------
 # Download phase
 # ---------------------------------------------------------------------------
+
 
 def download_missing(
     plan: SyncPlan,
@@ -321,6 +326,7 @@ def download_missing(
 # Refresh catalog
 # ---------------------------------------------------------------------------
 
+
 def refresh_catalog(
     registry_path: Path,
     start_year: int = 2002,
@@ -351,16 +357,14 @@ def refresh_catalog(
     registry = build_registry(entries)
     write_registry(registry, registry_path)
 
-    _log(
-        f"Catalog refreshed: {registry['months_with_data']}/{registry['total_months']} months "
-        f"with data"
-    )
+    _log(f"Catalog refreshed: {registry['months_with_data']}/{registry['total_months']} months with data")
     return registry
 
 
 # ---------------------------------------------------------------------------
 # Full sync orchestrator
 # ---------------------------------------------------------------------------
+
 
 def run_sync(
     dsn: str,
@@ -426,10 +430,7 @@ def run_sync(
     result.plan = plan
 
     _log(f"  Delta: {len(plan.missing)} ZIPs to download/ingest")
-    _log(
-        f"  Months: {plan.months_complete}/{plan.months_total} complete, "
-        f"{plan.months_partial} partial"
-    )
+    _log(f"  Months: {plan.months_complete}/{plan.months_total} complete, {plan.months_partial} partial")
 
     if not plan.missing:
         _log("Nothing to sync — all up to date!")
@@ -449,7 +450,10 @@ def run_sync(
     # Step 5: Download missing
     _log(f"Downloading {min(len(plan.missing), limit) if limit else len(plan.missing)} ZIPs...")
     downloaded_paths, dl_ok, dl_failed, dl_bytes = download_missing(
-        plan, data_dir, delay=download_delay, limit=limit,
+        plan,
+        data_dir,
+        delay=download_delay,
+        limit=limit,
     )
     result.downloaded = dl_ok
     result.download_failed = dl_failed
@@ -474,6 +478,7 @@ def run_sync(
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def _print_summary(result: SyncResult) -> None:
     """Print human-readable sync summary."""
     print("\n" + "=" * 60)
@@ -488,10 +493,12 @@ def _print_summary(result: SyncResult) -> None:
         print(f"  Months:      {p.months_complete}/{p.months_total} complete")
 
     if result.dry_run:
-        print(f"  Mode:        DRY RUN (no changes)")
+        print("  Mode:        DRY RUN (no changes)")
     else:
-        print(f"  Downloaded:  {result.downloaded} ok, {result.download_failed} failed "
-              f"({result.download_bytes / 1024 / 1024:.1f} MB)")
+        print(
+            f"  Downloaded:  {result.downloaded} ok, {result.download_failed} failed "
+            f"({result.download_bytes / 1024 / 1024:.1f} MB)"
+        )
 
         if result.ingest_result:
             ir = result.ingest_result
@@ -515,42 +522,54 @@ def main() -> int:
     )
 
     p.add_argument(
-        "--data-dir", type=Path, default=Path("ops/data/inlabs"),
+        "--data-dir",
+        type=Path,
+        default=Path("ops/data/inlabs"),
         help="Directory for downloaded ZIPs (default: ops/data/inlabs)",
     )
     p.add_argument(
-        "--registry", type=Path, default=Path("ops/data/dou_catalog_registry.json"),
+        "--registry",
+        type=Path,
+        default=Path("ops/data/dou_catalog_registry.json"),
         help="Path to catalog registry JSON",
     )
     p.add_argument(
         "--dsn",
-        default=os.environ.get(
-            "GABI_DSN", "host=localhost port=5433 dbname=gabi user=gabi password=gabi"
-        ),
+        default=os.environ.get("GABI_DSN", "host=localhost port=5433 dbname=gabi user=gabi password=gabi"),
         help="PostgreSQL DSN",
     )
     p.add_argument(
-        "--refresh-catalog", action="store_true",
+        "--refresh-catalog",
+        action="store_true",
         help="Re-scrape in.gov.br catalog before syncing",
     )
     p.add_argument(
-        "--start", type=str, default=None,
+        "--start",
+        type=str,
+        default=None,
         help="Start month filter (YYYY-MM)",
     )
     p.add_argument(
-        "--end", type=str, default=None,
+        "--end",
+        type=str,
+        default=None,
         help="End month filter (YYYY-MM)",
     )
     p.add_argument(
-        "--limit", type=int, default=0,
+        "--limit",
+        type=int,
+        default=0,
         help="Max ZIPs to process per run (0 = all)",
     )
     p.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run",
+        action="store_true",
         help="Show what would be downloaded without doing it",
     )
     p.add_argument(
-        "--delay", type=float, default=0.8,
+        "--delay",
+        type=float,
+        default=0.8,
         help="Delay between download requests (seconds)",
     )
 

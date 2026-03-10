@@ -3,6 +3,7 @@
 This is useful for early years where XML references image URLs but ZIP bundles
 do not include binary image files.
 """
+
 from __future__ import annotations
 
 import argparse

@@ -72,6 +72,8 @@ class AuthPrincipal:
     roles: tuple[str, ...] = ()
     email: str | None = None
     status: str | None = None
+    email_verified: bool = True
+    password_changed_at: float | None = None  # if set, session iat must be >= this
 
 
 @dataclass(frozen=True)
@@ -111,17 +113,16 @@ def _build_auth_config() -> AuthConfig:
     if not session_secret and tokens and os.getenv("FLY_APP_NAME", "").strip():
         raise RuntimeError(
             "GABI_AUTH_SECRET must be set in production (Fly.io). "
-            "Generate one with: python3 -c \"import secrets; print(secrets.token_hex(32))\""
+            'Generate one with: python3 -c "import secrets; print(secrets.token_hex(32))"'
         )
     if not session_secret and tokens:
         import warnings
+
         warnings.warn(
             "GABI_AUTH_SECRET not set — deriving session secret from token IDs (local dev only)",
             stacklevel=2,
         )
-        session_secret = hashlib.sha256(
-            "|".join(record.token_id for record in tokens).encode("utf-8")
-        ).hexdigest()
+        session_secret = hashlib.sha256("|".join(record.token_id for record in tokens).encode("utf-8")).hexdigest()
 
     ttl_raw = os.getenv("GABI_SESSION_TTL_SEC", "43200").strip()
     try:
@@ -144,9 +145,7 @@ def get_auth_config() -> AuthConfig:
 async def bootstrap_identity_store(config: AuthConfig | None = None) -> None:
     config = config or get_auth_config()
     await ensure_identity_schema()
-    await sync_env_tokens(
-        [{"label": record.label, "token_id": record.token_id} for record in config.tokens]
-    )
+    await sync_env_tokens([{"label": record.label, "token_id": record.token_id} for record in config.tokens])
 
 
 async def _enrich_principal(principal: AuthPrincipal) -> AuthPrincipal:
@@ -168,6 +167,8 @@ async def _enrich_principal(principal: AuthPrincipal) -> AuthPrincipal:
         roles=identity.roles,
         email=identity.email,
         status=identity.status,
+        email_verified=identity.email_verified,
+        password_changed_at=getattr(identity, "password_changed_at", None),
     )
 
 
@@ -248,14 +249,18 @@ def _sign_session(config: AuthConfig, payload: str) -> str:
 
 
 def _encode_session(config: AuthConfig, principal: AuthPrincipal) -> str:
+    now = int(time.time())
     payload = {
-        "exp": int(time.time()) + config.session_ttl_sec,
+        "exp": now + config.session_ttl_sec,
+        "iat": now,
         "label": principal.label,
         "sub": principal.token_id,
     }
-    encoded_payload = base64.urlsafe_b64encode(
-        json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
-    ).decode("ascii").rstrip("=")
+    encoded_payload = (
+        base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8"))
+        .decode("ascii")
+        .rstrip("=")
+    )
     signature = _sign_session(config, encoded_payload)
     return f"{encoded_payload}.{signature}"
 
@@ -291,13 +296,9 @@ async def resolve_request_principal(
     if bearer_token:
         record = _find_token_record(bearer_token, config)
         if record is not None:
-            return await _enrich_principal(
-                AuthPrincipal(label=record.label, token_id=record.token_id, source="bearer")
-            )
+            return await _enrich_principal(AuthPrincipal(label=record.label, token_id=record.token_id, source="bearer"))
         db_token_id = token_id_for_secret(bearer_token)
-        db_principal = await _enrich_principal(
-            AuthPrincipal(label="db-token", token_id=db_token_id, source="bearer")
-        )
+        db_principal = await _enrich_principal(AuthPrincipal(label="db-token", token_id=db_token_id, source="bearer"))
         if db_principal.user_id is not None:
             return db_principal
         if log_failures:
@@ -326,6 +327,13 @@ async def resolve_request_principal(
                 )
             )
             if db_principal.user_id is not None:
+                iat = payload.get("iat")
+                if (
+                    db_principal.password_changed_at is not None
+                    and iat is not None
+                    and db_principal.password_changed_at > float(iat)
+                ):
+                    return None  # session invalidated by password change
                 return db_principal
             # Fallback: password users store user UUID as session sub,
             # not an api_token token_id -- resolve via user table directly.
@@ -334,6 +342,10 @@ async def resolve_request_principal(
             except Exception:
                 identity = None
             if identity is not None:
+                pwd_changed = getattr(identity, "password_changed_at", None)
+                iat = payload.get("iat")
+                if pwd_changed is not None and iat is not None and pwd_changed > float(iat):
+                    return None  # session invalidated by password change
                 return AuthPrincipal(
                     label=identity.display_name or str(payload.get("label") or "session"),
                     token_id=token_id,
@@ -342,6 +354,8 @@ async def resolve_request_principal(
                     roles=identity.roles,
                     email=identity.email,
                     status=identity.status,
+                    email_verified=identity.email_verified,
+                    password_changed_at=pwd_changed,
                 )
             log_security_event(
                 "auth_invalid_session_subject",
@@ -354,6 +368,7 @@ async def resolve_request_principal(
     if log_failures:
         _deny_auth(request, detail="Authentication required", event="auth_missing")
     return None
+
 
 def _rate_rule_for_path(path: str) -> tuple[str, RateRule]:
     if path == "/api/chat":
@@ -370,6 +385,14 @@ def _rate_rule_for_path(path: str) -> tuple[str, RateRule]:
 async def require_protected_access(request: Request) -> AuthPrincipal:
     principal = await resolve_request_principal(request)
     assert principal is not None
+    try:
+        import sentry_sdk
+
+        sentry_sdk.set_user(
+            {"id": str(principal.user_id or principal.token_id), "role": ",".join(principal.roles) or "user"}
+        )
+    except Exception:
+        pass
     limiter = getattr(request.app.state, "rate_limiter", None)
     if isinstance(limiter, RateLimiter):
         bucket, rule = _rate_rule_for_path(request.url.path)
@@ -406,28 +429,34 @@ async def require_admin_access(request: Request) -> AuthPrincipal:
     return principal
 
 
-def create_session_response(request: Request, principal: AuthPrincipal) -> Response:
+def create_session_response(
+    request: Request,
+    principal: AuthPrincipal,
+    *,
+    extra_body: dict | None = None,
+) -> Response:
     config = get_auth_config()
     if not config.session_secret:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Session secret is not configured",
         )
+    body = {
+        "authenticated": True,
+        "principal": {
+            "label": principal.label,
+            "source": principal.source,
+            "user_id": principal.user_id,
+            "roles": list(principal.roles),
+            "email": principal.email,
+            "status": principal.status,
+            "email_verified": principal.email_verified,
+        },
+    }
+    if extra_body:
+        body.update(extra_body)
     response = Response(
-        content=json.dumps(
-            {
-                "authenticated": True,
-                "principal": {
-                    "label": principal.label,
-                    "source": principal.source,
-                    "user_id": principal.user_id,
-                    "roles": list(principal.roles),
-                    "email": principal.email,
-                    "status": principal.status,
-                },
-            },
-            ensure_ascii=True,
-        ),
+        content=json.dumps(body, ensure_ascii=True),
         media_type="application/json",
     )
     attach_cookie(

@@ -9,6 +9,7 @@ Usage:
     python -m src.backend.ingest.discovery_probe --sample 200 --probe-only
     python -m src.backend.ingest.discovery_probe --sample 50 --probe-only --verbose
 """
+
 from __future__ import annotations
 
 import argparse
@@ -45,15 +46,16 @@ SECTIONS: dict[str, str] = {
 }
 
 EXTRA_SECTIONS: dict[str, str] = {
-    "do1e":  "S01E",
-    "do2e":  "S02E",
-    "do3e":  "S03E",
+    "do1e": "S01E",
+    "do2e": "S02E",
+    "do3e": "S03E",
     "do1esp": "S01ESP",
     "do2esp": "S02ESP",
-    "do1a":  "S01A",
+    "do1a": "S01A",
 }
 
 ALL_SECTIONS: dict[str, str] = {**SECTIONS, **EXTRA_SECTIONS}
+
 
 # URL pattern hypotheses to test
 # Each generates (url, pattern_name) from (prefix, date)
@@ -61,13 +63,16 @@ def _monthly_url(prefix: str, d: date) -> str:
     """S{prefix}{MMYYYY}.zip — monthly archive hypothesis."""
     return f"{BASE_URL}/{prefix}{d.strftime('%m%Y')}.zip"
 
+
 def _daily_url(prefix: str, d: date) -> str:
     """S{prefix}{DDMMYYYY}.zip — daily archive hypothesis."""
     return f"{BASE_URL}/{prefix}{d.strftime('%d%m%Y')}.zip"
 
+
 def _daily_dash_url(prefix: str, d: date) -> str:
     """S{prefix}-{YYYY-MM-DD}.zip — dashed daily hypothesis."""
     return f"{BASE_URL}/{prefix}-{d.isoformat()}.zip"
+
 
 def _daily_v2_url(prefix: str, d: date) -> str:
     """S{prefix}{YYYYMMDD}.zip — ISO daily hypothesis."""
@@ -75,10 +80,10 @@ def _daily_v2_url(prefix: str, d: date) -> str:
 
 
 URL_PATTERNS: dict[str, Any] = {
-    "monthly":     _monthly_url,      # S01012026.zip = Jan2026
-    "daily_ddmm":  _daily_url,        # S0101012026.zip = 01Jan2026
-    "daily_dash":  _daily_dash_url,   # S01-2026-01-01.zip
-    "daily_iso":   _daily_v2_url,     # S0120260101.zip
+    "monthly": _monthly_url,  # S01012026.zip = Jan2026
+    "daily_ddmm": _daily_url,  # S0101012026.zip = 01Jan2026
+    "daily_dash": _daily_dash_url,  # S01-2026-01-01.zip
+    "daily_iso": _daily_v2_url,  # S0120260101.zip
 }
 
 # User-Agent rotation
@@ -94,9 +99,11 @@ _USER_AGENTS: list[str] = [
 # Data classes
 # ---------------------------------------------------------------------------
 
+
 @dataclass(slots=True)
 class ProbeResult:
     """Result of probing a single URL."""
+
     date: date
     section: str
     pattern: str
@@ -134,6 +141,7 @@ class ProbeResult:
 @dataclass(slots=True)
 class TagsResult:
     """Result of querying the tags API for one date."""
+
     date: date
     flags: dict[str, bool]
     raw: dict[str, Any] | None = None
@@ -153,6 +161,7 @@ class TagsResult:
 @dataclass(slots=True)
 class DiscoveryReport:
     """Aggregated discovery results."""
+
     sample_dates: list[date]
     probe_results: list[ProbeResult] = field(default_factory=list)
     tags_results: list[TagsResult] = field(default_factory=list)
@@ -165,8 +174,10 @@ class DiscoveryReport:
 
 _VERBOSE = False
 
+
 def _log(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
+
 
 def _debug(msg: str) -> None:
     if _VERBOSE:
@@ -176,6 +187,7 @@ def _debug(msg: str) -> None:
 # ---------------------------------------------------------------------------
 # HTTP
 # ---------------------------------------------------------------------------
+
 
 def _build_session(max_retries: int = 2) -> requests.Session:
     session = requests.Session()
@@ -198,6 +210,7 @@ def _random_ua() -> str:
 # ---------------------------------------------------------------------------
 # Date sampling
 # ---------------------------------------------------------------------------
+
 
 def sample_dates(
     n: int,
@@ -230,6 +243,7 @@ def unique_months(dates: list[date]) -> list[date]:
 # Tags API probe
 # ---------------------------------------------------------------------------
 
+
 def probe_tags_api(
     dates: list[date],
     session: requests.Session,
@@ -254,10 +268,14 @@ def probe_tags_api(
             )
 
             if resp.status_code != 200:
-                results.append(TagsResult(
-                    date=d, flags={}, error=f"HTTP {resp.status_code}",
-                    status_code=resp.status_code,
-                ))
+                results.append(
+                    TagsResult(
+                        date=d,
+                        flags={},
+                        error=f"HTTP {resp.status_code}",
+                        status_code=resp.status_code,
+                    )
+                )
                 _debug(f"tags {d}: HTTP {resp.status_code}")
             else:
                 data = resp.json()
@@ -273,12 +291,15 @@ def probe_tags_api(
                 else:
                     flags_raw = {}
 
-                flags = {k: bool(v) for k, v in flags_raw.items()
-                         if isinstance(v, bool)}
-                results.append(TagsResult(
-                    date=d, flags=flags, raw=raw,
-                    status_code=resp.status_code,
-                ))
+                flags = {k: bool(v) for k, v in flags_raw.items() if isinstance(v, bool)}
+                results.append(
+                    TagsResult(
+                        date=d,
+                        flags=flags,
+                        raw=raw,
+                        status_code=resp.status_code,
+                    )
+                )
 
                 active = [k for k, v in flags.items() if v]
                 if active:
@@ -296,6 +317,7 @@ def probe_tags_api(
 # ---------------------------------------------------------------------------
 # URL pattern probing (HEAD requests)
 # ---------------------------------------------------------------------------
+
 
 def probe_url_patterns(
     dates: list[date],
@@ -339,8 +361,10 @@ def probe_url_patterns(
             deduped.append(item)
     queue = deduped
 
-    _log(f"probe: {len(queue)} unique URLs to check ({len(months)} months, "
-         f"{len(sections)} sections, {len(patterns)} patterns)")
+    _log(
+        f"probe: {len(queue)} unique URLs to check ({len(months)} months, "
+        f"{len(sections)} sections, {len(patterns)} patterns)"
+    )
 
     for idx, (d, section, pattern_name, url) in enumerate(queue, start=1):
         if idx % 50 == 0:
@@ -384,8 +408,12 @@ def probe_url_patterns(
         except Exception as ex:
             elapsed = int((time.monotonic() - t0) * 1000)
             pr = ProbeResult(
-                date=d, section=section, pattern=pattern_name,
-                url=url, status_code=-1, elapsed_ms=elapsed,
+                date=d,
+                section=section,
+                pattern=pattern_name,
+                url=url,
+                status_code=-1,
+                elapsed_ms=elapsed,
                 error=str(ex),
             )
             _debug(f"  ERR  {pattern_name:12s} {section:6s} {d}: {ex}")
@@ -399,6 +427,7 @@ def probe_url_patterns(
 # ---------------------------------------------------------------------------
 # Download confirmed hits
 # ---------------------------------------------------------------------------
+
 
 def download_hits(
     probe_results: list[ProbeResult],
@@ -460,6 +489,7 @@ def download_hits(
 # Report
 # ---------------------------------------------------------------------------
 
+
 def write_report(report: DiscoveryReport, output_dir: Path) -> None:
     """Write discovery results to JSON and CSV files."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -479,9 +509,7 @@ def write_report(report: DiscoveryReport, output_dir: Path) -> None:
 
     # --- Tags results JSON ---
     tags_data = [r.as_dict() for r in report.tags_results]
-    (output_dir / "tags_results.json").write_text(
-        json.dumps(tags_data, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    (output_dir / "tags_results.json").write_text(json.dumps(tags_data, indent=2, ensure_ascii=False), encoding="utf-8")
 
     # --- Summary ---
     pattern_stats: dict[str, dict[str, int]] = defaultdict(lambda: {"hit": 0, "miss": 0, "error": 0})
@@ -517,7 +545,9 @@ def write_report(report: DiscoveryReport, output_dir: Path) -> None:
 
     summary = {
         "sample_size": len(report.sample_dates),
-        "date_range": f"{min(report.sample_dates).isoformat()} to {max(report.sample_dates).isoformat()}" if report.sample_dates else "",
+        "date_range": f"{min(report.sample_dates).isoformat()} to {max(report.sample_dates).isoformat()}"
+        if report.sample_dates
+        else "",
         "total_probes": len(report.probe_results),
         "pattern_statistics": dict(pattern_stats),
         "year_statistics": {str(k): v for k, v in sorted(year_stats.items())},
@@ -543,16 +573,17 @@ def write_report(report: DiscoveryReport, output_dir: Path) -> None:
     _log("\n" + "=" * 70)
     _log("DISCOVERY REPORT")
     _log("=" * 70)
-    _log(f"Sample: {len(report.sample_dates)} dates "
-         f"({min(report.sample_dates)} to {max(report.sample_dates)})")
+    _log(f"Sample: {len(report.sample_dates)} dates ({min(report.sample_dates)} to {max(report.sample_dates)})")
     _log("")
 
     _log("URL Pattern Results:")
     for pattern, stats in sorted(pattern_stats.items()):
         total = stats["hit"] + stats["miss"] + stats.get("error", 0)
         pct = (stats["hit"] / total * 100) if total else 0
-        _log(f"  {pattern:12s}: {stats['hit']:4d} hit / {stats['miss']:4d} miss "
-             f"/ {stats.get('error', 0):3d} err  ({pct:5.1f}% hit)")
+        _log(
+            f"  {pattern:12s}: {stats['hit']:4d} hit / {stats['miss']:4d} miss "
+            f"/ {stats.get('error', 0):3d} err  ({pct:5.1f}% hit)"
+        )
 
     _log("")
     _log("Hits by Year (monthly pattern):")
@@ -577,8 +608,10 @@ def write_report(report: DiscoveryReport, output_dir: Path) -> None:
 
     if hit_sizes:
         _log("")
-        _log(f"ZIP sizes: min={min(hit_sizes):,}B  max={max(hit_sizes):,}B  "
-             f"avg={int(sum(hit_sizes)/len(hit_sizes)):,}B")
+        _log(
+            f"ZIP sizes: min={min(hit_sizes):,}B  max={max(hit_sizes):,}B  "
+            f"avg={int(sum(hit_sizes) / len(hit_sizes)):,}B"
+        )
 
     _log("")
     _log(f"Downloads: {len(report.downloaded)} files")
@@ -590,32 +623,23 @@ def write_report(report: DiscoveryReport, output_dir: Path) -> None:
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     global _VERBOSE
 
-    p = argparse.ArgumentParser(
-        description="Discover DOU public endpoint URL patterns across years"
+    p = argparse.ArgumentParser(description="Discover DOU public endpoint URL patterns across years")
+    p.add_argument("--sample", type=int, default=200, help="Number of random dates to sample (default: 200)")
+    p.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility (default: 42)")
+    p.add_argument("--start", type=str, default="2016-01-01", help="Start date YYYY-MM-DD (default: 2016-01-01)")
+    p.add_argument("--end", type=str, default="2026-03-03", help="End date YYYY-MM-DD (default: 2026-03-03)")
+    p.add_argument(
+        "--output", type=str, default="ops/data/discovery", help="Output directory (default: ops/data/discovery)"
     )
-    p.add_argument("--sample", type=int, default=200,
-                   help="Number of random dates to sample (default: 200)")
-    p.add_argument("--seed", type=int, default=42,
-                   help="Random seed for reproducibility (default: 42)")
-    p.add_argument("--start", type=str, default="2016-01-01",
-                   help="Start date YYYY-MM-DD (default: 2016-01-01)")
-    p.add_argument("--end", type=str, default="2026-03-03",
-                   help="End date YYYY-MM-DD (default: 2026-03-03)")
-    p.add_argument("--output", type=str, default="ops/data/discovery",
-                   help="Output directory (default: ops/data/discovery)")
-    p.add_argument("--download", action="store_true",
-                   help="Download confirmed-existing ZIPs after probing")
-    p.add_argument("--probe-only", action="store_true",
-                   help="Only probe URLs, skip tags API and download")
-    p.add_argument("--tags-only", action="store_true",
-                   help="Only query tags API")
-    p.add_argument("--skip-daily", action="store_true",
-                   help="Skip daily URL pattern probes (faster)")
-    p.add_argument("--delay", type=float, default=0.15,
-                   help="Delay between HEAD requests in seconds (default: 0.15)")
+    p.add_argument("--download", action="store_true", help="Download confirmed-existing ZIPs after probing")
+    p.add_argument("--probe-only", action="store_true", help="Only probe URLs, skip tags API and download")
+    p.add_argument("--tags-only", action="store_true", help="Only query tags API")
+    p.add_argument("--skip-daily", action="store_true", help="Skip daily URL pattern probes (faster)")
+    p.add_argument("--delay", type=float, default=0.15, help="Delay between HEAD requests in seconds (default: 0.15)")
     p.add_argument("--verbose", "-v", action="store_true")
     args = p.parse_args()
     _VERBOSE = args.verbose
@@ -661,10 +685,8 @@ def main() -> None:
 
         # 4) Download
         if args.download:
-            _log(f"\n--- Download ---")
-            report.downloaded = download_hits(
-                report.probe_results, output_dir / "zips", session, delay=0.5
-            )
+            _log("\n--- Download ---")
+            report.downloaded = download_hits(report.probe_results, output_dir / "zips", session, delay=0.5)
 
     finally:
         session.close()

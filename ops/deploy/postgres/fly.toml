@@ -5,7 +5,8 @@ app = 'gabi-dou-db'
 primary_region = 'gru'
 
 [build]
-  dockerfile = 'ops/deploy/postgres/Dockerfile'
+  dockerfile = 'Dockerfile'
+  context = '../..'
 
 [env]
   POSTGRES_DB = 'gabi'

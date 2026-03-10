@@ -4,6 +4,7 @@ Usage:
   python ops/bin/mcp_es_server.py
   python ops/bin/mcp_es_server.py --transport sse --port 8766
 """
+
 from __future__ import annotations
 
 import os
@@ -11,7 +12,12 @@ from typing import Any
 
 import httpx
 from dotenv import load_dotenv
-from src.backend.search.adapters import _infer_request_filters, _search_context_payload, create_search_adapter, load_search_config
+from src.backend.search.adapters import (
+    _infer_request_filters,
+    _search_context_payload,
+    create_search_adapter,
+    load_search_config,
+)
 
 try:
     from mcp.server.fastmcp import FastMCP

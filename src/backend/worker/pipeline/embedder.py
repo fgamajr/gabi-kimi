@@ -1,9 +1,9 @@
 """Embedding pipeline stage for worker-indexed DOU documents."""
+
 from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import os
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -11,10 +11,11 @@ from typing import Any
 
 import httpx
 
+from src.backend.core.logging import bind_pipeline, get_logger
 from src.backend.ingest.embedding_pipeline import _create_embedder, _load_embed_config
 from src.backend.worker.registry import FileStatus, Registry
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 ES_INDEX = "gabi_documents_v1"
 SEARCH_BATCH_SIZE = 200
@@ -157,6 +158,7 @@ async def run_embed(
 
         for file_rec in files:
             file_id = file_rec["id"]
+            bind_pipeline(file_id=file_id)
             filename = file_rec["filename"]
 
             await registry.update_status(file_id, FileStatus.EMBEDDING)
@@ -170,7 +172,7 @@ async def run_embed(
                 total_failed = 0
 
                 for start in range(0, len(hits), EMBED_BATCH_SIZE):
-                    batch_hits = hits[start:start + EMBED_BATCH_SIZE]
+                    batch_hits = hits[start : start + EMBED_BATCH_SIZE]
                     texts = [_build_embedding_text(hit.get("_source", {})) for hit in batch_hits]
                     vectors = await asyncio.to_thread(embedder.embed_batch, texts)
                     if len(vectors) != len(batch_hits):

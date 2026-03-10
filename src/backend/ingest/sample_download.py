@@ -20,13 +20,13 @@ Usage:
     # Analyze already-downloaded ZIPs
     python -m src.backend.ingest.sample_download --analyze-only
 """
+
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
 import random
-import sys
 import time
 import zipfile
 from collections import Counter
@@ -67,6 +67,7 @@ _IMAGE_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff"}
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _log(msg: str) -> None:
     ts = datetime.now().strftime("%H:%M:%S")
     print(f"[{ts}] {msg}", flush=True)
@@ -98,14 +99,16 @@ def _file_sha256(path: Path) -> str:
 # Step 1: Build full catalog (deterministic, zero HTTP)
 # ---------------------------------------------------------------------------
 
+
 @dataclass(slots=True)
 class CatalogEntry:
     """One downloadable ZIP in the full catalog."""
-    month: str          # 2002-01
-    filename: str       # S01012002.zip
-    folder_id: int      # 50300469
-    url: str            # full download URL
-    section: str        # do1, do2, do3 (inferred)
+
+    month: str  # 2002-01
+    filename: str  # S01012002.zip
+    folder_id: int  # 50300469
+    url: str  # full download URL
+    section: str  # do1, do2, do3 (inferred)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -146,19 +149,22 @@ def build_full_catalog(registry_path: Path = DEFAULT_REGISTRY) -> list[CatalogEn
             continue
         for fname in files[month_key]:
             url = f"{BASE_DOCUMENT_URL}/{GROUP_ID}/{fid}/{fname}"
-            catalog.append(CatalogEntry(
-                month=month_key,
-                filename=fname,
-                folder_id=int(fid),
-                url=url,
-                section=_infer_section(fname),
-            ))
+            catalog.append(
+                CatalogEntry(
+                    month=month_key,
+                    filename=fname,
+                    folder_id=int(fid),
+                    url=url,
+                    section=_infer_section(fname),
+                )
+            )
     return catalog
 
 
 # ---------------------------------------------------------------------------
 # Step 2: Sample N entries uniformly
 # ---------------------------------------------------------------------------
+
 
 def sample_catalog(
     catalog: list[CatalogEntry],
@@ -176,15 +182,17 @@ def sample_catalog(
 # Step 3: Job state management
 # ---------------------------------------------------------------------------
 
+
 @dataclass(slots=True)
 class JobEntry:
     """Tracks one ZIP through the download pipeline."""
+
     idx: int
     month: str
     filename: str
     url: str
     section: str
-    status: str = "pending"    # pending → downloading → done | failed
+    status: str = "pending"  # pending → downloading → done | failed
     local_path: str | None = None
     size_bytes: int = 0
     sha256: str | None = None
@@ -220,13 +228,15 @@ def create_job_state(
     """Create initial job state with all entries as pending."""
     entries = []
     for i, entry in enumerate(sampled):
-        entries.append(JobEntry(
-            idx=i,
-            month=entry.month,
-            filename=entry.filename,
-            url=entry.url,
-            section=entry.section,
-        ))
+        entries.append(
+            JobEntry(
+                idx=i,
+                month=entry.month,
+                filename=entry.filename,
+                url=entry.url,
+                section=entry.section,
+            )
+        )
 
     _save_job_state(entries, output_dir, full_catalog_size, seed)
     return entries
@@ -270,6 +280,7 @@ def load_job_state(output_dir: Path) -> list[JobEntry]:
 # ---------------------------------------------------------------------------
 # Step 4: Concurrent download
 # ---------------------------------------------------------------------------
+
 
 def _download_one(
     entry: JobEntry,
@@ -361,10 +372,7 @@ def download_all(
 
     try:
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {
-                pool.submit(_download_one, entry, output_dir, session): entry
-                for entry in pending
-            }
+            futures = {pool.submit(_download_one, entry, output_dir, session): entry for entry in pending}
 
             for future in as_completed(futures):
                 entry = future.result()
@@ -376,12 +384,10 @@ def download_all(
                     _log(
                         f"[{completed}/{len(pending)}] ✓ {entry.filename} "
                         f"({mb:.1f} MB, {entry.download_ms}ms) "
-                        f"total: {total_bytes/1024/1024:.0f} MB"
+                        f"total: {total_bytes / 1024 / 1024:.0f} MB"
                     )
                 else:
-                    _log(
-                        f"[{completed}/{len(pending)}] ✗ {entry.filename}: {entry.error}"
-                    )
+                    _log(f"[{completed}/{len(pending)}] ✗ {entry.filename}: {entry.error}")
 
                 # Periodic save
                 if completed % save_interval == 0:
@@ -393,7 +399,7 @@ def download_all(
 
     done = sum(1 for e in entries if e.status == "done")
     failed = sum(1 for e in entries if e.status == "failed")
-    _log(f"Download complete: {done} done, {failed} failed, {total_bytes/1024/1024:.0f} MB total")
+    _log(f"Download complete: {done} done, {failed} failed, {total_bytes / 1024 / 1024:.0f} MB total")
     return entries
 
 
@@ -401,9 +407,11 @@ def download_all(
 # Step 5: Extract + Analyze
 # ---------------------------------------------------------------------------
 
+
 @dataclass(slots=True)
 class ZIPAnalysis:
     """Analysis results for one ZIP file."""
+
     filename: str
     month: str
     section: str
@@ -473,7 +481,8 @@ def analyze_zip(zip_path: Path, month: str, section: str) -> ZIPAnalysis:
 
             # Parse a sample of XMLs (up to 50 for speed)
             xml_members = [
-                info for info in zf.infolist()
+                info
+                for info in zf.infolist()
                 if not info.is_dir() and Path(info.filename).suffix.lower() in _XML_EXTENSIONS
             ]
             sample_size = min(50, len(xml_members))
@@ -496,17 +505,19 @@ def analyze_zip(zip_path: Path, month: str, section: str) -> ZIPAnalysis:
 
                     # Save first 3 as samples
                     if len(analysis.sample_articles) < 3:
-                        analysis.sample_articles.append({
-                            "id": article.id,
-                            "id_materia": article.id_materia,
-                            "pub_name": article.pub_name,
-                            "pub_date": article.pub_date,
-                            "art_type": article.art_type,
-                            "art_category": article.art_category[:80],
-                            "identifica": article.identifica[:120],
-                            "has_texto": bool(article.texto),
-                            "texto_len": len(article.texto),
-                        })
+                        analysis.sample_articles.append(
+                            {
+                                "id": article.id,
+                                "id_materia": article.id_materia,
+                                "pub_name": article.pub_name,
+                                "pub_date": article.pub_date,
+                                "art_type": article.art_type,
+                                "art_category": article.art_category[:80],
+                                "identifica": article.identifica[:120],
+                                "has_texto": bool(article.texto),
+                                "texto_len": len(article.texto),
+                            }
+                        )
 
                 except (XMLParseError, Exception) as ex:
                     analysis.parse_errors += 1
@@ -575,7 +586,9 @@ def analyze_all(
             "total_image_files": total_images,
             "parsed_ok": total_parsed,
             "parse_errors": total_errors,
-            "parse_rate": f"{total_parsed/(total_parsed+total_errors)*100:.1f}%" if (total_parsed + total_errors) > 0 else "N/A",
+            "parse_rate": f"{total_parsed / (total_parsed + total_errors) * 100:.1f}%"
+            if (total_parsed + total_errors) > 0
+            else "N/A",
         },
         "distributions": {
             "pub_names": dict(all_pub_names.most_common()),
@@ -587,9 +600,7 @@ def analyze_all(
     }
 
     analysis_path = output_dir / ANALYSIS_FILE
-    analysis_path.write_text(
-        json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    analysis_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
     _log(f"Analysis saved to {analysis_path}")
 
     # Print summary
@@ -597,7 +608,7 @@ def analyze_all(
     print("ANALYSIS SUMMARY")
     print("=" * 60)
     print(f"ZIPs analyzed:   {len(results)}")
-    print(f"Total size:      {total_bytes/1024/1024:.0f} MB")
+    print(f"Total size:      {total_bytes / 1024 / 1024:.0f} MB")
     print(f"XML files:       {total_xmls:,}")
     print(f"Image files:     {total_images:,}")
     print(f"Parse OK:        {total_parsed:,}")
@@ -614,6 +625,7 @@ def analyze_all(
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def main() -> int:
     p = argparse.ArgumentParser(
@@ -644,7 +656,8 @@ def main() -> int:
 
         # Resume downloads
         entries = download_all(
-            entries, output_dir,
+            entries,
+            output_dir,
             workers=args.workers,
         )
         analyze_all(entries, output_dir)
@@ -657,9 +670,7 @@ def main() -> int:
 
     # Save full catalog
     catalog_path = output_dir / "full_catalog.json"
-    catalog_path.write_text(
-        json.dumps([e.to_dict() for e in catalog], indent=2), encoding="utf-8"
-    )
+    catalog_path.write_text(json.dumps([e.to_dict() for e in catalog], indent=2), encoding="utf-8")
     _log(f"Full catalog saved to {catalog_path}")
 
     # Sample
@@ -680,7 +691,8 @@ def main() -> int:
 
     # Download
     entries = download_all(
-        entries, output_dir,
+        entries,
+        output_dir,
         workers=args.workers,
         full_catalog_size=len(catalog),
         seed=args.seed,

@@ -3,6 +3,7 @@
 Provides endpoints for registry status, pipeline runs, logs, trigger,
 retry, pause/resume, and health monitoring.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -13,7 +14,6 @@ from src.backend.worker.registry import Registry
 from src.backend.worker.scheduler import (
     PHASE_MAP,
     get_scheduler_status,
-    load_pause_state_from_registry,
     pause_scheduler,
     persist_pause_state,
     resume_scheduler,

@@ -32,7 +32,7 @@ def diff_schema(desired: DesiredSchemaPlan, existing: ExistingDatabaseState) -> 
         if schema not in existing.schemas:
             out.operations.append(
                 Operation(
-                    kind='create_schema',
+                    kind="create_schema",
                     summary=f"+ create schema {schema}",
                     sql=f'CREATE SCHEMA IF NOT EXISTS "{schema}";',
                 )
@@ -64,19 +64,19 @@ def _ops_create_table(dt) -> list[Operation]:
     col_defs = []
     for col_name in sorted(dt.columns.keys()):
         col = dt.columns[col_name]
-        nullable = '' if col.nullable else ' NOT NULL'
+        nullable = "" if col.nullable else " NOT NULL"
         col_defs.append(f'"{col.name}" {col.pg_type}{nullable}')
 
     if dt.primary_key:
         col_defs.append(f'PRIMARY KEY ("{dt.primary_key}")')
 
-    ddl = f'CREATE TABLE "{dt.schema}"."{dt.name}" (\n  ' + ',\n  '.join(col_defs) + '\n);'
-    ops.append(Operation(kind='create_table', summary=f"+ create table {dt.schema}.{dt.name}", sql=ddl))
+    ddl = f'CREATE TABLE "{dt.schema}"."{dt.name}" (\n  ' + ",\n  ".join(col_defs) + "\n);"
+    ops.append(Operation(kind="create_table", summary=f"+ create table {dt.schema}.{dt.name}", sql=ddl))
 
     for fk in dt.fks:
         ops.append(
             Operation(
-                kind='add_fk',
+                kind="add_fk",
                 summary=f"+ add foreign key {fk.name} on {dt.schema}.{dt.name}",
                 sql=(
                     f'ALTER TABLE "{dt.schema}"."{dt.name}" '
@@ -89,25 +89,22 @@ def _ops_create_table(dt) -> list[Operation]:
     for uq in dt.uniques:
         ops.append(
             Operation(
-                kind='add_unique',
+                kind="add_unique",
                 summary=f"+ add unique {uq.name} on {dt.schema}.{dt.name}",
-                sql=(
-                    f'ALTER TABLE "{dt.schema}"."{dt.name}" '
-                    f'ADD CONSTRAINT "{uq.name}" UNIQUE ({_cols(uq.columns)});'
-                ),
+                sql=(f'ALTER TABLE "{dt.schema}"."{dt.name}" ADD CONSTRAINT "{uq.name}" UNIQUE ({_cols(uq.columns)});'),
             )
         )
 
     for idx in dt.indexes:
-        unique = 'UNIQUE ' if idx.unique else ''
-        method = idx.method or 'btree'
+        unique = "UNIQUE " if idx.unique else ""
+        method = idx.method or "btree"
         ops.append(
             Operation(
-                kind='create_index',
+                kind="create_index",
                 summary=f"+ create index {idx.name} on {dt.schema}.{dt.name}",
                 sql=(
                     f'CREATE {unique}INDEX "{idx.name}" ON "{dt.schema}"."{dt.name}" '
-                    f'USING {method} ({_cols(idx.columns)});'
+                    f"USING {method} ({_cols(idx.columns)});"
                 ),
             )
         )
@@ -120,15 +117,12 @@ def _ops_add_missing_columns(dt, et) -> list[Operation]:
     for col_name, col in sorted(dt.columns.items()):
         if col_name in et.columns:
             continue
-        nullable = '' if col.nullable else ' NOT NULL'
+        nullable = "" if col.nullable else " NOT NULL"
         ops.append(
             Operation(
-                kind='add_column',
+                kind="add_column",
                 summary=f"+ add column {dt.schema}.{dt.name}.{col_name} {col.pg_type}",
-                sql=(
-                    f'ALTER TABLE "{dt.schema}"."{dt.name}" '
-                    f'ADD COLUMN "{col_name}" {col.pg_type}{nullable};'
-                ),
+                sql=(f'ALTER TABLE "{dt.schema}"."{dt.name}" ADD COLUMN "{col_name}" {col.pg_type}{nullable};'),
             )
         )
     return ops
@@ -140,12 +134,9 @@ def _ops_add_constraints_indexes(dt, et) -> list[Operation]:
     if dt.primary_key and not et.primary_key:
         ops.append(
             Operation(
-                kind='add_pk',
+                kind="add_pk",
                 summary=f"+ add primary key on {dt.schema}.{dt.name}({dt.primary_key})",
-                sql=(
-                    f'ALTER TABLE "{dt.schema}"."{dt.name}" '
-                    f'ADD PRIMARY KEY ("{dt.primary_key}");'
-                ),
+                sql=(f'ALTER TABLE "{dt.schema}"."{dt.name}" ADD PRIMARY KEY ("{dt.primary_key}");'),
             )
         )
 
@@ -155,7 +146,7 @@ def _ops_add_constraints_indexes(dt, et) -> list[Operation]:
             continue
         ops.append(
             Operation(
-                kind='add_fk',
+                kind="add_fk",
                 summary=f"+ add foreign key {fk.name} on {dt.schema}.{dt.name}",
                 sql=(
                     f'ALTER TABLE "{dt.schema}"."{dt.name}" '
@@ -171,12 +162,9 @@ def _ops_add_constraints_indexes(dt, et) -> list[Operation]:
             continue
         ops.append(
             Operation(
-                kind='add_unique',
+                kind="add_unique",
                 summary=f"+ add unique {uq.name} on {dt.schema}.{dt.name}",
-                sql=(
-                    f'ALTER TABLE "{dt.schema}"."{dt.name}" '
-                    f'ADD CONSTRAINT "{uq.name}" UNIQUE ({_cols(uq.columns)});'
-                ),
+                sql=(f'ALTER TABLE "{dt.schema}"."{dt.name}" ADD CONSTRAINT "{uq.name}" UNIQUE ({_cols(uq.columns)});'),
             )
         )
 
@@ -184,15 +172,15 @@ def _ops_add_constraints_indexes(dt, et) -> list[Operation]:
     for idx in dt.indexes:
         if idx.name in existing_index_names:
             continue
-        unique = 'UNIQUE ' if idx.unique else ''
-        method = idx.method or 'btree'
+        unique = "UNIQUE " if idx.unique else ""
+        method = idx.method or "btree"
         ops.append(
             Operation(
-                kind='create_index',
+                kind="create_index",
                 summary=f"+ create index {idx.name} on {dt.schema}.{dt.name}",
                 sql=(
                     f'CREATE {unique}INDEX "{idx.name}" ON "{dt.schema}"."{dt.name}" '
-                    f'USING {method} ({_cols(idx.columns)});'
+                    f"USING {method} ({_cols(idx.columns)});"
                 ),
             )
         )
@@ -206,9 +194,7 @@ def _detect_dangerous_changes(dt, et) -> list[str]:
     for e_col_name, e_col in et.columns.items():
         d_col = dt.columns.get(e_col_name)
         if d_col is None:
-            issues.append(
-                f"MANUAL ACTION REQUIRED: drop column detected {dt.schema}.{dt.name}.{e_col_name}"
-            )
+            issues.append(f"MANUAL ACTION REQUIRED: drop column detected {dt.schema}.{dt.name}.{e_col_name}")
             continue
 
         if _normalize(d_col.pg_type) != _normalize(e_col.pg_type):
@@ -219,22 +205,21 @@ def _detect_dangerous_changes(dt, et) -> list[str]:
 
         if e_col.nullable and not d_col.nullable:
             issues.append(
-                "MANUAL ACTION REQUIRED: nullable -> required change detected "
-                f"{dt.schema}.{dt.name}.{e_col_name}"
+                f"MANUAL ACTION REQUIRED: nullable -> required change detected {dt.schema}.{dt.name}.{e_col_name}"
             )
 
     return issues
 
 
 def _cols(cols: list[str]) -> str:
-    return ', '.join(f'"{c}"' for c in cols)
+    return ", ".join(f'"{c}"' for c in cols)
 
 
 def _normalize(tp: str) -> str:
     aliases = {
-        'varchar': 'text',
-        'character varying': 'text',
-        'int4': 'integer',
-        'int8': 'bigint',
+        "varchar": "text",
+        "character varying": "text",
+        "int4": "integer",
+        "int8": "bigint",
     }
     return aliases.get(tp, tp)

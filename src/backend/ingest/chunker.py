@@ -1,4 +1,5 @@
 """Document chunking helpers for RAG/hybrid retrieval pipelines."""
+
 from __future__ import annotations
 
 import math

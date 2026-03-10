@@ -3,15 +3,16 @@
 Configures cron jobs for the pipeline phases + retry + daily ES snapshot.
 Supports pause/resume and manual triggering of individual phases.
 """
+
 from __future__ import annotations
 
-import logging
 import os
 from typing import Any, Callable, Coroutine
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from src.backend.core.logging import bind_pipeline, clear_context, get_logger
 from src.backend.worker.pipeline.discovery import run_discovery
 from src.backend.worker.pipeline.downloader import run_download
 from src.backend.worker.pipeline.embedder import run_embed
@@ -22,7 +23,7 @@ from src.backend.worker.reconciler import run_reconciliation
 from src.backend.worker.registry import FileStatus, Registry
 from src.backend.worker.snapshots import create_snapshot
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 scheduler = AsyncIOScheduler(timezone="UTC")
 
@@ -103,19 +104,25 @@ async def _run_phase(phase: str) -> dict[str, Any]:
         return {"error": "registry not initialized"}
 
     run_id = await _registry.create_pipeline_run(phase)
+    bind_pipeline(run_id=run_id, phase=phase)
     func = PHASE_MAP[phase]
     es_url = _get_es_url()
 
     try:
-        # Each pipeline function has slightly different signatures.
-        # discovery, verify, bm25, embed take (registry, run_id, es_url, ...)
-        # download, extract take (registry, run_id, ...)
-        if phase in ("discovery", "verify"):
-            stats = await func(_registry, run_id, es_url)
-        elif phase in ("bm25", "embed"):
-            stats = await func(_registry, run_id, es_url)
-        else:
-            stats = await func(_registry, run_id)
+        import sentry_sdk
+
+        with sentry_sdk.push_scope() as scope:
+            scope.set_tag("pipeline_phase", phase)
+            scope.set_tag("run_id", run_id)
+            # Each pipeline function has slightly different signatures.
+            # discovery, verify, bm25, embed take (registry, run_id, es_url, ...)
+            # download, extract take (registry, run_id, ...)
+            if phase in ("discovery", "verify"):
+                stats = await func(_registry, run_id, es_url)
+            elif phase in ("bm25", "embed"):
+                stats = await func(_registry, run_id, es_url)
+            else:
+                stats = await func(_registry, run_id)
 
         counters = _normalize_phase_stats(phase, stats)
         await _registry.complete_pipeline_run(
@@ -136,6 +143,8 @@ async def _run_phase(phase: str) -> dict[str, Any]:
             error_message=str(exc),
         )
         return {"error": str(exc)}
+    finally:
+        clear_context()
 
 
 async def _run_snapshot() -> None:
@@ -176,6 +185,7 @@ async def _run_watchdog() -> None:
     es_url = _get_es_url()
     try:
         import httpx
+
         async with httpx.AsyncClient() as client:
             r = await client.get(f"{es_url}/_cluster/health", timeout=5)
             if r.status_code == 200:
@@ -214,9 +224,7 @@ async def _run_reconciliation() -> None:
         logger.info("Reconciliation completed: %s", stats)
     except Exception as exc:
         logger.exception("Reconciliation failed: %s", exc)
-        await _registry.complete_pipeline_run(
-            run_id, 0, 0, 0, error_message=str(exc)
-        )
+        await _registry.complete_pipeline_run(run_id, 0, 0, 0, error_message=str(exc))
 
 
 async def _run_full_cycle() -> dict[str, Any]:
@@ -265,58 +273,97 @@ def configure_scheduler() -> None:
     """Add all cron jobs to the scheduler."""
     # Pipeline phases
     scheduler.add_job(
-        _run_phase, CronTrigger(hour=23, minute=0),
-        args=["discovery"], id="discovery", replace_existing=True, max_instances=1,
+        _run_phase,
+        CronTrigger(hour=23, minute=0),
+        args=["discovery"],
+        id="discovery",
+        replace_existing=True,
+        max_instances=1,
     )
     scheduler.add_job(
-        _run_phase, CronTrigger(hour=23, minute=30),
-        args=["download"], id="download", replace_existing=True, max_instances=1,
+        _run_phase,
+        CronTrigger(hour=23, minute=30),
+        args=["download"],
+        id="download",
+        replace_existing=True,
+        max_instances=1,
     )
     scheduler.add_job(
-        _run_phase, CronTrigger(hour=23, minute=45),
-        args=["extract"], id="extract", replace_existing=True, max_instances=1,
+        _run_phase,
+        CronTrigger(hour=23, minute=45),
+        args=["extract"],
+        id="extract",
+        replace_existing=True,
+        max_instances=1,
     )
     scheduler.add_job(
-        _run_phase, CronTrigger(hour=0, minute=0),
-        args=["bm25"], id="bm25", replace_existing=True, max_instances=1,
+        _run_phase,
+        CronTrigger(hour=0, minute=0),
+        args=["bm25"],
+        id="bm25",
+        replace_existing=True,
+        max_instances=1,
     )
     scheduler.add_job(
-        _run_phase, CronTrigger(hour=0, minute=30),
-        args=["embed"], id="embed", replace_existing=True, max_instances=1,
+        _run_phase,
+        CronTrigger(hour=0, minute=30),
+        args=["embed"],
+        id="embed",
+        replace_existing=True,
+        max_instances=1,
     )
     scheduler.add_job(
-        _run_phase, CronTrigger(hour=1, minute=0),
-        args=["verify"], id="verify", replace_existing=True, max_instances=1,
+        _run_phase,
+        CronTrigger(hour=1, minute=0),
+        args=["verify"],
+        id="verify",
+        replace_existing=True,
+        max_instances=1,
     )
 
     # Retry failed files
     scheduler.add_job(
-        _run_retry, CronTrigger(hour=6, minute=0),
-        id="retry", replace_existing=True, max_instances=1,
+        _run_retry,
+        CronTrigger(hour=6, minute=0),
+        id="retry",
+        replace_existing=True,
+        max_instances=1,
     )
 
     # Daily ES snapshot to Tigris
     scheduler.add_job(
-        _run_snapshot, CronTrigger(hour=2, minute=0),
-        id="snapshot", replace_existing=True, max_instances=1,
+        _run_snapshot,
+        CronTrigger(hour=2, minute=0),
+        id="snapshot",
+        replace_existing=True,
+        max_instances=1,
     )
 
     # Daily refresh of month-level catalog_status (INLABS_WINDOW, FALLBACK_ELIGIBLE, CLOSED)
     scheduler.add_job(
-        _run_refresh_catalog_status, CronTrigger(hour=3, minute=0),
-        id="refresh_catalog_status", replace_existing=True, max_instances=1,
+        _run_refresh_catalog_status,
+        CronTrigger(hour=3, minute=0),
+        id="refresh_catalog_status",
+        replace_existing=True,
+        max_instances=1,
     )
 
     # Weekly catalog reconciliation (aged DOWNLOAD_FAILED → FALLBACK_PENDING; Liferay monthly probe)
     scheduler.add_job(
-        _run_reconciliation, CronTrigger(day_of_week="tue", hour=4, minute=0),
-        id="reconciliation", replace_existing=True, max_instances=1,
+        _run_reconciliation,
+        CronTrigger(day_of_week="tue", hour=4, minute=0),
+        id="reconciliation",
+        replace_existing=True,
+        max_instances=1,
     )
 
     # Watchdog every 6 hours
     scheduler.add_job(
-        _run_watchdog, CronTrigger(hour="0,6,12,18", minute=0),
-        id="watchdog", replace_existing=True, max_instances=1,
+        _run_watchdog,
+        CronTrigger(hour="0,6,12,18", minute=0),
+        id="watchdog",
+        replace_existing=True,
+        max_instances=1,
     )
 
     logger.info("Scheduler configured with %d jobs", len(scheduler.get_jobs()))
@@ -342,6 +389,7 @@ async def persist_pause_state(paused: bool) -> None:
     if _registry is None:
         return
     from datetime import datetime, timezone
+
     await _registry.set_config("scheduler_paused", "true" if paused else "false")
     if paused:
         await _registry.set_config("scheduler_paused_at", datetime.now(timezone.utc).isoformat())
@@ -350,7 +398,9 @@ async def persist_pause_state(paused: bool) -> None:
     event = "scheduler_paused" if paused else "scheduler_resumed"
     run_id = await _registry.create_pipeline_run(event)
     await _registry.add_log_entry(
-        run_id, None, "INFO",
+        run_id,
+        None,
+        "INFO",
         f"Pipeline {event} (trigger=manual)",
     )
     await _registry.complete_pipeline_run(run_id, 0, 0, 0)
@@ -370,10 +420,12 @@ def get_scheduler_status() -> dict[str, Any]:
     """Return scheduler status including job details."""
     jobs = []
     for job in scheduler.get_jobs():
-        jobs.append({
-            "id": job.id,
-            "next_run_time": job.next_run_time.isoformat() if job.next_run_time else None,
-        })
+        jobs.append(
+            {
+                "id": job.id,
+                "next_run_time": job.next_run_time.isoformat() if job.next_run_time else None,
+            }
+        )
     return {
         "running": scheduler.running,
         "paused": _paused,

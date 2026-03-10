@@ -5,6 +5,7 @@ Usage:
   python3 -m src.backend.ingest.es_indexer sync
   python3 -m src.backend.ingest.es_indexer stats
 """
+
 from __future__ import annotations
 
 import argparse
@@ -161,9 +162,7 @@ class ESClient:
                         err = row.get("error")
                         first_error = json.dumps(err, ensure_ascii=True) if err else f"status={status}"
             if failed:
-                raise RuntimeError(
-                    f"bulk indexing failed: failed={failed} ok={ok} first_error={first_error}"
-                )
+                raise RuntimeError(f"bulk indexing failed: failed={failed} ok={ok} first_error={first_error}")
             return ok, failed
         raise RuntimeError(f"bulk failed after retries: {last_error}")
 
@@ -295,20 +294,22 @@ def cmd_stats(args: argparse.Namespace) -> None:
     idx_stats = es.request("GET", f"/{es.index}/_stats/docs,store")
     cursor = _load_cursor(cursor_path)
 
-    print(json.dumps(
-        {
-            "backend": "es",
-            "index": es.index,
-            "cluster_status": health.get("status"),
-            "pg_count": pg_count,
-            "es_count": es_count,
-            "count_delta": pg_count - es_count,
-            "cursor": cursor,
-            "index_stats": idx_stats.get("indices", {}).get(es.index, {}),
-        },
-        ensure_ascii=True,
-        indent=2,
-    ))
+    print(
+        json.dumps(
+            {
+                "backend": "es",
+                "index": es.index,
+                "cluster_status": health.get("status"),
+                "pg_count": pg_count,
+                "es_count": es_count,
+                "count_delta": pg_count - es_count,
+                "cursor": cursor,
+                "index_stats": idx_stats.get("indices", {}).get(es.index, {}),
+            },
+            ensure_ascii=True,
+            indent=2,
+        )
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -34,6 +34,8 @@ class IdentityRecord:
     token_label: str
     token_status: str
     is_service_account: bool
+    email_verified: bool = False
+    password_changed_at: float | None = None  # unix timestamp; session invalid if session_iat < this
 
 
 def token_id_for_secret(token: str) -> str:
@@ -98,7 +100,9 @@ async def sync_env_tokens(token_rows: list[dict[str, str]]) -> None:
                     updated_at = now()
                 RETURNING user_id
                 """,
-                user_id, token_id, label,
+                user_id,
+                token_id,
+                label,
             )
             user_id = upserted["user_id"]
 
@@ -111,7 +115,8 @@ async def sync_env_tokens(token_rows: list[dict[str, str]]) -> None:
                     updated_at = now()
                 WHERE id = $2
                 """,
-                label, user_id,
+                label,
+                user_id,
             )
 
             await conn.execute(
@@ -148,6 +153,8 @@ async def resolve_identity_for_token(token_id: str) -> IdentityRecord | None:
                 u.email,
                 u.status,
                 u.is_service_account,
+                COALESCE(u.email_verified, false) AS email_verified,
+                EXTRACT(EPOCH FROM u.password_changed_at)::double precision AS password_changed_at,
                 t.token_id,
                 t.token_label,
                 t.status AS token_status,
@@ -159,7 +166,7 @@ async def resolve_identity_for_token(token_id: str) -> IdentityRecord | None:
             WHERE t.token_id = $1
               AND t.status = 'active'
               AND u.status = 'active'
-            GROUP BY u.id, u.display_name, u.email, u.status, u.is_service_account, t.token_id, t.token_label, t.status
+            GROUP BY u.id, u.display_name, u.email, u.status, u.is_service_account, u.email_verified, u.password_changed_at, t.token_id, t.token_label, t.status
             """,
             token_id,
         )
@@ -176,6 +183,8 @@ async def resolve_identity_for_token(token_id: str) -> IdentityRecord | None:
             token_label=str(d["token_label"]),
             token_status=str(d["token_status"]),
             is_service_account=bool(d["is_service_account"]),
+            email_verified=bool(d.get("email_verified", False)),
+            password_changed_at=float(d["password_changed_at"]) if d.get("password_changed_at") is not None else None,
         )
 
 
@@ -228,7 +237,9 @@ async def issue_api_token(*, user_id: str, token_label: str) -> dict[str, Any]:
             VALUES ($1::uuid, $2, $3, 'active')
             RETURNING token_id, token_label, status, created_at, updated_at, last_used_at
             """,
-            user_id, token_id, token_label.strip(),
+            user_id,
+            token_id,
+            token_label.strip(),
         )
         if not row:
             raise ValueError("token-create-failed")
@@ -290,7 +301,9 @@ async def list_users() -> list[dict[str, Any]]:
         return [dict(row) for row in rows]
 
 
-async def upsert_user(*, user_id: str | None, display_name: str, email: str | None, status: str, is_service_account: bool) -> dict[str, Any]:
+async def upsert_user(
+    *, user_id: str | None, display_name: str, email: str | None, status: str, is_service_account: bool
+) -> dict[str, Any]:
     async with acquire() as conn:
         created = False
         if user_id:
@@ -305,7 +318,11 @@ async def upsert_user(*, user_id: str | None, display_name: str, email: str | No
                 WHERE id = $5::uuid
                 RETURNING id::text AS id, display_name, email, status, is_service_account, created_at, updated_at, last_login_at
                 """,
-                display_name, email, status, is_service_account, user_id,
+                display_name,
+                email,
+                status,
+                is_service_account,
+                user_id,
             )
         else:
             row = await conn.fetchrow(
@@ -314,7 +331,10 @@ async def upsert_user(*, user_id: str | None, display_name: str, email: str | No
                 VALUES ($1, $2, $3, $4)
                 RETURNING id::text AS id, display_name, email, status, is_service_account, created_at, updated_at, last_login_at
                 """,
-                display_name, email, status, is_service_account,
+                display_name,
+                email,
+                status,
+                is_service_account,
             )
             created = True
         if not row:
@@ -347,7 +367,8 @@ async def replace_user_roles(user_id: str, roles: list[str]) -> dict[str, Any]:
                 WHERE r.code = ANY($2::text[])
                 ON CONFLICT DO NOTHING
                 """,
-                user_id, clean_roles,
+                user_id,
+                clean_roles,
             )
         row = await conn.fetchrow(
             """
@@ -382,7 +403,9 @@ async def create_password_user(email: str, password_hash: str, display_name: str
             VALUES ($1, $2, $3, 'password', false, 'active', false)
             RETURNING id::text AS id, display_name, email
             """,
-            display_name, email, password_hash,
+            display_name,
+            email,
+            password_hash,
         )
         user_id = row["id"]
         await conn.execute(
@@ -403,7 +426,8 @@ async def find_user_by_email(email: str) -> dict | None:
     async with acquire() as conn:
         row = await conn.fetchrow(
             """
-            SELECT id::text AS id, display_name, email, password_hash, status, login_method
+            SELECT id::text AS id, display_name, email, password_hash, status, login_method,
+                   COALESCE(email_verified, false) AS email_verified
             FROM auth."user"
             WHERE LOWER(email) = LOWER($1)
               AND status = 'active'
@@ -421,7 +445,9 @@ async def log_login_attempt(email: str, ip: str, success: bool) -> None:
             INSERT INTO auth.login_attempt (email, ip_address, success)
             VALUES ($1, $2, $3)
             """,
-            email, ip, success,
+            email,
+            ip,
+            success,
         )
 
 
@@ -460,6 +486,99 @@ async def check_brute_force(email: str, ip: str) -> None:
             )
 
 
+# ---------------------------------------------------------------------------
+# A1: Email verification tokens
+# ---------------------------------------------------------------------------
+
+
+def _hash_verification_token(raw: str) -> str:
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+async def create_verification_token(user_id: str) -> str:
+    """Create a new verification token for the user. Returns the raw token (for URL)."""
+    raw = secrets.token_urlsafe(32)
+    token_hash = _hash_verification_token(raw)
+    async with acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO auth.email_verification (user_id, token_hash)
+            VALUES ($1::uuid, $2)
+            """,
+            user_id,
+            token_hash,
+        )
+    return raw
+
+
+async def get_verification_token_status(token: str) -> str:
+    """Return 'valid' | 'expired' | 'used' | 'invalid' without consuming the token."""
+    token_hash = _hash_verification_token(token)
+    async with acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT
+                used_at IS NOT NULL AS used,
+                expires_at > now() AS not_expired
+            FROM auth.email_verification
+            WHERE token_hash = $1
+            """,
+            token_hash,
+        )
+    if not row:
+        return "invalid"
+    if row["used"]:
+        return "used"
+    if not row["not_expired"]:
+        return "expired"
+    return "valid"
+
+
+async def consume_verification_token(token: str) -> str | None:
+    """Validate token, mark user as verified and token as used. Returns user_id or None if invalid/expired/used."""
+    token_hash = _hash_verification_token(token)
+    async with acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT user_id
+            FROM auth.email_verification
+            WHERE token_hash = $1
+              AND used_at IS NULL
+              AND expires_at > now()
+            """,
+            token_hash,
+        )
+        if not row:
+            return None
+        user_id = str(row["user_id"])
+        await conn.execute(
+            """
+            UPDATE auth."user"
+            SET email_verified = true, updated_at = now()
+            WHERE id = $1::uuid
+            """,
+            user_id,
+        )
+        await conn.execute(
+            """
+            UPDATE auth.email_verification
+            SET used_at = now()
+            WHERE token_hash = $1
+            """,
+            token_hash,
+        )
+        return user_id
+
+
+async def invalidate_previous_tokens(user_id: str) -> None:
+    """Remove all verification tokens for the user (e.g. before sending a new one)."""
+    async with acquire() as conn:
+        await conn.execute(
+            "DELETE FROM auth.email_verification WHERE user_id = $1::uuid",
+            user_id,
+        )
+
+
 async def resolve_identity_for_user_id(user_id: str) -> IdentityRecord | None:
     """Resolve an IdentityRecord directly from user UUID (for password-authenticated sessions)."""
     async with acquire() as conn:
@@ -471,13 +590,15 @@ async def resolve_identity_for_user_id(user_id: str) -> IdentityRecord | None:
                 u.email,
                 u.status,
                 u.is_service_account,
+                COALESCE(u.email_verified, false) AS email_verified,
+                EXTRACT(EPOCH FROM u.password_changed_at)::double precision AS password_changed_at,
                 COALESCE(array_agg(r.code ORDER BY r.code) FILTER (WHERE r.code IS NOT NULL), '{}'::text[]) AS roles
             FROM auth."user" u
             LEFT JOIN auth.user_role ur ON ur.user_id = u.id
             LEFT JOIN auth.role r ON r.id = ur.role_id
             WHERE u.id = $1::uuid
               AND u.status = 'active'
-            GROUP BY u.id, u.display_name, u.email, u.status, u.is_service_account
+            GROUP BY u.id, u.display_name, u.email, u.status, u.is_service_account, u.email_verified, u.password_changed_at
             """,
             user_id,
         )
@@ -494,4 +615,79 @@ async def resolve_identity_for_user_id(user_id: str) -> IdentityRecord | None:
             token_label="password",
             token_status="active",
             is_service_account=bool(d["is_service_account"]),
+            email_verified=bool(d.get("email_verified", False)),
+            password_changed_at=float(d["password_changed_at"]) if d.get("password_changed_at") is not None else None,
+        )
+
+
+# ---------------------------------------------------------------------------
+# A2: Password reset tokens
+# ---------------------------------------------------------------------------
+
+
+def _hash_password_reset_token(raw: str) -> str:
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+async def create_password_reset_token(user_id: str, ip_address: str | None = None) -> str:
+    """Create a password reset token for the user. Returns the raw token for the email link."""
+    raw = secrets.token_urlsafe(32)
+    token_hash = _hash_password_reset_token(raw)
+    async with acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO auth.password_reset (user_id, token_hash, ip_address)
+            VALUES ($1::uuid, $2, $3)
+            """,
+            user_id,
+            token_hash,
+            ip_address,
+        )
+    return raw
+
+
+async def consume_password_reset_token(token: str) -> str | None:
+    """If token is valid (not expired, not used), mark it used and return user_id. Else return None."""
+    token_hash = _hash_password_reset_token(token)
+    async with acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT user_id
+            FROM auth.password_reset
+            WHERE token_hash = $1
+              AND used_at IS NULL
+              AND expires_at > now()
+            """,
+            token_hash,
+        )
+        if not row:
+            return None
+        user_id = str(row["user_id"])
+        await conn.execute(
+            "UPDATE auth.password_reset SET used_at = now() WHERE token_hash = $1",
+            token_hash,
+        )
+        return user_id
+
+
+async def invalidate_password_reset_tokens_for_user(user_id: str) -> None:
+    """Remove all password reset tokens for the user."""
+    async with acquire() as conn:
+        await conn.execute(
+            "DELETE FROM auth.password_reset WHERE user_id = $1::uuid",
+            user_id,
+        )
+
+
+async def update_user_password(user_id: str, new_password_hash: str) -> None:
+    """Set user password and password_changed_at (invalidates existing sessions)."""
+    async with acquire() as conn:
+        await conn.execute(
+            """
+            UPDATE auth."user"
+            SET password_hash = $2, password_changed_at = now(), updated_at = now()
+            WHERE id = $1::uuid
+            """,
+            user_id,
+            new_password_hash,
         )

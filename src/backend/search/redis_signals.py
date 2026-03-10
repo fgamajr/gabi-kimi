@@ -1,4 +1,5 @@
 """Redis-backed query signals: top searches, prefix boosts, and suggest cache."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone

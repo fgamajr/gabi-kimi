@@ -52,12 +52,31 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> ... -> 13 -> 14
+Phases execute in numeric order: 1 -> ... -> 13 -> 14 -> 15
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1-13 | v1.0 | 22/22 | Complete | 2026-03-09 |
 | 14. Email + Password Auth | 2/2 | Complete   | 2026-03-09 | - |
+
+### Phase 15: Fly flies
+
+**Goal:** Deploy GABI Search to Fly.io as a production-ready system -- all services live, smoke-tested, and pipeline validated
+**Requirements**: DEPLOY-01, DEPLOY-02, DEPLOY-03, DEPLOY-04, DEPLOY-05, DEPLOY-06, DEPLOY-07, PIPELINE-01, PIPELINE-02, PIPELINE-03
+**Depends on:** Phase 14
+**Plans:** 3 plans
+**Success Criteria** (what must be TRUE):
+  1. All 5 Fly apps + Postgres are created and running in gru region
+  2. Frontend serves GABI at https://gabi-dou-frontend.fly.dev
+  3. Web /healthz, search, and auth endpoints all respond without 5xx
+  4. ES cluster health is green or yellow
+  5. At least one pipeline cycle completes (discovery -> download -> index)
+  6. Worker survives restart with registry intact
+
+Plans:
+- [ ] 15-01-PLAN.md -- Pre-flight config fixes (requirements.txt, ES entrypoint, Redis config, smoke-test script)
+- [ ] 15-02-PLAN.md -- Deploy all services to Fly.io and run smoke tests
+- [ ] 15-03-PLAN.md -- Pipeline validation (manual trigger, scheduler, restart recovery)
 
 ---
 _Full v1.0 details: `.planning/milestones/v1.0-ROADMAP.md`_

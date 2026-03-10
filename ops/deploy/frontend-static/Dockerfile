@@ -15,6 +15,6 @@ RUN npm run build
 FROM nginxinc/nginx-unprivileged:1.29-alpine
 
 COPY ops/deploy/frontend-static/nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=build /app/src/frontend/web/dist /usr/share/nginx/html/dist
+COPY --from=build /app/src/frontend/web/dist /usr/share/nginx/html
 
 EXPOSE 8080

@@ -19,6 +19,7 @@ Architecture:
     - Registry covers Jan 2002 → Jan 2026 (289 months)
     - 404 for special editions is normal (not published every day)
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -28,7 +29,7 @@ import sys
 import time
 import zipfile
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -54,9 +55,9 @@ _DEFAULT_REGISTRY_PATH = Path("ops/data/dou_catalog_registry.json")
 # URL pattern: S{prefix}{MMYYYY}.zip  where MM=month, YYYY=year
 # Confirmed: S01012026.zip = Section 1, January 2026
 SECTIONS: dict[str, str] = {
-    "do1":  "S01",
-    "do2":  "S02",
-    "do3":  "S03",
+    "do1": "S01",
+    "do2": "S02",
+    "do3": "S03",
 }
 
 # Extra edition ZIP prefix — needs validation against server
@@ -71,12 +72,12 @@ ALL_SECTIONS: dict[str, str] = {**SECTIONS, **EXTRA_SECTIONS}
 
 # Tags API flag → section code mapping
 TAGS_SECTION_MAP: dict[str, str] = {
-    "DO1E":   "do1e",
-    "DO2E":   "do2e",
-    "DO3E":   "do3e",
+    "DO1E": "do1e",
+    "DO2E": "do2e",
+    "DO3E": "do3e",
     "DO1ESP": "do1esp",
     "DO2ESP": "do2esp",
-    "DO1A":   "do1a",
+    "DO1A": "do1a",
 }
 
 # ---------------------------------------------------------------------------
@@ -84,7 +85,7 @@ TAGS_SECTION_MAP: dict[str, str] = {
 # File registry — maps YYYY-MM → list[str] of actual ZIP filenames on server
 # ---------------------------------------------------------------------------
 
-_FOLDER_REGISTRY: dict[str, int] = {}   # loaded lazily
+_FOLDER_REGISTRY: dict[str, int] = {}  # loaded lazily
 _FILE_REGISTRY: dict[str, list[str]] = {}  # loaded lazily
 
 
@@ -150,14 +151,16 @@ MIN_REQUEST_DELAY = 0.5  # seconds between requests
 # Data classes
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True, slots=True)
 class ZIPTarget:
     """A single ZIP to download."""
-    section: str          # do1, do2, do3, do1e, do2e, do3e
-    pub_date: date        # For monthly: 1st of month. For daily: exact date.
+
+    section: str  # do1, do2, do3, do1e, do2e, do3e
+    pub_date: date  # For monthly: 1st of month. For daily: exact date.
     url: str
-    filename: str         # server filename (e.g. S01012026.zip)
-    local_filename: str   # local filename (e.g. 2026-01_DO1.zip)
+    filename: str  # server filename (e.g. S01012026.zip)
+    local_filename: str  # local filename (e.g. 2026-01_DO1.zip)
 
     @property
     def date_str(self) -> str:
@@ -167,6 +170,7 @@ class ZIPTarget:
 @dataclass(slots=True)
 class DownloadResult:
     """Result of a single ZIP download."""
+
     target: ZIPTarget
     success: bool
     local_path: Path | None = None
@@ -180,6 +184,7 @@ class DownloadResult:
 @dataclass(slots=True)
 class DownloadManifest:
     """Tracks a batch of downloads."""
+
     targets: list[ZIPTarget] = field(default_factory=list)
     results: list[DownloadResult] = field(default_factory=list)
 
@@ -199,6 +204,7 @@ class DownloadManifest:
 @dataclass(slots=True)
 class ExtractionResult:
     """Result of extracting XML files from a ZIP."""
+
     zip_path: Path
     xml_files: list[Path]
     image_files: list[Path]
@@ -209,6 +215,7 @@ class ExtractionResult:
 # Logging
 # ---------------------------------------------------------------------------
 
+
 def _log(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
 
@@ -216,6 +223,7 @@ def _log(msg: str) -> None:
 # ---------------------------------------------------------------------------
 # HTTP session factory
 # ---------------------------------------------------------------------------
+
 
 def _build_session(max_retries: int = DEFAULT_RETRY_ATTEMPTS) -> requests.Session:
     """Build a requests session with retry + backoff."""
@@ -229,13 +237,15 @@ def _build_session(max_retries: int = DEFAULT_RETRY_ATTEMPTS) -> requests.Sessio
     adapter = HTTPAdapter(max_retries=retry, pool_connections=5, pool_maxsize=5)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
-    session.headers.update({
-        "Accept": "application/octet-stream, application/zip, */*",
-        "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
-        "Accept-Encoding": "gzip, deflate, br",
-        "DNT": "1",
-        "Connection": "keep-alive",
-    })
+    session.headers.update(
+        {
+            "Accept": "application/octet-stream, application/zip, */*",
+            "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+            "Accept-Encoding": "gzip, deflate, br",
+            "DNT": "1",
+            "Connection": "keep-alive",
+        }
+    )
     return session
 
 
@@ -246,6 +256,7 @@ def _random_ua() -> str:
 # ---------------------------------------------------------------------------
 # Tags API — special edition detection
 # ---------------------------------------------------------------------------
+
 
 def detect_special_editions(
     pub_date: date,
@@ -293,6 +304,7 @@ def detect_special_editions(
 # ---------------------------------------------------------------------------
 # URL generation
 # ---------------------------------------------------------------------------
+
 
 def _section_to_local(section: str) -> str:
     """Convert section code to local filename segment (e.g. do1 → DO1, do1e → DO1E)."""
@@ -387,16 +399,18 @@ def _registry_targets_for_month(
             continue
         url = f"{BASE_DOCUMENT_URL}/{GROUP_ID}/{folder_id}/{fname}"
         # Local name preserves original filename for split parts
-        local_filename = f"{month_key}_{section.upper()}_{fname}" if "_Parte" in fname else (
-            f"{month_key}_{section.upper()}.zip"
+        local_filename = (
+            f"{month_key}_{section.upper()}_{fname}" if "_Parte" in fname else (f"{month_key}_{section.upper()}.zip")
         )
-        targets.append(ZIPTarget(
-            section=section,
-            pub_date=month_date,
-            url=url,
-            filename=fname,
-            local_filename=local_filename,
-        ))
+        targets.append(
+            ZIPTarget(
+                section=section,
+                pub_date=month_date,
+                url=url,
+                filename=fname,
+                local_filename=local_filename,
+            )
+        )
     return targets
 
 
@@ -465,6 +479,7 @@ def build_targets(
 # ---------------------------------------------------------------------------
 # Download
 # ---------------------------------------------------------------------------
+
 
 def download_zip(
     target: ZIPTarget,
@@ -538,11 +553,7 @@ def download_zip(
         elapsed_ms = int((time.monotonic() - start_ms) * 1000)
         sha = h.hexdigest()
 
-        _log(
-            f"download: {target.local_filename} "
-            f"size={size:,} sha256={sha[:16]}... "
-            f"time={elapsed_ms}ms"
-        )
+        _log(f"download: {target.local_filename} size={size:,} sha256={sha[:16]}... time={elapsed_ms}ms")
 
         return DownloadResult(
             target=target,
@@ -594,16 +605,11 @@ def download_batch(
 
     try:
         for idx, target in enumerate(targets, start=1):
-            result = download_zip(
-                target, output_dir, session=session, skip_existing=skip_existing
-            )
+            result = download_zip(target, output_dir, session=session, skip_existing=skip_existing)
             manifest.results.append(result)
 
             status = "OK" if result.success else result.error
-            _log(
-                f"batch [{idx}/{len(targets)}]: "
-                f"{target.local_filename} → {status}"
-            )
+            _log(f"batch [{idx}/{len(targets)}]: {target.local_filename} → {status}")
 
             # Rate-limit (skip delay for cached/skipped files)
             if result.download_time_ms > 0 and idx < len(targets):
@@ -692,6 +698,7 @@ def extract_xml_from_zip(
 # Manifest I/O
 # ---------------------------------------------------------------------------
 
+
 def write_manifest(manifest: DownloadManifest, outdir: Path) -> Path:
     """Write download manifest to JSON file."""
     outdir.mkdir(parents=True, exist_ok=True)
@@ -705,16 +712,18 @@ def write_manifest(manifest: DownloadManifest, outdir: Path) -> Path:
         t = r.target
         dates_seen.add(t.pub_date.isoformat())
         sections_seen.add(_section_to_local(t.section))
-        files.append({
-            "date": t.pub_date.isoformat(),
-            "section": _section_to_local(t.section),
-            "success": r.success,
-            "filename": t.local_filename,
-            "size_bytes": r.size_bytes,
-            "sha256": r.sha256,
-            "download_time_ms": r.download_time_ms,
-            "error": r.error,
-        })
+        files.append(
+            {
+                "date": t.pub_date.isoformat(),
+                "section": _section_to_local(t.section),
+                "success": r.success,
+                "filename": t.local_filename,
+                "size_bytes": r.size_bytes,
+                "sha256": r.sha256,
+                "download_time_ms": r.download_time_ms,
+                "error": r.error,
+            }
+        )
 
     data = {
         "dates": sorted(dates_seen, reverse=True),
@@ -726,9 +735,7 @@ def write_manifest(manifest: DownloadManifest, outdir: Path) -> Path:
         "files": files,
     }
 
-    manifest_path.write_text(
-        json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    manifest_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     return manifest_path
 
 

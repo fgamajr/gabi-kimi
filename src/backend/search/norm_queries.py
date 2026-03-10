@@ -1,4 +1,5 @@
 """Legal norm query normalization helpers for Brazilian legal search."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -154,10 +155,16 @@ _SHORT_LAW_RE = re.compile(r"\b(?:l|lei)\s*(?P<number>\d{3,8})(?:\s*/\s*(?P<year
 
 _FAMOUS_NORMS: tuple[FamousNorm, ...] = (
     FamousNorm("lei", "9394", 1996, ("ldb", "lei de diretrizes e bases", "lei de diretrizes e bases da educacao")),
-    FamousNorm("lei", "13709", 2018, ("lgpd", "lei geral de protecao de dados", "lei geral de protecao de dados pessoais")),
+    FamousNorm(
+        "lei", "13709", 2018, ("lgpd", "lei geral de protecao de dados", "lei geral de protecao de dados pessoais")
+    ),
     FamousNorm("lei", "8078", 1990, ("cdc", "codigo de defesa do consumidor", "código de defesa do consumidor")),
-    FamousNorm("lei", "8069", 1990, ("eca", "estatuto da crianca e do adolescente", "estatuto da criança e do adolescente")),
-    FamousNorm("decreto-lei", "5452", 1943, ("clt", "consolidacao das leis do trabalho", "consolidação das leis do trabalho")),
+    FamousNorm(
+        "lei", "8069", 1990, ("eca", "estatuto da crianca e do adolescente", "estatuto da criança e do adolescente")
+    ),
+    FamousNorm(
+        "decreto-lei", "5452", 1943, ("clt", "consolidacao das leis do trabalho", "consolidação das leis do trabalho")
+    ),
 )
 
 _ALIAS_TO_NORM: dict[str, FamousNorm] = {}

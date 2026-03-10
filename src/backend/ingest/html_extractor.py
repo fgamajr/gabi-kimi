@@ -11,21 +11,23 @@ Extracts structured data from the HTML inside ``<Texto>`` CDATA sections:
 
 Uses only stdlib (``html.parser``, ``re``) — no external dependencies.
 """
+
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
 from html.parser import HTMLParser
-from typing import Any
 
 
 # ---------------------------------------------------------------------------
 # Dataclasses
 # ---------------------------------------------------------------------------
 
+
 @dataclass(slots=True)
 class Signature:
     """A document signatory extracted from HTML."""
+
     person_name: str
     role_title: str | None
     sequence: int
@@ -34,7 +36,8 @@ class Signature:
 @dataclass(slots=True)
 class ImageRef:
     """An image reference extracted from ``<img ...>`` tags."""
-    name: str           # e.g. "1_MPESCA_27_001" (usually no extension)
+
+    name: str  # e.g. "1_MPESCA_27_001" (usually no extension)
     source: str | None  # original src/name payload from HTML tag
     sequence: int
     alt_text: str | None = None
@@ -44,23 +47,26 @@ class ImageRef:
 @dataclass(slots=True)
 class NormRef:
     """A normative/legislative reference extracted by regex."""
-    reference_type: str         # "lei", "decreto", "resolução", etc.
-    reference_number: str       # "12.846/2013"
+
+    reference_type: str  # "lei", "decreto", "resolução", etc.
+    reference_number: str  # "12.846/2013"
     reference_date: str | None  # "29 de junho de 2009"
-    reference_text: str         # full matched snippet
-    issuing_body: str | None    # "MPA/MMA", "GECEX"
+    reference_text: str  # full matched snippet
+    issuing_body: str | None  # "MPA/MMA", "GECEX"
 
 
 @dataclass(slots=True)
 class ProcRef:
     """A procedure/process reference."""
-    procedure_type: str         # "processo_etico", "processo_sei", "proad", etc.
-    procedure_identifier: str   # "0096/2023"
+
+    procedure_type: str  # "processo_etico", "processo_sei", "proad", etc.
+    procedure_identifier: str  # "0096/2023"
 
 
 # ===========================================================================
 # HTML parser for signatures and image refs
 # ===========================================================================
+
 
 class _SignatureImageParser(HTMLParser):
     """Extract ``<p class="assina|cargo">`` blocks and ``<img name="...">`` tags."""
@@ -125,6 +131,7 @@ class _SignatureImageParser(HTMLParser):
 # Public API
 # ===========================================================================
 
+
 def extract_signatures(html: str) -> list[Signature]:
     """Extract signatory blocks from HTML.
 
@@ -156,11 +163,13 @@ def extract_signatures(html: str) -> list[Signature]:
         elif len(parser.raw_cargo) == 0:
             # No cargos at all — common pattern
             role = None
-        signatures.append(Signature(
-            person_name=name,
-            role_title=role,
-            sequence=i + 1,
-        ))
+        signatures.append(
+            Signature(
+                person_name=name,
+                role_title=role,
+                sequence=i + 1,
+            )
+        )
 
     return signatures
 
@@ -188,16 +197,16 @@ def _extract_signatures_precise(html: str) -> list[Signature]:
         raw = m.group(2)
         # Handle <br>-separated name/role in a single assina tag:
         # <p class='assina'>NAME<br>Role</p> → assina=NAME + cargo=Role
-        if cls == "assina" and re.search(r'<br\s*/?\s*>', raw, re.IGNORECASE):
-            parts = re.split(r'<br\s*/?\s*>', raw, maxsplit=1)
-            name = re.sub(r'<[^>]+>', '', parts[0]).strip()
-            role = re.sub(r'<[^>]+>', '', parts[1]).strip() if len(parts) > 1 else ""
+        if cls == "assina" and re.search(r"<br\s*/?\s*>", raw, re.IGNORECASE):
+            parts = re.split(r"<br\s*/?\s*>", raw, maxsplit=1)
+            name = re.sub(r"<[^>]+>", "", parts[0]).strip()
+            role = re.sub(r"<[^>]+>", "", parts[1]).strip() if len(parts) > 1 else ""
             if name:
                 events.append(("assina", name))
             if role:
                 events.append(("cargo", role))
         else:
-            text = re.sub(r'<[^>]+>', '', raw).strip()
+            text = re.sub(r"<[^>]+>", "", raw).strip()
             if text:
                 events.append((cls, text))
 
@@ -215,11 +224,13 @@ def _extract_signatures_precise(html: str) -> list[Signature]:
                 i += 2
             else:
                 i += 1
-            signatures.append(Signature(
-                person_name=text,
-                role_title=role,
-                sequence=seq,
-            ))
+            signatures.append(
+                Signature(
+                    person_name=text,
+                    role_title=role,
+                    sequence=seq,
+                )
+            )
         else:
             # Orphan cargo — skip
             i += 1
@@ -283,22 +294,20 @@ def extract_images(html: str) -> list[ImageRef]:
 #   Deliberação nº 5, de 20 de março de 2023
 
 _NORM_REF_TYPES = {
-    "lei complementar":     "lei_complementar",
-    "lei":                  "lei",
-    "decreto-lei":          "decreto_lei",
-    "decreto":              "decreto",
-    "resolução":            "resolução",
-    "portaria":             "portaria",
-    "instrução normativa":  "instrução_normativa",
-    "deliberação":          "deliberação",
-    "medida provisória":    "medida_provisória",
+    "lei complementar": "lei_complementar",
+    "lei": "lei",
+    "decreto-lei": "decreto_lei",
+    "decreto": "decreto",
+    "resolução": "resolução",
+    "portaria": "portaria",
+    "instrução normativa": "instrução_normativa",
+    "deliberação": "deliberação",
+    "medida provisória": "medida_provisória",
     "emenda constitucional": "emenda_constitucional",
-    "súmula":               "súmula",
+    "súmula": "súmula",
 }
 
-_NORM_REF_TYPE_PATTERN = "|".join(
-    re.escape(k) for k in sorted(_NORM_REF_TYPES.keys(), key=len, reverse=True)
-)
+_NORM_REF_TYPE_PATTERN = "|".join(re.escape(k) for k in sorted(_NORM_REF_TYPES.keys(), key=len, reverse=True))
 
 _NORM_REF_RE = re.compile(
     rf"""
@@ -363,7 +372,7 @@ def extract_normative_references(text: str) -> list[NormRef]:
             parts = qualifier.split()
             if len(parts) > 1:
                 issuing = parts[-1]
-        elif body and re.match(r'^[A-Z]', body):
+        elif body and re.match(r"^[A-Z]", body):
             issuing = body
 
         # Dedup by (type, number)
@@ -372,13 +381,15 @@ def extract_normative_references(text: str) -> list[NormRef]:
             continue
         seen.add(dedup_key)
 
-        refs.append(NormRef(
-            reference_type=ref_type,
-            reference_number=number,
-            reference_date=date_str,
-            reference_text=full_text,
-            issuing_body=issuing,
-        ))
+        refs.append(
+            NormRef(
+                reference_type=ref_type,
+                reference_number=number,
+                reference_date=date_str,
+                reference_text=full_text,
+                issuing_body=issuing,
+            )
+        )
 
     return refs
 
@@ -388,26 +399,41 @@ def extract_normative_references(text: str) -> list[NormRef]:
 # ---------------------------------------------------------------------------
 
 _PROC_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    ("processo_etico", re.compile(
-        r"Processo\s+[ÉE]tico\s+[Nn][º°]?\s*:?\s*([\d./\-]+)",
-        re.IGNORECASE,
-    )),
-    ("processo_sei", re.compile(
-        r"Processo\s+SEI\s+[Nn]?[º°]?\s*:?\s*([\d./\-]+)",
-        re.IGNORECASE,
-    )),
-    ("processo_administrativo", re.compile(
-        r"Processo\s+(?:Administrativo\s+)?[Nn][º°]\s*:?\s*([\d./\-]+)",
-        re.IGNORECASE,
-    )),
-    ("proad", re.compile(
-        r"PROAD\s+[Nn][º°]\s*([\d./\-]+)",
-        re.IGNORECASE,
-    )),
-    ("processo_generico", re.compile(
-        r"[Nn][º°]\s*Processo\s*:\s*([\d./\-]+)",
-        re.IGNORECASE,
-    )),
+    (
+        "processo_etico",
+        re.compile(
+            r"Processo\s+[ÉE]tico\s+[Nn][º°]?\s*:?\s*([\d./\-]+)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "processo_sei",
+        re.compile(
+            r"Processo\s+SEI\s+[Nn]?[º°]?\s*:?\s*([\d./\-]+)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "processo_administrativo",
+        re.compile(
+            r"Processo\s+(?:Administrativo\s+)?[Nn][º°]\s*:?\s*([\d./\-]+)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "proad",
+        re.compile(
+            r"PROAD\s+[Nn][º°]\s*([\d./\-]+)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "processo_generico",
+        re.compile(
+            r"[Nn][º°]\s*Processo\s*:\s*([\d./\-]+)",
+            re.IGNORECASE,
+        ),
+    ),
 ]
 
 
@@ -425,10 +451,12 @@ def extract_procedure_references(text: str) -> list[ProcRef]:
             if identifier in seen:
                 continue
             seen.add(identifier)
-            refs.append(ProcRef(
-                procedure_type=ptype,
-                procedure_identifier=identifier,
-            ))
+            refs.append(
+                ProcRef(
+                    procedure_type=ptype,
+                    procedure_identifier=identifier,
+                )
+            )
 
     return refs
 
@@ -436,6 +464,7 @@ def extract_procedure_references(text: str) -> list[ProcRef]:
 # ---------------------------------------------------------------------------
 # Document number / year extraction
 # ---------------------------------------------------------------------------
+
 
 def extract_document_number(identifica: str) -> tuple[str | None, int | None]:
     """Extract document number and year from the ``identifica`` field.
@@ -467,38 +496,38 @@ def extract_document_number(identifica: str) -> tuple[str | None, int | None]:
 # Covers patterns found in 200-ZIP analysis (pre-2010 UPPERCASE, post-2010 TitleCase).
 _ART_TYPE_CANONICAL: dict[str, str] = {
     # Already-seen top-20 from analysis
-    "portaria":             "portaria",
-    "ato":                  "ato",
-    "despachos":            "despacho",
-    "despacho":             "despacho",
-    "extrato":              "extrato",
-    "portarias":            "portaria",
-    "edital":               "edital",
-    "retificação":          "retificação",
-    "resolução":            "resolução",
-    "aviso":                "aviso",
-    "pregão":               "pregão",
-    "extratos":             "extrato",
-    "avisos":               "aviso",
-    "resultado":            "resultado",
-    "atos":                 "ato",
-    "ata":                  "ata",
-    "instrução normativa":  "instrução normativa",
-    "acórdão":              "acórdão",
-    "decreto":              "decreto",
-    "decisão":              "decisão",
-    "circular":             "circular",
-    "pauta":                "pauta",
-    "convênio":             "convênio",
-    "contrato":             "contrato",
-    "apostila":             "apostila",
-    "termo aditivo":        "termo aditivo",
-    "lei":                  "lei",
-    "ato declaratório":     "ato declaratório",
+    "portaria": "portaria",
+    "ato": "ato",
+    "despachos": "despacho",
+    "despacho": "despacho",
+    "extrato": "extrato",
+    "portarias": "portaria",
+    "edital": "edital",
+    "retificação": "retificação",
+    "resolução": "resolução",
+    "aviso": "aviso",
+    "pregão": "pregão",
+    "extratos": "extrato",
+    "avisos": "aviso",
+    "resultado": "resultado",
+    "atos": "ato",
+    "ata": "ata",
+    "instrução normativa": "instrução normativa",
+    "acórdão": "acórdão",
+    "decreto": "decreto",
+    "decisão": "decisão",
+    "circular": "circular",
+    "pauta": "pauta",
+    "convênio": "convênio",
+    "contrato": "contrato",
+    "apostila": "apostila",
+    "termo aditivo": "termo aditivo",
+    "lei": "lei",
+    "ato declaratório": "ato declaratório",
     "ato declaratório executivo": "ato declaratório executivo",
     "portaria interministerial": "portaria interministerial",
-    "decreto numerado":     "decreto",
-    "medida provisória":    "medida provisória",
+    "decreto numerado": "decreto",
+    "medida provisória": "medida provisória",
 }
 
 
@@ -517,6 +546,7 @@ def normalize_art_type(art_type: str) -> str:
 # ---------------------------------------------------------------------------
 # Issuing organ extraction
 # ---------------------------------------------------------------------------
+
 
 def extract_issuing_organ(art_category: str) -> str:
     """Extract the top-level issuing organ from ``art_category``.
@@ -548,6 +578,7 @@ def extract_issuing_organ(art_category: str) -> str:
 # ---------------------------------------------------------------------------
 # Strip HTML helper
 # ---------------------------------------------------------------------------
+
 
 def strip_html(html: str) -> str:
     """Remove HTML tags, keeping only text content."""

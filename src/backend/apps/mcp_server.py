@@ -17,9 +17,9 @@ MCP Tools:
   - dou_stats:           Database and search index statistics
   - dou_document:        Retrieve a specific document by ID
 """
+
 from __future__ import annotations
 
-import json
 import math
 import os
 from datetime import date
@@ -29,6 +29,7 @@ import httpx
 import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
+
 try:
     from mcp.server.fastmcp import FastMCP
 except ModuleNotFoundError:
@@ -90,6 +91,7 @@ CURATED_EXAMPLES = [
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _get_conn():
     return psycopg2.connect(DSN)
 
@@ -116,9 +118,11 @@ def _format_results(rows: list[dict]) -> str:
     parts = []
     for i, r in enumerate(rows, 1):
         lines = [f"### Resultado {i} — BM25 score: {r['score']:.4f}"]
-        lines.append(f"**Tipo:** {r.get('art_type', '?')} | "
-                      f"**Seção:** {r.get('edition_section', '?')} | "
-                      f"**Data:** {r.get('pub_date', '?')}")
+        lines.append(
+            f"**Tipo:** {r.get('art_type', '?')} | "
+            f"**Seção:** {r.get('edition_section', '?')} | "
+            f"**Data:** {r.get('pub_date', '?')}"
+        )
         if r.get("identifica"):
             lines.append(f"**Título:** {r['identifica'][:300]}")
         if r.get("ementa"):
@@ -135,6 +139,7 @@ def _format_results(rows: list[dict]) -> str:
 # ---------------------------------------------------------------------------
 # Shared payload API (used by MCP tools and web server)
 # ---------------------------------------------------------------------------
+
 
 def search_payload(
     query: str,
@@ -313,6 +318,7 @@ def stats_payload() -> dict[str, Any]:
 # MCP Tools
 # ---------------------------------------------------------------------------
 
+
 def dou_search(query: str, max_results: int = 10) -> str:
     """Search DOU publications using the configured backend.
 
@@ -336,7 +342,7 @@ def dou_search(query: str, max_results: int = 10) -> str:
     except Exception as ex:
         return f"Erro no backend de busca ({SEARCH_CFG.backend}): {type(ex).__name__}"
 
-    header = f"**Search[{SEARCH_CFG.backend}]:** \"{query}\" — {len(rows)} resultado(s)\n\n"
+    header = f'**Search[{SEARCH_CFG.backend}]:** "{query}" — {len(rows)} resultado(s)\n\n'
     return header + _format_results(rows)
 
 
@@ -390,7 +396,7 @@ def dou_search_filtered(
         filters.append(f"tipo={art_type}")
     filter_str = f" [{', '.join(filters)}]" if filters else ""
 
-    header = f"**Search[{SEARCH_CFG.backend}]:** \"{query}\"{filter_str} — {len(rows)} resultado(s)\n\n"
+    header = f'**Search[{SEARCH_CFG.backend}]:** "{query}"{filter_str} — {len(rows)} resultado(s)\n\n'
     return header + _format_results(rows)
 
 
@@ -408,7 +414,8 @@ def dou_document(doc_id: str) -> str:
         cur = conn.cursor()
 
         # Document + edition metadata
-        cur.execute("""
+        cur.execute(
+            """
             SELECT d.id, d.id_materia, d.art_type, d.art_type_raw,
                    d.art_category, d.identifica, d.ementa, d.titulo,
                    d.sub_titulo, d.body_plain, d.document_number,
@@ -419,7 +426,9 @@ def dou_document(doc_id: str) -> str:
             FROM dou.document d
             JOIN dou.edition e ON e.id = d.edition_id
             WHERE d.id = %s::uuid
-        """, (doc_id,))
+        """,
+            (doc_id,),
+        )
         row = cur.fetchone()
         if not row:
             return f"Documento não encontrado: {doc_id}"
@@ -427,20 +436,26 @@ def dou_document(doc_id: str) -> str:
         doc = dict(zip(cols, row))
 
         # Normative references
-        cur.execute("""
+        cur.execute(
+            """
             SELECT reference_type, reference_number, reference_date, reference_text
             FROM dou.normative_reference
             WHERE document_id = %s::uuid
             ORDER BY reference_type, reference_number
-        """, (doc_id,))
+        """,
+            (doc_id,),
+        )
         norm_refs = _rows_to_dicts(cur) if cur.description else []
 
         # Procedure references
-        cur.execute("""
+        cur.execute(
+            """
             SELECT procedure_type, procedure_identifier
             FROM dou.procedure_reference
             WHERE document_id = %s::uuid
-        """, (doc_id,))
+        """,
+            (doc_id,),
+        )
         proc_refs = _rows_to_dicts(cur) if cur.description else []
 
         cur.close()
@@ -459,8 +474,9 @@ def dou_document(doc_id: str) -> str:
     if doc.get("issuing_organ"):
         lines.append(f"**Órgão:** {doc['issuing_organ']}")
     if doc.get("document_number"):
-        lines.append(f"**Número:** {doc['document_number']}"
-                      + (f"/{doc['document_year']}" if doc.get("document_year") else ""))
+        lines.append(
+            f"**Número:** {doc['document_number']}" + (f"/{doc['document_year']}" if doc.get("document_year") else "")
+        )
     if doc.get("art_category"):
         lines.append(f"**Categoria:** {doc['art_category']}")
     if doc.get("ementa"):
@@ -476,18 +492,22 @@ def dou_document(doc_id: str) -> str:
     if norm_refs:
         lines.append("\n## Referências Normativas")
         for r in norm_refs[:20]:
-            lines.append(f"- {r.get('reference_type', '')} "
-                          f"{r.get('reference_number', '')} "
-                          f"({r.get('reference_date', '?')}) — {r.get('reference_text', '')[:100]}")
+            lines.append(
+                f"- {r.get('reference_type', '')} "
+                f"{r.get('reference_number', '')} "
+                f"({r.get('reference_date', '?')}) — {r.get('reference_text', '')[:100]}"
+            )
 
     if proc_refs:
         lines.append("\n## Referências Processuais")
         for r in proc_refs[:20]:
             lines.append(f"- {r.get('procedure_type', '')} {r.get('procedure_identifier', '')}")
 
-    lines.append(f"\n---\n**ID:** `{doc_id}` | "
-                  f"**id_materia:** {doc.get('id_materia')} | "
-                  f"**Palavras:** {doc.get('body_word_count', '?')}")
+    lines.append(
+        f"\n---\n**ID:** `{doc_id}` | "
+        f"**id_materia:** {doc.get('id_materia')} | "
+        f"**Palavras:** {doc.get('body_word_count', '?')}"
+    )
 
     return "\n".join(lines)
 
@@ -527,9 +547,13 @@ def dou_stats() -> str:
         "",
         f"**Banco de dados:** {db_size}",
         f"**Backend de busca:** {SEARCH_CFG.backend}",
-        f"**Total de documentos:** {search_stats.get('total_docs', '?'):,}" if isinstance(search_stats.get('total_docs'), int) else f"**Total de documentos:** {search_stats.get('total_docs', '?')}",
+        f"**Total de documentos:** {search_stats.get('total_docs', '?'):,}"
+        if isinstance(search_stats.get("total_docs"), int)
+        else f"**Total de documentos:** {search_stats.get('total_docs', '?')}",
         f"**Período:** {date_range[0]} a {date_range[1]}" if date_range else "",
-        f"**Vocabulário BM25:** {search_stats.get('vocabulary_size', '?'):,} lexemas" if isinstance(search_stats.get('vocabulary_size'), int) else "",
+        f"**Vocabulário BM25:** {search_stats.get('vocabulary_size', '?'):,} lexemas"
+        if isinstance(search_stats.get("vocabulary_size"), int)
+        else "",
         f"**Comprimento médio doc:** {search_stats.get('avg_doc_length', 0):.0f} palavras" if search_stats else "",
         f"**Última atualização BM25:** {search_stats.get('refreshed_at', '?')}" if search_stats else "",
         "",
@@ -557,14 +581,13 @@ if mcp is not None:
 # Entrypoint
 # ---------------------------------------------------------------------------
 
+
 def main() -> int:
     import argparse
 
     p = argparse.ArgumentParser(description="GABI DOU MCP Server")
-    p.add_argument("--transport", choices=["stdio", "sse"], default="stdio",
-                    help="MCP transport (default: stdio)")
-    p.add_argument("--port", type=int, default=8765,
-                    help="Port for SSE transport (default: 8765)")
+    p.add_argument("--transport", choices=["stdio", "sse"], default="stdio", help="MCP transport (default: stdio)")
+    p.add_argument("--port", type=int, default=8765, help="Port for SSE transport (default: 8765)")
     args = p.parse_args()
 
     if mcp is None:

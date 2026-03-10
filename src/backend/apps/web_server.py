@@ -15,6 +15,7 @@ Usage:
   python3 ops/bin/web_server.py              # dev server on :8000
   python3 ops/bin/web_server.py --port 3000  # custom port
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -24,7 +25,7 @@ import uuid
 from io import BytesIO
 from html import escape
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timezone
+from datetime import date
 from pathlib import Path
 from typing import Any, AsyncIterator
 import re
@@ -35,7 +36,7 @@ from src.backend.apps.db_pool import acquire, init_pool, close_pool
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response, StreamingResponse
 from pydantic import BaseModel, EmailStr, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -69,11 +70,20 @@ from src.backend.apps.auth import (
 )
 from src.backend.apps.identity_store import (
     create_password_user,
+    create_verification_token,
+    consume_verification_token,
+    get_verification_token_status,
+    invalidate_previous_tokens,
+    create_password_reset_token,
+    consume_password_reset_token,
+    invalidate_password_reset_tokens_for_user,
+    update_user_password,
     find_user_by_email,
     log_login_attempt,
     check_brute_force,
     resolve_identity_for_user_id,
 )
+from src.backend.services.email_resend import get_email_sender
 from src.backend.apps.chat_security import ChatSecurity
 from src.backend.apps.middleware.security import (
     RateLimiter,
@@ -104,27 +114,44 @@ from src.backend.storage import (
 load_dotenv()
 
 # ---------------------------------------------------------------------------
-# Structured JSON logging — stdout (captured by Fly.io)
+# Sentry — error tracking (no performance/replay)
 # ---------------------------------------------------------------------------
-import logging
+_sentry_dsn = os.getenv("SENTRY_DSN_BACKEND", "").strip()
+if _sentry_dsn:
 
-class _JsonFormatter(logging.Formatter):
-    def format(self, record: logging.LogRecord) -> str:
-        from datetime import datetime, timezone
-        entry = {
-            "ts": datetime.now(timezone.utc).isoformat(),
-            "level": record.levelname,
-            "logger": record.name,
-            "message": record.getMessage(),
-        }
-        if record.exc_info and record.exc_info[1]:
-            entry["exception"] = f"{type(record.exc_info[1]).__name__}: {record.exc_info[1]}"
-        return json.dumps(entry, ensure_ascii=True)
+    def _scrub_sentry_event(event: dict, hint: dict) -> dict | None:
+        if "request" in event:
+            req = event["request"]
+            if "cookies" in req:
+                req["cookies"] = "[REDACTED]"
+            if "headers" in req and isinstance(req["headers"], dict):
+                req["headers"].pop("Authorization", None)
+                req["headers"].pop("Cookie", None)
+        return event
 
-_handler = logging.StreamHandler()
-_handler.setFormatter(_JsonFormatter())
-logging.basicConfig(level=logging.INFO, handlers=[_handler])
-logger = logging.getLogger("gabi.app")
+    import sentry_sdk
+
+    sentry_sdk.init(
+        dsn=_sentry_dsn,
+        environment=os.getenv("ENVIRONMENT", os.getenv("GABI_ENV", "development")),
+        traces_sample_rate=0,
+        profiles_sample_rate=0,
+        send_default_pii=False,
+        before_send=_scrub_sentry_event,
+    )
+
+# ---------------------------------------------------------------------------
+# Structured JSON logging — configured once (see core.logging)
+# ---------------------------------------------------------------------------
+from src.backend.core.logging import (
+    bind_request_id,
+    clear_context,
+    configure_logging,
+    get_logger,
+)
+
+configure_logging(service="web")
+logger = get_logger("gabi.app")
 
 # ---------------------------------------------------------------------------
 # Config
@@ -139,6 +166,7 @@ DASHSCOPE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completi
 QWEN_API_KEY = os.getenv("QWEN_API_KEY", "")
 QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen-plus")
 
+
 def _default_worker_base() -> str:
     if _is_production:
         return "http://gabi-dou-worker.internal:8081"
@@ -147,7 +175,12 @@ def _default_worker_base() -> str:
 
 WORKER_BASE = os.getenv("WORKER_URL", _default_worker_base())
 _WORKER_PROXY_RATE_LIMIT = int(os.getenv("WORKER_PROXY_RATE_LIMIT", "60"))
-_WORKER_PROXY_AUTH_ENABLED = os.getenv("WORKER_PROXY_AUTH_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+_WORKER_PROXY_AUTH_ENABLED = os.getenv("WORKER_PROXY_AUTH_ENABLED", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 _WORKER_PROXY_RATE_RULE = RateRule(limit=_WORKER_PROXY_RATE_LIMIT, window_sec=60)
 _embedded_worker_lock = asyncio.Lock()
 _embedded_worker_initialized = False
@@ -155,12 +188,12 @@ _embedded_worker_initialized = False
 # React SPA only (Phase 10: legacy Alpine.js frontend removed)
 _ROOT_DIR = Path(__file__).resolve().parents[3]
 WEB_DIR = _ROOT_DIR / "src" / "frontend" / "web"
-SPA_INDEX = (WEB_DIR / "dist" / "index.html") if (WEB_DIR / "dist" / "index.html").exists() else (WEB_DIR / "index.html")
+SPA_INDEX = (
+    (WEB_DIR / "dist" / "index.html") if (WEB_DIR / "dist" / "index.html").exists() else (WEB_DIR / "index.html")
+)
 DIST_DIR = (WEB_DIR / "dist").resolve()
 ASSETS_DIR = (DIST_DIR / "assets").resolve()
-MEDIA_ROOT = Path(
-    os.getenv("GABI_MEDIA_ROOT", str(_ROOT_DIR / "ops" / "data" / "dou" / "images"))
-).resolve()
+MEDIA_ROOT = Path(os.getenv("GABI_MEDIA_ROOT", str(_ROOT_DIR / "ops" / "data" / "dou" / "images"))).resolve()
 SERVE_FRONTEND = os.getenv("GABI_SERVE_FRONTEND", "true").strip().lower() in {"1", "true", "yes", "on"}
 
 
@@ -180,10 +213,15 @@ def _allow_local_origins() -> bool:
 
 def _allowed_hosts() -> list[str]:
     explicit = _parse_csv_env("GABI_ALLOWED_HOSTS")
+    fly_app_name = os.getenv("FLY_APP_NAME", "").strip()
     if explicit:
+        # Fly health checks use Host: <app>.internal; allow it so /healthz returns 200
+        if fly_app_name:
+            internal = f"{fly_app_name}.internal"
+            if internal not in explicit:
+                return [*explicit, internal]
         return explicit
     hosts = ["localhost", "127.0.0.1", "::1"]
-    fly_app_name = os.getenv("FLY_APP_NAME", "").strip()
     if fly_app_name:
         hosts.extend([f"{fly_app_name}.fly.dev", f"{fly_app_name}.internal"])
     return hosts
@@ -220,9 +258,7 @@ async def _ensure_embedded_worker_ready() -> None:
         from src.backend.worker.scheduler import configure_scheduler, scheduler, set_registry
 
         db_path = (
-            os.getenv("REGISTRY_DB_PATH")
-            or os.getenv("REGISTRY_DB")
-            or str(_ROOT_DIR / "ops" / "data" / "registry.db")
+            os.getenv("REGISTRY_DB_PATH") or os.getenv("REGISTRY_DB") or str(_ROOT_DIR / "ops" / "data" / "registry.db")
         )
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         registry = Registry(db_path=db_path)
@@ -265,9 +301,7 @@ async def _proxy_to_worker_app(path: str, request: Request) -> Response:
         resp = await client.request(
             method=request.method,
             url=f"/{path}",
-            headers={
-                "content-type": request.headers.get("content-type", "application/json")
-            },
+            headers={"content-type": request.headers.get("content-type", "application/json")},
             content=await request.body() if request.method in {"POST", "PUT", "PATCH"} else None,
             params=dict(request.query_params),
             timeout=10.0,
@@ -291,9 +325,11 @@ def _worker_unavailable_response(detail: str) -> Response:
         media_type="application/json",
     )
 
+
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -329,11 +365,50 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
     allow_credentials=True,
 )
 app.add_middleware(AppSecurityMiddleware, csp=build_content_security_policy())
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
+# Wrap TrustedHostMiddleware to exempt health check paths.
+# Fly's proxy health checker may send arbitrary Host headers (IP, machine ID, etc.)
+# that are not in ALLOWED_HOSTS, causing 400 on /healthz and failing deploys.
+_HEALTH_PATHS = {"/healthz", "/health", "/.well-known/health"}
+
+
+class _TrustedHostWithHealthBypass(TrustedHostMiddleware):
+    """TrustedHostMiddleware that skips host validation for health check paths."""
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope.get("path", "") in _HEALTH_PATHS:
+            await self.app(scope, receive, send)
+            return
+        await super().__call__(scope, receive, send)
+
+
+app.add_middleware(_TrustedHostWithHealthBypass, allowed_hosts=ALLOWED_HOSTS)
+
+
+@app.middleware("http")
+async def add_request_id_middleware(request: Request, call_next):
+    """Bind request_id to log context, add X-Request-ID to response, log duration."""
+    request_id = request.headers.get("X-Request-ID", "").strip() or f"req_{uuid.uuid4().hex[:12]}"
+    bind_request_id(request_id)
+    if _sentry_dsn:
+        import sentry_sdk
+
+        sentry_sdk.set_tag("request_id", request_id)
+    start = time.perf_counter()
+    try:
+        response = await call_next(request)
+        duration_ms = round((time.perf_counter() - start) * 1000)
+        response.headers["X-Request-ID"] = request_id
+        logger.info(
+            "request_complete",
+            extra={"event": "request_complete", "duration_ms": duration_ms},
+        )
+        return response
+    finally:
+        clear_context()
 
 
 @app.get("/healthz")
@@ -400,7 +475,7 @@ def _resolve_local_media_path(local_path: str | None) -> Path | None:
         relative = normalized
         media_prefix = "ops/data/dou/images/"
         if relative.startswith(media_prefix):
-            relative = relative[len(media_prefix):]
+            relative = relative[len(media_prefix) :]
         relative = relative.lstrip("./")
         resolved = (MEDIA_ROOT / relative).resolve()
 
@@ -425,7 +500,8 @@ def _require_frontend_enabled() -> None:
 
 async def _load_document_payload(doc_id: str) -> dict[str, Any]:
     async with acquire() as conn:
-        row = await conn.fetchrow("""
+        row = await conn.fetchrow(
+            """
             SELECT d.id, d.id_materia, d.art_type, d.art_type_raw,
                    d.art_category, d.identifica, d.ementa, d.titulo,
                    d.sub_titulo, d.body_plain, d.body_html,
@@ -436,32 +512,44 @@ async def _load_document_payload(doc_id: str) -> dict[str, Any]:
             FROM dou.document d
             JOIN dou.edition e ON e.id = d.edition_id
             WHERE d.id = $1::uuid
-        """, doc_id)
+        """,
+            doc_id,
+        )
         if not row:
             raise HTTPException(404, "Documento não encontrado")
         doc = {k: _ser(v) for k, v in dict(row).items()}
 
-        rows = await conn.fetch("""
+        rows = await conn.fetch(
+            """
             SELECT reference_type, reference_number, reference_date, reference_text
             FROM dou.normative_reference WHERE document_id = $1::uuid
             ORDER BY reference_type, reference_number
-        """, doc_id)
+        """,
+            doc_id,
+        )
         doc["normative_refs"] = [{k: _ser(v) for k, v in dict(r).items()} for r in rows]
 
-        rows = await conn.fetch("""
+        rows = await conn.fetch(
+            """
             SELECT procedure_type, procedure_identifier
             FROM dou.procedure_reference WHERE document_id = $1::uuid
-        """, doc_id)
+        """,
+            doc_id,
+        )
         doc["procedure_refs"] = [{k: _ser(v) for k, v in dict(r).items()} for r in rows]
 
-        rows = await conn.fetch("""
+        rows = await conn.fetch(
+            """
             SELECT person_name, role_title
             FROM dou.document_signature WHERE document_id = $1::uuid
             ORDER BY sequence_in_document
-        """, doc_id)
+        """,
+            doc_id,
+        )
         doc["signatures"] = [{k: _ser(v) for k, v in dict(r).items()} for r in rows]
 
-        rows = await conn.fetch("""
+        rows = await conn.fetch(
+            """
             SELECT media_name, media_type, file_extension, size_bytes,
                    source_filename, external_url, original_url,
                    availability_status, alt_text, context_hint, fallback_text,
@@ -470,7 +558,9 @@ async def _load_document_payload(doc_id: str) -> dict[str, Any]:
                    sequence_in_document
             FROM dou.document_media WHERE document_id = $1::uuid
             ORDER BY sequence_in_document
-        """, doc_id)
+        """,
+            doc_id,
+        )
         media_rows = [{k: _ser(v) for k, v in dict(r).items()} for r in rows]
         for item in media_rows:
             media_name = str(item.get("media_name", "")).strip()
@@ -480,9 +570,7 @@ async def _load_document_payload(doc_id: str) -> dict[str, Any]:
             item["position_in_doc"] = item.get("sequence_in_document")
             item["status"] = effective_status
             item["blob_url"] = (
-                f"/api/media/{doc_id}/{media_name}"
-                if media_name and effective_status == "available"
-                else None
+                f"/api/media/{doc_id}/{media_name}" if media_name and effective_status == "available" else None
             )
         doc["media"] = media_rows
         doc["images"] = media_rows
@@ -518,18 +606,15 @@ def _normalize_graph_search_result(row: dict[str, Any]) -> dict[str, Any]:
         "page": str(row.get("page_number")) if row.get("page_number") is not None else None,
         "art_type": str(row.get("art_type") or "").strip() or None,
         "issuing_organ": str(row.get("issuing_organ") or "").strip() or None,
-        "dou_url": (
-            f"https://www.in.gov.br/web/dou/-/{row.get('id_materia')}"
-            if row.get("id_materia")
-            else None
-        ),
+        "dou_url": (f"https://www.in.gov.br/web/dou/-/{row.get('id_materia')}" if row.get("id_materia") else None),
     }
 
 
 def _graph_reference_query(reference_type: str | None, reference_number: str | None, reference_text: str | None) -> str:
-    return " ".join(
-        part for part in [reference_type, reference_number] if str(part or "").strip()
-    ).strip() or str(reference_text or "").strip()
+    return (
+        " ".join(part for part in [reference_type, reference_number] if str(part or "").strip()).strip()
+        or str(reference_text or "").strip()
+    )
 
 
 def _resolved_norm_variants(norm_query: NormQuery | None, fallback_number: str | None = None) -> list[str]:
@@ -720,6 +805,7 @@ def _repair_pdf_text(value: str) -> str:
 # API — Search
 # ---------------------------------------------------------------------------
 
+
 @app.get("/api/search", dependencies=[Depends(_rate_limit_ip)])
 async def api_search(
     q: str = Query(..., min_length=1),
@@ -750,6 +836,7 @@ async def api_search(
 # ---------------------------------------------------------------------------
 # API — Suggest (autocomplete)
 # ---------------------------------------------------------------------------
+
 
 @app.get("/api/suggest", dependencies=[Depends(_rate_limit_ip)])
 async def api_suggest(q: str = Query(..., min_length=2)):
@@ -828,6 +915,7 @@ async def api_search_examples(n: int = Query(8, ge=1, le=20)):
 # API — Auth
 # ---------------------------------------------------------------------------
 
+
 @app.get("/api/auth/session")
 async def api_auth_session_status(request: Request):
     principal = await resolve_request_principal(request, log_failures=False)
@@ -842,6 +930,7 @@ async def api_auth_session_status(request: Request):
             "roles": list(principal.roles),
             "email": principal.email,
             "status": principal.status,
+            "email_verified": principal.email_verified,
         },
         "expires_in_sec": get_auth_config().session_ttl_sec,
     }
@@ -872,6 +961,64 @@ def api_auth_session_delete():
 # API — Email + Password Auth (v1.1)
 # ---------------------------------------------------------------------------
 
+_VERIFICATION_EMAIL_SUBJECT = "Confirme seu email — GABI Search"
+
+
+def _verification_email_html(base_url: str, display_name: str, raw_token: str) -> str:
+    verify_url = f"{base_url.rstrip('/')}/api/auth/verify-email?token={escape(raw_token)}"
+    return f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:16px;">
+<p>Olá {escape(display_name)},</p>
+<p>Confirme seu email para ativar todas as funcionalidades do GABI Search.</p>
+<p><a href="{verify_url}" style="display:inline-block;background:#2563eb;color:#fff;padding:12px 20px;text-decoration:none;border-radius:8px;">Confirmar email</a></p>
+<p style="color:#666;font-size:14px;">Este link expira em 24 horas.<br>Se você não criou esta conta, ignore este email.</p>
+<p>— Equipe GABI Search</p>
+</body>
+</html>"""
+
+
+async def _send_verification_email(
+    base_url: str,
+    to_email: str,
+    display_name: str,
+    raw_token: str,
+) -> None:
+    sender = get_email_sender()
+    html = _verification_email_html(base_url, display_name, raw_token)
+    await sender.send(to=to_email, subject=_VERIFICATION_EMAIL_SUBJECT, html_body=html)
+
+
+# A2: Password reset email
+_RESET_EMAIL_SUBJECT = "Redefinir senha — GABI Search"
+
+
+def _reset_email_html(base_url: str, display_name: str, raw_token: str) -> str:
+    reset_url = f"{base_url.rstrip('/')}/reset-password?token={escape(raw_token)}"
+    return f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:16px;">
+<p>Olá {escape(display_name)},</p>
+<p>Recebemos uma solicitação para redefinir sua senha.</p>
+<p><a href="{reset_url}" style="display:inline-block;background:#2563eb;color:#fff;padding:12px 20px;text-decoration:none;border-radius:8px;">Redefinir senha</a></p>
+<p style="color:#666;font-size:14px;">Este link expira em 1 hora.<br>Se você não solicitou, ignore este email. Sua senha não será alterada.</p>
+<p>— Equipe GABI Search</p>
+</body>
+</html>"""
+
+
+async def _send_password_reset_email(
+    base_url: str,
+    to_email: str,
+    display_name: str,
+    raw_token: str,
+) -> None:
+    sender = get_email_sender()
+    html = _reset_email_html(base_url, display_name, raw_token)
+    await sender.send(to=to_email, subject=_RESET_EMAIL_SUBJECT, html_body=html)
+
 
 class RegisterRequest(BaseModel):
     email: EmailStr
@@ -897,12 +1044,25 @@ async def api_auth_register(body: RegisterRequest, request: Request):
         )
     hashed = hash_password(body.password)
     import asyncpg
+
     try:
         user = await create_password_user(
-            email=body.email, password_hash=hashed, display_name=body.display_name,
+            email=body.email,
+            password_hash=hashed,
+            display_name=body.display_name,
         )
     except asyncpg.UniqueViolationError:
         raise HTTPException(status_code=409, detail="Email ja cadastrado")
+    raw_token = await create_verification_token(user["id"])
+    base_url = (os.getenv("GABI_APP_URL") or "").strip() or str(request.base_url).rstrip("/")
+    asyncio.create_task(
+        _send_verification_email(
+            base_url,
+            body.email,
+            body.display_name,
+            raw_token,
+        )
+    )
     principal = AuthPrincipal(
         label=user["display_name"],
         token_id=str(user["id"]),
@@ -911,8 +1071,13 @@ async def api_auth_register(body: RegisterRequest, request: Request):
         roles=("user",),
         email=user["email"],
         status="active",
+        email_verified=user.get("email_verified", False),
     )
-    response = create_session_response(request, principal)
+    response = create_session_response(
+        request,
+        principal,
+        extra_body={"email_verification_sent": True},
+    )
     response.status_code = 201
     return response
 
@@ -952,6 +1117,7 @@ async def api_auth_login(body: LoginRequest, request: Request):
         roles=roles,
         email=user["email"],
         status="active",
+        email_verified=user.get("email_verified", False),
     )
     return create_session_response(request, principal)
 
@@ -959,6 +1125,109 @@ async def api_auth_login(body: LoginRequest, request: Request):
 @app.post("/api/auth/logout")
 async def api_auth_logout():
     return clear_session_response()
+
+
+@app.get("/api/auth/verify-email")
+async def api_auth_verify_email(token: str = Query(..., alias="token")):
+    status = await get_verification_token_status(token)
+    if status == "expired":
+        raise HTTPException(status_code=400, detail="Token expirado")
+    if status == "used":
+        raise HTTPException(status_code=400, detail="Token já utilizado")
+    if status == "invalid":
+        raise HTTPException(status_code=400, detail="Token inválido")
+    user_id = await consume_verification_token(token)
+    if user_id is None:
+        raise HTTPException(status_code=400, detail="Token inválido")
+    return RedirectResponse(url="/", status_code=302)
+
+
+@app.post("/api/auth/resend-verification")
+async def api_auth_resend_verification(request: Request):
+    principal = await resolve_request_principal(request, log_failures=False)
+    if principal is None or not principal.user_id:
+        raise HTTPException(status_code=401, detail="Nao autenticado")
+    limiter = getattr(request.app.state, "rate_limiter", None)
+    if isinstance(limiter, RateLimiter):
+        await limiter.enforce(
+            bucket="auth_resend_verification",
+            key=principal.user_id,
+            rule=RateRule(limit=1, window_sec=300),
+            request=request,
+            dimension="user",
+        )
+    user = await find_user_by_email(principal.email or "")
+    if not user or user.get("email_verified"):
+        return {"message": "Email já verificado"}
+    await invalidate_previous_tokens(principal.user_id)
+    raw_token = await create_verification_token(principal.user_id)
+    base_url = (os.getenv("GABI_APP_URL") or "").strip() or str(request.base_url).rstrip("/")
+    asyncio.create_task(
+        _send_verification_email(
+            base_url,
+            principal.email or "",
+            principal.label,
+            raw_token,
+        )
+    )
+    return {"message": "Email de verificação reenviado"}
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=1)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+@app.post("/api/auth/forgot-password")
+async def api_auth_forgot_password(body: ForgotPasswordRequest, request: Request):
+    ip = request_ip(request)
+    email_lower = body.email.strip().lower()
+    limiter = getattr(request.app.state, "rate_limiter", None)
+    if isinstance(limiter, RateLimiter):
+        await limiter.enforce(
+            bucket="auth_forgot_password_email",
+            key=email_lower,
+            rule=RateRule(limit=3, window_sec=3600),
+            request=request,
+            dimension="email",
+        )
+        await limiter.enforce(
+            bucket="auth_forgot_password_ip",
+            key=ip,
+            rule=RateRule(limit=10, window_sec=3600),
+            request=request,
+            dimension="ip",
+        )
+    user = await find_user_by_email(email_lower)
+    if user is not None and user.get("password_hash"):
+        raw_token = await create_password_reset_token(user["id"], ip)
+        base_url = (os.getenv("GABI_APP_URL") or "").strip() or str(request.base_url).rstrip("/")
+        asyncio.create_task(
+            _send_password_reset_email(
+                base_url,
+                user["email"],
+                user["display_name"],
+                raw_token,
+            )
+        )
+    return {
+        "message": "Se este email estiver cadastrado, você receberá instruções para redefinir sua senha.",
+    }
+
+
+@app.post("/api/auth/reset-password")
+async def api_auth_reset_password(body: ResetPasswordRequest):
+    user_id = await consume_password_reset_token(body.token)
+    if user_id is None:
+        raise HTTPException(status_code=400, detail="Link expirado ou já utilizado")
+    await invalidate_password_reset_tokens_for_user(user_id)
+    new_hash = hash_password(body.new_password)
+    await update_user_password(user_id, new_hash)
+    return {"message": "Senha redefinida com sucesso"}
 
 
 @app.get("/api/auth/me")
@@ -972,6 +1241,7 @@ async def api_auth_me(request: Request):
         "display_name": principal.label,
         "roles": list(principal.roles),
         "login_method": principal.source,
+        "email_verified": principal.email_verified,
     }
 
 
@@ -1168,6 +1438,7 @@ async def api_admin_job_stream(
     _auth: AuthPrincipal = Depends(require_admin_access),
 ):
     """Stream job status via SSE until completed/failed/partial (Phase 9, JOBS-05)."""
+
     async def _stream() -> AsyncIterator[bytes]:
         terminal = {"completed", "failed", "partial"}
         while True:
@@ -1259,6 +1530,7 @@ async def api_admin_analytics_status(_auth: AuthPrincipal = Depends(require_admi
 # API — Document
 # ---------------------------------------------------------------------------
 
+
 @app.get("/api/document/{doc_id}")
 async def api_document(doc_id: str):
     """Get full document by UUID."""
@@ -1286,7 +1558,6 @@ async def api_document_pdf(doc_id: str):
             Frame,
             FrameBreak,
             NextPageTemplate,
-            PageBreak,
             PageTemplate,
             Paragraph,
             Spacer,
@@ -1480,12 +1751,14 @@ async def api_document_pdf(doc_id: str):
     story.append(Paragraph(escape(str(doc.get("identifica") or doc.get("titulo") or "Documento")), styles["GabiTitle"]))
 
     meta_line = " · ".join(
-        part for part in [
+        part
+        for part in [
             f"Seção {str(doc.get('section') or '').replace('do', '').upper()}" if doc.get("section") else None,
             str(doc.get("publication_date") or ""),
             f"Página {doc.get('page_number')}" if doc.get("page_number") is not None else None,
             str(doc.get("issuing_organ") or "").strip() or None,
-        ] if part
+        ]
+        if part
     )
     if meta_line:
         story.append(Paragraph(escape(meta_line), styles["GabiMeta"]))
@@ -1517,7 +1790,9 @@ async def api_document_pdf(doc_id: str):
         max_cols = max(len(r) for r in rows)
         normalized_rows = [r + [""] * (max_cols - len(r)) for r in rows]
         col_width = (content_width - gutter) / max_cols
-        table = Table(normalized_rows, repeatRows=1 if len(normalized_rows) > 1 else 0, colWidths=[col_width] * max_cols)
+        table = Table(
+            normalized_rows, repeatRows=1 if len(normalized_rows) > 1 else 0, colWidths=[col_width] * max_cols
+        )
         table.setStyle(
             TableStyle(
                 [
@@ -1707,11 +1982,15 @@ async def api_document_graph(
         )
         if not query:
             continue
-        related_docs: list[dict[str, Any]] = await _resolve_reference_targets(
-            ref,
-            exclude_doc_id=doc_id,
-            per_seed=per_seed,
-        ) if depth >= 2 else []
+        related_docs: list[dict[str, Any]] = (
+            await _resolve_reference_targets(
+                ref,
+                exclude_doc_id=doc_id,
+                per_seed=per_seed,
+            )
+            if depth >= 2
+            else []
+        )
 
         branches.append(
             {
@@ -1726,7 +2005,9 @@ async def api_document_graph(
                         part for part in [ref.get("reference_type"), ref.get("reference_number")] if part
                     ).strip()
                     or "Referência normativa",
-                    "subtitle": str(ref.get("reference_text") or "").strip() or str(ref.get("reference_date") or "").strip() or None,
+                    "subtitle": str(ref.get("reference_text") or "").strip()
+                    or str(ref.get("reference_date") or "").strip()
+                    or None,
                     "query": query,
                 },
                 "related_documents": related_docs,
@@ -1760,7 +2041,9 @@ async def api_document_graph(
                     "node_type": "procedure",
                     "relation_type": str(procedure.get("procedure_type") or "procedimento"),
                     "title": " · ".join(
-                        part for part in [procedure.get("procedure_type"), procedure.get("procedure_identifier")] if part
+                        part
+                        for part in [procedure.get("procedure_type"), procedure.get("procedure_identifier")]
+                        if part
                     )
                     or "Procedimento relacionado",
                     "subtitle": "Consulta correlata no corpus",
@@ -1789,6 +2072,7 @@ async def api_document_graph(
 # ---------------------------------------------------------------------------
 # API — Stats
 # ---------------------------------------------------------------------------
+
 
 @app.get("/api/stats")
 async def api_stats(_auth: AuthPrincipal = Depends(require_protected_access)):
@@ -1877,6 +2161,7 @@ async def api_highlights(limit: int = Query(4, ge=1, le=12)):
 # API — Types (for filter dropdown)
 # ---------------------------------------------------------------------------
 
+
 @app.get("/api/types")
 async def api_types():
     """Distinct art_type values with counts."""
@@ -1893,6 +2178,7 @@ async def api_types():
 # ---------------------------------------------------------------------------
 # API — Chat (natural language search interface)
 # ---------------------------------------------------------------------------
+
 
 class ChatRequest(BaseModel):
     message: str
@@ -1915,8 +2201,7 @@ async def _chat_context(user_msg: str) -> str:
                 parts.append(f"A base possui {total_docs:,} documentos, de {row[0]} a {row[1]}.")
 
             rows = await conn.fetch(
-                "SELECT term, cnt FROM dou.suggest_cache "
-                "WHERE cat = 'tipo' ORDER BY cnt DESC LIMIT 8"
+                "SELECT term, cnt FROM dou.suggest_cache WHERE cat = 'tipo' ORDER BY cnt DESC LIMIT 8"
             )
             types = [f"{r[0]} ({r[1]:,})" for r in rows]
             if types:
@@ -1928,11 +2213,7 @@ async def _chat_context(user_msg: str) -> str:
                 f"%{user_msg}%",
             )
             if organs:
-                parts.append(
-                    "Órgãos encontrados: "
-                    + ", ".join(f"{o[0]} ({o[1]:,} docs)" for o in organs)
-                    + "."
-                )
+                parts.append("Órgãos encontrados: " + ", ".join(f"{o[0]} ({o[1]:,} docs)" for o in organs) + ".")
     except Exception:
         pass
     return "\n".join(parts)
@@ -1950,11 +2231,7 @@ def _normalize_chat_source(row: dict[str, Any]) -> dict[str, Any]:
         section = "do1e"
 
     title = str(
-        row.get("identifica")
-        or row.get("titulo")
-        or row.get("ementa")
-        or row.get("title")
-        or "Sem título"
+        row.get("identifica") or row.get("titulo") or row.get("ementa") or row.get("title") or "Sem título"
     ).strip()
     snippet = (
         str(row.get("snippet") or row.get("highlight") or row.get("ementa") or "")
@@ -2092,8 +2369,8 @@ async def _chat_exact_norm_matches(
         return f"${param_idx}"
 
     p_norm_type = next_param()  # $1
-    p_variants = next_param()   # $2
-    p_year = next_param()       # $3
+    p_variants = next_param()  # $2
+    p_year = next_param()  # $3
 
     sql = f"""
         SELECT d.id AS doc_id, d.id_materia, d.identifica, d.titulo, d.ementa,
@@ -2198,9 +2475,7 @@ async def _chat_rag_context(message: str, *, max_results: int = 4) -> dict[str, 
     norm_query = detect_legal_norm(message)
     organ_terms = await _chat_extract_organ_terms(message)
     relation_terms = [
-        term
-        for term in ["regulamenta", "revoga", "altera", "complementa", "cita"]
-        if term in message.lower()
+        term for term in ["regulamenta", "revoga", "altera", "complementa", "cita"] if term in message.lower()
     ]
     search_query = message
     if norm_query is not None:
@@ -2272,9 +2547,7 @@ async def _chat_rag_context(message: str, *, max_results: int = 4) -> dict[str, 
                 doc = await _load_document_payload(doc_id)
                 if isinstance(doc, dict):
                     body_plain = str(doc.get("body_plain") or "").strip()
-                    normative_refs = [
-                        item for item in doc.get("normative_refs", []) if isinstance(item, dict)
-                    ][:4]
+                    normative_refs = [item for item in doc.get("normative_refs", []) if isinstance(item, dict)][:4]
                     if not source.get("subtitle"):
                         source["subtitle"] = str(doc.get("ementa") or "").strip() or None
             except HTTPException:
@@ -2357,16 +2630,19 @@ def _chunk_text(value: str, *, chunk_size: int = 180) -> list[str]:
     text = str(value or "")
     if not text:
         return []
-    return [text[idx: idx + chunk_size] for idx in range(0, len(text), chunk_size)]
+    return [text[idx : idx + chunk_size] for idx in range(0, len(text), chunk_size)]
 
 
 def _parse_limit(msg: str) -> int:
     """Extract requested number of results from message."""
     low = msg.lower()
-    m = _re.search(r'\b(\d{1,2})\s+(?:mais recente|últim|publicaç|resultado|document|portaria|decreto|edital|extrato|aviso|resolução|lei|ato)', low)
+    m = _re.search(
+        r"\b(\d{1,2})\s+(?:mais recente|últim|publicaç|resultado|document|portaria|decreto|edital|extrato|aviso|resolução|lei|ato)",
+        low,
+    )
     if m:
         return min(int(m.group(1)), 20)
-    m = _re.search(r'\b(últim[oa]s?|recentes?|primeiro)\s*(\d{1,2})', low)
+    m = _re.search(r"\b(últim[oa]s?|recentes?|primeiro)\s*(\d{1,2})", low)
     if m:
         return min(int(m.group(2)), 20)
     return 5
@@ -2376,9 +2652,9 @@ def _parse_date_filter(msg: str) -> tuple[str | None, str | None]:
     """Extract date range from message."""
     low = msg.lower()
     # "de 2020" or "em 2020" or "ano 2020"
-    m = _re.search(r'\b(de|em|ano|desde)\s+(\d{4})\b', low)
+    m = _re.search(r"\b(de|em|ano|desde)\s+(\d{4})\b", low)
     date_from = f"{m.group(2)}-01-01" if m else None
-    m2 = _re.search(r'\b(até|ate|a)\s+(\d{4})\b', low)
+    m2 = _re.search(r"\b(até|ate|a)\s+(\d{4})\b", low)
     date_to = f"{m2.group(2)}-12-31" if m2 else None
     # If only one year mentioned with "de/em", treat as full year
     if date_from and not date_to:
@@ -2390,36 +2666,50 @@ def _parse_date_filter(msg: str) -> tuple[str | None, str | None]:
 async def _chat_search(msg: str) -> str | None:
     """Try to interpret the message as a search query and return formatted results."""
     import logging
+
     log = logging.getLogger("gabi.chat")
     low = msg.lower()
 
     # Detect art_type FIRST (before organ, to avoid type words matching as organs)
     art_type = None
     type_map = {
-        'instrução normativa': 'instrução normativa',
-        'portaria': 'portaria', 'portarias': 'portaria',
-        'decreto': 'decreto', 'decretos': 'decreto',
-        'edital': 'edital', 'editais': 'edital',
-        'extrato': 'extrato', 'extratos': 'extrato',
-        'aviso': 'aviso', 'avisos': 'aviso',
-        'resolução': 'resolução', 'resoluções': 'resolução',
-        'resolucao': 'resolução',
-        'licitação': 'edital', 'licitacao': 'edital',
-        'pregão': 'pregão', 'pregao': 'pregão',
-        'lei': 'lei', 'leis': 'lei',
-        'retificação': 'retificação',
-        'nomeação': 'portaria', 'exoneração': 'portaria',
+        "instrução normativa": "instrução normativa",
+        "portaria": "portaria",
+        "portarias": "portaria",
+        "decreto": "decreto",
+        "decretos": "decreto",
+        "edital": "edital",
+        "editais": "edital",
+        "extrato": "extrato",
+        "extratos": "extrato",
+        "aviso": "aviso",
+        "avisos": "aviso",
+        "resolução": "resolução",
+        "resoluções": "resolução",
+        "resolucao": "resolução",
+        "licitação": "edital",
+        "licitacao": "edital",
+        "pregão": "pregão",
+        "pregao": "pregão",
+        "lei": "lei",
+        "leis": "lei",
+        "retificação": "retificação",
+        "nomeação": "portaria",
+        "exoneração": "portaria",
     }
     type_words_found: set[str] = set()
     for keyword, atype in type_map.items():
-        if _re.search(rf'\b{_re.escape(keyword)}\b', low):
+        if _re.search(rf"\b{_re.escape(keyword)}\b", low):
             art_type = atype
             type_words_found.add(keyword)
             break
 
     # Detect person: "mencionando X", "sobre X", or "X" in quotes
     person = None
-    m = _re.search(r'(?:mencionando|sobre|nome|assinado por|assinada por)\s+(.+?)(?:\s+(?:de|em|do|da|no|na|desde|até)\s|\s*$)', low)
+    m = _re.search(
+        r"(?:mencionando|sobre|nome|assinado por|assinada por)\s+(.+?)(?:\s+(?:de|em|do|da|no|na|desde|até)\s|\s*$)",
+        low,
+    )
     if m:
         person = m.group(1).strip().title()
     if not person:
@@ -2447,9 +2737,9 @@ async def _chat_search(msg: str) -> str | None:
 
             if not organ:
                 # Extract capitalized multi-word fragments (potential organ names)
-                words = _re.findall(r'[A-ZÀ-Ú][a-zà-ú]+(?:\s+(?:d[aoe]s?\s+)?[A-ZÀ-Ú][a-zà-ú]+)*', msg)
+                words = _re.findall(r"[A-ZÀ-Ú][a-zà-ú]+(?:\s+(?:d[aoe]s?\s+)?[A-ZÀ-Ú][a-zà-ú]+)*", msg)
                 # Also extract ALL-CAPS acronyms (e.g. ANVISA, IBAMA, INSS)
-                acronyms = _re.findall(r'\b[A-ZÀ-Ú]{3,}\b', msg)
+                acronyms = _re.findall(r"\b[A-ZÀ-Ú]{3,}\b", msg)
                 candidates = [(w, 8) for w in words] + [(a, 2) for a in acronyms]
                 for w, min_len in candidates:
                     if len(w) > min_len and w.lower() not in type_words_found:
@@ -2465,8 +2755,12 @@ async def _chat_search(msg: str) -> str | None:
 
             # If no organ, no type, no person — try to detect general search terms
             search_intent = bool(
-                organ or art_type or person
-                or _re.search(r'\b(publicaç|publicacoe|documento|norma|sobre|busca|busque|mostr|list|recente|últim|ultimo)', low)
+                organ
+                or art_type
+                or person
+                or _re.search(
+                    r"\b(publicaç|publicacoe|documento|norma|sobre|busca|busque|mostr|list|recente|últim|ultimo)", low
+                )
             )
 
             if not search_intent:
@@ -2477,6 +2771,7 @@ async def _chat_search(msg: str) -> str | None:
             date_from, date_to = _parse_date_filter(msg)
 
             param_idx = 0
+
             def next_param():
                 nonlocal param_idx
                 param_idx += 1
@@ -2491,8 +2786,7 @@ async def _chat_search(msg: str) -> str | None:
             if art_type:
                 # Look up exact art_type values from DB to use btree index
                 type_rows = await conn.fetch(
-                    "SELECT DISTINCT term FROM dou.suggest_cache "
-                    "WHERE cat = 'tipo' AND term ILIKE $1",
+                    "SELECT DISTINCT term FROM dou.suggest_cache WHERE cat = 'tipo' AND term ILIKE $1",
                     f"%{art_type}%",
                 )
                 matching_types = [r[0] for r in type_rows]
@@ -2511,21 +2805,59 @@ async def _chat_search(msg: str) -> str | None:
                 params.append(date_to)
 
             if person:
-                where_parts.append(
-                    f"d.body_tsvector @@ websearch_to_tsquery('pg_catalog.portuguese', {next_param()})"
-                )
+                where_parts.append(f"d.body_tsvector @@ websearch_to_tsquery('pg_catalog.portuguese', {next_param()})")
                 params.append(person)
 
             # If we only have search_intent from generic words but no filters, do FTS search
             if len(where_parts) == 1 and not person:
                 # Extract meaningful words (skip stop words) and use FTS
-                stop = {'as', 'os', 'de', 'do', 'da', 'dos', 'das', 'no', 'na', 'nos', 'nas',
-                        'um', 'uma', 'uns', 'umas', 'em', 'por', 'para', 'com', 'que', 'qual',
-                        'quais', 'mais', 'menos', 'últimas', 'últimos', 'ultima', 'ultimo',
-                        'recentes', 'recente', 'primeiro', 'primeira', 'publicações', 'publicacoes',
-                        'documentos', 'documento', 'sobre', 'buscar', 'busque', 'me', 'mostre',
-                        'mostra', 'lista', 'liste'}
-                meaningful = [w for w in _re.findall(r'\w+', low) if len(w) > 2 and w not in stop]
+                stop = {
+                    "as",
+                    "os",
+                    "de",
+                    "do",
+                    "da",
+                    "dos",
+                    "das",
+                    "no",
+                    "na",
+                    "nos",
+                    "nas",
+                    "um",
+                    "uma",
+                    "uns",
+                    "umas",
+                    "em",
+                    "por",
+                    "para",
+                    "com",
+                    "que",
+                    "qual",
+                    "quais",
+                    "mais",
+                    "menos",
+                    "últimas",
+                    "últimos",
+                    "ultima",
+                    "ultimo",
+                    "recentes",
+                    "recente",
+                    "primeiro",
+                    "primeira",
+                    "publicações",
+                    "publicacoes",
+                    "documentos",
+                    "documento",
+                    "sobre",
+                    "buscar",
+                    "busque",
+                    "me",
+                    "mostre",
+                    "mostra",
+                    "lista",
+                    "liste",
+                }
+                meaningful = [w for w in _re.findall(r"\w+", low) if len(w) > 2 and w not in stop]
                 if meaningful:
                     terms = " ".join(meaningful[:5])
                     where_parts.append(
@@ -2540,12 +2872,15 @@ async def _chat_search(msg: str) -> str | None:
                        e.publication_date, e.section
                 FROM dou.document d
                 JOIN dou.edition e ON e.id = d.edition_id
-                WHERE {' AND '.join(where_parts)}
+                WHERE {" AND ".join(where_parts)}
                 ORDER BY e.publication_date DESC
                 LIMIT {p_limit}
             """
-            log.info("chat_search sql=%s params=%s", sql.strip()[:200], params + [limit])
             rows = await conn.fetch(sql, *params, limit)
+            log.info(
+                "chat_search",
+                extra={"event": "chat_search", "result_count": len(rows), "limit": limit},
+            )
     except Exception as exc:
         log.exception("chat_search error: %s", exc)
         return None
@@ -2580,10 +2915,7 @@ async def _chat_search(msg: str) -> str | None:
         sec = section.upper() if section else ""
         title = (identifica or ementa or "Sem título")[:120]
         atype_label = (atype or "").upper()
-        lines.append(
-            f"**{atype_label}** · {sec} · {date_str}\n"
-            f"{title}\n"
-        )
+        lines.append(f"**{atype_label}** · {sec} · {date_str}\n{title}\n")
 
     lines.append("---\n*Clique em um resultado na aba Busca para ver o documento completo.*")
     return "\n".join(lines)
@@ -2597,14 +2929,14 @@ def _is_off_topic(msg: str) -> bool:
     if _re.search(r"\b(publicaç|documento|ato|norma|dou|diário oficial|portaria|decreto|lei|edital|resolução)\b", low):
         return False
     # Math expressions (operators present, not just a year)
-    ops = len(_re.findall(r'[+\-*/=^]{1}', low))
+    ops = len(_re.findall(r"[+\-*/=^]{1}", low))
     if ops >= 2:
         return True
     # Clearly off-topic
     off_patterns = [
-        r'\b(piada|joke|futebol|soccer|receita de|clima|tempo|previsão|horóscopo)\b',
-        r'\b(quem ganhou|quem venceu|placar|jogo)\b',
-        r'\b(programa|código|python|javascript|html|css)\b.*\b(como|faço|faz)\b',
+        r"\b(piada|joke|futebol|soccer|receita de|clima|tempo|previsão|horóscopo)\b",
+        r"\b(quem ganhou|quem venceu|placar|jogo)\b",
+        r"\b(programa|código|python|javascript|html|css)\b.*\b(como|faço|faz)\b",
     ]
     for p in off_patterns:
         if _re.search(p, low):
@@ -2717,11 +3049,7 @@ async def api_chat(
                             payload = json.loads(raw)
                         except json.JSONDecodeError:
                             continue
-                        delta = (
-                            payload.get("choices", [{}])[0]
-                            .get("delta", {})
-                            .get("content", "")
-                        )
+                        delta = payload.get("choices", [{}])[0].get("delta", {}).get("content", "")
                         if not meta_sent:
                             meta_sent = True
                             yield _sse_event(
@@ -2734,7 +3062,7 @@ async def api_chat(
                         if delta:
                             collected.append(str(delta))
                             yield _sse_event("delta", {"content": str(delta)})
-            except Exception as exc:
+            except Exception:
                 if fallback_payload is not None:
                     effective = await finalize(
                         {
@@ -2804,7 +3132,7 @@ async def api_chat(
 
     payload: dict[str, Any] | None = None
 
-    if _re.search(r'^(oi|olá|ola|hey|bom dia|boa tarde|boa noite|hello|hi)\b', low):
+    if _re.search(r"^(oi|olá|ola|hey|bom dia|boa tarde|boa noite|hello|hi)\b", low):
         payload = {
             "reply": (
                 "Olá! Sou a **GABI**, sua assistente para buscas no Diário Oficial da União.\n\n"
@@ -2816,7 +3144,7 @@ async def api_chat(
             ),
             "model": "gabi",
         }
-    elif _re.search(r'\b(o que é|oque é|que é o|explica).*(dou|diário oficial|gabi)\b', low):
+    elif _re.search(r"\b(o que é|oque é|que é o|explica).*(dou|diário oficial|gabi)\b", low):
         payload = {
             "reply": (
                 "O **DOU** (Diário Oficial da União) é o jornal oficial do governo federal do Brasil, "
@@ -2828,7 +3156,7 @@ async def api_chat(
             ),
             "model": "gabi",
         }
-    elif _re.search(r'\b(como|ajuda|help|dica|sintaxe).*(busca|pesquis|procur|encontr|usar)', low):
+    elif _re.search(r"\b(como|ajuda|help|dica|sintaxe).*(busca|pesquis|procur|encontr|usar)", low):
         payload = {
             "reply": (
                 "**Como buscar no GABI:**\n\n"
@@ -2977,7 +3305,8 @@ async def api_media(
 ):
     """Serve media from bytea or local cache only."""
     async with acquire(timeout_ms=10000) as conn:
-        row = await conn.fetchrow("""
+        row = await conn.fetchrow(
+            """
             SELECT data, media_type, local_path, availability_status, ingest_checked_at
             FROM dou.document_media
             WHERE document_id = $1::uuid
@@ -2987,7 +3316,10 @@ async def api_media(
                  OR media_name = regexp_replace($2, E'\\.[^\\.]+$', '')
               )
             LIMIT 1
-        """, doc_id, media_name)
+        """,
+            doc_id,
+            media_name,
+        )
 
     if not row:
         raise HTTPException(404, "Imagem não encontrada")
@@ -3058,11 +3390,7 @@ async def proxy_worker(
             resp = await client.request(
                 method=request.method,
                 url=f"{WORKER_BASE}/{path}",
-                headers={
-                    "content-type": request.headers.get(
-                        "content-type", "application/json"
-                    )
-                },
+                headers={"content-type": request.headers.get("content-type", "application/json")},
                 content=await request.body() if request.method == "POST" else None,
                 params=dict(request.query_params),
                 timeout=30.0,
@@ -3092,6 +3420,7 @@ async def proxy_worker(
 # ---------------------------------------------------------------------------
 # Static files — serve frontend
 # ---------------------------------------------------------------------------
+
 
 # SPA fallback: serve index.html for non-API routes
 @app.get("/")
@@ -3178,9 +3507,11 @@ def assets_asset(path: str):
         raise HTTPException(404, "Asset não encontrado")
     return FileResponse(resolved)
 
+
 # ---------------------------------------------------------------------------
 # Entrypoint
 # ---------------------------------------------------------------------------
+
 
 def main() -> int:
     import argparse

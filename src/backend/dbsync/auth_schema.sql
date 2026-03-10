@@ -73,3 +73,32 @@ CREATE INDEX IF NOT EXISTS idx_login_attempt_email_time
 CREATE INDEX IF NOT EXISTS idx_login_attempt_ip_time
   ON auth.login_attempt(ip_address, attempted_at)
   WHERE NOT success;
+
+-- v1.1 A1: Email verification tokens
+CREATE TABLE IF NOT EXISTS auth.email_verification (
+    id          SERIAL PRIMARY KEY,
+    user_id     uuid NOT NULL REFERENCES auth."user"(id) ON DELETE CASCADE,
+    token_hash  text NOT NULL,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    expires_at  timestamptz NOT NULL DEFAULT (now() + interval '24 hours'),
+    used_at     timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_verification_token_hash
+  ON auth.email_verification(token_hash);
+
+-- v1.1 A2: Password reset tokens
+ALTER TABLE auth."user" ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMPTZ;
+
+CREATE TABLE IF NOT EXISTS auth.password_reset (
+    id          SERIAL PRIMARY KEY,
+    user_id     uuid NOT NULL REFERENCES auth."user"(id) ON DELETE CASCADE,
+    token_hash  text NOT NULL,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    expires_at  timestamptz NOT NULL DEFAULT (now() + interval '1 hour'),
+    used_at     timestamptz,
+    ip_address  text
+);
+
+CREATE INDEX IF NOT EXISTS idx_password_reset_token_hash
+  ON auth.password_reset(token_hash);

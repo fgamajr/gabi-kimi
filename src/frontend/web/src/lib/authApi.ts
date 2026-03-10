@@ -59,6 +59,7 @@ export interface MeResponse {
   display_name: string;
   roles: string[];
   login_method: string;
+  email_verified: boolean;
 }
 
 export async function getCurrentUser(): Promise<MeResponse> {
@@ -67,5 +68,54 @@ export async function getCurrentUser(): Promise<MeResponse> {
     headers: { Accept: "application/json" },
   });
   if (!response.ok) throw new AuthApiError(response.status, "Nao autenticado");
+  return response.json();
+}
+
+export async function resendVerification(): Promise<{ message: string }> {
+  const response = await fetch(resolveApiUrl("/api/auth/resend-verification"), {
+    method: "POST",
+    credentials: "include",
+    headers: { Accept: "application/json" },
+  });
+  if (response.status === 429) {
+    throw new AuthApiError(429, "Aguarde alguns minutos para reenviar.");
+  }
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({ detail: "Erro ao reenviar" }));
+    throw new AuthApiError(response.status, body.detail || "Erro ao reenviar");
+  }
+  const data = await response.json();
+  window.dispatchEvent(new Event("gabi-auth-changed"));
+  return data;
+}
+
+export async function forgotPassword(email: string): Promise<{ message: string }> {
+  const response = await fetch(resolveApiUrl("/api/auth/forgot-password"), {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ email: email.trim().toLowerCase() }),
+  });
+  if (response.status === 429) {
+    throw new AuthApiError(429, "Muitas tentativas. Tente novamente em uma hora.");
+  }
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({ detail: "Erro ao enviar" }));
+    throw new AuthApiError(response.status, body.detail || "Erro ao enviar");
+  }
+  return response.json();
+}
+
+export async function resetPassword(token: string, newPassword: string): Promise<{ message: string }> {
+  const response = await fetch(resolveApiUrl("/api/auth/reset-password"), {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ token, new_password: newPassword }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({ detail: "Link expirado ou já utilizado" }));
+    throw new AuthApiError(response.status, body.detail || "Link expirado ou já utilizado");
+  }
   return response.json();
 }

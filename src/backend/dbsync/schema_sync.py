@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import sys
 
 from src.backend.dbsync.differ import diff_schema
 from src.backend.dbsync.executor import ApplyError, apply_operations

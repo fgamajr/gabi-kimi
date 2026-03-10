@@ -5,9 +5,12 @@ app = 'gabi-dou-worker'
 primary_region = 'gru'
 
 [build]
-  dockerfile = 'ops/deploy/worker/Dockerfile'
+  # Dockerfile path relative to this config dir; context = repo root for COPY
+  dockerfile = 'Dockerfile'
+  context = '../..'
 
 [env]
+  LOG_LEVEL = 'INFO'
   ES_URL = 'http://gabi-dou-es.internal:9200'
   REGISTRY_DB_PATH = '/data/registry.db'
   TIGRIS_BUCKET = 'gabi-dou-es-snapshots'

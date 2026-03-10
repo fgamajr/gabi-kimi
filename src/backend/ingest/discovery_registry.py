@@ -9,10 +9,10 @@ Storage options:
   - SQLite (for development/testing)
   - In-memory (for testing only)
 """
+
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -24,17 +24,19 @@ import psycopg
 # Data classes
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True, slots=True)
 class DiscoveredPublication:
     """Metadata about a discovered (but not necessarily downloaded) publication."""
-    section: str              # do1, do2, do3, do1e, do2e, do3e, etc.
-    publication_date: date    # YYYY-MM-DD (first day of month for monthly ZIPs)
-    edition_number: str       # e.g., "123" (often empty for monthly bundles)
-    edition_type: str         # "regular", "extra", "special"
-    folder_id: int            # Liferay folder ID
-    filename: str             # Server filename (e.g., S01012026.zip)
-    file_size: int | None     # Bytes (None if not yet downloaded)
-    discovered_at: datetime   # When we first saw this publication
+
+    section: str  # do1, do2, do3, do1e, do2e, do3e, etc.
+    publication_date: date  # YYYY-MM-DD (first day of month for monthly ZIPs)
+    edition_number: str  # e.g., "123" (often empty for monthly bundles)
+    edition_type: str  # "regular", "extra", "special"
+    folder_id: int  # Liferay folder ID
+    filename: str  # Server filename (e.g., S01012026.zip)
+    file_size: int | None  # Bytes (None if not yet downloaded)
+    discovered_at: datetime  # When we first saw this publication
     downloaded: bool = False  # Whether we've downloaded it
     downloaded_at: datetime | None = None  # When we downloaded it
     download_error: str | None = None  # Error message if download failed
@@ -82,6 +84,7 @@ class DiscoveredPublication:
 # ---------------------------------------------------------------------------
 # Registry interface
 # ---------------------------------------------------------------------------
+
 
 class DiscoveryRegistry:
     """Interface for discovery registry storage."""
@@ -150,6 +153,7 @@ class DiscoveryRegistry:
 # PostgreSQL registry
 # ---------------------------------------------------------------------------
 
+
 class PostgreSQLDiscoveryRegistry(DiscoveryRegistry):
     """Discovery registry backed by PostgreSQL."""
 
@@ -193,28 +197,31 @@ class PostgreSQLDiscoveryRegistry(DiscoveryRegistry):
     def add_publication(self, pub: DiscoveredPublication) -> None:
         """Add a newly discovered publication."""
         with psycopg.connect(self.dsn) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO discovery.publications (
                     section, publication_date, edition_number, edition_type,
                     folder_id, filename, file_size, discovered_at,
                     downloaded, downloaded_at, download_error, sha256, local_filename
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (section, publication_date, filename) DO NOTHING
-            """, (
-                pub.section,
-                pub.publication_date,
-                pub.edition_number,
-                pub.edition_type,
-                pub.folder_id,
-                pub.filename,
-                pub.file_size,
-                pub.discovered_at,
-                pub.downloaded,
-                pub.downloaded_at,
-                pub.download_error,
-                pub.sha256,
-                pub.local_filename,
-            ))
+            """,
+                (
+                    pub.section,
+                    pub.publication_date,
+                    pub.edition_number,
+                    pub.edition_type,
+                    pub.folder_id,
+                    pub.filename,
+                    pub.file_size,
+                    pub.discovered_at,
+                    pub.downloaded,
+                    pub.downloaded_at,
+                    pub.download_error,
+                    pub.sha256,
+                    pub.local_filename,
+                ),
+            )
             conn.commit()
 
     def mark_downloaded(
@@ -228,7 +235,8 @@ class PostgreSQLDiscoveryRegistry(DiscoveryRegistry):
     ) -> None:
         """Mark a publication as downloaded."""
         with psycopg.connect(self.dsn) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 UPDATE discovery.publications
                 SET downloaded = TRUE,
                     downloaded_at = NOW(),
@@ -239,14 +247,16 @@ class PostgreSQLDiscoveryRegistry(DiscoveryRegistry):
                 WHERE section = %s
                   AND publication_date = %s
                   AND filename = %s
-            """, (
-                file_size,
-                sha256,
-                local_filename,
-                section,
-                publication_date,
-                filename,
-            ))
+            """,
+                (
+                    file_size,
+                    sha256,
+                    local_filename,
+                    section,
+                    publication_date,
+                    filename,
+                ),
+            )
             conn.commit()
 
     def mark_download_failed(
@@ -258,18 +268,21 @@ class PostgreSQLDiscoveryRegistry(DiscoveryRegistry):
     ) -> None:
         """Mark a publication download as failed."""
         with psycopg.connect(self.dsn) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 UPDATE discovery.publications
                 SET download_error = %s
                 WHERE section = %s
                   AND publication_date = %s
                   AND filename = %s
-            """, (
-                error,
-                section,
-                publication_date,
-                filename,
-            ))
+            """,
+                (
+                    error,
+                    section,
+                    publication_date,
+                    filename,
+                ),
+            )
             conn.commit()
 
     def get_publication(
@@ -280,7 +293,8 @@ class PostgreSQLDiscoveryRegistry(DiscoveryRegistry):
     ) -> DiscoveredPublication | None:
         """Get a publication by key."""
         with psycopg.connect(self.dsn) as conn:
-            row = conn.execute("""
+            row = conn.execute(
+                """
                 SELECT section, publication_date, edition_number, edition_type,
                        folder_id, filename, file_size, discovered_at,
                        downloaded, downloaded_at, download_error, sha256, local_filename
@@ -288,7 +302,9 @@ class PostgreSQLDiscoveryRegistry(DiscoveryRegistry):
                 WHERE section = %s
                   AND publication_date = %s
                   AND filename = %s
-            """, (section, publication_date, filename)).fetchone()
+            """,
+                (section, publication_date, filename),
+            ).fetchone()
 
             if row is None:
                 return None
@@ -396,11 +412,13 @@ class PostgreSQLDiscoveryRegistry(DiscoveryRegistry):
 # SQLite registry (for development/testing)
 # ---------------------------------------------------------------------------
 
+
 class SQLiteDiscoveryRegistry(DiscoveryRegistry):
     """Discovery registry backed by SQLite."""
 
     def __init__(self, db_path: Path | str) -> None:
         import sqlite3
+
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(self.db_path))
@@ -439,27 +457,30 @@ class SQLiteDiscoveryRegistry(DiscoveryRegistry):
 
     def add_publication(self, pub: DiscoveredPublication) -> None:
         """Add a newly discovered publication."""
-        self.conn.execute("""
+        self.conn.execute(
+            """
             INSERT OR IGNORE INTO publications (
                 section, publication_date, edition_number, edition_type,
                 folder_id, filename, file_size, discovered_at,
                 downloaded, downloaded_at, download_error, sha256, local_filename
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            pub.section,
-            pub.publication_date.isoformat(),
-            pub.edition_number,
-            pub.edition_type,
-            pub.folder_id,
-            pub.filename,
-            pub.file_size,
-            pub.discovered_at.isoformat(),
-            pub.downloaded,
-            pub.downloaded_at.isoformat() if pub.downloaded_at else None,
-            pub.download_error,
-            pub.sha256,
-            pub.local_filename,
-        ))
+        """,
+            (
+                pub.section,
+                pub.publication_date.isoformat(),
+                pub.edition_number,
+                pub.edition_type,
+                pub.folder_id,
+                pub.filename,
+                pub.file_size,
+                pub.discovered_at.isoformat(),
+                pub.downloaded,
+                pub.downloaded_at.isoformat() if pub.downloaded_at else None,
+                pub.download_error,
+                pub.sha256,
+                pub.local_filename,
+            ),
+        )
         self.conn.commit()
 
     def mark_downloaded(
@@ -472,7 +493,8 @@ class SQLiteDiscoveryRegistry(DiscoveryRegistry):
         local_filename: str,
     ) -> None:
         """Mark a publication as downloaded."""
-        self.conn.execute("""
+        self.conn.execute(
+            """
             UPDATE publications
             SET downloaded = 1,
                 downloaded_at = CURRENT_TIMESTAMP,
@@ -483,14 +505,16 @@ class SQLiteDiscoveryRegistry(DiscoveryRegistry):
             WHERE section = ?
               AND publication_date = ?
               AND filename = ?
-        """, (
-            file_size,
-            sha256,
-            local_filename,
-            section,
-            publication_date.isoformat(),
-            filename,
-        ))
+        """,
+            (
+                file_size,
+                sha256,
+                local_filename,
+                section,
+                publication_date.isoformat(),
+                filename,
+            ),
+        )
         self.conn.commit()
 
     def mark_download_failed(
@@ -501,18 +525,21 @@ class SQLiteDiscoveryRegistry(DiscoveryRegistry):
         error: str,
     ) -> None:
         """Mark a publication download as failed."""
-        self.conn.execute("""
+        self.conn.execute(
+            """
             UPDATE publications
             SET download_error = ?
             WHERE section = ?
               AND publication_date = ?
               AND filename = ?
-        """, (
-            error,
-            section,
-            publication_date.isoformat(),
-            filename,
-        ))
+        """,
+            (
+                error,
+                section,
+                publication_date.isoformat(),
+                filename,
+            ),
+        )
         self.conn.commit()
 
     def get_publication(
@@ -522,7 +549,8 @@ class SQLiteDiscoveryRegistry(DiscoveryRegistry):
         filename: str,
     ) -> DiscoveredPublication | None:
         """Get a publication by key."""
-        row = self.conn.execute("""
+        row = self.conn.execute(
+            """
             SELECT section, publication_date, edition_number, edition_type,
                    folder_id, filename, file_size, discovered_at,
                    downloaded, downloaded_at, download_error, sha256, local_filename
@@ -530,7 +558,9 @@ class SQLiteDiscoveryRegistry(DiscoveryRegistry):
             WHERE section = ?
               AND publication_date = ?
               AND filename = ?
-        """, (section, publication_date.isoformat(), filename)).fetchone()
+        """,
+            (section, publication_date.isoformat(), filename),
+        ).fetchone()
 
         if row is None:
             return None
@@ -639,6 +669,7 @@ class SQLiteDiscoveryRegistry(DiscoveryRegistry):
 # ---------------------------------------------------------------------------
 # In-memory registry (for testing)
 # ---------------------------------------------------------------------------
+
 
 class InMemoryDiscoveryRegistry(DiscoveryRegistry):
     """In-memory discovery registry (for testing)."""
@@ -752,6 +783,7 @@ class InMemoryDiscoveryRegistry(DiscoveryRegistry):
 # ---------------------------------------------------------------------------
 # Factory function
 # ---------------------------------------------------------------------------
+
 
 def create_registry(
     backend: str = "postgresql",

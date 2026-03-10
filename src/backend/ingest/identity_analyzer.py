@@ -61,12 +61,8 @@ def analyze_identity(parsed_dir: Path, cfg: IdentityConfig, out_dir: Path) -> di
     false_occ = _false_occurrences(records)
     strat = _strategy_distribution(records)
 
-    (out_dir / "identity_groups.json").write_text(
-        json.dumps(groups, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    (out_dir / "suspicious_splits.json").write_text(
-        json.dumps(splits, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    (out_dir / "identity_groups.json").write_text(json.dumps(groups, ensure_ascii=False, indent=2), encoding="utf-8")
+    (out_dir / "suspicious_splits.json").write_text(json.dumps(splits, ensure_ascii=False, indent=2), encoding="utf-8")
     (out_dir / "false_versions.json").write_text(
         json.dumps(false_versions, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -113,7 +109,9 @@ def _load_records(parsed_dir: Path, cfg: IdentityConfig) -> list[dict[str, Any]]
     return out
 
 
-def _hash_record(doc: dict[str, str], pub: dict[str, str], source: dict[str, Any], cfg: IdentityConfig) -> dict[str, Any]:
+def _hash_record(
+    doc: dict[str, str], pub: dict[str, str], source: dict[str, Any], cfg: IdentityConfig
+) -> dict[str, Any]:
     strategy_name = "none"
     strategy_values: list[str] = []
     for s in cfg.strategies:

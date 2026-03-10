@@ -3,6 +3,7 @@
 Registers a Tigris S3 snapshot repository in Elasticsearch and creates
 daily named snapshots of the gabi_documents_v1 index.
 """
+
 from __future__ import annotations
 
 import logging

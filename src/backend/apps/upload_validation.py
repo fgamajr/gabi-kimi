@@ -1,4 +1,5 @@
 """Deep upload validation for admin XML/ZIP uploads."""
+
 from __future__ import annotations
 
 import os
@@ -109,9 +110,7 @@ def _validate_zip_upload(file) -> UploadValidationResult:
         with zipfile.ZipFile(file, "r") as zf:
             infos = [info for info in zf.infolist() if not info.is_dir()]
             if len(infos) > MAX_ZIP_MEMBERS:
-                raise UploadValidationError(
-                    f"ZIP has too many entries ({len(infos)}, limit {MAX_ZIP_MEMBERS})"
-                )
+                raise UploadValidationError(f"ZIP has too many entries ({len(infos)}, limit {MAX_ZIP_MEMBERS})")
 
             total_uncompressed = 0
             xml_infos: list[zipfile.ZipInfo] = []
@@ -123,8 +122,7 @@ def _validate_zip_upload(file) -> UploadValidationResult:
                 total_uncompressed += max(0, int(info.file_size))
                 if total_uncompressed > MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES:
                     raise UploadValidationError(
-                        "ZIP expands beyond the configured safe limit "
-                        f"({MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES} bytes)"
+                        f"ZIP expands beyond the configured safe limit ({MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES} bytes)"
                     )
                 suffix = PurePosixPath(name).suffix.lower()
                 if suffix in _XML_EXTENSIONS:

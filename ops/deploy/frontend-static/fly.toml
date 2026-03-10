@@ -2,7 +2,8 @@ app = 'gabi-dou-frontend'
 primary_region = 'gru'
 
 [build]
-  dockerfile = 'ops/deploy/frontend-static/Dockerfile'
+  dockerfile = 'Dockerfile'
+  context = '../..'
 
   [build.args]
     VITE_API_BASE_URL = 'https://gabi-dou-web.fly.dev/api'

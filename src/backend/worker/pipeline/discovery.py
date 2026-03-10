@@ -4,6 +4,7 @@ Discovers new DOU ZIP publications from in.gov.br, checks against the SQLite
 registry, and inserts newly found files. Falls back to HEAD probes when
 the Liferay API is unavailable.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -15,9 +16,9 @@ from typing import Any
 
 import httpx
 
-from src.backend.ingest.zip_downloader import TAGS_API_URL, detect_special_editions
+from src.backend.ingest.zip_downloader import detect_special_editions
 from src.backend.worker.inlabs_client import INLabsClient, MAX_LOOKBACK_DAYS
-from src.backend.worker.registry import FileStatus, Registry
+from src.backend.worker.registry import Registry
 
 logger = logging.getLogger(__name__)
 
@@ -47,9 +48,7 @@ _PREFIX_TO_SECTION: dict[str, str] = {
 }
 
 # Regex to parse DOU ZIP filenames: S{prefix}{MM}{YYYY}.zip
-_FILENAME_RE = re.compile(
-    r"^(S\d{2}E?)\s*(\d{2})(\d{4})(?:_Parte_?\d+)?\.zip$", re.IGNORECASE
-)
+_FILENAME_RE = re.compile(r"^(S\d{2}E?)\s*(\d{2})(\d{4})(?:_Parte_?\d+)?\.zip$", re.IGNORECASE)
 
 
 def parse_dou_filename(filename: str) -> tuple[str, str]:
@@ -121,7 +120,6 @@ def _month_overlaps_recent_window(year_month: str, *, today: date | None = None)
     reference = today or date.today()
     cutoff = reference - timedelta(days=RECENT_WINDOW_DAYS)
     year, month = map(int, year_month.split("-"))
-    month_start = date(year, month, 1)
     if month == 12:
         month_end = date(year + 1, 1, 1) - timedelta(days=1)
     else:
@@ -232,9 +230,7 @@ async def _discover_recent_inlabs_files(
                 )
                 if file_id:
                     new_files += 1
-                    await registry.catalog_month_upsert(
-                        year_month_str, source_of_truth="inlabs_discovery"
-                    )
+                    await registry.catalog_month_upsert(year_month_str, source_of_truth="inlabs_discovery")
                     await registry.add_log_entry(
                         run_id,
                         file_id,
@@ -284,11 +280,13 @@ async def _probe_head_fallback(
                 try:
                     resp = await client.head(url, timeout=15, follow_redirects=True)
                     if resp.status_code == 200:
-                        results.append({
-                            "fileName": filename,
-                            "section": section_code,
-                            "year_month": probe_date.strftime("%Y-%m"),
-                        })
+                        results.append(
+                            {
+                                "fileName": filename,
+                                "section": section_code,
+                                "year_month": probe_date.strftime("%Y-%m"),
+                            }
+                        )
                 except Exception:
                     pass
 
@@ -372,9 +370,7 @@ async def run_discovery(
                             group_id=str(GROUP_ID),
                             source_of_truth="liferay_discovery",
                         )
-                        await registry.add_log_entry(
-                            run_id, file_id, "INFO", f"Discovered Liferay archive: {filename}"
-                        )
+                        await registry.add_log_entry(run_id, file_id, "INFO", f"Discovered Liferay archive: {filename}")
 
         except Exception as e:
             # Fallback to HEAD probes
@@ -413,9 +409,7 @@ async def run_discovery(
                     if file_id:
                         new_files += 1
                         liferay_new += 1
-                        await registry.catalog_month_upsert(
-                            year_month, source_of_truth="liferay_discovery"
-                        )
+                        await registry.catalog_month_upsert(year_month, source_of_truth="liferay_discovery")
                         await registry.add_log_entry(
                             run_id, file_id, "INFO", f"Discovered Liferay fallback: {filename}"
                         )

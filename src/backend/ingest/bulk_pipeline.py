@@ -22,10 +22,10 @@ Usage:
     # Ingest from already-downloaded ZIPs (skip download)
     python -m src.backend.ingest.bulk_pipeline --start 2026-02-20 --end 2026-02-27 --skip-download
 """
+
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 import time
@@ -36,14 +36,12 @@ from typing import Any
 
 from src.backend.ingest.date_selector import DateRange
 from src.backend.ingest.normalizer import article_to_ingest_record
-from src.backend.ingest.xml_parser import INLabsXMLParser, DOUArticle, parse_directory
+from src.backend.ingest.xml_parser import INLabsXMLParser, DOUArticle
 from src.backend.ingest.zip_downloader import (
     ALL_SECTIONS,
     DownloadManifest,
     ExtractionResult,
-    ZIPTarget,
     build_targets,
-    build_zip_url,
     download_batch,
     extract_xml_from_zip,
     file_sha256,
@@ -55,9 +53,11 @@ from src.backend.ingest.zip_downloader import (
 # Pipeline result
 # ---------------------------------------------------------------------------
 
+
 @dataclass(slots=True)
 class PipelineResult:
     """Aggregate result of a full pipeline run."""
+
     # Download phase
     zips_targeted: int = 0
     zips_downloaded: int = 0
@@ -95,6 +95,7 @@ class PipelineResult:
 # Logging
 # ---------------------------------------------------------------------------
 
+
 def _log(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
 
@@ -102,6 +103,7 @@ def _log(msg: str) -> None:
 # ---------------------------------------------------------------------------
 # Phase 1: Download
 # ---------------------------------------------------------------------------
+
 
 def phase_download(
     date_range: DateRange,
@@ -142,6 +144,7 @@ def phase_download(
 # Phase 2: Extract
 # ---------------------------------------------------------------------------
 
+
 def phase_extract(
     zip_paths: list[Path],
     extract_dir: Path | None = None,
@@ -178,6 +181,7 @@ def phase_extract(
 # Phase 3: Parse
 # ---------------------------------------------------------------------------
 
+
 def phase_parse(
     extraction_results: list[ExtractionResult],
 ) -> tuple[list[tuple[DOUArticle, Path]], list[str]]:
@@ -208,6 +212,7 @@ def phase_parse(
 # ---------------------------------------------------------------------------
 # Phase 4: Normalize
 # ---------------------------------------------------------------------------
+
 
 def phase_normalize(
     articles: list[tuple[DOUArticle, Path]],
@@ -248,6 +253,7 @@ def phase_normalize(
 # Phase 5: Ingest
 # ---------------------------------------------------------------------------
 
+
 def phase_ingest(
     dsn: str,
     records: list[dict[str, Any]],
@@ -269,7 +275,6 @@ def phase_ingest(
     """
     # Lazy import to avoid DB dependency when only downloading/parsing
     from src.backend.dbsync.registry_ingest import (
-        IngestResult,
         ingest_and_seal,
         ingest_records,
     )
@@ -302,6 +307,7 @@ def phase_ingest(
 # ---------------------------------------------------------------------------
 # Full pipeline
 # ---------------------------------------------------------------------------
+
 
 def run_pipeline(
     date_range: DateRange,
@@ -349,7 +355,8 @@ def run_pipeline(
     # --- Phase 1: Download ---
     if not skip_download:
         manifest, dl_result = phase_download(
-            date_range, data_dir,
+            date_range,
+            data_dir,
             sections=sections,
             include_extras=include_extras,
         )
@@ -407,7 +414,8 @@ def run_pipeline(
         return result
 
     ingest_result = phase_ingest(
-        dsn, records,
+        dsn,
+        records,
         seal=seal,
         sources_yaml=sources_yaml,
         identity_yaml=identity_yaml,
@@ -427,6 +435,7 @@ def run_pipeline(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _discover_existing_zips(
     data_dir: Path,
@@ -473,23 +482,22 @@ def _print_summary(result: PipelineResult) -> None:
     print("\n" + "=" * 60)
     print("BULK PIPELINE SUMMARY")
     print("=" * 60)
-    print(f"  Download:    {result.zips_downloaded}/{result.zips_targeted} zips "
-          f"({result.download_bytes:,} bytes)")
-    print(f"  Extract:     {result.xml_files_extracted} xml, "
-          f"{result.image_files_extracted} images")
-    print(f"  Parse:       {result.articles_parsed} articles "
-          f"({result.articles_skipped} skipped)")
+    print(f"  Download:    {result.zips_downloaded}/{result.zips_targeted} zips ({result.download_bytes:,} bytes)")
+    print(f"  Extract:     {result.xml_files_extracted} xml, {result.image_files_extracted} images")
+    print(f"  Parse:       {result.articles_parsed} articles ({result.articles_skipped} skipped)")
     print(f"  Normalize:   {result.records_produced} records")
-    print(f"  Ingest:      {result.records_ingested} inserted, "
-          f"{result.records_duplicate} duplicate, "
-          f"{result.records_new_version} new_version, "
-          f"{result.records_new_publication} new_pub")
+    print(
+        f"  Ingest:      {result.records_ingested} inserted, "
+        f"{result.records_duplicate} duplicate, "
+        f"{result.records_new_version} new_version, "
+        f"{result.records_new_publication} new_pub"
+    )
     if result.commitment_sealed:
         print(f"  Commitment:  {result.commitment_root[:16]}... (SEALED)")
     elif result.commitment_root:
         print(f"  Commitment:  {result.commitment_root[:16]}... (NOT sealed)")
     else:
-        print(f"  Commitment:  (none)")
+        print("  Commitment:  (none)")
     print(f"  Errors:      {len(result.extraction_errors) + len(result.ingestion_errors)}")
     print(f"  Time:        {result.elapsed_ms / 1000:.1f}s")
     print("=" * 60)
@@ -498,6 +506,7 @@ def _print_summary(result: PipelineResult) -> None:
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def main() -> int:
     p = argparse.ArgumentParser(
@@ -509,23 +518,27 @@ def main() -> int:
     g = p.add_mutually_exclusive_group(required=True)
     g.add_argument("--days", type=int, help="Ingest last N weekdays")
     g.add_argument("--start", type=str, help="Start date (YYYY-MM-DD)")
-    g.add_argument("--sync", action="store_true",
-                   help="Auto-sync: discover new ZIPs from catalog, download and ingest")
+    g.add_argument("--sync", action="store_true", help="Auto-sync: discover new ZIPs from catalog, download and ingest")
     p.add_argument("--end", type=str, help="End date (YYYY-MM-DD, required with --start)")
 
     # Data directory
     p.add_argument(
-        "--data-dir", type=Path, default=Path("ops/data/inlabs"),
+        "--data-dir",
+        type=Path,
+        default=Path("ops/data/inlabs"),
         help="Directory for ZIP downloads (default: ops/data/inlabs)",
     )
 
     # Sections
     p.add_argument(
-        "--sections", nargs="+", default=None,
+        "--sections",
+        nargs="+",
+        default=None,
         help="Sections to download (e.g. do1 do2 do3 do1e). Default: all + auto-detect extras",
     )
     p.add_argument(
-        "--no-extras", action="store_true",
+        "--no-extras",
+        action="store_true",
         help="Skip extra edition detection via tags API",
     )
 
@@ -537,9 +550,7 @@ def main() -> int:
     # Database
     p.add_argument(
         "--dsn",
-        default=os.environ.get(
-            "GABI_DSN", "host=localhost port=5433 dbname=gabi user=gabi password=gabi"
-        ),
+        default=os.environ.get("GABI_DSN", "host=localhost port=5433 dbname=gabi user=gabi password=gabi"),
         help="PostgreSQL DSN",
     )
 
@@ -549,16 +560,13 @@ def main() -> int:
     p.add_argument("--identity", type=Path, default=None, help="Path to identity YAML")
 
     # Sync-specific options
-    p.add_argument("--refresh-catalog", action="store_true",
-                   help="Re-scrape in.gov.br catalog before syncing (with --sync)")
-    p.add_argument("--sync-start", type=str, default=None,
-                   help="Sync: start month filter (YYYY-MM)")
-    p.add_argument("--sync-end", type=str, default=None,
-                   help="Sync: end month filter (YYYY-MM)")
-    p.add_argument("--limit", type=int, default=0,
-                   help="Sync: max ZIPs to process per run (0=all)")
-    p.add_argument("--dry-run", action="store_true",
-                   help="Sync: show what would be downloaded without doing it")
+    p.add_argument(
+        "--refresh-catalog", action="store_true", help="Re-scrape in.gov.br catalog before syncing (with --sync)"
+    )
+    p.add_argument("--sync-start", type=str, default=None, help="Sync: start month filter (YYYY-MM)")
+    p.add_argument("--sync-end", type=str, default=None, help="Sync: end month filter (YYYY-MM)")
+    p.add_argument("--limit", type=int, default=0, help="Sync: max ZIPs to process per run (0=all)")
+    p.add_argument("--dry-run", action="store_true", help="Sync: show what would be downloaded without doing it")
 
     args = p.parse_args()
 

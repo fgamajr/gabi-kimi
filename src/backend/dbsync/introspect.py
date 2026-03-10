@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 
 import psycopg
 
@@ -92,7 +91,7 @@ def introspect_database(dsn: str) -> ExistingDatabaseState:
                 t.columns[col] = ExistingColumn(
                     name=col,
                     pg_type=_normalize_pg_type(str(udt_name)),
-                    nullable=(is_nullable == 'YES'),
+                    nullable=(is_nullable == "YES"),
                 )
 
             cur.execute(
@@ -114,13 +113,13 @@ def introspect_database(dsn: str) -> ExistingDatabaseState:
                 if not t:
                     continue
 
-                if contype == 'p':
+                if contype == "p":
                     pk_col = _extract_first_column_from_def(definition)
                     t.primary_key = pk_col
-                elif contype == 'u':
+                elif contype == "u":
                     cols = _extract_columns_from_def(definition)
                     t.uniques[conname] = ExistingIndex(name=conname, columns=cols, unique=True)
-                elif contype == 'f':
+                elif contype == "f":
                     lcol = _extract_first_column_from_def(definition)
                     ref_schema, ref_table, ref_col = _extract_fk_target(definition)
                     t.fks[conname] = ExistingFK(
@@ -147,7 +146,7 @@ def introspect_database(dsn: str) -> ExistingDatabaseState:
                 if not t:
                     continue
                 cols = _extract_columns_from_indexdef(idx_def)
-                unique = ' UNIQUE INDEX ' in idx_def
+                unique = " UNIQUE INDEX " in idx_def
                 info = ExistingIndex(name=idx_name, columns=cols, unique=unique)
                 if unique:
                     t.uniques[idx_name] = info
@@ -159,59 +158,59 @@ def introspect_database(dsn: str) -> ExistingDatabaseState:
 
 def _normalize_pg_type(udt_name: str) -> str:
     mapping = {
-        'int4': 'integer',
-        'int8': 'bigint',
-        'text': 'text',
-        'varchar': 'text',
-        'bool': 'boolean',
-        'date': 'date',
-        'timestamptz': 'timestamptz',
-        'timestamp': 'timestamp',
-        'jsonb': 'jsonb',
-        'uuid': 'uuid',
-        'numeric': 'numeric',
+        "int4": "integer",
+        "int8": "bigint",
+        "text": "text",
+        "varchar": "text",
+        "bool": "boolean",
+        "date": "date",
+        "timestamptz": "timestamptz",
+        "timestamp": "timestamp",
+        "jsonb": "jsonb",
+        "uuid": "uuid",
+        "numeric": "numeric",
     }
     return mapping.get(udt_name, udt_name)
 
 
 def _extract_first_column_from_def(definition: str) -> str:
     cols = _extract_columns_from_def(definition)
-    return cols[0] if cols else ''
+    return cols[0] if cols else ""
 
 
 def _extract_columns_from_def(definition: str) -> list[str]:
-    start = definition.find('(')
-    end = definition.find(')')
+    start = definition.find("(")
+    end = definition.find(")")
     if start < 0 or end < 0 or end <= start:
         return []
     body = definition[start + 1 : end]
-    return [c.strip().strip('"') for c in body.split(',') if c.strip()]
+    return [c.strip().strip('"') for c in body.split(",") if c.strip()]
 
 
 def _extract_fk_target(definition: str) -> tuple[str, str, str]:
     # Example: FOREIGN KEY (a) REFERENCES schema.table(id)
-    ref_token = 'REFERENCES '
+    ref_token = "REFERENCES "
     i = definition.find(ref_token)
     if i < 0:
-        return ('', '', '')
+        return ("", "", "")
     tail = definition[i + len(ref_token) :]
-    left = tail.split('(')[0].strip()
-    if '.' in left:
-        schema, table = left.split('.', 1)
+    left = tail.split("(")[0].strip()
+    if "." in left:
+        schema, table = left.split(".", 1)
     else:
-        schema, table = 'public', left
+        schema, table = "public", left
     col = _extract_first_column_from_def(tail)
     return (schema.strip('"'), table.strip('"'), col)
 
 
 def _extract_columns_from_indexdef(indexdef: str) -> list[str]:
-    start = indexdef.rfind('(')
-    end = indexdef.rfind(')')
+    start = indexdef.rfind("(")
+    end = indexdef.rfind(")")
     if start < 0 or end < 0 or end <= start:
         return []
     body = indexdef[start + 1 : end]
     out: list[str] = []
-    for raw in body.split(','):
+    for raw in body.split(","):
         token = raw.strip().strip('"')
         if not token:
             continue

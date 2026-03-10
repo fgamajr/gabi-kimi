@@ -1,14 +1,15 @@
 """Verifier pipeline module — confirms doc counts and embedding presence in Elasticsearch."""
+
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 import httpx
 
+from src.backend.core.logging import bind_pipeline, get_logger
 from src.backend.worker.registry import FileStatus, Registry
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 ES_INDEX = "gabi_documents_v1"
 TOLERANCE_PERCENT = 5  # Allow 5% deviation for dedup
@@ -36,6 +37,7 @@ async def run_verify(
     async with httpx.AsyncClient(timeout=30) as client:
         for file_rec in embedded_files:
             file_id = file_rec["id"]
+            bind_pipeline(file_id=file_id)
             filename = file_rec["filename"]
             expected_count = file_rec.get("doc_count") or 0
 
@@ -79,19 +81,16 @@ async def run_verify(
                     if es_count > 0:
                         await registry.update_status(file_id, FileStatus.VERIFIED)
                         await registry.add_log_entry(
-                            run_id, file_id, "INFO",
-                            f"Verified {filename}: {es_count} docs in ES with embedding"
+                            run_id, file_id, "INFO", f"Verified {filename}: {es_count} docs in ES with embedding"
                         )
                         verified += 1
                     else:
                         await registry.update_status(file_id, FileStatus.VERIFY_FAILED)
                         await registry.update_file_fields(
-                            file_id,
-                            error_message=f"No documents found in ES for {filename}"
+                            file_id, error_message=f"No documents found in ES for {filename}"
                         )
                         await registry.add_log_entry(
-                            run_id, file_id, "ERROR",
-                            f"Verification failed for {filename}: 0 docs in ES"
+                            run_id, file_id, "ERROR", f"Verification failed for {filename}: 0 docs in ES"
                         )
                         failed += 1
                 else:
@@ -102,8 +101,10 @@ async def run_verify(
                     if delta <= tolerance:
                         await registry.update_status(file_id, FileStatus.VERIFIED)
                         await registry.add_log_entry(
-                            run_id, file_id, "INFO",
-                            f"Verified {filename}: expected={expected_count} actual={es_count} delta={delta}"
+                            run_id,
+                            file_id,
+                            "INFO",
+                            f"Verified {filename}: expected={expected_count} actual={es_count} delta={delta}",
                         )
                         verified += 1
                     else:
@@ -117,9 +118,11 @@ async def run_verify(
                             ),
                         )
                         await registry.add_log_entry(
-                            run_id, file_id, "ERROR",
+                            run_id,
+                            file_id,
+                            "ERROR",
                             f"Verification failed for {filename}: "
-                            f"expected={expected_count} actual={es_count} delta={delta}"
+                            f"expected={expected_count} actual={es_count} delta={delta}",
                         )
                         failed += 1
 
@@ -128,10 +131,7 @@ async def run_verify(
                 logger.error("Verify error for %s: %s", filename, error_msg)
                 await registry.update_status(file_id, FileStatus.VERIFY_FAILED)
                 await registry.update_file_fields(file_id, error_message=error_msg)
-                await registry.add_log_entry(
-                    run_id, file_id, "ERROR",
-                    f"Verify error for {filename}: {error_msg}"
-                )
+                await registry.add_log_entry(run_id, file_id, "ERROR", f"Verify error for {filename}: {error_msg}")
                 failed += 1
 
     return {"verified": verified, "failed": failed}

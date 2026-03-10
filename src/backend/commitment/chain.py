@@ -14,6 +14,7 @@ Invariants:
   CHAIN-5  Anchor write failure aborts the ingestion.
   CHAIN-6  No ingestion completes without producing an anchor.
 """
+
 from __future__ import annotations
 
 import fcntl
@@ -58,21 +59,14 @@ def _read_prev_anchor(anchors_dir: Path, seq: int) -> dict[str, Any] | None:
     if seq == 0:
         return None
     prev_seq = seq - 1
-    matches = sorted(
-        p for p in anchors_dir.glob(f"{prev_seq:04d}-*.json")
-        if _ANCHOR_RE.match(p.name)
-    )
+    matches = sorted(p for p in anchors_dir.glob(f"{prev_seq:04d}-*.json") if _ANCHOR_RE.match(p.name))
     if len(matches) == 1:
         return json.loads(matches[0].read_text(encoding="utf-8"))
     if len(matches) > 1:
         raise RuntimeError(
-            f"CHAIN-1 violation: multiple anchors for seq {prev_seq:04d}: "
-            + ", ".join(p.name for p in matches)
+            f"CHAIN-1 violation: multiple anchors for seq {prev_seq:04d}: " + ", ".join(p.name for p in matches)
         )
-    raise FileNotFoundError(
-        f"CHAIN-1 violation: previous anchor {prev_seq:04d}-*.json not found "
-        f"in {anchors_dir}"
-    )
+    raise FileNotFoundError(f"CHAIN-1 violation: previous anchor {prev_seq:04d}-*.json not found in {anchors_dir}")
 
 
 def _run_hostile_verify(records_path: Path, envelope_path: Path) -> None:
@@ -85,9 +79,7 @@ def _run_hostile_verify(records_path: Path, envelope_path: Path) -> None:
     )
     if result.returncode != 0:
         _log(f"hostile_verify FAILED:\n{result.stdout}\n{result.stderr}")
-        raise RuntimeError(
-            f"CHAIN-4 violation: hostile_verify.py returned {result.returncode}"
-        )
+        raise RuntimeError(f"CHAIN-4 violation: hostile_verify.py returned {result.returncode}")
     _log("hostile_verify PASSED")
 
 
@@ -104,9 +96,7 @@ def _atomic_write_bytes(path: Path, data: bytes) -> None:
     """Write bytes atomically via unique tmp+rename, then fsync file and dir."""
     import tempfile
 
-    fd_tmp, tmp_name = tempfile.mkstemp(
-        prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent)
-    )
+    fd_tmp, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
     tmp = Path(tmp_name)
     try:
         with os.fdopen(fd_tmp, "wb") as f:
@@ -124,9 +114,7 @@ def _atomic_write_text(path: Path, text: str) -> None:
     """Write text atomically via unique tmp+rename, then fsync file and dir."""
     import tempfile
 
-    fd_tmp, tmp_name = tempfile.mkstemp(
-        prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent)
-    )
+    fd_tmp, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
     tmp = Path(tmp_name)
     try:
         with os.fdopen(fd_tmp, "w", encoding="utf-8") as f:
@@ -220,10 +208,7 @@ def chain_anchor(
             prev_hwm = prev["snapshot"]["log_high_water_mark"]
             curr_hwm = envelope["snapshot"]["log_high_water_mark"]
             if curr_hwm < prev_hwm:
-                raise RuntimeError(
-                    f"CHAIN-2 violation: current high_water={curr_hwm} < "
-                    f"previous high_water={prev_hwm}"
-                )
+                raise RuntimeError(f"CHAIN-2 violation: current high_water={curr_hwm} < previous high_water={prev_hwm}")
             envelope["prev_commitment_root"] = prev["commitment_root"]
         else:
             envelope["prev_commitment_root"] = None
@@ -251,9 +236,7 @@ def chain_anchor(
             _append_anchors_log(anchors_dir, seq, envelope)
         except Exception:
             _cleanup_anchor_files(anchors_dir, seq)
-            raise RuntimeError(
-                "CHAIN-5 violation: failed to append anchors.log; anchor rolled back"
-            )
+            raise RuntimeError("CHAIN-5 violation: failed to append anchors.log; anchor rolled back")
 
         _log(
             f"ANCHOR CHAINED: seq={seq:04d} root={envelope['commitment_root'][:16]}... "

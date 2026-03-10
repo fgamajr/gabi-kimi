@@ -7,6 +7,7 @@ Invariants enforced:
           Raw 32-byte concatenation, NOT hex-string concatenation.
   INV-3   Input order is preserved (NOT sorted by hash value).
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -18,6 +19,7 @@ EMPTY_HASH = hashlib.sha256(b"").hexdigest()
 @dataclass(slots=True)
 class MerkleTree:
     """Complete Merkle tree with proof support."""
+
     root: str
     leaf_count: int
     layers: list[list[str]] = field(default_factory=list)
@@ -27,6 +29,7 @@ class MerkleTree:
 @dataclass(slots=True)
 class InclusionProof:
     """Merkle inclusion proof for a single leaf."""
+
     leaf_index: int
     leaf_hash: str
     siblings: list[tuple[str, str]]  # list of (hash, "left"|"right")

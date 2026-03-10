@@ -16,6 +16,7 @@ Usage:
     # Export discovery registry to JSON
     python -m src.backend.ingest.auto_discovery --export ops/data/discovery_registry.json
 """
+
 from __future__ import annotations
 
 import argparse
@@ -25,11 +26,8 @@ import sys
 import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any
 
 import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 from src.backend.ingest.discovery_registry import (
     DiscoveredPublication,
@@ -39,7 +37,6 @@ from src.backend.ingest.discovery_registry import (
 from src.backend.ingest.zip_downloader import (
     ALL_SECTIONS,
     SECTIONS,
-    TAGS_API_URL,
     _build_session,
     _random_ua,
     detect_special_editions,
@@ -60,6 +57,7 @@ DEFAULT_DSN = "host=localhost port=5433 dbname=gabi user=gabi password=gabi"
 # Logging
 # ---------------------------------------------------------------------------
 
+
 def _log(msg: str) -> None:
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{ts}] {msg}", file=sys.stderr, flush=True)
@@ -68,6 +66,7 @@ def _log(msg: str) -> None:
 # ---------------------------------------------------------------------------
 # Discovery logic
 # ---------------------------------------------------------------------------
+
 
 def discover_publications_for_month(
     month_date: date,
@@ -329,6 +328,7 @@ def discover_new_publications(
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def main() -> int:
     p = argparse.ArgumentParser(
         description="Automatically discover new DOU publications",
@@ -337,45 +337,57 @@ def main() -> int:
 
     # Discovery mode
     p.add_argument(
-        "--days", type=int, default=DEFAULT_DISCOVERY_LOOKBACK_DAYS,
+        "--days",
+        type=int,
+        default=DEFAULT_DISCOVERY_LOOKBACK_DAYS,
         help=f"Number of days to look back (default: {DEFAULT_DISCOVERY_LOOKBACK_DAYS})",
     )
     p.add_argument(
-        "--sections", nargs="+", default=None,
+        "--sections",
+        nargs="+",
+        default=None,
         help="Sections to discover (e.g. do1 do2 do3 do1e). Default: regular sections only",
     )
     p.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run",
+        action="store_true",
         help="Discover but don't update registry",
     )
     p.add_argument(
-        "--update-registry", action="store_true",
+        "--update-registry",
+        action="store_true",
         help="Update discovery registry with new publications",
     )
 
     # List mode
     p.add_argument(
-        "--list", action="store_true",
+        "--list",
+        action="store_true",
         help="List discovered publications from registry",
     )
     p.add_argument(
-        "--downloaded", action="store_true",
+        "--downloaded",
+        action="store_true",
         help="List only downloaded publications (with --list)",
     )
     p.add_argument(
-        "--not-downloaded", action="store_true",
+        "--not-downloaded",
+        action="store_true",
         help="List only not-yet-downloaded publications (with --list)",
     )
 
     # Export mode
     p.add_argument(
-        "--export", type=Path, default=None,
+        "--export",
+        type=Path,
+        default=None,
         help="Export discovery registry to JSON file",
     )
 
     # Registry configuration
     p.add_argument(
-        "--registry-backend", choices=["postgresql", "sqlite", "memory"],
+        "--registry-backend",
+        choices=["postgresql", "sqlite", "memory"],
         default=DEFAULT_REGISTRY_BACKEND,
         help=f"Registry backend (default: {DEFAULT_REGISTRY_BACKEND})",
     )
@@ -385,7 +397,9 @@ def main() -> int:
         help="PostgreSQL DSN (for postgresql backend)",
     )
     p.add_argument(
-        "--sqlite-path", type=Path, default="ops/data/discovery_registry.db",
+        "--sqlite-path",
+        type=Path,
+        default="ops/data/discovery_registry.db",
         help="SQLite database path (for sqlite backend)",
     )
 
@@ -419,10 +433,7 @@ def main() -> int:
             for pub in pubs:
                 status = "✓ downloaded" if pub.downloaded else "○ pending"
                 size_str = f" ({pub.file_size:,}B)" if pub.file_size else ""
-                print(
-                    f"{pub.publication_date} {pub.section.upper():6s} "
-                    f"{pub.filename:25s} {status}{size_str}"
-                )
+                print(f"{pub.publication_date} {pub.section.upper():6s} {pub.filename:25s} {status}{size_str}")
 
             # Summary
             total = len(pubs)
@@ -456,10 +467,7 @@ def main() -> int:
                 print("\nNew publications:")
                 for pub in new_pubs:
                     size_str = f" ({pub.file_size:,}B)" if pub.file_size else ""
-                    print(
-                        f"  {pub.publication_date} {pub.section.upper():6s} "
-                        f"{pub.filename}{size_str}"
-                    )
+                    print(f"  {pub.publication_date} {pub.section.upper():6s} {pub.filename}{size_str}")
 
                 # Update registry
                 if args.update_registry and not args.dry_run:

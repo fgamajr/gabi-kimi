@@ -90,6 +90,13 @@ This starts:
 PGPASSWORD=gabi psql -h localhost -p 5433 -U gabi -d gabi -f src/backend/dbsync/registry_schema.sql
 PGPASSWORD=gabi psql -h localhost -p 5433 -U gabi -d gabi -f src/backend/dbsync/dou_schema.sql
 PGPASSWORD=gabi psql -h localhost -p 5433 -U gabi -d gabi -f src/backend/dbsync/bm25_schema.sql
+PGPASSWORD=gabi psql -h localhost -p 5433 -U gabi -d gabi -f src/backend/dbsync/auth_schema.sql
+```
+
+After pulling changes that add new auth tables or columns (e.g. `auth.email_verification`, `auth.password_reset`, `auth.user.password_changed_at`), re-run the auth schema so the running backend has the latest DDL:
+
+```bash
+PGPASSWORD=gabi psql -h localhost -p 5433 -U gabi -d gabi -f src/backend/dbsync/auth_schema.sql
 ```
 
 Optional schema verification from the DSL:
@@ -330,12 +337,11 @@ fly deploy -c ops/deploy/frontend-static/fly.toml
 
 ## Identity Bootstrap
 
-The backend now bootstraps a minimal identity schema in Postgres on startup:
+The full auth schema is in `src/backend/dbsync/auth_schema.sql` (including `auth.user`, `auth.role`, `auth.user_role`, `auth.api_token`, `auth.email_verification`, `auth.password_reset`, and columns such as `email_verified`, `password_changed_at`). The backend bootstraps a minimal identity schema on startup; for email verification (A1) and password reset (A2) to work, apply the auth schema manually (see step 3 above). After any repo update that adds new auth DDL, re-run:
 
-- `auth.user`
-- `auth.role`
-- `auth.user_role`
-- `auth.api_token`
+```bash
+PGPASSWORD=gabi psql -h localhost -p 5433 -U gabi -d gabi -f src/backend/dbsync/auth_schema.sql
+```
 
 Roles `user` and `admin` are created automatically. Tokens from `GABI_API_TOKENS`
 are synced into `auth.api_token` and linked to service-account users. A token gets
