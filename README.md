@@ -29,6 +29,69 @@ For the autonomous worker track, the source-of-truth strategy is hybrid:
 - `Liferay` direct URLs / catalog remain the source for historical backfill and the safety net for recent editions once they roll into the monthly archive.
 - The system must not attempt historical backfills through INLABS.
 
+## Autonomous Worker Status
+
+The repository already has the worker-side automation scaffolding for discovery, retries, reconciliation, watchdogs, and a live dashboard, but the end-to-end zero-touch backfill loop is still converging toward a single operational chain:
+
+`discover missing -> download -> ingest into dou.* -> refresh PG search -> chunk -> ES sync -> embeddings/RAG -> verify`
+
+The practical answer to "is it actually discovering now?" is:
+
+- Yes, if the worker in [src/backend/worker/main.py](/home/parallels/dev/gabi-kimi/src/backend/worker/main.py) is running and the scheduler is not paused.
+- No, discovery alone is not enough. Discovery inserts files as `DISCOVERED`. The worker now includes a dedicated `backfill_missing` phase that seeds month coverage and promotes `DISCOVERED` rows into `QUEUED` so the downloader can continue automatically.
+- You only need to trigger it manually when bootstrapping, catching up after downtime, or forcing an immediate pass outside the normal schedule.
+
+Current worker schedule in UTC:
+
+- `23:00` `discovery`
+- `23:30` `backfill_missing`
+- `23:40` `download`
+- `23:50` `extract`
+- `00:00` `bm25`
+- `00:30` `embed`
+- `01:00` `verify`
+- `02:00` `snapshot`
+- `03:00` `refresh_catalog_status`
+- `04:00` Tuesdays `reconciliation`
+- `06:00` `retry`
+- every 60s `heartbeat`
+- every 6h `watchdog`
+
+Backfill controls:
+
+- `BACKFILL_START_YEAR_MONTH` defaults to `2002-01`
+- `BACKFILL_END_YEAR_MONTH` defaults to the current month
+- `BACKFILL_QUEUE_BATCH_SIZE` defaults to `500`
+
+Manual trigger options:
+
+```bash
+curl -X POST http://127.0.0.1:8081/pipeline/trigger/backfill_missing
+curl -X POST http://127.0.0.1:8081/pipeline/trigger/discovery
+curl -X POST http://127.0.0.1:8081/pipeline/trigger/full
+```
+
+When the dashboard/web proxy is in front of the worker, the same surfaces are exposed under `/api/worker/...`.
+
+Live monitoring surfaces already exposed by the worker/dashboard:
+
+- `/api/worker/health`
+- `/api/worker/registry/status`
+- `/api/worker/registry/stats`
+- `/api/worker/registry/months`
+- `/api/worker/registry/catalog-months`
+- `/api/worker/pipeline/runs`
+- `/api/worker/pipeline/logs`
+- `/api/worker/pipeline/scheduler`
+- `/api/worker/pipeline/watchdog`
+
+The current architecture gap is not discovery itself. The gap is orchestration: the worker still needs to converge on Postgres-first ingestion and make `dou.*`, PG search refresh, chunk backfill, Elasticsearch sync, and embeddings behave as one auditable pipeline instead of several operator-driven jobs. Today the highest-value missing bridge is in place via `backfill_missing`, but the longer refactor is still:
+
+1. Use `dou_catalog_months` + `dou_files` as the canonical coverage map through `2026-12`.
+2. Keep `INLABS` for the recent daily window and `Liferay` for historical/monthly fallback.
+3. Split the current `bm25` phase into explicit Postgres ingest, PG search refresh, chunk backfill, ES sync, embedding, and verification phases.
+4. Keep public lexical search on fast PG FTS fallback unless BM25 has been benchmarked and proven safe for live traffic.
+
 ## Stack
 
 - Python 3.12+
@@ -178,7 +241,12 @@ MCP:
 ```bash
 .venv/bin/python ops/bin/mcp_es_server.py
 .venv/bin/python ops/bin/mcp_server.py
+/home/parallels/.nvm/versions/node/v24.14.0/bin/qmd mcp
 ```
+
+Project MCP clients can load the repo-level server definitions from
+[.mcp.json](/home/parallels/dev/gabi-kimi/.mcp.json), which now includes the
+local `qmd` server for hybrid repo search outside the application runtime.
 
 ### 7. Admin upload em dev (opcional)
 
@@ -321,6 +389,15 @@ fly secrets set \
   QWEN_API_KEY='...' \
   -a gabi-dou-web
 ```
+
+To sync the minimum runtime secrets from your local `.env` into Fly without typing them one by one:
+
+```bash
+./ops/scripts/fly_secrets_from_env.sh --dry-run
+./ops/scripts/fly_secrets_from_env.sh
+```
+
+The script targets `gabi-dou-web` and `gabi-dou-worker` by default, ignores empty variables, and only sends the curated secret sets that those apps actually need.
 
 If the public hostname or Redis app name differs from the defaults, update
 [fly.toml](/home/parallels/dev/gabi-kimi/ops/deploy/web/fly.toml#L10) before:

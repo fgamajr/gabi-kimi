@@ -44,6 +44,13 @@
       "env": {
         "SHANNON_TARGET_DIR": "/home/parallels/dev/gabi-kimi/var/tmp/shannon-helper"
       }
+    },
+    "qmd": {
+      "type": "stdio",
+      "command": "/home/parallels/.nvm/versions/node/v24.14.0/bin/qmd",
+      "args": [
+        "mcp"
+      ]
     }
   }
 }
