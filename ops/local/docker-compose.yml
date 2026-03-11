@@ -1,4 +1,5 @@
-# Last verified: 2026-03-06
+# Last verified: 2026-03-11
+# BM25-only pipeline: no Redis dependency required for local dev
 services:
   postgres:
     image: postgres:16-alpine
@@ -9,7 +10,7 @@ services:
       POSTGRES_PASSWORD: gabi
       POSTGRES_DB: gabi
     ports:
-      - "5433:5432"
+      - "5432:5432"
     volumes:
       - gabi_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -36,21 +37,23 @@ services:
       timeout: 5s
       retries: 30
       start_period: 15s
-  redis:
-    image: redis:7-alpine
-    container_name: gabi-redis
-    restart: unless-stopped
-    ports:
-      - "6380:6379"
-    command: ["redis-server", "--appendonly", "yes"]
-    volumes:
-      - gabi_redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 30
-      start_period: 5s
+  # Redis removed: BM25-only pipeline uses in-memory fallback (redis_signals.py backoff cache)
+  # Uncomment if embedding pipeline is re-enabled and requires Redis for queue coordination.
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: gabi-redis
+  #   restart: unless-stopped
+  #   ports:
+  #     - "6380:6379"
+  #   command: ["redis-server", "--appendonly", "yes"]
+  #   volumes:
+  #     - gabi_redis_data:/data
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 5s
+  #     timeout: 3s
+  #     retries: 30
+  #     start_period: 5s
   # S3-compatible storage for admin upload (local dev). Create bucket "gabi-dou-uploads" once in console (http://localhost:9001).
   minio:
     image: minio/minio:latest
@@ -71,7 +74,7 @@ volumes:
     name: gabi_postgres_data
   gabi_es_data:
     name: gabi_es_data
-  gabi_redis_data:
-    name: gabi_redis_data
+  # gabi_redis_data:
+  #   name: gabi_redis_data
   gabi_minio_data:
     name: gabi_minio_data
