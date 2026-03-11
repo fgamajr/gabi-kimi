@@ -13,6 +13,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from src.backend.core.logging import bind_pipeline, clear_context, get_logger
+from src.backend.worker.pipeline.backfill import run_backfill_missing
 from src.backend.worker.pipeline.discovery import run_discovery
 from src.backend.worker.pipeline.downloader import run_download
 from src.backend.worker.pipeline.embedder import run_embed
@@ -30,16 +31,47 @@ scheduler = AsyncIOScheduler(timezone="UTC")
 _registry: Registry | None = None
 # Pause state is persisted in pipeline_config; _paused is in-memory cache
 _paused: bool = False
+_job_enabled: dict[str, bool] = {"embed": False}
+SCHEDULER_SOURCE = "apscheduler"
+SCHEDULER_TIMEZONE = "UTC"
 
 PHASE_MAP: dict[str, Callable[..., Coroutine[Any, Any, dict[str, Any]]]] = {
     "discovery": run_discovery,
+    "backfill_missing": run_backfill_missing,
     "download": run_download,
     "extract": run_extract,
     "bm25": run_ingest,
     "embed": run_embed,
     "verify": run_verify,
 }
-PHASE_SEQUENCE = ("discovery", "download", "extract", "bm25", "embed", "verify")
+PHASE_SEQUENCE = ("discovery", "backfill_missing", "download", "extract", "bm25", "embed", "verify")
+CONTROLLED_JOB_IDS = (
+    *PHASE_SEQUENCE,
+    "retry",
+    "snapshot",
+    "refresh_catalog_status",
+    "reconciliation",
+    "watchdog",
+)
+MANUAL_TRIGGER_MAP: dict[str, Callable[..., Coroutine[Any, Any, Any]]] = {}
+
+
+def _job_config_key(job_id: str) -> str:
+    return f"scheduler_job_enabled:{job_id}"
+
+
+def is_job_enabled(job_id: str) -> bool:
+    """Return whether a scheduled job is enabled for automatic execution."""
+    return _job_enabled.get(job_id, True)
+
+
+def _get_sentry_sdk():
+    """Return sentry_sdk when installed/configured, otherwise None."""
+    try:
+        import sentry_sdk
+    except ImportError:
+        return None
+    return sentry_sdk
 
 
 def _normalize_phase_stats(phase: str, stats: dict[str, Any]) -> dict[str, int]:
@@ -56,6 +88,12 @@ def _normalize_phase_stats(phase: str, stats: dict[str, Any]) -> dict[str, int]:
             "processed": int(stats.get("downloaded", 0)) + int(stats.get("failed", 0)),
             "succeeded": int(stats.get("downloaded", 0)),
             "failed": int(stats.get("failed", 0)),
+        }
+    if phase == "backfill_missing":
+        return {
+            "processed": int(stats.get("seeded_months", 0)) + int(stats.get("queued_files", 0)),
+            "succeeded": int(stats.get("queued_files", 0)),
+            "failed": 0,
         }
     if phase == "extract":
         return {
@@ -92,12 +130,15 @@ def _get_es_url() -> str:
     return os.environ.get("ES_URL", "http://es.internal:9200")
 
 
-async def _run_phase(phase: str) -> dict[str, Any]:
+async def _run_phase(phase: str, *, respect_job_enabled: bool = True) -> dict[str, Any]:
     """Run a pipeline phase with registry tracking."""
     global _registry
     if _paused:
         logger.info("Scheduler paused, skipping phase: %s", phase)
         return {"skipped": True, "phase": phase}
+    if respect_job_enabled and not is_job_enabled(phase):
+        logger.info("Phase disabled, skipping automatic execution: %s", phase)
+        return {"skipped": True, "phase": phase, "reason": "disabled"}
 
     if _registry is None:
         logger.error("Registry not initialized, cannot run phase: %s", phase)
@@ -109,14 +150,21 @@ async def _run_phase(phase: str) -> dict[str, Any]:
     es_url = _get_es_url()
 
     try:
-        import sentry_sdk
-
-        with sentry_sdk.push_scope() as scope:
-            scope.set_tag("pipeline_phase", phase)
-            scope.set_tag("run_id", run_id)
-            # Each pipeline function has slightly different signatures.
-            # discovery, verify, bm25, embed take (registry, run_id, es_url, ...)
-            # download, extract take (registry, run_id, ...)
+        sentry_sdk = _get_sentry_sdk()
+        if sentry_sdk is not None:
+            with sentry_sdk.push_scope() as scope:
+                scope.set_tag("pipeline_phase", phase)
+                scope.set_tag("run_id", run_id)
+                # Each pipeline function has slightly different signatures.
+                # discovery, verify, bm25, embed take (registry, run_id, es_url, ...)
+                # download, extract take (registry, run_id, ...)
+                if phase in ("discovery", "verify"):
+                    stats = await func(_registry, run_id, es_url)
+                elif phase in ("bm25", "embed"):
+                    stats = await func(_registry, run_id, es_url)
+                else:
+                    stats = await func(_registry, run_id)
+        else:
             if phase in ("discovery", "verify"):
                 stats = await func(_registry, run_id, es_url)
             elif phase in ("bm25", "embed"):
@@ -152,6 +200,9 @@ async def _run_snapshot() -> None:
     if _paused:
         logger.info("Scheduler paused, skipping snapshot")
         return
+    if not is_job_enabled("snapshot"):
+        logger.info("Snapshot job disabled, skipping")
+        return
     es_url = _get_es_url()
     await create_snapshot(es_url)
 
@@ -161,6 +212,9 @@ async def _run_refresh_catalog_status() -> None:
     global _registry
     if _paused:
         logger.info("Scheduler paused, skipping catalog status refresh")
+        return
+    if not is_job_enabled("refresh_catalog_status"):
+        logger.info("Catalog status refresh disabled, skipping")
         return
     if _registry is None:
         logger.error("Registry not initialized, cannot refresh catalog status")
@@ -174,6 +228,9 @@ async def _run_watchdog() -> None:
     global _registry
     if _paused:
         logger.info("Scheduler paused, skipping watchdog")
+        return
+    if not is_job_enabled("watchdog"):
+        logger.info("Watchdog disabled, skipping")
         return
     if _registry is None:
         logger.error("Registry not initialized, cannot run watchdog")
@@ -209,6 +266,9 @@ async def _run_reconciliation() -> None:
     if _paused:
         logger.info("Scheduler paused, skipping reconciliation")
         return
+    if not is_job_enabled("reconciliation"):
+        logger.info("Reconciliation disabled, skipping")
+        return
     if _registry is None:
         logger.error("Registry not initialized, cannot run reconciliation")
         return
@@ -231,7 +291,7 @@ async def _run_full_cycle() -> dict[str, Any]:
     """Run the full pipeline sequentially as a single manual trigger."""
     summary: dict[str, Any] = {"phase": "full", "steps": [], "errors": []}
     for phase in PHASE_SEQUENCE:
-        result = await _run_phase(phase)
+        result = await _run_phase(phase, respect_job_enabled=False)
         summary["steps"].append({"phase": phase, "result": result})
         if "error" in result:
             summary["errors"].append({"phase": phase, "error": result["error"]})
@@ -239,11 +299,19 @@ async def _run_full_cycle() -> dict[str, Any]:
     return summary
 
 
+async def _run_phase_manual(phase: str) -> dict[str, Any]:
+    """Run a phase immediately, bypassing per-job auto-run disable state."""
+    return await _run_phase(phase, respect_job_enabled=False)
+
+
 async def _run_retry() -> None:
     """Retry failed files with retry_count < 3."""
     global _registry
     if _paused:
         logger.info("Scheduler paused, skipping retry")
+        return
+    if not is_job_enabled("retry"):
+        logger.info("Retry disabled, skipping")
         return
     if _registry is None:
         logger.error("Registry not initialized, cannot run retry")
@@ -269,6 +337,17 @@ async def _run_retry() -> None:
     logger.info("Retry completed: %d files re-queued", retried)
 
 
+MANUAL_TRIGGER_MAP.update(
+    {
+        "retry": _run_retry,
+        "snapshot": _run_snapshot,
+        "refresh_catalog_status": _run_refresh_catalog_status,
+        "reconciliation": _run_reconciliation,
+        "watchdog": _run_watchdog,
+    }
+)
+
+
 def configure_scheduler() -> None:
     """Add all cron jobs to the scheduler."""
     # Pipeline phases
@@ -283,6 +362,14 @@ def configure_scheduler() -> None:
     scheduler.add_job(
         _run_phase,
         CronTrigger(hour=23, minute=30),
+        args=["backfill_missing"],
+        id="backfill_missing",
+        replace_existing=True,
+        max_instances=1,
+    )
+    scheduler.add_job(
+        _run_phase,
+        CronTrigger(hour=23, minute=40),
         args=["download"],
         id="download",
         replace_existing=True,
@@ -290,7 +377,7 @@ def configure_scheduler() -> None:
     )
     scheduler.add_job(
         _run_phase,
-        CronTrigger(hour=23, minute=45),
+        CronTrigger(hour=23, minute=50),
         args=["extract"],
         id="extract",
         replace_existing=True,
@@ -416,6 +503,38 @@ async def load_pause_state_from_registry() -> bool:
     return _paused
 
 
+async def load_job_state_from_registry() -> dict[str, bool]:
+    """Load persisted per-job enable/disable state from pipeline_config."""
+    global _registry
+    if _registry is None:
+        return dict(_job_enabled)
+    for job_id in CONTROLLED_JOB_IDS:
+        val = await _registry.get_config(_job_config_key(job_id))
+        if val is not None:
+            _job_enabled[job_id] = val.strip().lower() == "true"
+    return {job_id: is_job_enabled(job_id) for job_id in CONTROLLED_JOB_IDS}
+
+
+async def set_job_enabled(job_id: str, enabled: bool) -> dict[str, Any]:
+    """Persist per-job auto-run state and emit an audit event."""
+    global _registry
+    if job_id not in CONTROLLED_JOB_IDS:
+        raise ValueError(f"Unknown job_id: {job_id}")
+    _job_enabled[job_id] = enabled
+    if _registry is not None:
+        await _registry.set_config(_job_config_key(job_id), "true" if enabled else "false")
+        event = "scheduler_job_enabled" if enabled else "scheduler_job_disabled"
+        run_id = await _registry.create_pipeline_run(event)
+        await _registry.add_log_entry(
+            run_id,
+            None,
+            "INFO",
+            f"Scheduler job {job_id} {'enabled' if enabled else 'disabled'} (trigger=manual)",
+        )
+        await _registry.complete_pipeline_run(run_id, 0, 0, 0)
+    return {"job_id": job_id, "enabled": enabled}
+
+
 def get_scheduler_status() -> dict[str, Any]:
     """Return scheduler status including job details."""
     jobs = []
@@ -424,11 +543,18 @@ def get_scheduler_status() -> dict[str, Any]:
             {
                 "id": job.id,
                 "next_run_time": job.next_run_time.isoformat() if job.next_run_time else None,
+                "enabled": is_job_enabled(job.id),
+                "group": "phase" if job.id in PHASE_MAP else "maintenance",
+                "schedule_text": str(job.trigger),
+                "source_of_truth": SCHEDULER_SOURCE,
+                "timezone": SCHEDULER_TIMEZONE,
             }
         )
     return {
         "running": scheduler.running,
         "paused": _paused,
+        "source_of_truth": SCHEDULER_SOURCE,
+        "timezone": SCHEDULER_TIMEZONE,
         "jobs": jobs,
     }
 
@@ -442,12 +568,16 @@ async def trigger_phase(phase: str) -> dict[str, Any]:
         scheduler.add_job(_run_full_cycle, id="trigger_full", replace_existing=True)
         return {"triggered": phase}
 
-    if phase not in PHASE_MAP:
-        valid = [*PHASE_MAP.keys(), "full"]
-        raise ValueError(f"Unknown phase: {phase}. Valid: {valid}")
+    if phase in PHASE_MAP:
+        scheduler.add_job(_run_phase_manual, args=[phase], id=f"trigger_{phase}", replace_existing=True)
+        return {"triggered": phase}
 
-    scheduler.add_job(_run_phase, args=[phase], id=f"trigger_{phase}", replace_existing=True)
-    return {"triggered": phase}
+    if phase in MANUAL_TRIGGER_MAP:
+        scheduler.add_job(MANUAL_TRIGGER_MAP[phase], id=f"trigger_{phase}", replace_existing=True)
+        return {"triggered": phase}
+
+    valid = [*PHASE_MAP.keys(), *MANUAL_TRIGGER_MAP.keys(), "full"]
+    raise ValueError(f"Unknown phase: {phase}. Valid: {valid}")
 
 
 def set_registry(registry: Registry) -> None:

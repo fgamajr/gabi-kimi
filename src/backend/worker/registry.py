@@ -17,6 +17,8 @@ from typing import Any, AsyncIterator
 
 import aiosqlite
 
+from src.backend.worker.live_sync import fetch_postgres_live_snapshot
+
 
 class FileStatus(enum.Enum):
     """Pipeline file lifecycle states."""
@@ -53,13 +55,13 @@ VALID_TRANSITIONS: dict[FileStatus, set[FileStatus]] = {
     FileStatus.EXTRACTED: {FileStatus.BM25_INDEXING},
     FileStatus.EXTRACT_FAILED: {FileStatus.QUEUED},
     FileStatus.BM25_INDEXING: {FileStatus.BM25_INDEXED, FileStatus.BM25_INDEX_FAILED},
-    FileStatus.BM25_INDEXED: {FileStatus.EMBEDDING},
+    FileStatus.BM25_INDEXED: {FileStatus.VERIFYING},
     FileStatus.BM25_INDEX_FAILED: {FileStatus.QUEUED},
     FileStatus.EMBEDDING: {FileStatus.EMBEDDED, FileStatus.EMBEDDING_FAILED},
     FileStatus.EMBEDDED: {FileStatus.VERIFYING},
     FileStatus.EMBEDDING_FAILED: {FileStatus.QUEUED},
     FileStatus.VERIFYING: {FileStatus.VERIFIED, FileStatus.VERIFY_FAILED},
-    FileStatus.VERIFIED: {FileStatus.EMBEDDING},
+    FileStatus.VERIFIED: {FileStatus.VERIFYING},
     FileStatus.VERIFY_FAILED: {FileStatus.QUEUED},
 }
 
@@ -316,6 +318,37 @@ class Registry:
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
 
+    async def queue_discovered_files(self, limit: int = 500) -> int:
+        """Promote oldest DISCOVERED files to QUEUED for downloader pickup."""
+        async with self.get_db() as db:
+            cursor = await db.execute(
+                """
+                SELECT id
+                FROM dou_files
+                WHERE status = ?
+                ORDER BY COALESCE(publication_date, year_month || '-01') ASC, id ASC
+                LIMIT ?
+                """,
+                (FileStatus.DISCOVERED.value, limit),
+            )
+            rows = await cursor.fetchall()
+            file_ids = [row["id"] for row in rows]
+            if not file_ids:
+                return 0
+
+            now = _now()
+            placeholders = ", ".join("?" for _ in file_ids)
+            await db.execute(
+                f"""
+                UPDATE dou_files
+                SET status = ?, queued_at = ?, updated_at = ?
+                WHERE id IN ({placeholders})
+                """,
+                [FileStatus.QUEUED.value, now, now, *file_ids],
+            )
+            await db.commit()
+            return len(file_ids)
+
     async def get_catalog_months_by_status(self, catalog_status: str) -> list[dict[str, Any]]:
         """Get catalog months with the given catalog_status (e.g. FALLBACK_ELIGIBLE)."""
         async with self.get_db() as db:
@@ -367,6 +400,14 @@ class Registry:
 
     async def get_months(self, year: int | None = None) -> list[dict[str, Any]]:
         """Get timeline-ready file records, optionally filtered by year."""
+        live_snapshot = await fetch_postgres_live_snapshot(
+            year=year,
+            include_summary=False,
+            include_files=True,
+            include_months=False,
+            include_es=False,
+        )
+        live_files = live_snapshot["files"] if live_snapshot else {}
         async with self.get_db() as db:
             query = (
                 "SELECT id, filename, year_month, section, status, retry_count, "
@@ -383,11 +424,113 @@ class Registry:
             query += " ORDER BY year_month DESC, filename ASC"
             cursor = await db.execute(query, params)
             rows = await cursor.fetchall()
-            return [dict(r) for r in rows]
+            registry_group_counts: dict[tuple[str, str], int] = {}
+            registry_exact_keys: set[tuple[str, str, str]] = set()
+            for row in rows:
+                group_key = (str(row["year_month"]), str(row["section"]))
+                registry_group_counts[group_key] = registry_group_counts.get(group_key, 0) + 1
+                registry_exact_keys.add((str(row["year_month"]), str(row["section"]), str(row["filename"])))
+
+            live_group_candidates: dict[
+                tuple[str, str],
+                list[tuple[tuple[str, str, str], dict[str, Any]]],
+            ] = {}
+            for (year_month, section, filename), live_record in live_files.items():
+                if year and not str(year_month).startswith(f"{year}-"):
+                    continue
+                group_key = (str(year_month), str(section))
+                live_group_candidates.setdefault(group_key, []).append(
+                    ((str(year_month), str(section), str(filename)), live_record)
+                )
+
+            items: list[dict[str, Any]] = []
+            matched_live_keys: set[tuple[str, str, str]] = set()
+            for row in rows:
+                record = dict(row)
+                exact_key = (
+                    str(record["year_month"]),
+                    str(record["section"]),
+                    str(record["filename"]),
+                )
+                live = live_files.get(exact_key, {})
+                if not live:
+                    group_key = (str(record["year_month"]), str(record["section"]))
+                    candidates = live_group_candidates.get(group_key, [])
+                    if registry_group_counts.get(group_key, 0) == 1 and len(candidates) == 1:
+                        live_key, live = candidates[0]
+                        matched_live_keys.add(live_key)
+                else:
+                    matched_live_keys.add(exact_key)
+                record["pg_doc_count"] = int(live.get("doc_count", 0))
+                record["pg_chunked_doc_count"] = int(live.get("chunked_doc_count", 0))
+                record["pg_chunk_rows"] = int(live.get("chunk_row_count", 0))
+                record["pg_downloaded_at"] = live.get("downloaded_at")
+                record["is_live_only"] = False
+                record["record_source"] = (
+                    "registry+postgres_live" if record["pg_doc_count"] > 0 else "registry"
+                )
+                if record.get("doc_count") in (None, 0) and record["pg_doc_count"] > 0:
+                    record["doc_count"] = record["pg_doc_count"]
+                items.append(record)
+
+            synthetic_id = -1
+            for (year_month, section, filename), live_record in sorted(
+                live_files.items(),
+                key=lambda entry: (str(entry[0][0]), str(entry[0][1]), str(entry[0][2])),
+                reverse=True,
+            ):
+                exact_key = (str(year_month), str(section), str(filename))
+                if year and not str(year_month).startswith(f"{year}-"):
+                    continue
+                if exact_key in matched_live_keys or exact_key in registry_exact_keys:
+                    continue
+                downloaded_at = live_record.get("downloaded_at")
+                doc_count = int(live_record.get("doc_count", 0) or 0)
+                chunked_doc_count = int(live_record.get("chunked_doc_count", 0) or 0)
+                chunk_row_count = int(live_record.get("chunk_row_count", 0) or 0)
+                items.append(
+                    {
+                        "id": synthetic_id,
+                        "filename": str(live_record.get("pg_filename") or filename),
+                        "year_month": str(year_month),
+                        "section": str(section),
+                        "status": FileStatus.VERIFIED.value if doc_count > 0 else FileStatus.DOWNLOADED.value,
+                        "is_live_only": True,
+                        "record_source": "postgres_live",
+                        "retry_count": 0,
+                        "doc_count": doc_count or None,
+                        "file_size_bytes": None,
+                        "error_message": None,
+                        "source": "postgres_live",
+                        "publication_date": None,
+                        "discovered_at": downloaded_at,
+                        "queued_at": None,
+                        "downloaded_at": downloaded_at,
+                        "extracted_at": downloaded_at if doc_count > 0 else None,
+                        "ingested_at": downloaded_at if doc_count > 0 else None,
+                        "bm25_indexed_at": downloaded_at if doc_count > 0 else None,
+                        "embedded_at": downloaded_at if chunked_doc_count > 0 else None,
+                        "verified_at": downloaded_at if doc_count > 0 else None,
+                        "updated_at": downloaded_at or _now(),
+                        "pg_doc_count": doc_count,
+                        "pg_chunked_doc_count": chunked_doc_count,
+                        "pg_chunk_rows": chunk_row_count,
+                        "pg_downloaded_at": downloaded_at,
+                    }
+                )
+                synthetic_id -= 1
+            items.sort(key=lambda item: (str(item["year_month"]), str(item["filename"])), reverse=True)
+            return items
 
     async def get_summary_stats(self) -> dict[str, Any]:
         """Return dashboard-friendly registry summary statistics."""
         status_counts = await self.get_status_counts()
+        live_snapshot = await fetch_postgres_live_snapshot(
+            include_summary=True,
+            include_files=False,
+            include_months=False,
+            include_es=True,
+        )
         async with self.get_db() as db:
             totals_cursor = await db.execute(
                 """
@@ -431,6 +574,27 @@ class Registry:
             "status_counts": status_counts,
             "disk_usage": await self.get_disk_usage(),
             "latest_run": dict(latest_run_row) if latest_run_row else None,
+            "pg_ingested_files": int(live_snapshot["summary"].get("pg_ingested_files", 0)) if live_snapshot else 0,
+            "pg_doc_backed_files": int(live_snapshot["summary"].get("pg_doc_backed_files", 0)) if live_snapshot else 0,
+            "pg_total_docs": int(live_snapshot["summary"].get("pg_total_docs", 0)) if live_snapshot else 0,
+            "pg_chunked_files": int(live_snapshot["summary"].get("pg_chunked_files", 0)) if live_snapshot else 0,
+            "pg_chunked_docs": int(live_snapshot["summary"].get("pg_chunked_docs", 0)) if live_snapshot else 0,
+            "pg_chunk_rows": int(live_snapshot["summary"].get("pg_chunk_rows", 0)) if live_snapshot else 0,
+            "pg_min_month": live_snapshot["summary"].get("pg_min_month") if live_snapshot else None,
+            "pg_max_month": live_snapshot["summary"].get("pg_max_month") if live_snapshot else None,
+            "es_status": live_snapshot["es_summary"].get("es_status") if live_snapshot else None,
+            "es_doc_count": int(live_snapshot["es_summary"].get("es_doc_count", 0)) if live_snapshot else 0,
+            "es_chunk_count": int(live_snapshot["es_summary"].get("es_chunk_count", 0)) if live_snapshot else 0,
+            "es_chunks_refresh_interval": live_snapshot["es_summary"].get("es_chunks_refresh_interval")
+            if live_snapshot
+            else None,
+            "data_sources": {
+                "registry_queue": "registry_sqlite",
+                "catalog_coverage": "registry_sqlite+postgres_live",
+                "document_corpus": "postgres_live",
+                "vector_corpus": "elasticsearch_live",
+                "scheduler": "apscheduler",
+            },
         }
 
     async def create_pipeline_run(self, phase: str) -> str:
@@ -611,16 +775,127 @@ class Registry:
 
     async def get_catalog_months(self, year: int | None = None) -> list[dict[str, Any]]:
         """Return catalog month rows with catalog_status for dashboard/API."""
+        live_snapshot = await fetch_postgres_live_snapshot(
+            year=year,
+            include_summary=False,
+            include_files=False,
+            include_months=True,
+            include_es=False,
+        )
+        live_months = live_snapshot["months"] if live_snapshot else {}
         async with self.get_db() as db:
-            query = "SELECT * FROM dou_catalog_months"
+            query = """
+                SELECT
+                    m.*,
+                    COUNT(f.id) AS file_count,
+                    COALESCE(SUM(CASE WHEN f.status = 'VERIFIED' THEN 1 ELSE 0 END), 0) AS verified_file_count,
+                    COALESCE(SUM(CASE WHEN f.status = 'DISCOVERED' THEN 1 ELSE 0 END), 0) AS discovered_file_count,
+                    COALESCE(SUM(CASE WHEN f.status = 'QUEUED' THEN 1 ELSE 0 END), 0) AS queued_file_count,
+                    COALESCE(SUM(CASE WHEN f.status LIKE '%FAILED' THEN 1 ELSE 0 END), 0) AS failed_file_count,
+                    COALESCE(SUM(CASE WHEN f.status IN (
+                        'DISCOVERED', 'QUEUED', 'DOWNLOADING', 'DOWNLOADED',
+                        'EXTRACTING', 'EXTRACTED', 'BM25_INDEXING', 'BM25_INDEXED',
+                        'EMBEDDING', 'EMBEDDED', 'VERIFYING'
+                    ) THEN 1 ELSE 0 END), 0) AS pending_file_count
+                FROM dou_catalog_months m
+                LEFT JOIN dou_files f ON f.year_month = m.year_month
+            """
             params: list[Any] = []
             if year:
-                query += " WHERE year_month LIKE ?"
+                query += " WHERE m.year_month LIKE ?"
                 params.append(f"{year}-%")
-            query += " ORDER BY year_month DESC"
+            query += """
+                GROUP BY
+                    m.year_month,
+                    m.folder_id,
+                    m.group_id,
+                    m.source_of_truth,
+                    m.catalog_status,
+                    m.month_closed,
+                    m.inlabs_window_expires_at,
+                    m.fallback_eligible_at,
+                    m.liferay_zip_available,
+                    m.last_reconciled_at,
+                    m.created_at,
+                    m.updated_at
+                ORDER BY m.year_month DESC
+            """
             cursor = await db.execute(query, params)
             rows = await cursor.fetchall()
-            return [dict(r) for r in rows]
+            months: list[dict[str, Any]] = []
+            seen_months: set[str] = set()
+            for row in rows:
+                record = dict(row)
+                seen_months.add(str(record["year_month"]))
+                live = live_months.get(record["year_month"], {})
+                record["pg_ingested_file_count"] = int(live.get("pg_ingested_file_count", 0))
+                record["pg_doc_count"] = int(live.get("pg_doc_count", 0))
+                record["pg_chunked_file_count"] = int(live.get("pg_chunked_file_count", 0))
+                record["pg_chunked_doc_count"] = int(live.get("pg_chunked_doc_count", 0))
+                record["pg_chunk_rows"] = int(live.get("pg_chunk_rows", 0))
+                total = max(int(record.get("file_count") or 0), record["pg_ingested_file_count"])
+                verified = max(int(record.get("verified_file_count") or 0), record["pg_ingested_file_count"])
+                record["effective_file_count"] = total
+                record["effective_covered_file_count"] = verified
+                record["coverage_source"] = (
+                    "registry+postgres_live"
+                    if int(record.get("file_count") or 0) > 0 and record["pg_ingested_file_count"] > 0
+                    else "postgres_live"
+                    if record["pg_ingested_file_count"] > 0
+                    else "registry"
+                )
+                record["file_count"] = total
+                record["verified_file_count"] = verified
+                record["coverage_pct"] = round((verified / total) * 100, 1) if total > 0 else 0.0
+                ingested = record["pg_ingested_file_count"]
+                chunked_files = record["pg_chunked_file_count"]
+                record["ingested_coverage_pct"] = round((ingested / total) * 100, 1) if total > 0 else 0.0
+                record["chunked_coverage_pct"] = round((chunked_files / total) * 100, 1) if total > 0 else 0.0
+                months.append(record)
+            for year_month, live in sorted(live_months.items(), reverse=True):
+                year_month = str(year_month)
+                if year and not year_month.startswith(f"{year}-"):
+                    continue
+                if year_month in seen_months:
+                    continue
+                ingested = int(live.get("pg_ingested_file_count", 0) or 0)
+                chunked_files = int(live.get("pg_chunked_file_count", 0) or 0)
+                total = ingested
+                months.append(
+                    {
+                        "year_month": year_month,
+                        "folder_id": None,
+                        "group_id": None,
+                        "source_of_truth": "postgres_live",
+                        "catalog_status": CATALOG_STATUS_CLOSED,
+                        "month_closed": 1,
+                        "inlabs_window_expires_at": None,
+                        "fallback_eligible_at": None,
+                        "liferay_zip_available": 0,
+                        "last_reconciled_at": None,
+                        "created_at": None,
+                        "updated_at": None,
+                        "file_count": total,
+                        "verified_file_count": ingested,
+                        "discovered_file_count": 0,
+                        "queued_file_count": 0,
+                        "failed_file_count": 0,
+                        "pending_file_count": 0,
+                        "effective_file_count": total,
+                        "effective_covered_file_count": ingested,
+                        "coverage_source": "postgres_live",
+                        "coverage_pct": 100.0 if total > 0 else 0.0,
+                        "pg_ingested_file_count": ingested,
+                        "pg_doc_count": int(live.get("pg_doc_count", 0) or 0),
+                        "pg_chunked_file_count": chunked_files,
+                        "pg_chunked_doc_count": int(live.get("pg_chunked_doc_count", 0) or 0),
+                        "pg_chunk_rows": int(live.get("pg_chunk_rows", 0) or 0),
+                        "ingested_coverage_pct": 100.0 if total > 0 else 0.0,
+                        "chunked_coverage_pct": round((chunked_files / total) * 100, 1) if total > 0 else 0.0,
+                    }
+                )
+            months.sort(key=lambda record: str(record["year_month"]), reverse=True)
+            return months
 
     async def refresh_catalog_month_status(self, *, today: date | None = None) -> int:
         """Update catalog_status for all dou_catalog_months based on dates and file completeness.
