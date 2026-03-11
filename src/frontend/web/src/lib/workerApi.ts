@@ -9,13 +9,17 @@ import type {
   LogEntry,
   CatalogMonth,
   WatchdogStatus,
+  PlantStatus,
 } from "@/types/pipeline";
 import { resolveApiUrl } from "@/lib/runtimeConfig";
 
 const BASE = resolveApiUrl("/api/worker");
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, init);
+  const res = await fetch(`${BASE}${path}`, {
+    credentials: "include",
+    ...init,
+  });
   if (!res.ok) {
     let detail = `Worker API error: ${res.status}`;
     try {
@@ -74,4 +78,31 @@ export const workerApi = {
     fetchJson<{ paused: boolean }>("/pipeline/pause", { method: "POST" }),
   resume: () =>
     fetchJson<{ paused: boolean }>("/pipeline/resume", { method: "POST" }),
+  setJobEnabled: (jobId: string, enabled: boolean) =>
+    fetchJson<{ job_id: string; enabled: boolean }>(
+      `/pipeline/jobs/${jobId}/${enabled ? "enable" : "disable"}`,
+      { method: "POST" }
+    ),
+
+  // Plant Status (SCADA Dashboard)
+  getPlantStatus: () => fetchJson<PlantStatus>("/registry/plant-status"),
+  stagePause: (name: string) =>
+    fetchJson<{ job_id: string; enabled: boolean }>(
+      `/pipeline/stage/${name}/pause`,
+      { method: "POST" }
+    ),
+  stageResume: (name: string) =>
+    fetchJson<{ job_id: string; enabled: boolean }>(
+      `/pipeline/stage/${name}/resume`,
+      { method: "POST" }
+    ),
+  stageTrigger: (name: string) =>
+    fetchJson<{ triggered: string }>(
+      `/pipeline/stage/${name}/trigger`,
+      { method: "POST" }
+    ),
+  pauseAll: () =>
+    fetchJson<{ paused: boolean }>("/pipeline/pause-all", { method: "POST" }),
+  resumeAll: () =>
+    fetchJson<{ paused: boolean }>("/pipeline/resume-all", { method: "POST" }),
 };
