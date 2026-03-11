@@ -4,15 +4,15 @@ milestone: v1.1
 milestone_name: User Auth
 current_plan: 2 of 2
 status: executing
-stopped_at: Completed 14-02-PLAN.md
-last_updated: "2026-03-09T23:22:27.963Z"
-last_activity: 2026-03-09
+stopped_at: Completed 16-02-PLAN.md
+last_updated: "2026-03-11T03:23:09Z"
+last_activity: 2026-03-11
 progress:
-  total_phases: 1
-  completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
-  percent: 50
+  total_phases: 2
+  completed_phases: 2
+  total_plans: 4
+  completed_plans: 4
+  percent: 100
 ---
 
 # Project State
@@ -22,17 +22,17 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-09)
 
 **Core value:** Users can find any published legal act in the DOU quickly and read it in a clean, professional interface
-**Current focus:** Phase 14 - Email + Password Authentication
+**Current focus:** Phase 16 - Tear Down (BM25-only pipeline simplification)
 
 ## Current Position
 
-Phase: 14 of 14 (Email + Password Authentication)
+Phase: 16 of 16 (Tear Down)
 Current Plan: 2 of 2
 Total Plans in Phase: 2
 Status: Executing
-Last activity: 2026-03-09
+Last activity: 2026-03-11
 
-Progress: [=====-----] 50%
+Progress: [==========] 100%
 
 ## Accumulated Context
 
@@ -48,10 +48,14 @@ Progress: [=====-----] 50%
 - [Phase 14]: Login page dual-mode: email+password primary, token secondary toggle
 - [Phase 14]: Portuguese error messages mapped from HTTP status codes (401, 409, 422, 429)
 - [Phase 14]: All form inputs use text-base (16px) to prevent iOS auto-zoom
+- [16-02]: BM25_INDEXED dual-path transitions (VERIFYING default, EMBEDDING for future re-enablement)
+- [16-02]: Embed job disabled by default via _job_enabled dict, not removed from scheduler
+- [16-02]: PG port changed from 5433 to 5432 in local docker-compose
 
 ### Roadmap Evolution
 
 - Phase 15 added: Fly flies
+- Phase 16 added: Tear down
 
 ### Performance Metrics
 
@@ -59,9 +63,10 @@ Progress: [=====-----] 50%
 |-------|------|----------|-------|-------|
 | 14    | 01   | 4min     | 2     | 6     |
 | Phase 14 P02 | 3min | 3 tasks | 6 files |
+| 16    | 02   | 9min     | 2     | 6     |
 
 ## Session Continuity
 
-Last session: 2026-03-09T23:22:27.962Z
-Stopped at: Completed 14-02-PLAN.md
-Resume: `/gsd:execute-phase 14` (plan 02 next)
+Last session: 2026-03-11T03:23:09Z
+Stopped at: Completed 16-02-PLAN.md
+Resume: Phase 16 complete

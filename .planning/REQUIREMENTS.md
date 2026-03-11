@@ -109,13 +109,13 @@ Deferred to future release.
 
 ### Local Development
 
-- [ ] **LOCAL-01**: Docker-based local stack: ES (9200), PG (5432), Worker (8081), Web (8080), Frontend (5173)
-- [ ] **LOCAL-02**: No Redis dependency — in-memory fallback for single-machine dev
+- [x] **LOCAL-01**: Docker-based local stack: ES (9200), PG (5432), Worker (8081), Web (8080), Frontend (5173)
+- [x] **LOCAL-02**: No Redis dependency — in-memory fallback for single-machine dev
 
 ### Pipeline Simplification
 
-- [ ] **PIPE-01**: Embedding stage bypassed/disabled — search works with BM25+ES only
-- [ ] **PIPE-02**: Pipeline stages reduced to: Discovery → Download → Extract → BM25 Index → Verify
+- [x] **PIPE-01**: Embedding stage bypassed/disabled — search works with BM25+ES only
+- [x] **PIPE-02**: Pipeline stages reduced to: Discovery → Download → Extract → BM25 Index → Verify
 
 ### Industrial Dashboard
 

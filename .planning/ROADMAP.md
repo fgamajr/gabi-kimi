@@ -95,7 +95,7 @@ Plans:
 
 Plans:
 - [ ] 16-01-PLAN.md -- Fly.io teardown (backup secrets, destroy all gabi-dou-* apps)
-- [ ] 16-02-PLAN.md -- Pipeline BM25-only simplification + local dev stack validation
+- [x] 16-02-PLAN.md -- Pipeline BM25-only simplification + local dev stack validation (completed 2026-03-11)
 - [ ] 16-03-PLAN.md -- Plant-status API endpoint + stage control routes + TypeScript types
 - [ ] 16-04-PLAN.md -- SCADA industrial control panel dashboard (frontend)
 
