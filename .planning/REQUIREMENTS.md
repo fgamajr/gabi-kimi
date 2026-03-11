@@ -99,6 +99,33 @@ Deferred to future release.
 - Mapped to phases: 22
 - Unmapped: 0
 
+## Phase 16: Teardown & Industrial Dashboard
+
+### Fly.io Teardown
+
+- [ ] **TEAR-01**: All gabi-dou-* Fly apps destroyed (frontend, web, worker, es, redis, pg)
+- [ ] **TEAR-02**: Secrets saved locally before destruction
+- [ ] **TEAR-03**: fly apps list returns no gabi-dou results
+
+### Local Development
+
+- [ ] **LOCAL-01**: Docker-based local stack: ES (9200), PG (5432), Worker (8081), Web (8080), Frontend (5173)
+- [ ] **LOCAL-02**: No Redis dependency — in-memory fallback for single-machine dev
+
+### Pipeline Simplification
+
+- [ ] **PIPE-01**: Embedding stage bypassed/disabled — search works with BM25+ES only
+- [ ] **PIPE-02**: Pipeline stages reduced to: Discovery → Download → Extract → BM25 Index → Verify
+
+### Industrial Dashboard
+
+- [ ] **DASH-01**: GET /registry/plant-status returns all stage data (state, queue_depth, throughput, errors, cost)
+- [ ] **DASH-02**: POST /pipeline/stage/{name}/pause|resume|trigger controls individual stages
+- [ ] **DASH-03**: SCADA-style dashboard with left-to-right pipeline flow layout
+- [ ] **DASH-04**: Stage visual states: AUTO (green), PAUSED (yellow), ERROR (red), IDLE (gray)
+- [ ] **DASH-05**: Responsive layout: horizontal (desktop), 2-row (tablet), vertical (mobile)
+- [ ] **DASH-06**: Storage tanks display (ES index %, disk usage %, system health)
+
 ---
 *Requirements defined: 2026-03-09*
-*Last updated: 2026-03-09 after v1.1 milestone definition*
+*Last updated: 2026-03-10 after Phase 16 PRD definition*

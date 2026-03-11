@@ -78,5 +78,23 @@ Plans:
 - [ ] 15-02-PLAN.md -- Deploy all services to Fly.io and run smoke tests
 - [ ] 15-03-PLAN.md -- Pipeline validation (manual trigger, scheduler, restart recovery)
 
+### Phase 16: Teardown & Industrial Dashboard
+
+**Goal:** Destroy all Fly.io apps (stop paying), establish local-first development, simplify pipeline to BM25-only, and build SCADA-style industrial control panel dashboard
+**Requirements**: TEAR-01, TEAR-02, TEAR-03, LOCAL-01, LOCAL-02, PIPE-01, PIPE-02, DASH-01, DASH-02, DASH-03, DASH-04, DASH-05, DASH-06
+**Depends on:** Phase 14
+**Plans:** 0 plans
+**Success Criteria** (what must be TRUE):
+  1. All gabi-dou-* Fly apps destroyed (fly apps list returns empty)
+  2. Local dev stack runs: ES, PG, Worker, Web, Frontend all on localhost
+  3. Embedding pipeline bypassed — search works with BM25/ES only
+  4. Industrial dashboard renders all pipeline stages in SCADA layout
+  5. Plant-status API returns all stage data in single response
+  6. Stage pause/resume works from dashboard
+  7. Mobile layout preserves pipeline flow metaphor
+
+Plans:
+- [ ] TBD
+
 ---
 _Full v1.0 details: `.planning/milestones/v1.0-ROADMAP.md`_
