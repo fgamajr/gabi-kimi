@@ -4,13 +4,13 @@ milestone: v1.1
 milestone_name: User Auth
 current_plan: 2 of 2
 status: executing
-stopped_at: Completed 16-02-PLAN.md
-last_updated: "2026-03-11T03:23:09Z"
+stopped_at: Completed 16-01-PLAN.md
+last_updated: "2026-03-11T03:27:37.774Z"
 last_activity: 2026-03-11
 progress:
-  total_phases: 2
-  completed_phases: 2
-  total_plans: 4
+  total_phases: 3
+  completed_phases: 1
+  total_plans: 9
   completed_plans: 4
   percent: 100
 ---
@@ -51,6 +51,7 @@ Progress: [==========] 100%
 - [16-02]: BM25_INDEXED dual-path transitions (VERIFYING default, EMBEDDING for future re-enablement)
 - [16-02]: Embed job disabled by default via _job_enabled dict, not removed from scheduler
 - [16-02]: PG port changed from 5433 to 5432 in local docker-compose
+- [Phase 16]: User performed manual Fly.io app destruction via dashboard instead of CLI
 
 ### Roadmap Evolution
 
@@ -64,9 +65,10 @@ Progress: [==========] 100%
 | 14    | 01   | 4min     | 2     | 6     |
 | Phase 14 P02 | 3min | 3 tasks | 6 files |
 | 16    | 02   | 9min     | 2     | 6     |
+| Phase 16 P01 | 3min | 2 tasks | 2 files |
 
 ## Session Continuity
 
-Last session: 2026-03-11T03:23:09Z
-Stopped at: Completed 16-02-PLAN.md
+Last session: 2026-03-11T03:27:37.772Z
+Stopped at: Completed 16-01-PLAN.md
 Resume: Phase 16 complete

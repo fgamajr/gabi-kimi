@@ -103,9 +103,9 @@ Deferred to future release.
 
 ### Fly.io Teardown
 
-- [ ] **TEAR-01**: All gabi-dou-* Fly apps destroyed (frontend, web, worker, es, redis, pg)
-- [ ] **TEAR-02**: Secrets saved locally before destruction
-- [ ] **TEAR-03**: fly apps list returns no gabi-dou results
+- [x] **TEAR-01**: All gabi-dou-* Fly apps destroyed (frontend, web, worker, es, redis, pg)
+- [x] **TEAR-02**: Secrets saved locally before destruction
+- [x] **TEAR-03**: fly apps list returns no gabi-dou results
 
 ### Local Development
 
