@@ -2,17 +2,17 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: User Auth
-current_plan: 2 of 2
+current_plan: 3 of 4
 status: executing
-stopped_at: Completed 16-01-PLAN.md
-last_updated: "2026-03-11T03:27:37.774Z"
+stopped_at: Completed 16-03-PLAN.md
+last_updated: "2026-03-11T03:31:38Z"
 last_activity: 2026-03-11
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 9
-  completed_plans: 4
-  percent: 100
+  completed_plans: 5
+  percent: 56
 ---
 
 # Project State
@@ -27,12 +27,12 @@ See: .planning/PROJECT.md (updated 2026-03-09)
 ## Current Position
 
 Phase: 16 of 16 (Tear Down)
-Current Plan: 2 of 2
-Total Plans in Phase: 2
+Current Plan: 3 of 4
+Total Plans in Phase: 4
 Status: Executing
 Last activity: 2026-03-11
 
-Progress: [==========] 100%
+Progress: [=====-----] 56%
 
 ## Accumulated Context
 
@@ -52,6 +52,8 @@ Progress: [==========] 100%
 - [16-02]: Embed job disabled by default via _job_enabled dict, not removed from scheduler
 - [16-02]: PG port changed from 5433 to 5432 in local docker-compose
 - [Phase 16]: User performed manual Fly.io app destruction via dashboard instead of CLI
+- [16-03]: Stage state derived from is_job_enabled dict + master_paused + failed_count (not scheduler job object)
+- [16-03]: PENDING_GROUPS/FAILURE_GROUPS dicts map file statuses to pipeline stages for SCADA aggregation
 
 ### Roadmap Evolution
 
@@ -66,9 +68,10 @@ Progress: [==========] 100%
 | Phase 14 P02 | 3min | 3 tasks | 6 files |
 | 16    | 02   | 9min     | 2     | 6     |
 | Phase 16 P01 | 3min | 2 tasks | 2 files |
+| 16    | 03   | 3min     | 2     | 5     |
 
 ## Session Continuity
 
-Last session: 2026-03-11T03:27:37.772Z
-Stopped at: Completed 16-01-PLAN.md
-Resume: Phase 16 complete
+Last session: 2026-03-11T03:31:38Z
+Stopped at: Completed 16-03-PLAN.md
+Resume: Continue with 16-04-PLAN.md (SCADA dashboard frontend)

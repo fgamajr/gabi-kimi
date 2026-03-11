@@ -119,8 +119,8 @@ Deferred to future release.
 
 ### Industrial Dashboard
 
-- [ ] **DASH-01**: GET /registry/plant-status returns all stage data (state, queue_depth, throughput, errors, cost)
-- [ ] **DASH-02**: POST /pipeline/stage/{name}/pause|resume|trigger controls individual stages
+- [x] **DASH-01**: GET /registry/plant-status returns all stage data (state, queue_depth, throughput, errors, cost)
+- [x] **DASH-02**: POST /pipeline/stage/{name}/pause|resume|trigger controls individual stages
 - [ ] **DASH-03**: SCADA-style dashboard with left-to-right pipeline flow layout
 - [ ] **DASH-04**: Stage visual states: AUTO (green), PAUSED (yellow), ERROR (red), IDLE (gray)
 - [ ] **DASH-05**: Responsive layout: horizontal (desktop), 2-row (tablet), vertical (mobile)
