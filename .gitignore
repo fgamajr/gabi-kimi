@@ -17,6 +17,7 @@ var/
 # Environment / secrets
 .env
 .env.local
+.env.fly-backup
 !.env.example
 
 # AI agent state
