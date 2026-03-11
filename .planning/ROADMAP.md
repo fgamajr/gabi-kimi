@@ -83,7 +83,7 @@ Plans:
 **Goal:** Destroy all Fly.io apps (stop paying), establish local-first development, simplify pipeline to BM25-only, and build SCADA-style industrial control panel dashboard
 **Requirements**: TEAR-01, TEAR-02, TEAR-03, LOCAL-01, LOCAL-02, PIPE-01, PIPE-02, DASH-01, DASH-02, DASH-03, DASH-04, DASH-05, DASH-06
 **Depends on:** Phase 14
-**Plans:** 0 plans
+**Plans:** 4 plans
 **Success Criteria** (what must be TRUE):
   1. All gabi-dou-* Fly apps destroyed (fly apps list returns empty)
   2. Local dev stack runs: ES, PG, Worker, Web, Frontend all on localhost
@@ -94,7 +94,10 @@ Plans:
   7. Mobile layout preserves pipeline flow metaphor
 
 Plans:
-- [ ] TBD
+- [ ] 16-01-PLAN.md -- Fly.io teardown (backup secrets, destroy all gabi-dou-* apps)
+- [ ] 16-02-PLAN.md -- Pipeline BM25-only simplification + local dev stack validation
+- [ ] 16-03-PLAN.md -- Plant-status API endpoint + stage control routes + TypeScript types
+- [ ] 16-04-PLAN.md -- SCADA industrial control panel dashboard (frontend)
 
 ---
 _Full v1.0 details: `.planning/milestones/v1.0-ROADMAP.md`_
