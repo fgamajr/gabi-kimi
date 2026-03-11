@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import { useQueryClient } from "@tanstack/react-query";
-import { Calendar, FileText, LayoutDashboard, Play, Settings } from "lucide-react";
+import { Calendar, FileText, Gauge, LayoutDashboard, Play, Settings } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -14,8 +14,10 @@ const PipelineTimeline = lazy(() => import("@/components/pipeline/PipelineTimeli
 const PipelineScheduler = lazy(() => import("@/components/pipeline/PipelineScheduler"));
 const PipelineLogs = lazy(() => import("@/components/pipeline/PipelineLogs"));
 const PipelineSettings = lazy(() => import("@/components/pipeline/PipelineSettings"));
+const PlantDashboard = lazy(() => import("@/components/pipeline/scada/PlantDashboard"));
 
 const TAB_CONFIG = [
+  { value: "scada", label: "Control Panel", icon: Gauge },
   { value: "overview", label: "Overview", icon: LayoutDashboard },
   { value: "timeline", label: "Timeline", icon: Calendar },
   { value: "pipeline", label: "Pipeline", icon: Play },
@@ -37,7 +39,7 @@ export default function PipelinePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTab = searchParams.get("tab");
   const validInitialTab = useMemo(
-    () => TAB_CONFIG.some((item) => item.value === initialTab) ? initialTab! : "overview",
+    () => TAB_CONFIG.some((item) => item.value === initialTab) ? initialTab! : "scada",
     [initialTab]
   );
   const [activeTab, setActiveTab] = useState(validInitialTab);
@@ -60,7 +62,7 @@ export default function PipelinePage() {
       const tag = (event.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
-      if (event.key >= "1" && event.key <= "5") {
+      if (event.key >= "1" && event.key <= "6") {
         event.preventDefault();
         setActiveTab(TAB_CONFIG[Number(event.key) - 1].value);
         return;
@@ -135,7 +137,7 @@ export default function PipelinePage() {
           </p>
         </div>
         <div className="grid gap-1 text-xs text-text-tertiary">
-          <span>Atalhos: `1-5` alternam tabs, `R` atualiza, `P` pausa/retoma.</span>
+          <span>Atalhos: `1-6` alternam tabs, `R` atualiza, `P` pausa/retoma.</span>
           <span>Horários sempre em UTC no backend; leitura operacional deve considerar BRT no contexto do DOU.</span>
         </div>
       </header>
@@ -163,6 +165,14 @@ export default function PipelinePage() {
         </Tabs.List>
 
         <div className="pt-4">
+          <Tabs.Content value="scada">
+            {activeTab === "scada" ? (
+              <Suspense fallback={<TabFallback />}>
+                <PlantDashboard />
+              </Suspense>
+            ) : null}
+          </Tabs.Content>
+
           <Tabs.Content value="overview">
             {activeTab === "overview" ? (
               <Suspense fallback={<TabFallback />}>
