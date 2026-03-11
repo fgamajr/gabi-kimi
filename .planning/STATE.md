@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: User Auth
-current_plan: 3 of 4
+current_plan: 4
 status: executing
-stopped_at: Completed 16-03-PLAN.md
-last_updated: "2026-03-11T03:31:38Z"
+stopped_at: Completed 16-04-PLAN.md
+last_updated: "2026-03-11T12:13:58.785Z"
 last_activity: 2026-03-11
 progress:
   total_phases: 3
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 9
-  completed_plans: 5
+  completed_plans: 6
   percent: 56
 ---
 
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-03-09)
 ## Current Position
 
 Phase: 16 of 16 (Tear Down)
-Current Plan: 3 of 4
+Current Plan: 4
 Total Plans in Phase: 4
 Status: Executing
 Last activity: 2026-03-11
@@ -54,6 +54,8 @@ Progress: [=====-----] 56%
 - [Phase 16]: User performed manual Fly.io app destruction via dashboard instead of CLI
 - [16-03]: Stage state derived from is_job_enabled dict + master_paused + failed_count (not scheduler job object)
 - [16-03]: PENDING_GROUPS/FAILURE_GROUPS dicts map file statuses to pipeline stages for SCADA aggregation
+- [Phase 16]: SCADA theme scoped via inline style on wrapper div, not global CSS
+- [Phase 16]: PlantDashboard replaces PipelineScheduler as primary view with tab toggle
 
 ### Roadmap Evolution
 
@@ -69,9 +71,10 @@ Progress: [=====-----] 56%
 | 16    | 02   | 9min     | 2     | 6     |
 | Phase 16 P01 | 3min | 2 tasks | 2 files |
 | 16    | 03   | 3min     | 2     | 5     |
+| Phase 16 P04 | 8min | 3 tasks | 10 files |
 
 ## Session Continuity
 
-Last session: 2026-03-11T03:31:38Z
-Stopped at: Completed 16-03-PLAN.md
+Last session: 2026-03-11T12:13:58.783Z
+Stopped at: Completed 16-04-PLAN.md
 Resume: Continue with 16-04-PLAN.md (SCADA dashboard frontend)
