@@ -55,13 +55,13 @@ VALID_TRANSITIONS: dict[FileStatus, set[FileStatus]] = {
     FileStatus.EXTRACTED: {FileStatus.BM25_INDEXING},
     FileStatus.EXTRACT_FAILED: {FileStatus.QUEUED},
     FileStatus.BM25_INDEXING: {FileStatus.BM25_INDEXED, FileStatus.BM25_INDEX_FAILED},
-    FileStatus.BM25_INDEXED: {FileStatus.VERIFYING},
+    FileStatus.BM25_INDEXED: {FileStatus.VERIFYING, FileStatus.EMBEDDING},
     FileStatus.BM25_INDEX_FAILED: {FileStatus.QUEUED},
     FileStatus.EMBEDDING: {FileStatus.EMBEDDED, FileStatus.EMBEDDING_FAILED},
     FileStatus.EMBEDDED: {FileStatus.VERIFYING},
     FileStatus.EMBEDDING_FAILED: {FileStatus.QUEUED},
     FileStatus.VERIFYING: {FileStatus.VERIFIED, FileStatus.VERIFY_FAILED},
-    FileStatus.VERIFIED: {FileStatus.VERIFYING},
+    FileStatus.VERIFIED: {FileStatus.VERIFYING, FileStatus.EMBEDDING},
     FileStatus.VERIFY_FAILED: {FileStatus.QUEUED},
 }
 

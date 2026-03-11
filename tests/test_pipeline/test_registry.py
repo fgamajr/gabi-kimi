@@ -123,17 +123,17 @@ async def test_bm25_indexed_transitions_to_verifying(registry):
     assert FileStatus.VERIFYING in VALID_TRANSITIONS[FileStatus.BM25_INDEXED]
 
 
-async def test_bm25_indexed_does_not_transition_to_embedding(registry):
-    """BM25_INDEXED -> EMBEDDING is no longer a valid transition."""
+async def test_bm25_indexed_can_also_transition_to_embedding(registry):
+    """BM25_INDEXED -> EMBEDDING is still valid (for when embedding is re-enabled)."""
     from src.backend.worker.registry import VALID_TRANSITIONS
-    assert FileStatus.EMBEDDING not in VALID_TRANSITIONS[FileStatus.BM25_INDEXED]
+    assert FileStatus.EMBEDDING in VALID_TRANSITIONS[FileStatus.BM25_INDEXED]
 
 
-async def test_verified_transitions_to_verifying_not_embedding(registry):
-    """VERIFIED -> VERIFYING is valid (re-verify, not re-embed)."""
+async def test_verified_transitions_to_verifying_and_embedding(registry):
+    """VERIFIED -> VERIFYING and VERIFIED -> EMBEDDING are both valid."""
     from src.backend.worker.registry import VALID_TRANSITIONS
     assert FileStatus.VERIFYING in VALID_TRANSITIONS[FileStatus.VERIFIED]
-    assert FileStatus.EMBEDDING not in VALID_TRANSITIONS[FileStatus.VERIFIED]
+    assert FileStatus.EMBEDDING in VALID_TRANSITIONS[FileStatus.VERIFIED]
 
 
 async def test_embedded_status_still_exists_in_enum():
