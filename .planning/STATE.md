@@ -1,3 +1,19 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: planning
+stopped_at: "Completed 01-01-PLAN.md task 1 — awaiting checkpoint:human-verify at task 2"
+last_updated: "2026-03-12T14:50:01.218Z"
+last_activity: 2026-03-12 — Roadmap created, all 28 requirements mapped across 5 phases
+progress:
+  total_phases: 5
+  completed_phases: 0
+  total_plans: 3
+  completed_plans: 1
+  percent: 33
+---
+
 # Project State
 
 ## Project Reference
@@ -14,7 +30,7 @@ Plan: 0 of 3 in current phase
 Status: Ready to plan
 Last activity: 2026-03-12 — Roadmap created, all 28 requirements mapped across 5 phases
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [███░░░░░░░] 33%
 
 ## Performance Metrics
 
@@ -34,6 +50,7 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: -
 
 *Updated after each plan completion*
+| Phase 01-infrastructure-upgrade P01 | 4 | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -45,6 +62,8 @@ Recent decisions affecting current work:
 - [Pre-Phase 1]: ES native kNN over external vector DB — already have ES 8.x, fewer moving parts
 - [Pre-Phase 1]: Cohere Rerank over RRF-only — better result quality for Portuguese legal text
 - [Pre-Phase 1]: Upgrade existing MCP tools, do not add new tools — maintain backward compatibility
+- [Phase 01-infrastructure-upgrade]: ES_JAVA_OPTS set to -Xms4g -Xmx4g — minimum required heap for kNN workloads on 7M documents
+- [Phase 01-infrastructure-upgrade]: dense_vector dims=1024 with int8_hnsw quantization for Cohere embed-multilingual-v3.0 output
 
 ### Pending Todos
 
@@ -60,6 +79,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-12
-Stopped at: Roadmap creation complete — ready to plan Phase 1
+Last session: 2026-03-12T14:50:01.217Z
+Stopped at: Completed 01-01-PLAN.md task 1 — awaiting checkpoint:human-verify at task 2
 Resume file: None

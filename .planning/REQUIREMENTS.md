@@ -9,8 +9,8 @@ Requirements for hybrid search milestone. Each maps to roadmap phases.
 
 ### Infrastructure
 
-- [ ] **INFRA-01**: ES JVM heap increased from 512MB to 4GB+ before any kNN workload
-- [ ] **INFRA-02**: New ES index `gabi_documents_v2` created with `dense_vector` field (HNSW, int8 quantization)
+- [x] **INFRA-01**: ES JVM heap increased from 512MB to 4GB+ before any kNN workload
+- [x] **INFRA-02**: New ES index `gabi_documents_v2` created with `dense_vector` field (HNSW, int8 quantization)
 - [ ] **INFRA-03**: Alias `gabi_documents` points to v2 index; all consumers use alias
 - [ ] **INFRA-04**: All existing BM25 data reindexed from v1 to v2 with zero downtime
 
@@ -84,8 +84,8 @@ Deferred to future release. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INFRA-01 | Phase 1 | Pending |
-| INFRA-02 | Phase 1 | Pending |
+| INFRA-01 | Phase 1 | Complete |
+| INFRA-02 | Phase 1 | Complete |
 | INFRA-03 | Phase 1 | Pending |
 | INFRA-04 | Phase 1 | Pending |
 | EMBED-01 | Phase 2 | Pending |
