@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: "Completed 01-01-PLAN.md task 1 — awaiting checkpoint:human-verify at task 2"
-last_updated: "2026-03-12T14:50:01.218Z"
+stopped_at: Completed 01-01-PLAN.md — ES 4GB heap + gabi_documents_v2 index. Ready for Plan 02 (reindex).
+last_updated: "2026-03-12T14:56:16.929Z"
 last_activity: 2026-03-12 — Roadmap created, all 28 requirements mapped across 5 phases
 progress:
   total_phases: 5
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-03-12)
 ## Current Position
 
 Phase: 1 of 5 (Infrastructure Upgrade)
-Plan: 0 of 3 in current phase
-Status: Ready to plan
-Last activity: 2026-03-12 — Roadmap created, all 28 requirements mapped across 5 phases
+Plan: 1 of 3 in current phase
+Status: In Progress — ready for Plan 02 (reindex MongoDB → v2)
+Last activity: 2026-03-12 — Completed Plan 01 (ES 4GB heap + gabi_documents_v2 index)
 
 Progress: [███░░░░░░░] 33%
 
@@ -50,7 +50,10 @@ Progress: [███░░░░░░░] 33%
 - Trend: -
 
 *Updated after each plan completion*
-| Phase 01-infrastructure-upgrade P01 | 4 | 1 tasks | 2 files |
+
+| Phase | Plan | Duration (min) | Tasks | Files |
+|-------|------|---------------|-------|-------|
+| 01-infrastructure-upgrade | P01 | 4 | 2 | 2 |
 
 ## Accumulated Context
 
@@ -71,14 +74,15 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Phase 1]: ES JVM heap currently at 512MB — MUST be raised to 4GB+ before any kNN workload (circuit breaker will OOM otherwise)
-- [Phase 1]: `dense_vector` cannot be added to existing index mapping — full reindex to v2 required, irreversible
+- [Phase 1 - RESOLVED by Plan 01]: ES JVM heap was at 512MB — raised to 4GB via ES_JAVA_OPTS
+- [Phase 1 - RESOLVED by Plan 01]: gabi_documents_v2 index created with dense_vector(1024d) — ready for reindex in Plan 02
+- [Phase 1]: v1 index does not yet exist in this ES instance — Plan 02 must run `es_indexer backfill` to create it before reindexing to v2
 - [Phase 2]: ES cluster license tier unconfirmed — if Basic, RRF retriever unavailable; convex combination fallback required in Phase 3
 - [Phase 2]: Embedding model lock-in risk — validate Cohere embed-multilingual-v3.0 on 10K DOU sample BEFORE starting 7M backfill
 - [Phase 3]: kNN filter placement is a silent failure mode — filters must be inside `knn.filter`, not outer `bool.filter`
 
 ## Session Continuity
 
-Last session: 2026-03-12T14:50:01.217Z
-Stopped at: Completed 01-01-PLAN.md task 1 — awaiting checkpoint:human-verify at task 2
+Last session: 2026-03-12T14:56:13.092Z
+Stopped at: Completed 01-01-PLAN.md — ES 4GB heap + gabi_documents_v2 index. Ready for Plan 02 (reindex).
 Resume file: None

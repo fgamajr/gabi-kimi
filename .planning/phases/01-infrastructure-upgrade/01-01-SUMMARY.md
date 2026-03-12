@@ -52,7 +52,7 @@ completed: 2026-03-12
 - **Duration:** ~4 min
 - **Started:** 2026-03-12T14:44:27Z
 - **Completed:** 2026-03-12T14:48:30Z
-- **Tasks:** 1 of 2 (Task 2 is checkpoint:human-verify)
+- **Tasks:** 2 of 2 (Task 1 auto-executed, Task 2 human-verify approved)
 - **Files modified:** 2
 
 ## Accomplishments
@@ -67,7 +67,9 @@ Each task was committed atomically:
 
 1. **Task 1: Upgrade ES heap to 4GB and create v2 index mapping file** - `333ca134` (feat)
 
-**Plan metadata:** (pending — after Task 2 checkpoint approval)
+2. **Task 2: Verify ES heap and v2 index** - checkpoint:human-verify (approved by user 2026-03-12)
+
+**Plan metadata:** (final commit — after checkpoint approval)
 
 ## Files Created/Modified
 - `ops/setup_elasticsearch.sh` - Updated Docker run command: ES_JAVA_OPTS from -Xms512m -Xmx512m to -Xms4g -Xmx4g
@@ -107,6 +109,14 @@ None — no external service configuration required. The busybox chown fix was a
 - `gabi_documents_v2` empty index ready to receive reindexed data from Plan 02
 - `gabi_documents_v1` does not yet exist in this instance — Plan 02 (reindex) will need to create v1 first via `es_indexer backfill`, then reindex to v2
 - No blockers for Phase 1 Plan 02 (reindex MongoDB → v1, then v1 → v2)
+
+## Self-Check: PASSED
+
+- 01-01-SUMMARY.md: FOUND
+- ops/setup_elasticsearch.sh: FOUND (contains -Xms4g -Xmx4g)
+- src/backend/search/es_index_v2.json: FOUND (contains dense_vector 1024d)
+- Task 1 commit 333ca134: FOUND
+- Checkpoint Task 2: APPROVED by user
 
 ---
 *Phase: 01-infrastructure-upgrade*
