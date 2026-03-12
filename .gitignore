@@ -26,7 +26,6 @@ var/
 .claude/
 .cursor/
 .github/
-.planning/
 .playwright-cli/
 .ollama_models/
 archive_legacy
