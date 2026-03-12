@@ -2,7 +2,7 @@
 
 ## Overview
 
-This milestone upgrades GABI's existing BM25-only search to hybrid BM25 + semantic vector search with Cohere Rerank, exposed through both FastAPI REST endpoints and upgraded MCP tools. The journey runs: harden ES infrastructure and migrate the index to v2 (Phase 1), generate and backfill embeddings for all 7M documents (Phase 2), build the hybrid query orchestrator with fusion, rerank, and resilience (Phase 3), wire the orchestrator into FastAPI endpoints (Phase 4), and upgrade the MCP tools for agent consumption (Phase 5). The embedding backfill (Phase 2) is designed to run in the background while Phases 3-5 are developed against partial embedding coverage.
+This milestone upgrades GABI's existing BM25-only search to hybrid BM25 + semantic vector search with Cohere Rerank, exposed through both FastAPI REST endpoints and upgraded MCP tools. The journey runs: harden ES infrastructure and migrate the index to v2 (Phase 1), generate and backfill embeddings for all 16.3M documents (Phase 2), build the hybrid query orchestrator with fusion, rerank, and resilience (Phase 3), wire the orchestrator into FastAPI endpoints (Phase 4), and upgrade the MCP tools for agent consumption (Phase 5). The embedding backfill (Phase 2) is designed to run in the background while Phases 3-5 are developed against partial embedding coverage.
 
 ## Phases
 
@@ -12,8 +12,8 @@ This milestone upgrades GABI's existing BM25-only search to hybrid BM25 + semant
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Infrastructure Upgrade** - Raise ES heap, create gabi_documents_v2 with dense_vector, reindex v1 data, switch alias
-- [ ] **Phase 2: Embedding Backfill Pipeline** - Resumable cursor-based pipeline to embed all 7M docs with Cohere, with MongoDB status tracking
+- [x] **Phase 1: Infrastructure Upgrade** - Raise ES heap, create gabi_documents_v2 with dense_vector, reindex v1 data, switch alias
+- [ ] **Phase 2: Embedding Backfill Pipeline** - Resumable cursor-based pipeline to embed all 16.3M docs with Cohere, with MongoDB status tracking
 - [ ] **Phase 3: Hybrid Search Core** - kNN + BM25 fusion, Cohere Rerank, semantic fallback, resilience, and search transparency
 - [ ] **Phase 4: FastAPI Endpoints** - REST API exposing hybrid search with mode parameter, autocomplete, facets, health, and CORS
 - [ ] **Phase 5: MCP Tool Upgrade** - Upgrade es_search with mode param, es_health with coverage, es_similar tool, backward compat
@@ -33,11 +33,11 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 Plans:
 - [x] 01-01-PLAN.md — Raise ES heap to 4GB+ and create v2 index with dense_vector mapping
-- [ ] 01-02-PLAN.md — Reindex all v1 documents to v2 and verify count parity
-- [ ] 01-03-PLAN.md — Atomic alias swap to v2 and update all consumer defaults
+- [x] 01-02-PLAN.md — Backfill 16.3M docs from MongoDB to v2 (deviation: direct backfill, skipped v1)
+- [x] 01-03-PLAN.md — Alias gabi_documents → v2 and update all consumer defaults
 
 ### Phase 2: Embedding Backfill Pipeline
-**Goal**: All 7M DOU documents have embeddings stored in both MongoDB and the ES v2 index, generated via a resumable cursor pipeline that survives interruption and tracks per-document status
+**Goal**: All 16.3M DOU documents have embeddings stored in both MongoDB and the ES v2 index, generated via a resumable cursor pipeline that survives interruption and tracks per-document status
 **Depends on**: Phase 1
 **Requirements**: EMBED-01, EMBED-02, EMBED-03, EMBED-04, EMBED-05
 **Success Criteria** (what must be TRUE):
@@ -45,13 +45,13 @@ Plans:
   2. MongoDB `countDocuments({embedding_status: "done"})` equals the ES v2 document count after a full backfill run on the 10K sample
   3. A 10K sample validation confirms the ementa + body_plain truncation strategy keeps all documents within Cohere's 512-token limit with acceptable quality
   4. New DOU documents ingested after the backfill are automatically queued and embedded by the incremental sync path
-  5. `embed_indexer.py stats` reports per-status counts (pending/done/failed) and estimated completion time for the full 7M run
+  5. `embed_indexer.py stats` reports per-status counts (pending/done/failed) and estimated completion time for the full 16.3M run
 **Plans**: TBD
 
 Plans:
 - [ ] 02-01: Build embed_indexer.py with cursor pattern and MongoDB embedding_status tracking
 - [ ] 02-02: Validate ementa + body_plain truncation strategy on 10K sample
-- [ ] 02-03: Run full 7M document backfill and verify coverage
+- [ ] 02-03: Run full 16.3M document backfill and verify coverage
 
 ### Phase 3: Hybrid Search Core
 **Goal**: A `HybridSearch` orchestrator correctly fuses BM25 and kNN results, applies Cohere Rerank, triggers semantic fallback on zero BM25 results, reports search mode in every response, and degrades gracefully when Cohere is unavailable or embedding coverage is partial
@@ -112,7 +112,7 @@ Note: Phase 2 (backfill) can run in the background while Phase 3 is developed ag
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Infrastructure Upgrade | 1/3 | In Progress|  |
+| 1. Infrastructure Upgrade | 3/3 | Complete | 2026-03-12 |
 | 2. Embedding Backfill Pipeline | 0/3 | Not started | - |
 | 3. Hybrid Search Core | 0/3 | Not started | - |
 | 4. FastAPI Endpoints | 0/3 | Not started | - |
