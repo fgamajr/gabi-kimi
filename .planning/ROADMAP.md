@@ -29,12 +29,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. `gabi_documents_v2` index exists with a `dense_vector` field of 1024 dims, int8_hnsw similarity, and all original BM25 fields intact
   3. `GET /gabi_documents` alias resolves to `gabi_documents_v2` (not v1); existing BM25 queries against the alias return correct results
   4. Document count in `gabi_documents_v2` matches `gabi_documents_v1` (zero-downtime reindex verified via count comparison)
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 01-01: Raise ES JVM heap to 4GB+ and verify no OOM under kNN load
-- [ ] 01-02: Create gabi_documents_v2 index with dense_vector mapping (es_index_v2.json)
-- [ ] 01-03: Reindex v1 to v2 and switch gabi_documents alias
+- [ ] 01-01-PLAN.md — Raise ES heap to 4GB+ and create v2 index with dense_vector mapping
+- [ ] 01-02-PLAN.md — Reindex all v1 documents to v2 and verify count parity
+- [ ] 01-03-PLAN.md — Atomic alias swap to v2 and update all consumer defaults
 
 ### Phase 2: Embedding Backfill Pipeline
 **Goal**: All 7M DOU documents have embeddings stored in both MongoDB and the ES v2 index, generated via a resumable cursor pipeline that survives interruption and tracks per-document status
@@ -112,7 +112,7 @@ Note: Phase 2 (backfill) can run in the background while Phase 3 is developed ag
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Infrastructure Upgrade | 0/3 | Not started | - |
+| 1. Infrastructure Upgrade | 0/3 | Planning complete | - |
 | 2. Embedding Backfill Pipeline | 0/3 | Not started | - |
 | 3. Hybrid Search Core | 0/3 | Not started | - |
 | 4. FastAPI Endpoints | 0/3 | Not started | - |
