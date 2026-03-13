@@ -18,6 +18,14 @@ var/
 node_modules/
 .next/
 
+# Data files (ZIPs, legacy)
+inlabs_data/
+Gabi_OLD/
+
+# .NET build artifacts
+**/bin/Debug/
+**/bin/Release/
+
 # Environment / secrets
 .env
 .env.local
