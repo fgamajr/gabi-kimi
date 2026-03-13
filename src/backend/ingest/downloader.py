@@ -37,14 +37,26 @@ class DouDownloader:
             
         return {"folder_id": folder_id, "files": files}
 
-    def download_file(self, folder_id: str, filename: str) -> Optional[bytes]:
-        """Download a file from Liferay."""
+    def download_file(self, folder_id: str, filename: str, save_path: Optional[str] = None) -> Optional[bytes]:
+        """
+        Download a file from Liferay.
+        If save_path is provided, saves the file to that location.
+        """
         url = f"{self.BASE_URL}/{self.GROUP_ID}/{folder_id}/{filename}"
         try:
             logger.info(f"Downloading {url}")
-            response = self.session.get(url, timeout=60)
+            response = self.session.get(url, timeout=120) # Increased timeout for larger files
             response.raise_for_status()
-            return response.content
+            content = response.content
+            
+            if save_path:
+                # Ensure directory exists
+                os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                with open(save_path, 'wb') as f:
+                    f.write(content)
+                logger.info(f"Saved to {save_path}")
+                
+            return content
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to download {url}: {e}")
             return None

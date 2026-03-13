@@ -2,8 +2,7 @@
   "settings": {
     "index": {
       "number_of_shards": 1,
-      "number_of_replicas": 0,
-      "refresh_interval": "1s"
+      "number_of_replicas": 0
     },
     "analysis": {
       "analyzer": {
@@ -54,16 +53,7 @@
       "document_year": { "type": "integer" },
       "page_number": { "type": "keyword" },
       "edition_number": { "type": "keyword" },
-      "source_zip": { "type": "keyword" },
-      "embedding": {
-        "type": "dense_vector",
-        "dims": 384,
-        "index": true,
-        "similarity": "cosine",
-        "index_options": { "type": "int8_hnsw" }
-      },
-      "embedding_status": { "type": "keyword" },
-      "embedding_model": { "type": "keyword" }
+      "source_zip": { "type": "keyword" }
     }
   }
 }

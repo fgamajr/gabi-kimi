@@ -4,6 +4,7 @@ import io
 import re
 import hashlib
 import html
+import os
 from datetime import datetime
 from typing import List, Optional, Tuple, Dict, Any
 from lxml import etree
@@ -46,13 +47,11 @@ class DouProcessor:
         text = re.sub(r'<[^>]+>', ' ', text)
         return re.sub(r'\s+', ' ', text).strip()
 
-    def generate_id(self, date: datetime, section: str, identifica: str) -> str:
-        """Generate deterministic ID based on content."""
+    def generate_id(self, date: datetime, section: str, identifica: str, texto: str = "") -> str:
+        """Generate deterministic ID based on full content."""
         date_str = date.strftime("%Y-%m-%d")
-        # Use hash of identifies + date + section to ensure uniqueness across sources
-        # Identifica usually contains the Act Type and Number (e.g. "PORTARIA Nº 123")
-        content_str = f"{date_str}{section}{identifica[:80]}"
-        content_hash = hashlib.md5(content_str.encode('utf-8')).hexdigest()[:12]
+        content_str = f"{date_str}{section}{identifica}{texto}"
+        content_hash = hashlib.md5(content_str.encode('utf-8')).hexdigest()[:16]
         return f"{date_str}_{section}_{content_hash}"
 
     def extract_references(self, text: str) -> List[Reference]:
@@ -229,8 +228,8 @@ class DouProcessor:
                 if match_date:
                     data_text = match_date.group(0)
 
-            # 1. Fix: Deterministic ID
-            doc_id = self.generate_id(pub_date, section, identifica)
+            # 1. Fix: Deterministic ID (full content hash to avoid collisions)
+            doc_id = self.generate_id(pub_date, section, identifica, texto_plain)
             
             # 3. & 10. Extract Structured Data & References
             structured = self.extract_structured_data(identifica, texto_plain, html_content=texto_html, pub_date=pub_date)
@@ -291,11 +290,21 @@ class DouProcessor:
             logger.error(f"Error processing {filename}: {e}")
             return None
 
-    def process_zip(self, zip_bytes: bytes, zip_filename: str) -> List[DouDocument]:
+    def process_zip(self, zip_bytes: bytes, zip_filename: str, extract_to: Optional[str] = None) -> List[DouDocument]:
         """Process a ZIP file containing multiple XMLs."""
+        import os
         documents = []
         try:
             with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+                # If extract path provided, extract all contents first
+                if extract_to:
+                    # Create subfolder for this zip
+                    zip_name_no_ext = os.path.splitext(zip_filename)[0]
+                    target_dir = os.path.join(extract_to, zip_name_no_ext)
+                    os.makedirs(target_dir, exist_ok=True)
+                    z.extractall(target_dir)
+                    logger.info(f"Extracted {zip_filename} to {target_dir}")
+
                 for filename in z.namelist():
                     if filename.lower().endswith(".xml"):
                         with z.open(filename) as f:

@@ -6,3 +6,4 @@ python-dotenv
 mcp
 lxml
 requests
+httpx
