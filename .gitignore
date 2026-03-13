@@ -12,7 +12,11 @@ __pycache__/
 .venv/
 venv/
 var/
-.dev/shannon
+.dev/
+
+# Node / Next.js
+node_modules/
+.next/
 
 # Environment / secrets
 .env
