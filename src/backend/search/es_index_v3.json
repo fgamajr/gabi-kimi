@@ -1,0 +1,60 @@
+{
+  "settings": {
+    "index": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "refresh_interval": "1s"
+    },
+    "analysis": {
+      "analyzer": {
+        "pt_folded": {
+          "tokenizer": "standard",
+          "filter": ["lowercase", "asciifolding"]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "dynamic": false,
+    "properties": {
+      "doc_id": { "type": "keyword" },
+      "identifica": {
+        "type": "text",
+        "analyzer": "pt_folded",
+        "fields": {
+          "keyword": { "type": "keyword", "ignore_above": 1024 }
+        }
+      },
+      "ementa": { "type": "text", "analyzer": "pt_folded" },
+      "body_plain": { "type": "text", "analyzer": "pt_folded" },
+      "art_type": {
+        "type": "text",
+        "analyzer": "pt_folded",
+        "fields": {
+          "keyword": { "type": "keyword", "ignore_above": 256 }
+        }
+      },
+      "art_category": {
+        "type": "text",
+        "analyzer": "pt_folded",
+        "fields": {
+          "keyword": { "type": "keyword", "ignore_above": 512 }
+        }
+      },
+      "issuing_organ": {
+        "type": "text",
+        "analyzer": "pt_folded",
+        "fields": {
+          "keyword": { "type": "keyword", "ignore_above": 1024 }
+        }
+      },
+      "edition_section": { "type": "keyword" },
+      "pub_date": { "type": "date", "format": "strict_date_optional_time||yyyy-MM-dd" },
+      "document_number": { "type": "keyword" },
+      "document_year": { "type": "integer" },
+      "page_number": { "type": "keyword" },
+      "edition_number": { "type": "keyword" },
+      "source_zip": { "type": "keyword" }
+    }
+  }
+}
