@@ -1,0 +1,750 @@
+{
+  "summary": {
+    "total_tests": 87,
+    "passed": 87,
+    "failed": 0,
+    "total_time_ms": 41120.5,
+    "avg_time_ms": 472.6,
+    "tools_tested": [
+      "compare",
+      "crossref",
+      "document",
+      "explain",
+      "facets",
+      "health",
+      "mlt",
+      "organ",
+      "search",
+      "sigterms",
+      "suggest",
+      "timeline",
+      "trending"
+    ]
+  },
+  "test_details": [
+    {
+      "name": "search:basic:decreto",
+      "status": "ok",
+      "elapsed_ms": 7722.7,
+      "total": 12128,
+      "result_count": 20,
+      "search_strategy": "strict+reranked",
+      "reranked": true
+    },
+    {
+      "name": "search:basic:portaria",
+      "status": "ok",
+      "elapsed_ms": 363.6,
+      "total": 9109,
+      "result_count": 20,
+      "search_strategy": "strict+reranked",
+      "reranked": true
+    },
+    {
+      "name": "search:basic:licitacao",
+      "status": "ok",
+      "elapsed_ms": 678.9,
+      "total": 62466,
+      "result_count": 20,
+      "search_strategy": "strict+reranked",
+      "reranked": true
+    },
+    {
+      "name": "search:basic:saude",
+      "status": "ok",
+      "elapsed_ms": 535.1,
+      "total": 532400,
+      "result_count": 20,
+      "search_strategy": "relaxed+reranked",
+      "reranked": true
+    },
+    {
+      "name": "search:basic:educacao",
+      "status": "ok",
+      "elapsed_ms": 306.6,
+      "total": 1403,
+      "result_count": 20,
+      "search_strategy": "strict+reranked",
+      "reranked": true
+    },
+    {
+      "name": "search:phrase:reforma",
+      "status": "ok",
+      "elapsed_ms": 130.2,
+      "total": 6661328,
+      "result_count": 20,
+      "search_strategy": "strict+reranked",
+      "reranked": true
+    },
+    {
+      "name": "search:phrase:protecao",
+      "status": "ok",
+      "elapsed_ms": 110.1,
+      "total": 6661328,
+      "result_count": 20,
+      "search_strategy": "strict+reranked",
+      "reranked": true
+    },
+    {
+      "name": "search:phrase:bolsa",
+      "status": "ok",
+      "elapsed_ms": 176.4,
+      "total": 32882,
+      "result_count": 20,
+      "search_strategy": "strict+reranked",
+      "reranked": true
+    },
+    {
+      "name": "search:legalref:lei13709",
+      "status": "ok",
+      "elapsed_ms": 379.5,
+      "total": 17,
+      "result_count": 17,
+      "search_strategy": "strict+reranked",
+      "reranked": true
+    },
+    {
+      "name": "search:legalref:decreto9203",
+      "status": "ok",
+      "elapsed_ms": 163.2,
+      "total": 12128,
+      "result_count": 20,
+      "search_strategy": "relaxed+reranked",
+      "reranked": true
+    },
+    {
+      "name": "search:legalref:mp_mixed",
+      "status": "ok",
+      "elapsed_ms": 324.1,
+      "total": 8,
+      "result_count": 8,
+      "search_strategy": "strict+reranked",
+      "reranked": true
+    },
+    {
+      "name": "search:infer:do1",
+      "status": "ok",
+      "elapsed_ms": 17.9,
+      "total": 0,
+      "result_count": 0,
+      "search_strategy": "strict"
+    },
+    {
+      "name": "search:infer:do3_extrato",
+      "status": "ok",
+      "elapsed_ms": 28.8,
+      "total": 0,
+      "result_count": 0,
+      "search_strategy": "strict"
+    },
+    {
+      "name": "search:infer:organ",
+      "status": "ok",
+      "elapsed_ms": 483.4,
+      "total": 20600,
+      "result_count": 20,
+      "search_strategy": "strict+reranked",
+      "reranked": true
+    },
+    {
+      "name": "search:filter:section",
+      "status": "ok",
+      "elapsed_ms": 83.6,
+      "total": 21207,
+      "result_count": 20,
+      "search_strategy": "strict+reranked",
+      "reranked": true
+    },
+    {
+      "name": "search:filter:date_range",
+      "status": "ok",
+      "elapsed_ms": 9.0,
+      "total": 0,
+      "result_count": 0,
+      "search_strategy": "strict"
+    },
+    {
+      "name": "search:filter:art_type",
+      "status": "ok",
+      "elapsed_ms": 194.8,
+      "total": 16972,
+      "result_count": 20,
+      "search_strategy": "strict+reranked",
+      "reranked": true
+    },
+    {
+      "name": "search:filter:combined",
+      "status": "ok",
+      "elapsed_ms": 6.5,
+      "total": 0,
+      "result_count": 0,
+      "search_strategy": "strict"
+    },
+    {
+      "name": "search:sort:date_desc",
+      "status": "ok",
+      "elapsed_ms": 81.9,
+      "total": 757884,
+      "result_count": 20,
+      "search_strategy": "strict"
+    },
+    {
+      "name": "search:sort:date_asc",
+      "status": "ok",
+      "elapsed_ms": 46.6,
+      "total": 12128,
+      "result_count": 20,
+      "search_strategy": "strict"
+    },
+    {
+      "name": "search:sort:relevance",
+      "status": "ok",
+      "elapsed_ms": 419.1,
+      "total": 1986541,
+      "result_count": 20,
+      "search_strategy": "strict+reranked",
+      "reranked": true
+    },
+    {
+      "name": "search:page:1",
+      "status": "ok",
+      "elapsed_ms": 142.0,
+      "total": 272265,
+      "result_count": 5,
+      "search_strategy": "strict+reranked",
+      "reranked": true
+    },
+    {
+      "name": "search:page:2",
+      "status": "ok",
+      "elapsed_ms": 68.1,
+      "total": 272265,
+      "result_count": 5,
+      "search_strategy": "strict+reranked",
+      "reranked": true
+    },
+    {
+      "name": "search:page:large",
+      "status": "ok",
+      "elapsed_ms": 127.6,
+      "total": 762652,
+      "result_count": 50,
+      "search_strategy": "strict+reranked",
+      "reranked": true
+    },
+    {
+      "name": "search:boost_recent:on",
+      "status": "ok",
+      "elapsed_ms": 140.6,
+      "total": 41,
+      "result_count": 20,
+      "search_strategy": "strict+reranked",
+      "reranked": true
+    },
+    {
+      "name": "search:boost_recent:off",
+      "status": "ok",
+      "elapsed_ms": 89.7,
+      "total": 41,
+      "result_count": 20,
+      "search_strategy": "strict+reranked",
+      "reranked": true
+    },
+    {
+      "name": "search:facets:inline",
+      "status": "ok",
+      "elapsed_ms": 175.2,
+      "total": 35916,
+      "result_count": 20,
+      "search_strategy": "strict+reranked",
+      "reranked": true
+    },
+    {
+      "name": "search:rerank:on",
+      "status": "ok",
+      "elapsed_ms": 261.7,
+      "total": 1847,
+      "result_count": 20,
+      "search_strategy": "strict+reranked",
+      "reranked": true
+    },
+    {
+      "name": "search:rerank:off",
+      "status": "ok",
+      "elapsed_ms": 52.3,
+      "total": 1847,
+      "result_count": 20,
+      "search_strategy": "strict"
+    },
+    {
+      "name": "search:browse:all",
+      "status": "ok",
+      "elapsed_ms": 35.2,
+      "total": 6696000,
+      "result_count": 10,
+      "search_strategy": "strict"
+    },
+    {
+      "name": "search:browse:filtered",
+      "status": "ok",
+      "elapsed_ms": 11.2,
+      "total": 978913,
+      "result_count": 20,
+      "search_strategy": "strict"
+    },
+    {
+      "name": "search:fallback:obscure",
+      "status": "ok",
+      "elapsed_ms": 18.6,
+      "total": 0,
+      "result_count": 0,
+      "search_strategy": "strict"
+    },
+    {
+      "name": "search:synonym:tributo",
+      "status": "ok",
+      "elapsed_ms": 222.0,
+      "total": 4197,
+      "result_count": 20,
+      "search_strategy": "strict+reranked",
+      "reranked": true
+    },
+    {
+      "name": "search:synonym:nomeacao",
+      "status": "ok",
+      "elapsed_ms": 263.1,
+      "total": 10321,
+      "result_count": 20,
+      "search_strategy": "strict+reranked",
+      "reranked": true
+    },
+    {
+      "name": "search:complex:full",
+      "status": "ok",
+      "elapsed_ms": 9.1,
+      "total": 0,
+      "result_count": 0,
+      "search_strategy": "strict"
+    },
+    {
+      "name": "search:edge:empty",
+      "status": "ok",
+      "elapsed_ms": 102.4,
+      "total": 6696000,
+      "result_count": 20,
+      "search_strategy": "strict"
+    },
+    {
+      "name": "search:edge:special_chars",
+      "status": "ok",
+      "elapsed_ms": 638.7,
+      "total": 43948,
+      "result_count": 20,
+      "search_strategy": "strict+reranked",
+      "reranked": true
+    },
+    {
+      "name": "search:edge:long_query",
+      "status": "ok",
+      "elapsed_ms": 253.9,
+      "total": 4,
+      "result_count": 4,
+      "search_strategy": "strict+reranked",
+      "reranked": true
+    },
+    {
+      "name": "search:edge:unicode_quotes",
+      "status": "ok",
+      "elapsed_ms": 115.2,
+      "total": 6696000,
+      "result_count": 20,
+      "search_strategy": "strict+reranked",
+      "reranked": true
+    },
+    {
+      "name": "search:edge:page_size_1",
+      "status": "ok",
+      "elapsed_ms": 86.3,
+      "total": 12156,
+      "result_count": 1,
+      "search_strategy": "strict+reranked",
+      "reranked": true
+    },
+    {
+      "name": "suggest:prefix:port",
+      "status": "ok",
+      "elapsed_ms": 64.2,
+      "total": null,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "suggest:prefix:minist",
+      "status": "ok",
+      "elapsed_ms": 66.3,
+      "total": null,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "suggest:prefix:short",
+      "status": "ok",
+      "elapsed_ms": 104.1,
+      "total": null,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "suggest:edge:empty",
+      "status": "ok",
+      "elapsed_ms": 0.0,
+      "total": null,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "suggest:limit:3",
+      "status": "ok",
+      "elapsed_ms": 45.3,
+      "total": null,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "facets:all",
+      "status": "ok",
+      "elapsed_ms": 407.8,
+      "total": 6696000,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "facets:query",
+      "status": "ok",
+      "elapsed_ms": 76.7,
+      "total": 834714,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "facets:filtered",
+      "status": "ok",
+      "elapsed_ms": 3.9,
+      "total": 0,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "facets:large",
+      "status": "ok",
+      "elapsed_ms": 68.1,
+      "total": 833904,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "facets:date_range",
+      "status": "ok",
+      "elapsed_ms": 5.1,
+      "total": 0,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "document:fetch:real",
+      "status": "ok",
+      "elapsed_ms": 78.7,
+      "total": null,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "document:notfound",
+      "status": "ok",
+      "elapsed_ms": 1.6,
+      "total": null,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "health:basic",
+      "status": "ok",
+      "elapsed_ms": 35.4,
+      "total": null,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "mlt:basic",
+      "status": "ok",
+      "elapsed_ms": 476.3,
+      "total": 10000,
+      "result_count": 5,
+      "search_strategy": null
+    },
+    {
+      "name": "mlt:with_section",
+      "status": "ok",
+      "elapsed_ms": 202.3,
+      "total": 10000,
+      "result_count": 5,
+      "search_strategy": null
+    },
+    {
+      "name": "mlt:with_date",
+      "status": "ok",
+      "elapsed_ms": 5.9,
+      "total": null,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "sigterms:body",
+      "status": "ok",
+      "elapsed_ms": 11702.2,
+      "total": null,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "sigterms:identifica",
+      "status": "ok",
+      "elapsed_ms": 4183.3,
+      "total": null,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "sigterms:ementa",
+      "status": "ok",
+      "elapsed_ms": 5569.6,
+      "total": null,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "sigterms:keyword",
+      "status": "ok",
+      "elapsed_ms": 544.3,
+      "total": null,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "sigterms:organ_kw",
+      "status": "ok",
+      "elapsed_ms": 154.3,
+      "total": null,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "sigterms:filtered",
+      "status": "ok",
+      "elapsed_ms": 3.9,
+      "total": null,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "sigterms:guard:wildcard",
+      "status": "ok",
+      "elapsed_ms": 0.0,
+      "total": null,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "timeline:month",
+      "status": "ok",
+      "elapsed_ms": 12.8,
+      "total": 0,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "timeline:year",
+      "status": "ok",
+      "elapsed_ms": 47.1,
+      "total": 851859,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "timeline:week",
+      "status": "ok",
+      "elapsed_ms": 6.1,
+      "total": 0,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "timeline:all",
+      "status": "ok",
+      "elapsed_ms": 57.7,
+      "total": 6828001,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "timeline:filtered",
+      "status": "ok",
+      "elapsed_ms": 55.1,
+      "total": 543319,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "trending:7d",
+      "status": "ok",
+      "elapsed_ms": 8.2,
+      "total": 0,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "trending:30d",
+      "status": "ok",
+      "elapsed_ms": 12.1,
+      "total": 0,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "trending:section",
+      "status": "ok",
+      "elapsed_ms": 4.1,
+      "total": 0,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "trending:large",
+      "status": "ok",
+      "elapsed_ms": 7.8,
+      "total": 0,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "crossref:lei",
+      "status": "ok",
+      "elapsed_ms": 241.7,
+      "total": 689049,
+      "result_count": 20,
+      "search_strategy": null
+    },
+    {
+      "name": "crossref:decreto",
+      "status": "ok",
+      "elapsed_ms": 75.1,
+      "total": 609,
+      "result_count": 20,
+      "search_strategy": null
+    },
+    {
+      "name": "crossref:constituicao",
+      "status": "ok",
+      "elapsed_ms": 181.7,
+      "total": 148280,
+      "result_count": 20,
+      "search_strategy": null
+    },
+    {
+      "name": "crossref:filtered",
+      "status": "ok",
+      "elapsed_ms": 251.4,
+      "total": 682796,
+      "result_count": 20,
+      "search_strategy": null
+    },
+    {
+      "name": "crossref:date",
+      "status": "ok",
+      "elapsed_ms": 6.2,
+      "total": 0,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "organ:saude",
+      "status": "ok",
+      "elapsed_ms": 641.1,
+      "total": 541481,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "organ:educacao",
+      "status": "ok",
+      "elapsed_ms": 419.9,
+      "total": 1154332,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "organ:date_range",
+      "status": "ok",
+      "elapsed_ms": 10.0,
+      "total": 0,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "organ:empty",
+      "status": "ok",
+      "elapsed_ms": 0.0,
+      "total": null,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "compare:yoy",
+      "status": "ok",
+      "elapsed_ms": 11.3,
+      "total": null,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "compare:saude",
+      "status": "ok",
+      "elapsed_ms": 5.1,
+      "total": null,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "compare:section",
+      "status": "ok",
+      "elapsed_ms": 8.3,
+      "total": null,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "compare:missing_dates",
+      "status": "ok",
+      "elapsed_ms": 0.0,
+      "total": null,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "explain:basic",
+      "status": "ok",
+      "elapsed_ms": 39.5,
+      "total": null,
+      "result_count": 0,
+      "search_strategy": null
+    },
+    {
+      "name": "explain:phrase",
+      "status": "ok",
+      "elapsed_ms": 144.0,
+      "total": null,
+      "result_count": 0,
+      "search_strategy": null
+    }
+  ]
+}
