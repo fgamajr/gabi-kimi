@@ -4,6 +4,7 @@ Adversarial + load test for GABI DOU API.
 """
 import asyncio
 import json
+import os
 import time
 import urllib.parse
 from collections import Counter, defaultdict
@@ -11,7 +12,7 @@ from dataclasses import dataclass, field
 
 import httpx
 
-BASE = "http://localhost:8000"
+BASE = os.getenv("GABI_API_BASE", "http://localhost:8000")
 
 
 @dataclass

@@ -127,6 +127,66 @@ Cursor state is persisted at `src/backend/data/es_sync_cursor.json`.
 
 After the initial backfill, `sync_dou.py` automatically triggers an incremental ES sync at the end of each run — no manual step needed.
 
+## Adversarial API Testing
+
+The sanctioned way to run the FastAPI adversarial suite is from the Linux host that owns the Python environment and services. Do not trust results from a macOS SMB-mounted view of the repo: stale `__pycache__` and cross-filesystem behavior can produce false failures.
+
+Use the remote runner:
+
+```bash
+# Default: 3 full runs on ubuntu-vm (1065 HTTP calls total with the current harness)
+ops/bin/run_adversarial_remote.sh
+
+# Single run
+ops/bin/run_adversarial_remote.sh --runs 1
+
+# Keep the API running after the suite
+ops/bin/run_adversarial_remote.sh --runs 1 --keep-server
+```
+
+What the runner does:
+
+1. SSHes into the Linux host (`ubuntu-vm` by default)
+2. Clears `__pycache__`
+3. Starts Uvicorn with `python -B`
+4. Waits for health on `127.0.0.1:8000`
+5. Runs `ops/test_api_adversarial.py`
+6. Stores logs under `var/tmp/adversarial-remote`
+7. Stops the server unless `--keep-server` is set
+
+The test harness also accepts a custom base URL through `GABI_API_BASE`, which is useful for CI or a remote box already running the API.
+
+```bash
+GABI_API_BASE=http://127.0.0.1:8000 .venv/bin/python ops/test_api_adversarial.py
+```
+
+## Remote-Only Workflow
+
+You can work on this project without a local Python environment if you have a reachable Linux host with the repo, MongoDB, and Elasticsearch.
+
+Recommended setup:
+
+1. Keep the canonical repo checkout on Linux
+2. Run the backend, MCP servers, and adversarial tests on Linux
+3. Use Codex/Claude/web tools as a client over SSH or a browser-based editor
+4. Avoid running the Python app from an SMB-mounted macOS mirror
+
+Typical remote-only flow:
+
+```bash
+# On the Linux host
+cd /home/parallels/dev/gabi-kimi
+.venv/bin/python -B -m uvicorn src.backend.main:app --host 127.0.0.1 --port 8000
+```
+
+Then either:
+
+- expose the app through a reverse proxy or tunnel;
+- use SSH port forwarding from another machine;
+- or run the adversarial suite directly on the Linux host with `ops/bin/run_adversarial_remote.sh`.
+
+If you want to continue from a browser instead of a laptop with local tooling, the simplest model is: one persistent Linux machine or VM hosts the repo and services, and the web client only edits files and triggers commands there.
+
 ## MCP Server (Claude Code Integration)
 
 The MCP server (`ops/bin/mcp_es_server.py`) exposes 5 tools for searching DOU via Claude Code:
