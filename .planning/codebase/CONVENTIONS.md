@@ -1,186 +1,366 @@
 # Coding Conventions
 
-**Analysis Date:** 2026-03-08
+**Analysis Date:** 2026-03-11
 
 ## Naming Patterns
 
-**Files (Frontend):**
-- React components: PascalCase — `ResultCard.tsx`, `AppShell.tsx`, `DocumentRenderer.tsx`
-- Pages: PascalCase with `Page` suffix — `SearchPage.tsx`, `HomePage.tsx`, `AnalyticsPage.tsx`
-- Hooks: camelCase with `use` prefix — `useReadingPosition.ts`, `useDeepLink.ts`, `use-mobile.tsx`
-- Utility modules: camelCase — `api.ts`, `utils.ts`, `sectionParser.ts`, `pdfExport.ts`
-- UI primitives (shadcn/ui): kebab-case — `alert-dialog.tsx`, `scroll-area.tsx`, `toggle-group.tsx`
+**Files:**
+- snake_case with `.py` extension
+- Examples: `dou_processor.py`, `es_indexer.py`, `mcp_es_server.py`
+- Test files: `test_<feature>.py` (e.g., `test_mongo_connection.py`, `test_extraction.py`)
 
-**Files (Backend):**
-- Python modules: snake_case — `xml_parser.py`, `bulk_pipeline.py`, `web_server.py`
-- Test files: `test_` prefix — `test_bulk_pipeline.py`, `test_commitment.py`
+**Classes:**
+- PascalCase
+- Examples: `DouProcessor`, `ESClient`, `DouDocument`, `MongoDB`, `ElasticClient`
+- Models inherit from `BaseModel`: `class DouDocument(BaseModel)`
 
-**Functions (Frontend):**
-- camelCase for all functions — `fetchJSON()`, `normalizeSection()`, `buildDouUrl()`
-- React components as arrow functions assigned to const — `const ResultCard: React.FC<Props> = ({ ... }) => { ... }`
-- Event handlers: inline or named with descriptive prefix — `onClick={() => ...}`, `onKeyDown={(e) => ...}`
+**Functions:**
+- snake_case
+- Examples: `parse_date()`, `generate_id()`, `process_zip()`, `_run_sync()`
 
-**Functions (Backend):**
-- snake_case for public functions — `normalize_pub_date()`, `article_to_ingest_record()`, `build_zip_url()`
-- Leading underscore for internal/private helpers — `_norm()`, `_sha()`, `_canonicalize_content()`, `_nfc()`
-- Type annotations on all function signatures using Python 3.10+ union syntax (`str | None`)
+**Variables:**
+- snake_case
+- Examples: `pub_date`, `art_type`, `zip_filename`, `doc_id`
 
-**Variables (Frontend):**
-- camelCase — `queryClient`, `searchParams`, `localSection`
-- Constants: UPPER_SNAKE for navigation data — `NAV_ITEMS`, `SECTIONS`
+**Constants:**
+- UPPER_SNAKE at module level
+- Examples: `BASE_URL`, `GROUP_ID`, `_MAPPING_PATH`, `_DEFAULT_CURSOR_PATH`
 
-**Variables (Backend):**
-- snake_case for local variables — `pub_name`, `art_type`, `edition_number`
-- UPPER_SNAKE for module-level constants — `CRSS_VERSION`, `FIELD_ORDER`, `SORT_KEY_FIELDS`, `ALL_SECTIONS`
-- Dataclass fields: snake_case — `SearchConfig(backend=..., es_url=..., es_index=...)`
+**Private functions:**
+- Leading underscore prefix
+- Examples: `_log()`, `_env_bool()`, `_load_cursor()`, `_mongo_to_es()`
 
-**Types (Frontend):**
-- TypeScript interfaces with PascalCase — `SearchResult`, `DocumentDetail`, `ChatResponse`
-- Use `interface` for object shapes, not `type` aliases (except for union types)
-- All API response types defined centrally in `src/frontend/web/src/lib/api.ts`
+**Model fields:**
+- snake_case
+- Examples: `pub_date`, `art_type`, `issuing_organ`, `act_number`
 
-**Types (Backend):**
-- Python dataclasses with `@dataclass(frozen=True)` for config/value objects — `SearchConfig`, `DOUArticle`, `ZIPTarget`
-- NamedTuples for lightweight data — `MergedArticle`, `Signature`, `ImageRef`, `NormRef`
-- Protocol classes for adapter interfaces — `SearchAdapter(Protocol)`
+**Types:**
+- PascalCase for type aliases and model classes
+- Examples: `StructuredData`, `Reference`, `Enrichment`
 
 ## Code Style
 
-**Formatting (Frontend):**
-- No dedicated Prettier config detected — relies on editor defaults
-- 2-space indentation in TSX/TS files
-- Double quotes for JSX attribute strings
-- Single quotes for JS string imports (inconsistent — both used)
-- Semicolons at end of statements
+**Formatting:**
+- Ruff (pyflakes + pycodestyle errors)
+- Line length: 120 characters
+- No formal config file (settings documented in `AGENTS.md`)
+- Ignored rules: E402 (imports after code), E501 (line length - handled by formatter)
 
-**Formatting (Backend):**
-- No dedicated formatter config (no ruff.toml, .flake8, .pylintrc)
-- 4-space indentation (PEP 8 standard)
-- Double quotes for docstrings and strings
-- `from __future__ import annotations` at top of every module (for PEP 604 union syntax)
-- Section dividers using `# ---...---` comment blocks to group related functions
+**Linting:**
+```bash
+ruff check .                      # Lint
+ruff check . --fix                # Auto-fix linting issues
+ruff format .                     # Format code
+```
 
-**Linting (Frontend):**
-- ESLint 9 with flat config at `src/frontend/web/eslint.config.js`
-- Extends: `@eslint/js` recommended + `typescript-eslint` recommended
-- Plugins: `react-hooks` (recommended rules), `react-refresh` (only-export-components warn)
-- `@typescript-eslint/no-unused-vars` is **off** (relaxed unused variable checking)
-
-**Linting (Backend):**
-- No linter configuration detected — no ruff, flake8, pylint, or mypy config
-
-**TypeScript Configuration:**
-- `strict: false` in `src/frontend/web/tsconfig.app.json` — relaxed type checking
-- `noImplicitAny: false` — any types allowed implicitly
-- `strictNullChecks: false` — null/undefined not strictly checked
-- `noUnusedLocals: false`, `noUnusedParameters: false` — unused code allowed
-- Path alias: `@/*` maps to `./src/*`
+**Python Version:**
+- Python 3.12+
+- Modern type hint syntax: `dict[str, Any]`, `list[dict]`, `tuple[str, str | None]`
 
 ## Import Organization
 
-**Frontend (TypeScript):**
-1. React and core libraries — `import React from "react"`, `import { useState } from "react"`
-2. Third-party libraries — `import { useNavigate } from "react-router-dom"`, `import { QueryClient } from "@tanstack/react-query"`
-3. Internal components/modules via `@/` alias — `import { Icons } from "@/components/Icons"`, `import { searchDocuments } from "@/lib/api"`
-4. Relative imports for siblings — `import { SectionBadge } from "./Badges"`
+**Order (top to bottom):**
+1. `from __future__ import annotations` (if needed)
+2. Standard library (alphabetical)
+3. Third-party (alphabetical)
+4. Local imports (absolute paths from `src/`)
+
+**Example from `es_indexer.py`:**
+```python
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, timezone
+import json
+import os
+from pathlib import Path
+import time
+from typing import Any
+
+import httpx
+import pymongo
+from bson import ObjectId
+
+_MAPPING_PATH = Path(__file__).resolve().parent.parent / "search" / "es_index_v1.json"
+```
+
+**Example from `dou_processor.py`:**
+```python
+import logging
+import zipfile
+import io
+import re
+import hashlib
+import html
+import os
+from datetime import datetime
+from typing import List, Optional, Tuple, Dict, Any
+from lxml import etree
+import requests
+
+from src.backend.data.models.document import (
+    DouDocument, Metadata, Usage, StructuredData, Reference, Image, Enrichment
+)
+```
 
 **Path Aliases:**
-- `@/` resolves to `src/frontend/web/src/` (configured in `vite.config.ts`, `vitest.config.ts`, and `tsconfig.json`)
-
-**Backend (Python):**
-1. `from __future__ import annotations` (always first)
-2. Standard library imports — `import hashlib`, `import re`, `from datetime import date`
-3. Third-party imports — `import httpx`, `import psycopg2`, `from fastapi import ...`
-4. Local project imports using full path — `from src.backend.ingest.xml_parser import DOUArticle`
+- None configured - use absolute imports from `src/`
+- Example: `from src.backend.core.config import settings`
 
 ## Error Handling
 
-**Frontend Patterns:**
-- API errors thrown as `new Error(`API error: ${res.status}`)` in `fetchJSON()` at `src/frontend/web/src/lib/api.ts`
-- Try/catch in formatting helpers with fallback returns:
-  ```typescript
-  try {
-    return new Date(d).toLocaleDateString('pt-BR', { ... });
-  } catch { return d; }
-  ```
-- Defensive null coercion throughout API normalization layer — `String(result.field || "").trim() || undefined`
-- SSE streaming errors dispatched via callback — `handlers.onError?.(detail)`
+**Patterns:**
 
-**Backend Patterns:**
-- Functions return `None` on invalid input rather than raising — `normalize_pub_date("invalid")` returns `None`
-- HTTP errors raised as `HTTPException` in FastAPI endpoints at `src/backend/apps/web_server.py`
-- `IndexError` for out-of-range Merkle tree indices at `src/backend/commitment/tree.py`
-- Custom exception classes: `XMLParseError` at `src/backend/ingest/xml_parser.py`, `IngestionUnsealedError` at `src/backend/dbsync/registry_ingest.py`
+1. **Try/except with logging** - for critical operations:
+```python
+try:
+    result = collection.bulk_write(operations)
+    logger.info(f"Upserted {result.upserted_count} documents")
+except Exception as e:
+    logger.error(f"Bulk write failed: {e}")
+```
+
+2. **Graceful degradation** - non-critical failures:
+```python
+try:
+    _run_sync()
+except Exception as e:
+    logger.warning(f"ES sync failed (non-fatal): {e}")
+```
+
+3. **None-safe returns with logging** - parsing/validation:
+```python
+def parse_date(self, date_str: str) -> Optional[datetime]:
+    if not date_str:
+        return None
+    try:
+        return datetime.strptime(date_str.strip(), "%d/%m/%Y")
+    except ValueError:
+        logger.warning(f"Failed to parse date: {date_str}")
+        return None
+```
+
+4. **HTTP raise_for_status** - for API calls:
+```python
+resp = self.client.request(method=method, url=f"{self.url}{path}", json=payload)
+resp.raise_for_status()
+```
+
+5. **Silent exception handling** - for optional features:
+```python
+try:
+    from mcp.server.fastmcp import FastMCP
+except ModuleNotFoundError:
+    FastMCP = None  # type: ignore[assignment]
+```
 
 ## Logging
 
-**Backend Framework:** loguru (declared in `requirements.txt`)
+**Framework:** Python standard library `logging`
 
-**Frontend:** No logging framework — uses browser console implicitly
+**Setup:**
+```python
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+logger = logging.getLogger(__name__)
+```
+
+**Patterns:**
+```python
+logger.info(f"Processing {count} documents")
+logger.warning(f"No folder ID found for {month_key}")
+logger.error(f"Failed to download {url}: {e}")
+```
+
+**Simple print for CLI tools:**
+```python
+def _log(msg: str) -> None:
+    print(f"[es-indexer] {msg}", flush=True)
+```
 
 ## Comments
 
-**When to Comment (Backend):**
-- Module-level docstrings on every Python file explaining purpose, usage, and key endpoints
-- Docstrings on public functions with parameter/return descriptions
-- Section dividers with `# ---` comment blocks to organize code regions
-- Inline comments for non-obvious invariant enforcement (e.g., CRSS-1 spec references like "MECH-1 rule 1")
+**When to Comment:**
+- Module-level docstrings with usage examples
+- Complex regex patterns with explanations
+- Workarounds and fixes with reference numbers
 
-**When to Comment (Frontend):**
-- Minimal comments in React components — code is self-documenting
-- Type comments via JSDoc/TSDoc not used
+**Module Docstrings:**
+```python
+"""Elasticsearch indexer for DOU documents (backfill, incremental sync, stats).
+
+Reads from MongoDB, indexes into Elasticsearch with BM25.
+
+Usage:
+  python3 -m src.backend.ingest.es_indexer backfill
+  python3 -m src.backend.ingest.es_indexer sync
+  python3 -m src.backend.ingest.es_indexer stats
+"""
+```
+
+**Inline Comments:**
+```python
+# Cleanup Logic:
+# 1. We keep the raw ZIPs in iCloud (Source of Truth)
+# 2. We DELETE the extracted XMLs from iCloud/Linux to save space/inodes
+```
+
+**JSDoc/TSDoc:**
+- Not used - Python docstrings preferred
 
 ## Function Design
 
-**Backend:**
-- Small, focused pure functions for transformations — `_norm()`, `_sha()`, `strip_html()`
-- Factory pattern for adapters — `create_search_adapter(cfg)` returns correct implementation
-- Protocol-based interface contracts — `SearchAdapter(Protocol)` in `src/backend/search/adapters.py`
-- Configuration via `@dataclass(frozen=True)` with `load_*()` factory functions
+**Size:**
+- Typical functions: 10-30 lines
+- Large functions up to 80+ lines exist (e.g., `process_xml`)
+- Complex functions extracted into helpers
 
-**Frontend:**
-- Arrow function components exclusively — `const Component: React.FC<Props> = () => { ... }`
-- Lazy loading for page-level routes — `const HomePage = lazy(() => import("./pages/HomePage"))`
-- API functions as standalone exports, not class methods — `export function searchDocuments(params): Promise<SearchResponse>`
-- Heavy normalization layer between raw API responses and typed frontend models in `src/frontend/web/src/lib/api.ts`
+**Parameters:**
+- Use keyword arguments for optional parameters
+- Default values for common cases
+- Type hints on all parameters
+
+**Return Values:**
+- Type hints required
+- `Optional[T]` for nullable returns
+- Empty collections for no results (not None)
+
+**Example:**
+```python
+def _fetch_batch(collection, cursor_id: str, batch_size: int) -> list[dict[str, Any]]:
+    """Fetch a batch of documents from MongoDB using cursor pagination."""
+    query = {"_id": {"$gt": cursor_id}}
+    cursor = collection.find(query).sort("_id", 1).limit(batch_size)
+    return list(cursor)
+```
 
 ## Module Design
 
-**Frontend Exports:**
-- Pages use `export default` (required for `React.lazy()`) — `export default SearchPage`
-- Components use named exports — `export const AppShell: React.FC = ...`
-- Utility modules use named exports — `export function cn(...)`, `export function searchDocuments(...)`
-- Types co-located with their API functions in `src/frontend/web/src/lib/api.ts`
-
-**Backend Exports:**
-- No `__all__` declarations — all public functions importable directly
-- Internal functions prefixed with `_` are still imported in tests (e.g., `_compute_natural_key_hash`, `_extract_doc_number`)
+**Exports:**
+- Single primary class/function per module when possible
+- Helper functions prefixed with `_`
+- Public API through explicit imports
 
 **Barrel Files:**
-- Not used in backend — direct imports from specific modules
-- shadcn/ui components each in their own file under `src/frontend/web/src/components/ui/`
+- Not used - prefer direct imports
 
-## UI/Styling Conventions
+**Module Structure:**
+```python
+# 1. Module docstring
+# 2. Future annotations
+# 3. Imports
+# 4. Module constants
+# 5. Helper functions (private)
+# 6. Public classes
+# 7. CLI entry point (if __name__ == "__main__")
+```
 
-**Component Styling:**
-- Tailwind CSS utility classes directly in JSX — no CSS modules or styled-components
-- `cn()` utility from `src/frontend/web/src/lib/utils.ts` for conditional class merging (clsx + tailwind-merge)
-- CSS custom properties (HSL values) for theming defined in CSS, consumed via `hsl(var(--token))` in Tailwind config at `src/frontend/web/tailwind.config.ts`
-- shadcn/ui primitives in `src/frontend/web/src/components/ui/` with Radix UI underneath
-- Custom design tokens: `text-primary`, `text-secondary`, `text-tertiary`, `surface-elevated`, `surface-sunken`, `gold`, `gold-dim`
+## Configuration Pattern
 
-**Design System:**
-- Dark theme only (`darkMode: ["class"]` in Tailwind config)
-- Font families via CSS variables: `--font-sans` (Manrope), `--font-serif` (Source Serif 4), `--font-mono` (JetBrains Mono)
-- Rounded corners: large radii (`rounded-[26px]`, `rounded-[1.35rem]`, `rounded-2xl`)
-- Subtle borders using `border-white/5`, `border-white/8`, `border-white/10`
-- Gradient backgrounds using `bg-[linear-gradient(...)]` with low-opacity rgba values
+**Pydantic Settings:**
+```python
+from pydantic_settings import BaseSettings
 
-**Accessibility:**
-- `aria-label` on icon-only buttons and nav links
-- `role="link"` + `tabIndex={0}` + `onKeyDown` for clickable cards
-- `focus-ring` utility class for keyboard focus indicators
+class Settings(BaseSettings):
+    MONGO_STRING: str
+    DB_NAME: str = "gabi_dou"
+    ES_URL: str = "http://localhost:9200"
+    
+    class Config:
+        env_file = ".env"
+        extra = "ignore"
+
+settings = Settings()
+```
+
+**Environment Variables:**
+- Required: `MONGO_STRING`, `DB_NAME`, `ES_URL`, `ES_INDEX`
+- Optional with defaults: `DOU_DATA_PATH`, `ICLOUD_DATA_PATH`, `PIPELINE_TMP`
+
+## Pydantic Models
+
+**Structure:**
+```python
+from pydantic import BaseModel, Field
+from typing import Optional, List, Literal
+
+class StructuredData(BaseModel):
+    act_number: Optional[str] = None
+    act_year: Optional[int] = None
+    signer: Optional[str] = None
+
+class DouDocument(BaseModel):
+    id: str = Field(alias="_id")  # MongoDB _id mapping
+    source_id: str
+    pub_date: datetime
+    texto: str
+    references: List[Reference] = Field(default_factory=list)
+    
+    class Config:
+        populate_by_name = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
+```
+
+**Patterns:**
+- `Optional[T] = None` for nullable fields
+- `Field(default_factory=list)` for mutable defaults
+- `Field(alias="_id")` for MongoDB field mapping
+- `Literal["opt1", "opt2"]` for enum-like fields
+
+## CLI Pattern
+
+**argparse with subcommands:**
+```python
+import argparse
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(description="...")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    
+    sp = sub.add_parser("backfill", help="Full backfill")
+    sp.add_argument("--batch-size", type=int, default=2000)
+    sp.set_defaults(func=cmd_backfill)
+    return p
+
+def main() -> None:
+    args = build_parser().parse_args()
+    args.func(args)
+
+if __name__ == "__main__":
+    main()
+```
+
+## MCP Tool Pattern
+
+**FastMCP decorated functions:**
+```python
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP("GABI Elasticsearch MCP")
+
+@mcp.tool()
+def es_search(query: str, page: int = 1, page_size: int = 20) -> dict[str, Any]:
+    """Search DOU documents with BM25 full-text search.
+    
+    Args:
+        query: Search query text
+        page: Page number (1-indexed)
+        page_size: Results per page
+        
+    Returns:
+        dict with results, total, and pagination info
+    """
+    # Implementation
+    return {"results": [...], "total": 100}
+```
 
 ---
 
-*Convention analysis: 2026-03-08*
+*Convention analysis: 2026-03-11*

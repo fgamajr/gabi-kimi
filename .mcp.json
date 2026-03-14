@@ -1,19 +1,5 @@
 {
   "mcpServers": {
-    "gabi-es": {
-      "type": "stdio",
-      "command": "/home/parallels/dev/gabi-kimi/.venv/bin/python",
-      "args": [
-        "/home/parallels/dev/gabi-kimi/ops/bin/mcp_es_server.py"
-      ],
-      "env": {
-        "SEARCH_BACKEND": "hybrid",
-        "ES_URL": "http://localhost:9200",
-        "ES_INDEX": "gabi_documents_v1",
-        "ES_CHUNKS_INDEX": "gabi_chunks_v1",
-        "ES_VERIFY_TLS": "false"
-      }
-    },
     "dev-converge": {
       "type": "stdio",
       "command": "/home/parallels/dev/gabi-kimi/.venv/bin/python",
@@ -44,6 +30,13 @@
       "env": {
         "SHANNON_TARGET_DIR": "/home/parallels/dev/gabi-kimi/var/tmp/shannon-helper"
       }
+    },
+    "qmd": {
+      "type": "stdio",
+      "command": "/home/parallels/.nvm/versions/node/v24.14.0/bin/qmd",
+      "args": [
+        "mcp"
+      ]
     }
   }
 }

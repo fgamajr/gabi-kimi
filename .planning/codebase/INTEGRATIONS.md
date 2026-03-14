@@ -1,174 +1,197 @@
 # External Integrations
 
-**Analysis Date:** 2026-03-08
+**Analysis Date:** 2026-03-11
 
 ## APIs & External Services
 
-**Alibaba DashScope (Qwen LLM):**
-- Purpose: Chat/RAG endpoint for answering legal questions about DOU documents
-- SDK/Client: `httpx` direct HTTP calls to `https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions`
-- Auth: `QWEN_API_KEY` env var (Bearer token)
-- Model: `QWEN_MODEL` env var (default: `qwen-plus`)
-- Implementation: `src/backend/apps/web_server.py` (streaming SSE proxy at `POST /api/chat`)
+**Government Data Source:**
+- in.gov.br (Portal da Imprensa) - Official gazette XML downloads
+  - SDK/Client: `requests` with custom User-Agent
+  - URL Pattern: `https://www.in.gov.br/documents/{GROUP_ID}/{folder_id}/{filename}`
+  - GROUP_ID: `49035712` (hardcoded in `src/backend/ingest/downloader.py`)
+  - Auth: None required (public access)
+  - Registry: `ops/data/dou_catalog_registry.json` maps months to folder IDs
 
-**OpenAI-Compatible Embeddings API:**
-- Purpose: Generate vector embeddings for RAG hybrid search
-- SDK/Client: `httpx` direct HTTP to configurable base URL
-- Auth: `EMBED_API_KEY` or `OPENAI_API_KEY` env var
-- Default base URL: `https://api.openai.com/v1` (configurable via `EMBED_BASE_URL`)
-- Default model: `text-embedding-3-small` (configurable via `EMBED_MODEL`)
-- Providers: `openai` (real API), `hash` (deterministic dev fallback)
-- Implementation: `src/backend/ingest/embedding_pipeline.py`
+**AI/LLM Integration (Optional):**
+- OpenAI-compatible API - Embedding generation
+  - SDK/Client: `httpx` (custom client in `archive_legacy/`)
+  - Env vars: `EMBED_API_KEY`, `OPENAI_API_KEY`, `EMBED_BASE_URL`
+  - Models: `text-embedding-3-small` (384 dims)
+  - Purpose: Vector embeddings for hybrid search
 
-**Diario Oficial da Uniao (DOU / INLABS):**
-- Purpose: Source data - Brazilian federal government gazette publications
-- Access: ZIP downloads containing XML + images
-- Implementation: `src/backend/ingest/zip_downloader.py`, `src/backend/ingest/auto_discovery.py`, `src/backend/ingest/catalog_scraper.py`
-- Data flow: Discovery -> Download ZIPs -> Extract XML -> Parse -> Normalize -> Ingest to PostgreSQL -> Index to Elasticsearch
+**Chat Proxy (Optional):**
+- Qwen API (Alibaba DashScope) - Chat completions
+  - Env vars: `QWEN_API_KEY`, `DASHSCOPE_API_KEY`
+  - Model: `qwen-plus`
+  - Base URL: `https://coding-intl.dashscope.aliyuncs.com/v1`
+
+**Anthropic API (Optional):**
+- For multi-agent convergence MCP
+  - Env var: `ANTHROPIC_API_KEY`
 
 ## Data Storage
 
-**PostgreSQL 16:**
-- Purpose: Primary data store for 3.8M+ DOU documents, BM25 search
-- Connection: `PG_DSN` env var or individual `PGHOST`/`PGPORT`/`PGDATABASE`/`PGUSER`/`PGPASSWORD`
-- Default: `host=localhost port=5433 dbname=gabi user=gabi password=gabi`
-- Client: `psycopg2` (sync driver, used throughout)
-- Schema files: `src/backend/dbsync/dou_schema.sql`, `src/backend/dbsync/bm25_schema.sql`, `src/backend/dbsync/registry_schema.sql`, `src/backend/dbsync/download_registry_schema.sql`
-- Schema sync tool: `src/backend/dbsync/schema_sync.py`, `src/backend/apps/schema_sync.py`
-- Production: Fly.io managed (`gabi-dou-db.internal:5432`)
+**Databases:**
+- MongoDB (Atlas or self-hosted)
+  - Connection: `MONGO_STRING` env var (MongoDB URI)
+  - Database: `gabi_dou` (configurable via `DB_NAME`)
+  - Collection: `documents`
+  - Client: `pymongo.MongoClient`
+  - Index: MongoDB Atlas Search index `default` (for vector/hybrid search)
 
-**Elasticsearch:**
-- Purpose: Full-text search and hybrid retrieval (BM25 + vector + RRF)
-- Connection: `ES_URL` (default: `http://localhost:9200`), `ES_INDEX` (default: `gabi_documents_v1`), `ES_CHUNKS_INDEX` (default: `gabi_chunks_v1`)
-- Auth: `ES_USERNAME` / `ES_PASSWORD` (optional basic auth)
-- Client: `httpx` direct HTTP (no official ES Python client)
-- Index mappings: `src/backend/search/es_index_v1.json`, `src/backend/search/es_chunks_v1.json`
-- Indexers: `src/backend/ingest/es_indexer.py` (documents), `src/backend/ingest/embedding_pipeline.py` (chunks with vectors)
-- MCP server: `src/backend/apps/mcp_es_server.py`
-
-**Redis:**
-- Purpose: Query analytics (top searches), search result caching, suggest caching, rate limiting
-- Connection: `REDIS_URL` (default: `redis://localhost:6379/0`)
-- Key prefix: `REDIS_PREFIX` (default: `gabi`)
-- Client: `redis` Python package (both sync and async: `redis.asyncio`)
-- Graceful degradation: All Redis features are optional; code checks availability before use
-- Implementation: `src/backend/search/redis_signals.py` (analytics/caching), `src/backend/apps/middleware/security.py` (rate limiting), `src/backend/apps/chat_security.py` (chat abuse detection)
-- Production: `gabi-dou-redis.internal:6379`
+**Search Engine:**
+- Elasticsearch 8.x
+  - Connection: `ES_URL` env var (default: `http://localhost:9200`)
+  - Index: `gabi_documents_v1`
+  - Client: `httpx.Client` with optional basic auth
+  - Auth: `ES_USERNAME`/`ES_PASSWORD` env vars (optional)
+  - TLS: `ES_VERIFY_TLS` env var (default: true)
 
 **File Storage:**
-- Local filesystem only
-- Data directory: `ops/data/inlabs/` (ZIP downloads and extracted content)
-- Cursor files: `src/backend/data/es_sync_cursor.json`, `src/backend/data/es_chunks_sync_cursor.json`
+- Local filesystem - Primary storage for processing
+  - Temp path: `/tmp/gabi-pipeline` (configurable via `PIPELINE_TMP`)
+  - Archive path: iCloud mount (optional, via `ICLOUD_DATA_PATH`)
+- No S3/object storage in current codebase
 
 **Caching:**
-- Redis-based: search results (`SEARCH_RESULT_CACHE_TTL_SEC`, default 180s), suggest results (`SUGGEST_CACHE_TTL_SEC`, default 120s)
-- Implementation: `src/backend/search/redis_signals.py`
+- Redis (optional, in `.env.example` but not in main codebase)
+  - URL: `REDIS_URL` (e.g., `redis://localhost:6380/0`)
+  - Purpose: Query-assist, admin upload job queue
 
 ## Authentication & Identity
 
-**Custom Token-Based Auth:**
-- Implementation: `src/backend/apps/auth.py`
-- Approach: Pre-shared API tokens via `GABI_API_TOKENS` env var (comma-separated, optional `label:token` format)
-- Bearer token authentication (`Authorization: Bearer <token>`)
-- Session cookies: HMAC-SHA256 signed, configurable TTL (`GABI_SESSION_TTL_SEC`, default 12h)
-- Cookie name: `GABI_SESSION_COOKIE` (default: `gabi_session`)
-- Local dev bypass: Auth skipped for localhost requests when `FLY_APP_NAME` is not set
-- Frontend auth: `src/frontend/web/src/lib/auth.ts` (cookie-based `credentials: "include"`)
-- Access key prompt: `src/frontend/web/src/components/AccessKeyPrompt.tsx`
+**Auth Provider:**
+- Custom Bearer token authentication
+  - Implementation: Token-based API auth
+  - Env vars: `GABI_API_TOKENS` (comma-separated tokens)
+  - Admin tokens: `GABI_ADMIN_TOKEN_LABELS`
+  - Session: `GABI_AUTH_SECRET`, `GABI_SESSION_COOKIE`, `GABI_SESSION_TTL_SEC`
 
-**Rate Limiting:**
-- Per-principal and per-IP rate limiting
-- Buckets: chat (20/min), document PDF (10/min), media (90/min), document graph (30/min), document read (60/min)
-- Backend: Redis (async) when available, in-memory fallback
-- Implementation: `src/backend/apps/auth.py` (`_rate_rule_for_path`), `src/backend/apps/middleware/security.py` (`RateLimiter`)
+**Email Verification (Optional):**
+- Resend API
+  - Env vars: `RESEND_API_KEY`, `RESEND_FROM`
+  - Purpose: User email verification
 
 ## Monitoring & Observability
 
 **Error Tracking:**
-- None (no Sentry/Datadog/etc. detected)
+- Sentry (optional)
+  - Env vars: `SENTRY_DSN_BACKEND`, `SENTRY_DSN_WORKER`, `VITE_SENTRY_DSN_FRONTEND`
+  - Not actively configured in current codebase
 
-**Logging:**
-- `loguru` (root `requirements.txt`) for pipeline operations
-- `logging` stdlib (`gabi.security` logger) for security events in `src/backend/apps/middleware/security.py`
-- Structured JSON security event logs via `log_security_event()`
-- Pipeline reports: JSON output to `logs/pipeline_report.json`
-
-**Health Checks:**
-- `GET /api/stats` used as Fly.io health check endpoint (30s interval)
+**Logs:**
+- Python `logging` module with stdout stream handler
+- Format: `%(asctime)s - %(levelname)s - %(message)s`
+- No structured logging or log aggregation
 
 ## CI/CD & Deployment
 
 **Hosting:**
-- Fly.io (3 apps, `gru` region - Sao Paulo, Brazil)
-- Deploy configs: `ops/deploy/web/`, `ops/deploy/frontend-static/`, `ops/deploy/postgres/`
-- Deploy script: `ops/scripts/deploy.sh`
+- No specific platform required
+- Designed for local/Docker deployment
+- Fly.io mentioned in `.env.example` comments
 
 **CI Pipeline:**
-- Not detected (no `.github/workflows/`, `.gitlab-ci.yml`, or similar)
+- None - No `.github/` directory
 
-**Deployment Architecture:**
-- `gabi-dou-frontend` (Nginx) -> serves static React build, proxies API calls
-- `gabi-dou-web` (FastAPI/Uvicorn) -> API backend
-- `gabi-dou-db` (PostgreSQL 16) -> persistent data with Fly volume mount
-- `gabi-dou-redis` -> caching and analytics
-- Internal networking via Fly.io 6PN (`.internal` DNS)
-
-**Automated Ingestion:**
-- Systemd timer: `config/systemd/gabi-ingest.timer` + `gabi-ingest.service`
-- Scripts: `ops/scripts/daily_sync.sh`, `ops/scripts/run_overnight_chain.sh`
-- Orchestrator: `src/backend/ingest/orchestrator.py`
-
-## MCP (Model Context Protocol) Servers
-
-**gabi-es (Elasticsearch MCP):**
-- Entry: `src/backend/apps/mcp_es_server.py`, `ops/bin/mcp_es_server.py`
-- Transport: stdio (default) or SSE (port 8766)
-- Tools: Elasticsearch search, filtered search, hybrid retrieval
-
-**gabi (PostgreSQL MCP):**
-- Entry: `src/backend/apps/mcp_server.py`, `ops/bin/mcp_server.py`
-- Transport: stdio (default) or SSE (port 8765)
-- Tools: `dou_search`, `dou_search_filtered`, `dou_stats`, `dou_document`
+**Container Services:**
+- MongoDB: `mongo:7` Docker image
+- Elasticsearch: `docker.elastic.co/elasticsearch/elasticsearch:8.15.4`
 
 ## Environment Configuration
 
-**Required env vars (production):**
-- `PG_DSN` or `PGPASSWORD` - PostgreSQL connection
-- `GABI_API_TOKENS` - At least one API token for authentication
-- `GABI_ALLOWED_HOSTS` - Trusted hostnames
-- `GABI_CORS_ORIGINS` - Allowed CORS origins
+**Required env vars (core functionality):**
+```
+MONGO_STRING         # MongoDB connection URI (required)
+DB_NAME              # Database name
+ES_URL               # Elasticsearch URL
+ES_INDEX             # Elasticsearch index name
+DOU_DATA_PATH        # Local data path
+```
 
-**Optional env vars:**
-- `QWEN_API_KEY` - Enables chat functionality
-- `ES_URL`, `ES_USERNAME`, `ES_PASSWORD` - Enables Elasticsearch search
-- `REDIS_URL` - Enables caching and analytics
-- `EMBED_API_KEY` - Enables vector embedding pipeline
-- `SEARCH_BACKEND` - Selects search backend (`pg`, `es`, `hybrid`; default: `pg`)
-- `VITE_API_BASE_URL` - Frontend API base URL (build-time)
+**Optional env vars (enhanced features):**
+```
+ES_USERNAME          # Elasticsearch auth
+ES_PASSWORD          # Elasticsearch auth
+ES_VERIFY_TLS        # TLS verification
+ES_TIMEOUT_SEC       # Request timeout
+ICLOUD_DATA_PATH     # iCloud archive path
+SEARCH_BACKEND       # pg | es | hybrid
+EMBED_API_KEY        # OpenAI embeddings
+OPENAI_API_KEY       # OpenAI API key
+QWEN_API_KEY         # Qwen chat
+REDIS_URL            # Redis cache
+```
 
 **Secrets location:**
-- Development: `.env` file at project root
-- Production: Fly.io secrets (`fly secrets set`)
+- `.env` file (gitignored)
+- No secrets manager integration
 
 ## Webhooks & Callbacks
 
 **Incoming:**
-- None detected
+- None - No webhook endpoints defined
 
 **Outgoing:**
-- None detected
+- None - No outbound webhooks
 
-## Cryptographic Commitment (CRSS-1)
+## MCP Server Integration
 
-**Purpose:** Integrity verification for ingested DOU documents
-- Custom specification: CRSS-1 (Canonical Registry Serialization Specification v1)
-- Implementation: `src/backend/commitment/crss1.py` (canonical serialization + SHA256)
-- Chain: `src/backend/commitment/chain.py` (hash chain linking batches)
-- Tree: `src/backend/commitment/tree.py` (Merkle tree for batch records)
-- Anchor: `src/backend/commitment/anchor.py` (anchoring commitments)
-- Verify: `src/backend/commitment/verify.py` (verification utilities)
-- CLI: `src/backend/apps/commitment_cli.py`, `ops/bin/commitment_cli.py`
+**Model Context Protocol:**
+- `ops/bin/mcp_es_server.py` - Standalone ES search MCP server
+- `src/backend/mcp_server.py` - MongoDB Atlas Search MCP server
+- Transport: stdio (default) or SSE
+- SSE port: 8766 (configurable)
+
+**MCP Tools Exposed:**
+- `es_search` - BM25 full-text search with filters
+- `es_suggest` - Autocomplete suggestions
+- `es_facets` - Facet aggregations
+- `es_document` - Single document fetch
+- `es_health` - Cluster health check
+- `search_dou` - MongoDB Atlas Search (hybrid)
+
+## Database Schemas
+
+**MongoDB Document Schema:**
+```python
+# From src/backend/data/models/document.py
+DouDocument:
+  _id: str                    # Deterministic ID (date + section + hash)
+  source_id: str              # Original XML filename
+  source_zip: str             # ZIP archive filename
+  source_type: "inlabs" | "liferay" | "manual"
+  pub_date: datetime          # Publication date
+  section: str                # DO1, DO2, DO3
+  art_type: str               # Act type (decreto, portaria, etc.)
+  orgao: str                  # Issuing organ
+  identifica: str             # Title/identifier
+  ementa: str                 # Abstract/summary
+  texto: str                  # Full text (plain)
+  content_html: str           # Original HTML
+  structured: StructuredData  # Parsed act number, year, signer
+  references: List[Reference] # Legal references
+  affected_entities: List[str]
+  embedding: List[float]      # Vector embedding (optional)
+```
+
+**Elasticsearch Index Mapping:**
+```json
+// From src/backend/search/es_index_v1.json
+{
+  "doc_id": keyword,
+  "identifica": text (pt_folded) + keyword,
+  "ementa": text (pt_folded),
+  "body_plain": text (pt_folded),
+  "art_type": text (pt_folded) + keyword,
+  "issuing_organ": text (pt_folded) + keyword,
+  "edition_section": keyword,
+  "pub_date": date,
+  "document_number": keyword,
+  "document_year": integer
+}
+```
 
 ---
 
-*Integration audit: 2026-03-08*
+*Integration audit: 2026-03-11*

@@ -1,348 +1,302 @@
 # Testing Patterns
 
-**Analysis Date:** 2026-03-08
+**Analysis Date:** 2026-03-11
 
-## Overview
-
-The project has two completely separate testing approaches:
-
-1. **Frontend (TypeScript):** Vitest + Testing Library — minimal, scaffold-level only
-2. **Backend (Python):** Custom hand-rolled test harness — no pytest, no unittest framework
-
-## Frontend Test Framework
+## Test Framework
 
 **Runner:**
-- Vitest 3.2.4
-- Config: `src/frontend/web/vitest.config.ts`
+- unittest (Python standard library)
+- No formal test framework configuration (no pytest.ini, conftest.py, etc.)
 
 **Assertion Library:**
-- Vitest built-in (`expect`, `describe`, `it`)
-- `@testing-library/jest-dom` for DOM matchers (imported in setup)
-
-**Environment:**
-- jsdom (configured in `vitest.config.ts`)
-- `globals: true` — test functions available without import
-
-**Setup File:**
-- `src/frontend/web/src/test/setup.ts`
-- Imports `@testing-library/jest-dom`
-- Mocks `window.matchMedia` (required for responsive components)
+- unittest assertions: `assertEqual`, `assertIsNotNone`, `assertTrue`, `assertIn`
 
 **Run Commands:**
 ```bash
-cd src/frontend/web
-npm run test               # vitest run (single pass)
-npm run test:watch         # vitest (watch mode)
+python ops/test_mongo_connection.py    # Test MongoDB connection
+python ops/test_extraction.py          # Test XML extraction
+python .dev/mcp/test_system.py         # Test MCP system (self-test)
+python .dev/bench/run_benchmark.py     # Run search benchmarks
 ```
 
-## Frontend Test File Organization
+## Test File Organization
 
 **Location:**
-- Co-located under `src/frontend/web/src/test/`
-- Pattern: `src/**/*.{test,spec}.{ts,tsx}` (configured in vitest)
+- Ad-hoc tests: `ops/test_*.py` (co-located with operational scripts)
+- Development tests: `.dev/mcp/test_system.py`, `.dev/bench/`
 
 **Naming:**
-- `example.test.ts` — the only test file that exists
-
-**Current State:**
-- Only one test file exists: `src/frontend/web/src/test/example.test.ts`
-- It is a trivial placeholder (`expect(true).toBe(true)`)
-- No component tests, no integration tests, no API mocking
-
-**Structure:**
-```typescript
-// src/frontend/web/src/test/example.test.ts
-import { describe, it, expect } from "vitest";
-
-describe("example", () => {
-  it("should pass", () => {
-    expect(true).toBe(true);
-  });
-});
-```
-
-**Available but Unused Libraries:**
-- `@testing-library/react` ^16.0.0 — installed but no tests use it
-- `jsdom` ^20.0.3 — configured but only the placeholder test runs
-
-## Backend Test Framework
-
-**Runner:**
-- Custom hand-rolled test harness — **no pytest, no unittest**
-- Each test file is a standalone Python script with `if __name__ == "__main__"` entry point
-- Tests are run directly: `python3 tests/test_bulk_pipeline.py`
-
-**Assertion Pattern:**
-- Global `_passed`/`_failed` counters (mutable global state)
-- Custom `_assert(condition, msg)` function that increments counters
-- Some files add `_assert_eq(actual, expected, msg)` for equality checks
-- No exception on failure — just increments counter and prints to stderr
-
-```python
-# Pattern used in all backend test files
-_passed = 0
-_failed = 0
-
-def _assert(condition: bool, msg: str) -> None:
-    global _passed, _failed
-    if condition:
-        _passed += 1
-    else:
-        _failed += 1
-        print(f"  FAIL: {msg}", file=sys.stderr)
-```
-
-**Run Commands:**
-```bash
-python3 tests/test_bulk_pipeline.py      # XML parsing, normalization, ZIP handling
-python3 tests/test_commitment.py         # CRSS-1 serializer, Merkle tree, proofs
-python3 tests/test_dou_ingest.py         # HTML extraction, signatures, norm refs
-python3 tests/test_search_adapters.py    # Search adapter query translation
-python3 tests/test_image_checker.py      # Image classification, fallback text
-python3 tests/test_seal_roundtrip.py     # Integration: requires running PostgreSQL
-```
-
-## Backend Test File Organization
-
-**Location:**
-- All tests in top-level `tests/` directory
-- Fixtures in `tests/fixtures/xml_samples/` (real DOU XML documents)
-
-**Naming:**
-- `test_<module_area>.py`
+- `test_<feature>.py` pattern
+- Examples: `test_mongo_connection.py`, `test_extraction.py`
 
 **Structure:**
 ```
-tests/
-├── __init__.py
-├── fixtures/
-│   └── xml_samples/
-│       ├── 2026-02-27-DO1_515_20260227_23615168.xml
-│       ├── 2026-02-27-DO1E_600_20260227_23639224.xml
-│       ├── ... (13 XML fixture files)
-│       └── 2026-03-01-DO1E_602_20260301_23639608.xml
-├── test_bulk_pipeline.py
-├── test_commitment.py
-├── test_dou_ingest.py
-├── test_image_checker.py
-├── test_seal_roundtrip.py
-└── test_search_adapters.py
+ops/
+  test_mongo_connection.py    # Connection test
+  test_extraction.py          # XML processing test
+  test_icloud_json.py         # iCloud JSON test
+
+.dev/
+  mcp/test_system.py          # MCP convergence engine self-test
+  bench/
+    run_benchmark.py          # Search benchmark runner
+    cases.py                  # Benchmark test cases
+    grader.py                 # Result grading
+    judge.py                  # LLM-based judging
 ```
 
-## Backend Test Structure
+## Test Structure
 
 **Suite Organization:**
-- Functions named `test_<specific_behavior>()` — no class grouping
-- Visual section dividers with `_section("Section Name")` that prints headers
-- Tests grouped by category with comment block separators
-- Manual test registration in `main()` function (list of function references)
-
 ```python
-# Pattern from tests/test_dou_ingest.py
-def test_sanitizer_no_op_for_clean_xml():
-    """Clean XML should pass through unchanged."""
-    _section("Sanitizer — no-op for clean XML")
-    clean = '<xml>...</xml>'
-    result, modified = _sanitize_xml(clean)
-    _assert_eq(result, clean, "content unchanged")
-    _assert_eq(modified, False, "not marked as modified")
+import unittest
+from datetime import datetime
 
-def main() -> int:
-    tests = [
-        test_sanitizer_no_op_for_clean_xml,
-        test_sanitizer_strips_leaked_identifica,
-        # ... all test functions listed explicitly
-    ]
-    for test_fn in tests:
-        try:
-            test_fn()
-        except Exception as ex:
-            global _failed
-            _failed += 1
-            print(f"  EXCEPTION in {test_fn.__name__}: {ex}", file=sys.stderr)
-    # ...
-    return 0 if _failed == 0 else 1
+# Add src to path
+sys.path.append(os.path.join(os.getcwd()))
+
+from src.backend.ingest.dou_processor import DouProcessor
+
+class TestDouProcessor(unittest.TestCase):
+    def setUp(self):
+        self.processor = DouProcessor()
+        self.mock_xml = """<?xml version="1.0" encoding="utf-8"?>
+<xml>
+<article pubName="DO1" pubDate="04/01/2002" artType="DECRETO">
+    <body>
+        <Identifica>DECRETO Nº 4.071</Identifica>
+        <Ementa>Dispõe sobre...</Ementa>
+        <Texto>...</Texto>
+    </body>
+</article>
+</xml>
+""".encode('utf-8')
+
+    def test_extraction(self):
+        doc = self.processor.process_xml(self.mock_xml, "test.xml", "test.zip")
+        self.assertIsNotNone(doc)
+        
+        # Deterministic ID
+        self.assertTrue(doc.id.startswith("2002-01-04_DO1_"))
+        
+        # Source Type
+        self.assertEqual(doc.source_type, "liferay")
+        
+        # References
+        targets = [ref.target for ref in doc.references]
+        self.assertIn("Decreto 3.035", targets)
+
+if __name__ == '__main__':
+    unittest.main()
 ```
 
-**Exit Code Convention:**
-- All test scripts return exit code 0 on success, 1 on any failure
-- Entry point: `raise SystemExit(main())` or `sys.exit(1 if _failed else 0)`
+**Patterns:**
+- `setUp()` for test fixtures
+- Descriptive test method names: `test_extraction`, `test_mongo_connection`
+- Print statements for debugging visibility
+- Exit codes for CI/CD integration: `sys.exit(1)` on failure
 
 ## Mocking
 
-**Backend Mocking Patterns:**
+**Framework:**
+- No formal mocking framework (no unittest.mock patterns detected)
+- Manual test doubles for complex scenarios
 
-1. **Monkey-patching internal state** (for registry data):
+**Manual Mocking Pattern:**
 ```python
-# tests/test_bulk_pipeline.py
-def _inject_mock_registry():
-    _zd._FOLDER_REGISTRY = {"2026-01": 685674076, ...}
-    _zd._FILE_REGISTRY = {"2026-01": ["S01012026.zip", ...]}
-```
+# From .dev/mcp/test_system.py
+class FakeAdapter:
+    def __init__(self, name: str) -> None:
+        self.name = name
 
-2. **Method replacement on adapter instances** (for HTTP calls):
-```python
-# tests/test_search_adapters.py
-adapter._request = fake_request  # type: ignore[attr-defined]
-# or
-adapter._lexical_candidates = lambda **kwargs: ([...], count)
-adapter._vector_candidates = lambda **kwargs: [...]
-```
+    def complete(self, messages, *, enable_thinking: bool, stream: bool):
+        if "Return exactly one JSON object" in messages[-1]["content"]:
+            if self.name == "claude":
+                content = json.dumps({
+                    "verdict": "REQUEST_CHANGES",
+                    "objections": [...],
+                })
+            else:
+                content = json.dumps({
+                    "verdict": "APPROVE",
+                    "objections": [],
+                })
+            return ProviderResponse(content=content, usage=UsageStats(total_tokens=12))
+        return ProviderResponse(content="def total():\n    return 1\n", usage=UsageStats(total_tokens=7))
 
-3. **Fake client classes** (for async HTTP):
-```python
-# tests/test_image_checker.py
-class FakeClient:
-    def __init__(self, head_items, get_items=None):
-        self.head_items = list(head_items)
-        self.get_items = list(get_items or [])
-    async def head(self, url, follow_redirects=False):
-        item = self.head_items.pop(0)
-        if isinstance(item, Exception): raise item
-        return item
-```
-
-4. **Fabricated response objects** (for httpx):
-```python
-def _response(method, url, status_code, *, headers=None, content=b""):
-    return httpx.Response(status_code, headers=headers, content=content,
-                          request=httpx.Request(method, url))
+# Patch by replacing in globals
+original_factory = engine._dispatch_reviews.__globals__["create_adapter"]
+engine._dispatch_reviews.__globals__["create_adapter"] = lambda provider, agent: FakeAdapter(agent.name)
+try:
+    run = engine.run(...)
+finally:
+    engine._dispatch_reviews.__globals__["create_adapter"] = original_factory
 ```
 
 **What to Mock:**
-- External HTTP calls (Elasticsearch, remote image probes)
-- Module-level registries and state (`_FOLDER_REGISTRY`, `_FILE_REGISTRY`)
-- Adapter internal methods (`_request`, `_lexical_candidates`, `_vector_candidates`)
-- Embedding model calls (`DummyEmbedder` with fixed vectors)
+- External API calls (HTTP requests)
+- Database connections (for unit tests)
+- LLM provider responses
 
 **What NOT to Mock:**
-- Pure functions (serializers, parsers, normalizers) — test with real inputs
-- XML parsing — use real fixture files from `tests/fixtures/xml_samples/`
-- Hash computation — verify exact hex values
+- Data transformation logic
+- Parsing functions
+- Business logic validation
 
 ## Fixtures and Factories
 
-**Test Data (Backend):**
+**Test Data:**
+- Inline XML/JSON strings in test methods
+- Hardcoded test data for specific scenarios
 
-1. **XML fixture files** — real DOU documents in `tests/fixtures/xml_samples/`:
+**Example:**
 ```python
-FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures" / "xml_samples"
-articles = parse_directory(FIXTURES_DIR)
+self.mock_xml = """<?xml version="1.0" encoding="utf-8"?>
+<xml>
+<article pubName="DO1" pubDate="04/01/2002" artType="DECRETO" 
+         artCategory="Atos do Poder Executivo/Presidência da República" numberPage="1">
+    <body>
+        <Identifica>DECRETO Nº 4.071</Identifica>
+        <Ementa>Dispõe sobre...</Ementa>
+        <Texto>
+            &lt;p class='identifica'&gt;DECRETO Nº 4.071&lt;/p&gt;
+            &lt;p&gt;O PRESIDENTE DA REPÚBLICA...&lt;/p&gt;
+        </Texto>
+    </body>
+</article>
+</xml>
+""".encode('utf-8')
 ```
 
-2. **Inline record dicts** for commitment tests:
-```python
-RECORD_A = {
-    "event_type": "inserted",
-    "natural_key_hash": "a" * 64,
-    "strategy": "strict",
-    "content_hash": "b" * 64,
-    # ...
-}
-```
-
-3. **Factory helper** for DOUArticle objects:
-```python
-def _make_article(**kwargs) -> DOUArticle:
-    defaults = {
-        "id": "1", "id_materia": "12345678", "pub_name": "DO1",
-        "pub_date": "01/01/2026", "art_type": "Portaria", ...
-    }
-    defaults.update(kwargs)
-    return DOUArticle(**defaults)
-```
-
-4. **Synthetic enriched JSON** for integration tests:
-```python
-def create_synthetic_enriched(out_dir: Path) -> None:
-    docs = [{"file": "page1.html", "publication_issue": {...}, "documents": [...]}]
-    for i, doc in enumerate(docs):
-        fp = out_dir / f"enriched_{i:03d}.json"
-        fp.write_text(json.dumps(doc, ensure_ascii=False))
-```
-
-## Async Testing
-
-**Pattern (Backend only):**
-```python
-# tests/test_image_checker.py
-async def test_available_status() -> None:
-    client = FakeClient(head_items=[...], get_items=[...])
-    out = await _probe_remote_image(client, "https://example.com/img.gif")
-    _assert(out["status"] == "available", "...")
-
-async def _run_async() -> None:
-    await test_available_status()
-    await test_missing_status()
-    # ...
-
-def main() -> int:
-    asyncio.run(_run_async())
-    # sync tests follow
-    test_context_hint_and_fallback_text()
-```
+**Location:**
+- Test data defined inline within test classes
+- No separate fixture files
 
 ## Coverage
 
-**Requirements:** None enforced — no coverage tooling configured
+**Requirements:** None enforced
 
-**Frontend:** No coverage configuration in `vitest.config.ts`
+**Coverage Tools:** Not configured
 
-**Backend:** No coverage tooling (no pytest-cov, no coverage.py config)
+**Manual Coverage:**
+- Tests focus on critical paths
+- Connection tests verify infrastructure
+- Processing tests verify extraction logic
 
 ## Test Types
 
-**Unit Tests (Backend):**
-- Pure function testing: serialization determinism, hash computation, NFC normalization
-- XML parsing with real fixtures
-- Field normalization (dates, sections, HTML stripping)
-- Search query translation and filter inference
-- Image classification and fallback logic
-- All in `tests/test_bulk_pipeline.py`, `tests/test_commitment.py`, `tests/test_dou_ingest.py`, `tests/test_search_adapters.py`, `tests/test_image_checker.py`
+**Unit Tests:**
+- Located in `ops/test_*.py`
+- Test individual functions and classes
+- Example: `test_extraction.py` tests `DouProcessor.process_xml()`
 
-**Integration Tests (Backend):**
-- `tests/test_seal_roundtrip.py` — requires running PostgreSQL on port 5433
-- Full pipeline: reset DB, create synthetic data, ingest, seal commitment, verify with hostile verifier
-- Not runnable without infrastructure
-
-**Unit Tests (Frontend):**
-- Effectively none — only a trivial placeholder exists
+**Integration Tests:**
+- `ops/test_mongo_connection.py` - database connectivity
+- `.dev/bench/run_benchmark.py` - end-to-end search benchmarks
 
 **E2E Tests:**
-- Not used — no Playwright, Cypress, or similar
+- `.dev/mcp/test_system.py` - full convergence engine workflow
+- Benchmark runner with grading and LLM judging
 
-## Path Setup Pattern
-
-All backend test files manually add project root to `sys.path`:
+**Performance/Benchmark Tests:**
 ```python
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# From .dev/bench/run_benchmark.py
+def main() -> None:
+    cases = build_cases()
+    adapters = {backend: _adapter_for_backend(base_cfg, backend) for backend in backends}
+    
+    for case in cases:
+        for backend, adapter in adapters.items():
+            response = adapter.search(query=query, page_size=args.page_size, page=1, ...)
+            rows = hydrator.hydrate(response.get("results") or [])
+            grade = grade_case(case, rows, top_k=args.top_k)
 ```
-This is required because tests are run as standalone scripts, not via pytest discovery.
 
-## Common Anti-Patterns to Be Aware Of
+## Common Patterns
 
-1. **No test runner framework** — tests are standalone scripts with manual orchestration
-2. **Global mutable state** for pass/fail counting — not thread-safe, not composable
-3. **No test isolation** — mock registries injected at module level persist between tests
-4. **Manual test registration** — new tests must be added to `main()` list or they won't run
-5. **No CI integration detected** — tests must be run manually
+**Async Testing:**
+```python
+# MCP server uses async
+@mcp.tool()
+async def search_dou(query: str, limit: int = 5) -> List[SearchResult]:
+    # Implementation
+```
 
-## Guidance for Writing New Tests
+**Error Testing:**
+```python
+def test_mongo_connection():
+    try:
+        client = MongoClient(uri, serverSelectionTimeoutMS=2000)
+        client.admin.command('ping')
+        print("Successfully connected to MongoDB server.")
+    except ConnectionFailure:
+        print("Server not available.")
+        sys.exit(1)
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        sys.exit(1)
+```
 
-**Backend:**
-- Follow the existing custom harness pattern (use `_assert()` / `_assert_eq()` helpers)
-- Add test function to the `main()` registration list
-- Use `_section("Name")` for visual grouping in output
-- For new modules, create `tests/test_<module>.py` following the same standalone script pattern
-- Use real fixture XMLs from `tests/fixtures/xml_samples/` where possible
-- Mock external calls by replacing instance methods (e.g., `adapter._request = fake_fn`)
+**Assertion Patterns:**
+```python
+# Basic assertions
+self.assertIsNotNone(doc)
+self.assertEqual(doc.source_type, "liferay")
+self.assertTrue(doc.id.startswith("2002-01-04_DO1_"))
 
-**Frontend:**
-- Use Vitest + Testing Library (already installed)
-- Place tests as `src/frontend/web/src/**/*.test.tsx`
-- Import from `vitest` and `@testing-library/react`
-- The `matchMedia` mock is already configured in `src/frontend/web/src/test/setup.ts`
+# Collection assertions
+self.assertIn("Decreto 3.035", targets)
+
+# Debug output
+print(f"References: {doc.references}")
+print(f"Entities: {doc.affected_entities}")
+```
+
+## Benchmark Testing
+
+**Framework:**
+- Custom benchmark framework in `.dev/bench/`
+- Grading based on precision/recall metrics
+
+**Components:**
+- `cases.py` - Test case definitions
+- `grader.py` - Result grading with P@1, P@3, Hits@10, MRR
+- `judge.py` - LLM-based result judging
+- `reporting.py` - Markdown and JSON output
+
+**Running Benchmarks:**
+```bash
+python .dev/bench/run_benchmark.py --backends hybrid,pg --limit 10
+python .dev/bench/run_benchmark.py --category legal_reference
+python .dev/bench/run_benchmark.py --llm-judge-agent claude --judge-sample 5
+```
+
+**Metrics:**
+```python
+aggregates = {
+    "p_at_1": 0.85,
+    "p_at_3": 0.72,
+    "hits_at_10": 0.90,
+    "mrr": 0.78
+}
+```
+
+## Test Data Management
+
+**Snapshot Testing:**
+- Benchmark results written to `.dev/mcp/runs/<timestamp>/`
+- JSON and Markdown summaries preserved
+
+**Example Output:**
+```
+.dev/mcp/runs/
+  20260309T132145Z-dou-autonomous-spec/
+    round-1/
+      reviews/
+    round-2/
+      reviews/
+```
 
 ---
 
-*Testing analysis: 2026-03-08*
+*Testing analysis: 2026-03-11*

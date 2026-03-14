@@ -17,7 +17,6 @@
     "dynamic": false,
     "properties": {
       "doc_id": { "type": "keyword" },
-      "id_materia": { "type": "keyword" },
       "identifica": {
         "type": "text",
         "analyzer": "pt_folded",
@@ -26,14 +25,19 @@
         }
       },
       "ementa": { "type": "text", "analyzer": "pt_folded" },
-      "titulo": { "type": "text", "analyzer": "pt_folded" },
-      "sub_titulo": { "type": "text", "analyzer": "pt_folded" },
       "body_plain": { "type": "text", "analyzer": "pt_folded" },
       "art_type": {
         "type": "text",
         "analyzer": "pt_folded",
         "fields": {
           "keyword": { "type": "keyword", "ignore_above": 256 }
+        }
+      },
+      "art_category": {
+        "type": "text",
+        "analyzer": "pt_folded",
+        "fields": {
+          "keyword": { "type": "keyword", "ignore_above": 512 }
         }
       },
       "issuing_organ": {
@@ -48,9 +52,8 @@
       "document_number": { "type": "keyword" },
       "document_year": { "type": "integer" },
       "page_number": { "type": "keyword" },
-      "is_extra": { "type": "boolean" },
-      "created_at": { "type": "date" }
+      "edition_number": { "type": "keyword" },
+      "source_zip": { "type": "keyword" }
     }
   }
 }
-

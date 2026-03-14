@@ -1,386 +1,375 @@
-# Architecture Patterns
+# Architecture Research
 
-**Domain:** Background workers, file upload, and blob storage for legal document search platform
-**Researched:** 2026-03-08
+**Domain:** Hybrid BM25+kNN search with Cohere Rerank on Elasticsearch 8.15.4 + MongoDB
+**Researched:** 2026-03-12
+**Confidence:** HIGH (Elasticsearch official docs + Cohere official docs verified)
 
-## Recommended Architecture
+## Standard Architecture
 
-### High-Level View
+### System Overview
 
 ```
-                         +-------------------+
-                         |   React SPA       |
-                         |  (Admin Upload)   |
-                         +--------+----------+
-                                  |
-                                  | POST /api/admin/upload
-                                  | GET  /api/admin/jobs/{id}
-                                  v
-                    +-------------+--------------+
-                    |      FastAPI Web Server     |
-                    |   (gabi-dou-web process)    |
-                    +---+--------+----------+----+
-                        |        |          |
-            upload file |  enqueue|   query  |
-                        v   job  v  status  v
-              +---------+  +-----+--+  +----+------+
-              | Tigris   |  | Redis  |  | PostgreSQL|
-              | (S3)     |  | Queue  |  | (jobs tbl)|
-              +-----+----+  +---+----+  +-----+----+
-                    |            |              |
-                    |   dequeue  |    write     |
-                    |     +------+    results   |
-                    |     v                     |
-                    | +---+-------------------+ |
-                    | |   arq Worker Process  | |
-                    | |  (gabi-dou-web worker)| |
-                    | +-----------+-----------+ |
-                    |             |              |
-                    +--read ZIP---+--ingest------+
-                                  |
-                                  v
-                          +-------+-------+
-                          | Elasticsearch |
-                          |  (indexing)   |
-                          +---------------+
+┌─────────────────────────────────────────────────────────────────────┐
+│                         CONSUMERS (Query Path)                       │
+├───────────────────┬─────────────────────────────────────────────────┤
+│   MCP Server      │           FastAPI REST                           │
+│  (stdio/SSE)      │       /search, /suggest, /document               │
+│  5 upgraded tools │                                                  │
+└────────┬──────────┴─────────────────┬───────────────────────────────┘
+         │                            │
+         ▼                            ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                       SEARCH ORCHESTRATOR                            │
+│  src/backend/search/hybrid_search.py                                 │
+│                                                                      │
+│  1. Embed query text → query_vector (Embedding API)                  │
+│  2. Build retriever DSL: rrf { standard(BM25) + knn(vector) }        │
+│  3. Wrap with text_similarity_reranker (Cohere inference endpoint)   │
+│  4. Execute against Elasticsearch                                    │
+│  5. Return ranked hits                                               │
+└──────────┬─────────────────────────────┬───────────────────────────┘
+           │                             │
+           ▼                             ▼
+┌──────────────────────┐   ┌─────────────────────────────────────────┐
+│  Embedding Service   │   │         Elasticsearch 8.15.4            │
+│  (external API)      │   │                                         │
+│  Cohere embed-       │   │  Index: gabi_documents_v1               │
+│  multilingual-v3 OR  │   │  Fields:                                │
+│  OpenAI-compat API   │   │    body_plain (text, pt_folded)         │
+│                      │   │    embedding  (dense_vector, 1024-dim)  │
+│  Input: query text   │   │    ...existing BM25 fields...           │
+│  Output: float[]     │   │                                         │
+└──────────────────────┘   │  Rerank inference endpoint:             │
+                           │    cohere_rerank_multilingual           │
+                           │    → delegates to Cohere Rerank API     │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                   INGESTION PATH (Offline / Async)                   │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│   MongoDB (7M docs)                                                  │
+│        │                                                             │
+│        ▼                                                             │
+│   embed_indexer.py (new, mirrors es_indexer.py pattern)             │
+│   ┌─────────────────────────────────────────────────────────────┐   │
+│   │  cursor pagination (_id-based, same as es_indexer)          │   │
+│   │  batch N docs → call Embedding API (batch endpoint)         │   │
+│   │  write embedding back to MongoDB doc.embedding field        │   │
+│   │  bulk upsert to ES dense_vector field                       │   │
+│   │  save cursor to embed_sync_cursor.json                      │   │
+│   └─────────────────────────────────────────────────────────────┘   │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-### Component Boundaries
+### Component Responsibilities
 
 | Component | Responsibility | Communicates With |
 |-----------|---------------|-------------------|
-| **FastAPI Web (http)** | Accept uploads, enqueue jobs, serve job status API, serve SPA | Tigris (write), Redis (enqueue), PostgreSQL (read/write job status) |
-| **arq Worker (process group)** | Execute ingestion pipeline: unzip, parse XML, normalize, deduplicate, ingest to PG, index to ES | Tigris (read), PostgreSQL (write), Elasticsearch (write), Redis (dequeue/results) |
-| **Tigris Object Storage** | Store uploaded ZIP/XML files durably before processing | Accessed by Web (write) and Worker (read) |
-| **Redis** | Job queue broker for arq, existing search signal caching | Accessed by Web (enqueue) and Worker (dequeue) |
-| **PostgreSQL** | Job control table, document registry, CRSS-1 commitments | Accessed by Web (job status reads) and Worker (ingestion writes) |
-| **Elasticsearch** | Full-text and vector search index | Written by Worker after successful PG ingestion |
+| `embed_indexer.py` | Batch-generate embeddings; upsert to MongoDB + ES dense_vector | MongoDB (read/write), Embedding API (HTTP), ES (HTTP bulk) |
+| `embed_sync_cursor.json` | Resumable high-water mark for embedding pipeline | `embed_indexer.py` reads/writes |
+| ES inference endpoint (cohere_rerank) | Cohere Rerank API proxy registered in ES | Elasticsearch calls out to Cohere API |
+| `hybrid_search.py` | Build and execute hybrid retriever DSL | Embedding API (query embed), ES (search) |
+| `es_index_v2.json` | Updated index mapping adding `dense_vector` field | `embed_indexer.py` uses on index creation |
+| Upgraded MCP tools | Replace BM25-only search with hybrid search | `hybrid_search.py` |
+| FastAPI endpoints | REST API exposing hybrid search | `hybrid_search.py` |
 
-### Data Flow
+## Recommended Project Structure
 
-**Upload flow (synchronous, fast):**
+```
+src/backend/
+├── core/
+│   └── config.py           # Add: EMBED_API_URL, EMBED_MODEL, COHERE_API_KEY, EMBED_DIMS
+├── search/
+│   ├── es_index_v1.json    # Existing BM25-only mapping (keep for rollback)
+│   ├── es_index_v2.json    # New: adds dense_vector field (1024-dim, cosine)
+│   └── hybrid_search.py    # New: SearchOrchestrator class
+├── ingest/
+│   ├── es_indexer.py       # Existing (unchanged)
+│   └── embed_indexer.py    # New: embedding generation + ES vector sync
+└── main.py                 # Add /search, /document endpoints
 
-1. Admin authenticates via existing bearer token / session
-2. Admin POSTs file (ZIP or XML) to `/api/admin/upload`
-3. Web server validates: file type, size limit (50MB), admin role check
-4. Web server streams file to Tigris bucket (`gabi-uploads/{uuid}/{filename}`)
-5. Web server inserts row into `admin.upload_jobs` table (status=`pending`)
-6. Web server enqueues arq job with `(job_id, tigris_key)` payload
-7. Web server returns `{job_id, status: "pending"}` immediately (HTTP 202)
+ops/bin/
+└── mcp_es_server.py        # Upgrade es_search tool to use hybrid_search.py
 
-**Processing flow (asynchronous, worker):**
-
-1. arq worker picks up job from Redis queue
-2. Worker updates `admin.upload_jobs` status to `processing`
-3. Worker downloads file from Tigris to temp directory
-4. Worker runs existing pipeline: unzip -> parse XML -> normalize -> deduplicate
-5. Worker inserts new records into PG via `registry_ingest` (existing code)
-6. Worker indexes new documents in Elasticsearch via `es_indexer` (existing code)
-7. Worker updates `admin.upload_jobs`: status=`completed`, counts, errors
-8. On failure: status=`failed`, error message stored, automatic retry via arq
-
-**Status polling flow:**
-
-1. Admin frontend polls `GET /api/admin/jobs/{job_id}` every 5 seconds
-2. Web server reads from `admin.upload_jobs` table
-3. Returns: status, progress counts, error details, timestamps
-
-## Component Details
-
-### 1. Upload Endpoint
-
-```python
-# src/backend/apps/upload.py
-
-from fastapi import APIRouter, UploadFile, Depends
-from src.backend.apps.auth import require_admin_access, AuthPrincipal
-
-router = APIRouter(prefix="/api/admin", tags=["admin-upload"])
-
-MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
-ALLOWED_EXTENSIONS = {".zip", ".xml"}
-
-@router.post("/upload", status_code=202)
-async def upload_document(
-    file: UploadFile,
-    principal: AuthPrincipal = Depends(require_admin_access),
-):
-    # 1. Validate file type and size
-    # 2. Stream to Tigris via boto3 S3Client
-    # 3. Insert job row into admin.upload_jobs
-    # 4. Enqueue arq task
-    # 5. Return job_id
-    ...
-
-@router.get("/jobs/{job_id}")
-async def get_job_status(
-    job_id: str,
-    principal: AuthPrincipal = Depends(require_admin_access),
-):
-    # Read from admin.upload_jobs
-    ...
-
-@router.get("/jobs")
-async def list_jobs(
-    principal: AuthPrincipal = Depends(require_admin_access),
-):
-    # List recent jobs with pagination
-    ...
+src/backend/data/
+├── es_sync_cursor.json     # Existing BM25 cursor
+└── embed_sync_cursor.json  # New: embedding pipeline cursor
 ```
 
-### 2. Job Control Table
+### Structure Rationale
 
-```sql
-CREATE SCHEMA IF NOT EXISTS admin;
+- `embed_indexer.py` follows the exact same cursor + bulk pattern as `es_indexer.py` — minimal new concepts, easy to operate.
+- `hybrid_search.py` is the single source of truth for query composition — both MCP tools and FastAPI endpoints import it, no duplication.
+- `es_index_v2.json` is a new mapping file so `es_index_v1.json` remains available if a rollback/reindex is needed.
+- The Cohere rerank inference endpoint lives inside Elasticsearch (registered once via PUT `/_inference/rerank/cohere_rerank_multilingual`) so `hybrid_search.py` never calls Cohere directly — ES handles that network call.
 
-CREATE TABLE admin.upload_jobs (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+## Architectural Patterns
 
-    -- Who and what
-    uploaded_by     TEXT NOT NULL,          -- token_id or user_id
-    filename        TEXT NOT NULL,
-    file_size       BIGINT NOT NULL,
-    tigris_key      TEXT NOT NULL,          -- S3 object key
+### Pattern 1: Retriever Chain (ES 8.14+ native)
 
-    -- Status tracking
-    status          TEXT NOT NULL DEFAULT 'pending'
-                    CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'retrying')),
-    attempt         INT NOT NULL DEFAULT 0,
-    max_attempts    INT NOT NULL DEFAULT 3,
+**What:** ES 8.14 introduced a `retriever` abstraction that composes BM25, kNN, and reranking in one query. The chain is: `text_similarity_reranker` wraps `rrf` which wraps `standard` (BM25) + `knn`.
 
-    -- Results
-    articles_parsed INT,
-    articles_ingested INT,
-    articles_duplicated INT,
-    articles_failed INT,
-    error_message   TEXT,
-    error_detail    JSONB,
+**When to use:** All hybrid search queries. Replaces ad-hoc BM25 DSL in both MCP tools and REST API.
 
-    -- Timing
-    started_at      TIMESTAMPTZ,
-    completed_at    TIMESTAMPTZ
-);
+**Trade-offs:** Requires ES 8.14+ (we have 8.15.4). `rrf` retriever requires an Elasticsearch license above Basic — verify trial/enterprise tier is active. If license is Basic, fall back to manual RRF in Python or use linear retriever.
 
-CREATE INDEX idx_upload_jobs_status ON admin.upload_jobs(status);
-CREATE INDEX idx_upload_jobs_created ON admin.upload_jobs(created_at DESC);
+**Example:**
+```json
+POST /gabi_documents_v1/_search
+{
+  "retriever": {
+    "text_similarity_reranker": {
+      "retriever": {
+        "rrf": {
+          "retrievers": [
+            {
+              "standard": {
+                "query": {
+                  "bool": {
+                    "must": {
+                      "simple_query_string": {
+                        "query": "licitação obras públicas",
+                        "fields": ["identifica^5","ementa^4","body_plain"],
+                        "default_operator": "and"
+                      }
+                    },
+                    "filter": [{"term": {"edition_section": "do1"}}]
+                  }
+                }
+              }
+            },
+            {
+              "knn": {
+                "field": "embedding",
+                "query_vector": [0.021, -0.043, "...1024 dims..."],
+                "k": 100,
+                "num_candidates": 200
+              }
+            }
+          ],
+          "rank_constant": 60,
+          "rank_window_size": 100
+        }
+      },
+      "field": "body_plain",
+      "inference_id": "cohere_rerank_multilingual",
+      "inference_text": "licitação obras públicas",
+      "rank_window_size": 50
+    }
+  },
+  "size": 20
+}
 ```
 
-### 3. arq Worker
+### Pattern 2: External Embedding, Pre-Stored Vectors
 
-```python
-# src/backend/workers/ingest_worker.py
+**What:** Embeddings are generated outside ES (via Cohere or OpenAI-compatible API), stored in MongoDB and indexed into ES `dense_vector` field. ES never calls the embedding model at search time — the caller embeds the query before sending the kNN retriever.
 
-from arq import cron
-from arq.connections import RedisSettings
+**When to use:** Always. This is the right approach when you already have MongoDB as source of truth and want to avoid ES ingest pipeline complexity.
 
-async def process_upload(ctx, job_id: str, tigris_key: str):
-    """Main worker task: download from Tigris, run ingestion pipeline."""
-    # 1. Update job status to 'processing'
-    # 2. Download file from Tigris to /tmp/{job_id}/
-    # 3. If ZIP: extract XMLs (reuse zip_downloader.extract_xml_from_zip)
-    # 4. Parse XMLs (reuse xml_parser.INLabsXMLParser)
-    # 5. Normalize (reuse normalizer.article_to_ingest_record)
-    # 6. Ingest to PG (reuse registry_ingest.ingest_batch_sealed)
-    # 7. Index to ES (reuse es_indexer incremental sync)
-    # 8. Update job status to 'completed' with counts
-    # 9. Clean up temp files
-
-class WorkerSettings:
-    functions = [process_upload]
-    redis_settings = RedisSettings.from_dsn(os.environ["REDIS_URL"])
-    max_jobs = 2          # limit concurrent jobs (memory constrained)
-    job_timeout = 600     # 10 min max per job
-    max_tries = 3         # automatic retry
-    retry_defer = 30      # 30s between retries
-```
-
-### 4. Tigris Integration
-
-```python
-# src/backend/storage/tigris.py
-
-import boto3
-from botocore.config import Config
-
-def get_s3_client():
-    """S3 client configured for Fly.io Tigris."""
-    return boto3.client(
-        "s3",
-        endpoint_url=os.environ["AWS_ENDPOINT_URL_S3"],
-        aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
-        aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
-        region_name="auto",
-        config=Config(signature_version="s3v4"),
-    )
-
-async def upload_to_tigris(file: UploadFile, key: str) -> int:
-    """Stream upload file to Tigris, return bytes written."""
-    client = get_s3_client()
-    client.upload_fileobj(file.file, os.environ["BUCKET_NAME"], key)
-    return file.size
-
-async def download_from_tigris(key: str, dest: Path) -> Path:
-    """Download object from Tigris to local path."""
-    client = get_s3_client()
-    client.download_file(os.environ["BUCKET_NAME"], key, str(dest))
-    return dest
-```
-
-### 5. Fly.io Deployment (fly.toml changes)
-
-```toml
-# Updated fly.toml with worker process group
-
-[processes]
-web = "python -m uvicorn src.backend.apps.web_server:app --host 0.0.0.0 --port 8000"
-worker = "python -m src.backend.workers.ingest_worker"
-
-[http_service]
-  processes = ["web"]       # Only web gets HTTP traffic
-  internal_port = 8000
-  force_https = true
-  auto_stop_machines = 'stop'
-  auto_start_machines = true
-  min_machines_running = 1
-
-[[vm]]
-  processes = ["web"]
-  size = 'shared-cpu-2x'
-  memory = '512mb'
-
-[[vm]]
-  processes = ["worker"]
-  size = 'shared-cpu-2x'
-  memory = '1024mb'          # Workers need more RAM for XML parsing
-```
-
-## Patterns to Follow
-
-### Pattern 1: Reuse Existing Pipeline as Library
-
-**What:** The existing ingestion pipeline (`xml_parser`, `normalizer`, `registry_ingest`, `es_indexer`) was built as CLI tools. Refactor the core logic into importable functions that the worker calls directly.
-
-**Why:** The `dou_ingest.DOUIngestor.ingest_zip()` method already does exactly what the worker needs. The worker wraps it with job status tracking and Tigris download.
+**Trade-offs:** Requires a separate pipeline process (`embed_indexer.py`). Query path needs one extra HTTP call to embed the query (~50-100ms). No ES ingest pipeline needed.
 
 **Example:**
 ```python
-# Worker calls existing code directly
-from src.backend.ingest.dou_ingest import DOUIngestor
-
-ingestor = DOUIngestor(dsn=os.environ["PG_DSN"])
-result = ingestor.ingest_zip(local_zip_path)
-# result has: articles_parsed, articles_ingested, duplicates, errors
+# In hybrid_search.py — query-time embed
+async def embed_query(text: str) -> list[float]:
+    resp = httpx.post(
+        settings.embed_api_url + "/embeddings",
+        json={"model": settings.embed_model, "input": [text]},
+        headers={"Authorization": f"Bearer {settings.embed_api_key}"},
+    )
+    return resp.json()["data"][0]["embedding"]
 ```
 
-### Pattern 2: Idempotent Ingestion
+### Pattern 3: Cursor-Based Resumable Embedding Pipeline
 
-**What:** The existing pipeline already handles deduplication via `natural_key_hash`. Re-uploading the same ZIP produces zero new records, not duplicates.
+**What:** Mirror the `es_indexer.py` pattern — iterate MongoDB by `_id` order, batch N docs, call embedding API, upsert back to MongoDB, bulk index to ES. Checkpoint after each batch.
 
-**Why:** arq guarantees at-least-once delivery. If a worker crashes mid-job and retries, the deduplication in `registry_ingest` (SERIALIZABLE CTE state machine) prevents double-insertion.
+**When to use:** Full backfill of 7M documents and incremental sync of new docs.
 
-**Detection:** The `IngestResult` dataclass already tracks `inserted` vs `duplicated` counts.
+**Trade-offs:** Slower than async parallel batching but safe, observable, and restartable. Cohere Embed API supports batches of 96 texts per call — use `batch_size=96` for embedding calls, grouped into larger ES bulk operations.
 
-### Pattern 3: Job Status as Source of Truth in PostgreSQL
+## Data Flow
 
-**What:** Store job status in PostgreSQL, not Redis. Redis is only the queue broker.
+### Query Path (Hybrid Search Request)
 
-**Why:** PostgreSQL survives restarts, is already backed up, and is queryable. Redis on Fly.io may lose data on restart. The admin UI needs reliable job history.
+```
+Caller (MCP tool / REST client)
+    │  query="decreto saúde 2024"
+    │  filters={section="do1", date_from="2024-01-01"}
+    ▼
+hybrid_search.py: HybridSearch.search()
+    │
+    ├─► embed_query(text) → POST {embed_api_url}/embeddings
+    │       ← [float × 1024]  (~50-100ms)
+    │
+    ├─► build_retriever_dsl(query, query_vector, filters)
+    │       → JSON: text_similarity_reranker {
+    │                 rrf { standard(BM25+filters) + knn(embedding) }
+    │               }
+    │
+    ├─► POST /gabi_documents_v1/_search  → Elasticsearch
+    │       ES internally:
+    │         1. BM25 retrieves top-100 scored by simple_query_string
+    │         2. kNN retrieves top-100 by cosine similarity on embedding
+    │         3. RRF fuses both lists → top-50 candidates
+    │         4. text_similarity_reranker calls cohere_rerank_multilingual
+    │              → ES calls Cohere Rerank API
+    │              ← Cohere returns reranked scores
+    │         5. ES returns top-20 reranked hits
+    │       ← hits: [{doc_id, score, identifica, ementa, snippet, ...}]
+    │
+    └─► return SearchResponse
+            total, hits, query_context, applied_filters
+```
 
-### Pattern 4: Streaming Upload (No Memory Buffering)
+### Ingestion Path (Embedding Pipeline)
 
-**What:** Stream uploaded files directly to Tigris using `upload_fileobj()`. Never load the entire file into memory on the web server.
+```
+embed_indexer.py backfill / sync
+    │
+    ├─► load cursor from embed_sync_cursor.json
+    │
+    └─► LOOP:
+          1. MongoDB: find({_id: {$gt: cursor}}).limit(batch_size=500)
+          2. Split into embed_batches of 96 docs each
+          3. For each embed_batch:
+               POST {embed_api_url}/embeddings  (96 texts)
+               ← [96 × float[1024]]
+          4. MongoDB: bulk_write UpdateOne({_id}, {$set: {embedding, embedding_model, embedded_at}})
+          5. ES: _bulk index with dense_vector field populated
+          6. Save cursor
+          7. Log progress
+```
 
-**Why:** The web server runs on 512MB RAM. A 50MB ZIP in memory plus the framework overhead could cause OOM. Stream through to Tigris and let the worker (1GB RAM) handle extraction.
+### Inference Endpoint Registration (One-Time Setup)
 
-## Anti-Patterns to Avoid
+```
+ops/setup_cohere_rerank.py (or manual curl)
+    │
+    └─► PUT /_inference/rerank/cohere_rerank_multilingual
+          {
+            "service": "cohere",
+            "service_settings": {
+              "api_key": "${COHERE_API_KEY}",
+              "model_id": "rerank-multilingual-v3.0"
+            },
+            "task_settings": { "top_n": 50 }
+          }
+```
 
-### Anti-Pattern 1: Processing in the Request Handler
+## Scaling Considerations
 
-**What:** Running XML parsing, DB ingestion, or ES indexing inside the upload HTTP handler.
+| Concern | Current Scale (~7M docs) | If Corpus Doubles |
+|---------|--------------------------|-------------------|
+| ES HNSW RAM (768-dim, bbq_hnsw) | ~6-7 GB (auto-quantized 4x from ~22 GB) | ~13 GB |
+| ES HNSW RAM (1024-dim) | ~9 GB quantized | ~18 GB |
+| Embedding backfill time (Cohere, 96 docs/call) | ~20 hrs at 1 call/sec, ~2 hrs at 10 calls/sec | Linear scale |
+| Query latency (embed + kNN + BM25 + rerank) | 200-600ms total | Stable if shards scale |
+| Cohere Rerank latency per request | 100-300ms | Stable (per-query) |
+| ES bulk indexing throughput | 2000 docs/batch, same as es_indexer | Linear scale |
 
-**Why bad:** A large ZIP with thousands of articles takes minutes to process. The HTTP request would time out (Fly.io has a 60s proxy timeout). The user gets no feedback.
+### Scaling Priorities
 
-**Instead:** Upload to Tigris, enqueue job, return 202 immediately.
+1. **First bottleneck: embedding backfill throughput.** 7M documents at ~96 docs/batch = ~73,000 API calls. Cohere's production tier handles concurrent requests. Use 3-5 concurrent httpx async requests with semaphore limiting to stay within rate limits.
+2. **Second bottleneck: ES heap and HNSW RAM.** With default `bbq_hnsw` quantization (enabled automatically for dims >= 384), 7M × 1024-dim fits in ~9 GB. The existing Docker setup needs sufficient memory allocated.
 
-### Anti-Pattern 2: Using FastAPI BackgroundTasks for Ingestion
+## Anti-Patterns
 
-**What:** Using `BackgroundTasks.add_task()` to run ingestion after the response.
+### Anti-Pattern 1: Re-embedding at Query Time from ES Ingest Pipeline
 
-**Why bad:** BackgroundTasks runs in the same process and event loop. If the web server scales down (Fly.io auto_stop), the background task dies. No retry mechanism. No status tracking. CPU-intensive XML parsing blocks the event loop.
+**What people do:** Configure an ES ingest pipeline with an inference processor to call an embedding model when documents are indexed.
 
-**Instead:** Use arq with a dedicated worker process group.
+**Why it's wrong:** Tightly couples the indexing pipeline to a specific embedding model endpoint. Slow for bulk backfill (ES calls the model synchronously per batch). No control over batching or rate limiting. Difficult to change models.
 
-### Anti-Pattern 3: Local Filesystem as Upload Buffer
+**Do this instead:** Generate embeddings offline in `embed_indexer.py`, store in MongoDB and ES. Query-time: only embed the single query text.
 
-**What:** Writing uploaded files to `/tmp` on the web server and having the worker read from there.
+### Anti-Pattern 2: Two Separate Search Paths (BM25 and Hybrid)
 
-**Why bad:** Web and worker are separate Fly Machines. They do not share a filesystem. Even if co-located, machine restarts lose `/tmp`.
+**What people do:** Keep the existing BM25 path untouched and add a separate "hybrid" endpoint. Tools call one or the other.
 
-**Instead:** Use Tigris as the durable intermediary. Web writes, worker reads.
+**Why it's wrong:** BM25-only path becomes stale, callers must decide which mode to use, MCP tools diverge.
 
-### Anti-Pattern 4: Celery for This Scale
+**Do this instead:** Upgrade `es_search` tool and the REST endpoint to use hybrid_search.py. Add a `mode` parameter (`hybrid` default, `bm25` for backward compat) so existing callers keep working.
 
-**What:** Using Celery with its full broker/result-backend/beat infrastructure.
+### Anti-Pattern 3: Calling Cohere Rerank API Directly from Application Code
 
-**Why bad:** Celery is synchronous by design, requires bridging for async FastAPI, adds significant complexity and memory overhead. This project processes at most a few uploads per day. Celery is built for millions of tasks.
+**What people do:** Fetch ES results, then make a separate HTTP call to `api.cohere.com/rerank` in Python, manually re-sort hits.
 
-**Instead:** arq is purpose-built for async Python, uses Redis (already deployed), has ~700 lines of code, and handles retries natively.
+**Why it's wrong:** Bypasses ES retriever chain, adds latency from two separate round-trips (ES + Cohere), loses ability to use ES `rank_window_size` optimization, harder to cache/debug.
 
-## Scalability Considerations
+**Do this instead:** Register Cohere as an ES inference endpoint (`PUT /_inference/rerank/...`). Use `text_similarity_reranker` in the ES query DSL. ES handles the Cohere API call internally, fused with retrieval in one round-trip from the application's perspective.
 
-| Concern | Current (low volume) | Growth (100+ uploads/day) | At Scale |
-|---------|---------------------|--------------------------|----------|
-| Upload handling | Single web machine, stream to Tigris | Same pattern scales fine | Add presigned URL for direct-to-Tigris upload |
-| Job processing | 1 worker, max_jobs=2 | `fly scale count worker=2` | Scale workers independently, increase max_jobs |
-| Job queue | Redis single instance | Same Redis, separate queue name | Consider dedicated Redis for jobs |
-| Storage | Tigris pay-per-use | Same, add lifecycle policy to delete processed files | Same |
-| Job history | PostgreSQL query | Add pagination, archive old jobs | Partition table by month |
+### Anti-Pattern 4: Storing Only Embeddings in ES, Not MongoDB
 
-## Suggested Build Order
+**What people do:** Write embeddings directly to ES only (not back to MongoDB).
 
-The following order respects dependencies and enables incremental testing:
+**Why it's wrong:** MongoDB is the source of truth. If ES index is rebuilt from MongoDB (e.g., after mapping change), embeddings are lost and must be regenerated.
 
-### Phase 1: Infrastructure Foundation
-1. **Tigris bucket** -- `fly storage create` on the gabi-dou-web app
-2. **Job control table** -- SQL migration for `admin.upload_jobs`
-3. **Tigris client module** -- `src/backend/storage/tigris.py` with upload/download
+**Do this instead:** Always write `embedding`, `embedding_model`, `embedded_at` back to the MongoDB document. ES `dense_vector` field is populated from MongoDB data.
 
-*Rationale:* These are prerequisites. Nothing else works without storage and the job table.
+## Integration Points
 
-### Phase 2: Upload Endpoint
-4. **Upload API route** -- `/api/admin/upload` with auth, validation, Tigris write, job row insert
-5. **Job status API** -- `/api/admin/jobs/{id}` and `/api/admin/jobs`
+### External Services
 
-*Rationale:* The upload endpoint can be tested independently by writing to Tigris and creating job rows, even before the worker exists. Status API enables frontend work in parallel.
+| Service | Integration Pattern | Key Config | Notes |
+|---------|---------------------|-----------|-------|
+| Cohere Rerank API | ES inference endpoint proxy — application never calls Cohere directly | `COHERE_API_KEY` env var; endpoint registered once via PUT `/_inference/rerank/cohere_rerank_multilingual` | Model: `rerank-multilingual-v3.0` supports Portuguese. Register once, reuse forever. |
+| Embedding API (Cohere embed-multilingual-v3 or OpenAI-compat) | Direct HTTP call from `embed_indexer.py` (batch) and `hybrid_search.py` (single query) | `EMBED_API_URL`, `EMBED_API_KEY`, `EMBED_MODEL` env vars | 1024 dims for Cohere embed-v3. Can swap model by rerunning backfill. |
 
-### Phase 3: Worker Process
-6. **arq worker module** -- `src/backend/workers/ingest_worker.py`
-7. **Pipeline integration** -- Wire worker to existing `DOUIngestor.ingest_zip()` and `es_indexer`
-8. **fly.toml process groups** -- Add worker process, configure VM sizes
-9. **Dockerfile update** -- Ensure entrypoint handles both web and worker commands
+### Internal Boundaries
 
-*Rationale:* The worker is the most complex piece. It reuses existing pipeline code but needs careful error handling and status updates. Deploying with process groups requires Dockerfile changes.
+| Boundary | Communication | Notes |
+|----------|---------------|-------|
+| `embed_indexer.py` ↔ MongoDB | pymongo cursor pagination + bulk_write | Same pattern as `es_indexer.py`. Adds `embedding`, `embedding_model`, `embedded_at` fields. |
+| `embed_indexer.py` ↔ Elasticsearch | httpx bulk API, same `ESClient` class | Adds `embedding` (dense_vector) field to existing ES docs via update or full upsert |
+| `hybrid_search.py` ↔ Elasticsearch | httpx POST `/_search` with retriever DSL | Single call per search request. ES handles Cohere rerank internally. |
+| `hybrid_search.py` ↔ Embedding API | httpx POST to embed the query text | ~50-100ms per query. Consider in-process LRU cache for repeated queries. |
+| MCP tools ↔ `hybrid_search.py` | Direct Python function call | MCP tools are thin wrappers; all search logic lives in hybrid_search.py |
+| FastAPI ↔ `hybrid_search.py` | Async function call via `await` | Requires hybrid_search.py to expose async interface |
 
-### Phase 4: Frontend Integration
-10. **Admin upload UI** -- File picker, upload progress, job status display
-11. **Job list view** -- Table of recent jobs with status, counts, errors
+## Build Order (Phase Dependencies)
 
-*Rationale:* Frontend depends on all API endpoints being stable. Build last so the API contract is settled.
+The dependency graph dictates this sequence:
+
+```
+Phase 1: ES Index v2 + dense_vector mapping
+    → Required by: embed_indexer, hybrid search query
+    → Deliverable: es_index_v2.json, index migration script
+
+Phase 2: embed_indexer.py (batch embedding pipeline)
+    → Requires: Phase 1 (dense_vector field exists)
+    → Deliverable: ~7M docs get embeddings in MongoDB + ES
+    → Note: longest-running step, can run in background
+
+Phase 3: Cohere inference endpoint registration
+    → Requires: Phase 1 (ES index exists with dense_vector)
+    → Deliverable: rerank endpoint live in ES, verified with test query
+
+Phase 4: hybrid_search.py (query orchestrator)
+    → Requires: Phase 1 (mapping), Phase 3 (rerank endpoint)
+    → Can be developed in parallel with Phase 2 (embedding backfill)
+    → Deliverable: HybridSearch class with fallback to BM25 if no embedding
+
+Phase 5: Upgrade MCP tools + FastAPI endpoints
+    → Requires: Phase 4
+    → Deliverable: es_search tool uses hybrid_search.py, REST /search endpoint
+```
 
 ## Sources
 
-- [Fly.io -- Multiple Processes](https://fly.io/docs/app-guides/multiple-processes/) (process groups in fly.toml)
-- [Fly.io -- Work Queues Blueprint](https://fly.io/docs/blueprints/work-queues/) (Celery/worker patterns on Fly)
-- [Fly.io -- Python Async Workers](https://fly.io/blog/python-async-workers-on-fly-machines/) (Python-specific worker guidance)
-- [Fly.io -- Tigris Object Storage](https://fly.io/docs/tigris/) (S3-compatible storage setup)
-- [arq Documentation v0.27](https://arq-docs.helpmanual.io/) (async task queue)
-- [FastAPI Background Tasks vs ARQ + Redis](https://davidmuraya.com/blog/fastapi-background-tasks-arq-vs-built-in/) (comparison and integration patterns)
-- [Building Resilient Task Queues with ARQ Retries](https://davidmuraya.com/blog/fastapi-arq-retries/) (retry and idempotency patterns)
+- [Elasticsearch Hybrid Search Overview — Elastic Labs](https://www.elastic.co/search-labs/blog/hybrid-search-elasticsearch) — HIGH confidence
+- [kNN Search in Elasticsearch — Elastic Docs](https://www.elastic.co/docs/solutions/search/vector/knn) — HIGH confidence
+- [Semantic Reranking — Elastic Docs](https://www.elastic.co/docs/solutions/search/ranking/semantic-reranking) — HIGH confidence
+- [Using Cohere with Elasticsearch — Elastic Docs](https://www.elastic.co/docs/solutions/search/semantic-search/cohere-es) — HIGH confidence
+- [Cohere + Elasticsearch Integration Guide — Cohere Docs](https://docs.cohere.com/docs/elasticsearch-and-cohere) — HIGH confidence
+- [Bring Your Own Dense Vectors to ES — Elastic Docs](https://www.elastic.co/docs/solutions/search/vector/bring-own-vectors) — HIGH confidence
+- [Dense Vector Field Type — Elasticsearch Reference](https://www.elastic.co/docs/reference/elasticsearch/mapping-reference/dense-vector) — HIGH confidence
+- [Elasticsearch Hybrid Search Recipes Benchmarked — softwaredoug.com](https://softwaredoug.com/blog/2025/03/13/elasticsearch-hybrid-search-strategies) — MEDIUM confidence (independent practitioner)
+- [GDELT Project: ES ANN Vector Search RAM Costs](https://blog.gdeltproject.org/our-journey-towards-user-facing-vector-search-evaluating-elasticsearchs-ann-vector-search-ram-costs/) — MEDIUM confidence (empirical data)
 
-**Confidence levels:**
-- Fly.io process groups and Tigris: **HIGH** (official documentation, verified)
-- arq as worker library: **MEDIUM** (well-documented, community-proven, but not verified via Context7)
-- Existing pipeline reuse (`DOUIngestor.ingest_zip`): **HIGH** (read from source code directly)
-- Job control table design: **HIGH** (standard pattern, no external dependencies)
+---
+*Architecture research for: GABI hybrid search integration (ES 8.15.4 + MongoDB + Cohere)*
+*Researched: 2026-03-12*

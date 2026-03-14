@@ -1,321 +1,220 @@
 # Codebase Structure
 
-**Analysis Date:** 2026-03-08
+**Analysis Date:** 2026-03-11
 
 ## Directory Layout
 
 ```
 gabi-kimi/
-├── src/
-│   ├── backend/
-│   │   ├── apps/                # API servers, CLIs, middleware
-│   │   │   ├── middleware/      # Security middleware (rate limiting, CSP)
-│   │   │   ├── web_server.py    # FastAPI HTTP server
-│   │   │   ├── mcp_server.py    # MCP server (general search)
-│   │   │   ├── mcp_es_server.py # MCP server (Elasticsearch-specific)
-│   │   │   ├── auth.py          # Token auth + session cookies
-│   │   │   ├── chat_security.py # Chat endpoint security
-│   │   │   ├── commitment_cli.py# CRSS-1 commitment CLI
-│   │   │   └── schema_sync.py   # Schema sync CLI wrapper
-│   │   ├── ingest/              # Data ingestion pipeline modules
-│   │   │   ├── orchestrator.py  # Top-level pipeline coordinator
-│   │   │   ├── bulk_pipeline.py # Date-range bulk ingestion
-│   │   │   ├── sync_pipeline.py # Incremental sync pipeline
-│   │   │   ├── zip_downloader.py# ZIP download from in.gov.br
-│   │   │   ├── xml_parser.py    # INLabs XML parser
-│   │   │   ├── normalizer.py    # Field normalization + hashing
-│   │   │   ├── dou_ingest.py    # Full DOU schema ingestor (NLP enrichment)
-│   │   │   ├── html_extractor.py# HTML/NLP extraction (signatures, references)
-│   │   │   ├── image_checker.py # Document image resolution
-│   │   │   ├── multipart_merger.py # Multi-part article merging
-│   │   │   ├── chunker.py       # Document chunking for RAG
-│   │   │   ├── embedding_pipeline.py # Vector embedding generation
-│   │   │   ├── es_indexer.py    # Elasticsearch document indexer
-│   │   │   ├── bm25_indexer.py  # PostgreSQL BM25 indexer
-│   │   │   ├── catalog_scraper.py # in.gov.br catalog scraper
-│   │   │   ├── auto_discovery.py# Publication auto-discovery
-│   │   │   ├── discovery_probe.py # Discovery probe utilities
-│   │   │   ├── discovery_registry.py # Discovery state tracking
-│   │   │   ├── identity_analyzer.py # Document identity analysis
-│   │   │   ├── date_selector.py # Date range utilities
-│   │   │   ├── sample_download.py # Sample data downloader
-│   │   │   └── media_backfill.py# Media backfill operations
-│   │   ├── search/              # Search backend adapters
-│   │   │   ├── adapters.py      # PG/ES/Hybrid search adapters
-│   │   │   ├── norm_queries.py  # Legal norm query detection
-│   │   │   ├── redis_signals.py # Redis query analytics/caching
-│   │   │   ├── es_index_v1.json # ES document index mapping
-│   │   │   └── es_chunks_v1.json# ES chunks index mapping
-│   │   ├── commitment/          # Cryptographic commitment (CRSS-1)
-│   │   │   ├── crss1.py         # Canonical serialization
-│   │   │   ├── tree.py          # Merkle tree construction
-│   │   │   ├── chain.py         # Anchor chaining
-│   │   │   ├── anchor.py        # Anchor file persistence
-│   │   │   └── verify.py        # Commitment verification
-│   │   └── dbsync/              # Declarative schema management
-│   │       ├── loader.py        # YAML model loader
-│   │       ├── introspect.py    # PostgreSQL catalog introspection
-│   │       ├── planner.py       # Migration planner
-│   │       ├── differ.py        # Schema diff engine
-│   │       ├── executor.py      # Migration executor
-│   │       ├── registry_ingest.py # Registry ingestion
-│   │       ├── schema_sync.py   # Schema sync CLI entrypoint
-│   │       ├── dou_schema.sql   # DOU schema SQL
-│   │       ├── registry_schema.sql
-│   │       ├── bm25_schema.sql
-│   │       └── download_registry_schema.sql
-│   └── frontend/
-│       └── web/                 # React SPA (Vite + shadcn/ui)
-│           ├── src/
-│           │   ├── pages/       # Route-level page components
-│           │   ├── components/  # Shared UI components
-│           │   │   └── ui/      # shadcn/ui primitives
-│           │   ├── hooks/       # Custom React hooks
-│           │   ├── lib/         # Utility functions
-│           │   ├── test/        # Test setup + test files
-│           │   ├── App.tsx      # Root component with routing
-│           │   ├── main.tsx     # React entry point
-│           │   └── index.css    # Global styles + Tailwind
-│           ├── package.json
-│           ├── tailwind.config.ts
-│           ├── vite.config.ts
-│           └── tsconfig.json
-├── config/
-│   ├── sources/
-│   │   ├── sources_v3.yaml      # Data model DSL (schema source of truth)
-│   │   └── sources_v3.identity-test.yaml
-│   ├── production.yaml          # Production pipeline config
-│   ├── pipeline_config.example.yaml
-│   └── systemd/                 # Systemd service/timer units
-│       ├── gabi-ingest.service
-│       └── gabi-ingest.timer
-├── ops/
-│   ├── bin/                     # Thin CLI launchers (sys.path wrappers)
-│   │   ├── web_server.py
-│   │   ├── mcp_server.py
-│   │   ├── mcp_es_server.py
-│   │   ├── commitment_cli.py
-│   │   └── schema_sync.py
-│   ├── scripts/                 # Operational scripts
-│   │   ├── daily_sync.sh
-│   │   ├── run_overnight_chain.sh
-│   │   ├── backfill_chunks.py
-│   │   ├── backfill_embeddings.py
-│   │   ├── reprocess_2002.py
-│   │   ├── cleanup.sh
-│   │   └── deploy.sh
-│   ├── local/                   # Local dev infrastructure
-│   │   ├── docker-compose.yml   # PostgreSQL + Elasticsearch + Redis
-│   │   ├── db_control.py
-│   │   └── infra_manager.py
-│   ├── deploy/                  # Deployment configs
-│   │   ├── postgres/            # PostgreSQL Dockerfile + fly.toml
-│   │   ├── web/                 # Web server Dockerfile + fly.toml
-│   │   └── frontend-static/     # Static frontend nginx + fly.toml
-│   ├── data/                    # Runtime data (cursors, registries, logs)
-│   │   ├── dou_catalog_registry.json  # Month-to-folder-ID mapping
-│   │   ├── es_sync_cursor.json
-│   │   ├── es_chunks_sync_cursor.json
-│   │   └── logs/
-│   └── proofs/                  # Commitment proofs
-│       ├── anchors/             # Anchor chain files
-│       │   └── 0000-bootstrap.json
-│       └── crss1-golden/        # Golden test vectors
-├── tests/                       # Python test files
-│   ├── test_commitment.py
-│   ├── test_seal_roundtrip.py
-│   ├── test_bulk_pipeline.py
-│   ├── test_image_checker.py
-│   ├── test_search_adapters.py
-│   └── test_dou_ingest.py
-├── docs/                        # Documentation
-├── var/                         # Runtime variable data
-├── .env                         # Environment variables (DO NOT read)
-├── .env.example                 # Example environment template
-├── .mcp.json                    # MCP server configurations
-├── requirements.txt             # Python dependencies
-└── .gitignore
+├── .agents/                  # AI agent skills and configurations
+│   └── skills/mcp/           # MCP-related skills
+├── .claude/                  # Claude Code settings
+├── .cursor/                  # Cursor IDE settings
+├── .dev/                     # Development tooling (not production code)
+│   ├── bench/                # Search benchmark framework
+│   ├── mcp/                  # Development MCP server (dev-converge)
+│   ├── json-render-mcp/      # JSON rendering MCP server
+│   ├── ui-copilot-mcp/       # UI assistance MCP server
+│   └── shannon/              # Shannon helper MCP server
+├── .planning/                # Planning documents and codebase analysis
+│   └── codebase/             # Architecture and structure docs
+├── archive_legacy/           # Deprecated code (not in use)
+│   └── src/backend/          # Legacy backend implementations
+├── docs/                     # Project documentation
+├── ops/                      # Operational scripts and data
+│   ├── bin/                  # Executable scripts (MCP server)
+│   ├── data/                 # Catalog registry, cursor state
+│   └── sql/                  # SQL schemas (export tooling)
+├── src/                      # Main source code
+│   └── backend/              # Backend Python modules
+│       ├── api/              # FastAPI routes (placeholder)
+│       ├── core/             # Configuration
+│       ├── data/             # Database, models
+│       ├── ingest/           # Ingestion pipeline
+│       ├── search/           # ES mappings
+│       ├── services/         # Business logic (placeholder)
+│       └── utils/            # Utilities (placeholder)
+├── sync_dou.py               # Main ingestion orchestrator
+├── .env                      # Environment variables (not committed)
+├── .env.example              # Environment template
+├── .mcp.json                 # MCP server configurations
+├── AGENTS.md                 # AI coding agent guidelines
+├── README.md                 # Project overview
+└── requirements.txt          # Python dependencies
 ```
 
 ## Directory Purposes
 
-**`src/backend/ingest/`:**
-- Purpose: All data pipeline modules for DOU publication ingestion
-- Contains: ~24 Python modules covering discovery, download, parsing, normalization, indexing, embedding
-- Key files: `orchestrator.py` (top-level coordinator), `bulk_pipeline.py` (date-range ingestion), `dou_ingest.py` (full schema ingestor with NLP enrichment), `xml_parser.py` (INLabs XML parsing)
+### `src/backend/`
+- Purpose: Core backend logic for DOU processing and search
+- Contains: Python modules organized by layer
+- Key files: `core/config.py`, `data/db.py`, `ingest/*.py`
 
-**`src/backend/search/`:**
-- Purpose: Search query execution across multiple backends
-- Contains: Adapter pattern implementations, legal norm detection, Redis caching
-- Key files: `adapters.py` (3 search adapters: PG, ES, Hybrid), `norm_queries.py` (legal norm pattern matching), `redis_signals.py` (query analytics)
+### `src/backend/core/`
+- Purpose: Centralized configuration management
+- Contains: Pydantic Settings class
+- Key files: `config.py`
 
-**`src/backend/commitment/`:**
-- Purpose: CRSS-1 cryptographic commitment chain for data integrity
-- Contains: Canonical serialization, Merkle trees, anchor chaining, verification
-- Key files: `crss1.py` (serialization spec), `tree.py` (Merkle construction), `chain.py` (append-only chain)
+### `src/backend/data/`
+- Purpose: Database connections and data models
+- Contains: MongoDB singleton, Pydantic models
+- Key files: `db.py`, `models/document.py`
 
-**`src/backend/dbsync/`:**
-- Purpose: Declarative schema management from YAML to PostgreSQL
-- Contains: YAML loader, PostgreSQL introspection, diff engine, migration executor
-- Key files: `loader.py` (parses sources_v3.yaml), `differ.py` (schema diff), `executor.py` (applies migrations)
+### `src/backend/ingest/`
+- Purpose: Data ingestion pipeline components
+- Contains: Downloaders, processors, indexers
+- Key files: `downloader.py`, `dou_processor.py`, `es_indexer.py`
 
-**`src/backend/apps/`:**
-- Purpose: Application-level servers, CLIs, and middleware
-- Contains: FastAPI web server, two MCP servers, auth, security middleware
-- Key files: `web_server.py` (main HTTP API), `mcp_server.py` + `mcp_es_server.py` (MCP tools), `auth.py` (token + session auth)
+### `src/backend/search/`
+- Purpose: Search infrastructure definitions
+- Contains: Elasticsearch index mappings
+- Key files: `es_index_v1.json`
 
-**`src/frontend/web/`:**
-- Purpose: React SPA for search and document reading
-- Contains: Vite project with React 18, shadcn/ui components, Tailwind CSS
-- Key files: `src/App.tsx` (routing), `src/pages/` (5 pages), `src/components/` (~20 custom components + shadcn primitives)
+### `ops/`
+- Purpose: Operational scripts and runtime data
+- Contains: Shell scripts, MCP server, test utilities
+- Key files: `bin/mcp_es_server.py`, `setup_elasticsearch.sh`
 
-**`ops/`:**
-- Purpose: Operational tooling, scripts, deployment configs, runtime data
-- Contains: CLI launchers, shell scripts, Docker configs, Fly.io configs, data cursors
-- Key files: `bin/` (thin launchers), `local/docker-compose.yml` (dev infrastructure), `data/dou_catalog_registry.json` (catalog mapping)
+### `ops/data/`
+- Purpose: Runtime data files
+- Contains: Catalog registry, cursor state
+- Key files: `dou_catalog_registry.json`
 
-**`config/`:**
-- Purpose: Application configuration files
-- Contains: Data model YAML, production pipeline config, systemd units
-- Key files: `sources/sources_v3.yaml` (schema source of truth), `production.yaml` (pipeline config)
+### `.dev/`
+- Purpose: Development and benchmarking tools
+- Contains: MCP servers for AI development, benchmark framework
+- Not part of production deployment
 
-**`tests/`:**
-- Purpose: Python test suite
-- Contains: 6 test files covering commitment, pipeline, search, and ingestion
+### `archive_legacy/`
+- Purpose: Deprecated code preserved for reference
+- Contains: Old backend implementations with Postgres, workers
+- Not in active use
 
 ## Key File Locations
 
-**Entry Points:**
-- `src/backend/apps/web_server.py`: FastAPI HTTP server (main API)
-- `src/backend/apps/mcp_server.py`: MCP server for general DOU search
-- `src/backend/apps/mcp_es_server.py`: MCP server for Elasticsearch operations
-- `src/backend/ingest/orchestrator.py`: Full automated pipeline
-- `src/backend/ingest/bulk_pipeline.py`: Date-range bulk ingestion
-- `src/backend/ingest/sync_pipeline.py`: Incremental sync
-- `src/frontend/web/src/main.tsx`: React SPA entry
+### Entry Points
+- `sync_dou.py`: Main ingestion orchestrator
+- `src/backend/main.py`: FastAPI application
+- `ops/bin/mcp_es_server.py`: MCP search server
 
-**Configuration:**
-- `config/sources/sources_v3.yaml`: Data model DSL (schema source of truth)
-- `config/production.yaml`: Production pipeline configuration
-- `.env` / `.env.example`: Environment variables
-- `.mcp.json`: MCP server definitions
-- `ops/local/docker-compose.yml`: Local dev infrastructure (Postgres, ES, Redis)
+### Configuration
+- `src/backend/core/config.py`: Settings class definition
+- `.env`: Environment variables (secrets, paths)
+- `.env.example`: Environment template
+- `.mcp.json`: MCP server configurations
 
-**Core Domain Logic:**
-- `src/backend/ingest/xml_parser.py`: DOUArticle dataclass and XML parsing
-- `src/backend/ingest/normalizer.py`: Field normalization and content hashing
-- `src/backend/ingest/dou_ingest.py`: Full document ingestion with NLP enrichment
-- `src/backend/search/adapters.py`: SearchAdapter protocol + 3 implementations
-- `src/backend/commitment/crss1.py`: CRSS-1 canonical serialization
+### Core Logic
+- `src/backend/ingest/downloader.py`: ZIP download from in.gov.br
+- `src/backend/ingest/dou_processor.py`: XML parsing and document creation
+- `src/backend/ingest/es_indexer.py`: MongoDB to Elasticsearch sync
 
-**Database Schemas:**
-- `src/backend/dbsync/dou_schema.sql`: DOU schema DDL
-- `src/backend/dbsync/registry_schema.sql`: Registry schema DDL
-- `src/backend/dbsync/bm25_schema.sql`: BM25 search schema DDL
-- `src/backend/search/es_index_v1.json`: Elasticsearch document mapping
-- `src/backend/search/es_chunks_v1.json`: Elasticsearch chunks mapping
+### Data Definitions
+- `src/backend/data/models/document.py`: DouDocument Pydantic model
+- `src/backend/search/es_index_v1.json`: Elasticsearch mapping
+- `ops/data/dou_catalog_registry.json`: DOU catalog (folder IDs, filenames)
 
-**Testing:**
-- `tests/test_commitment.py`: CRSS-1 commitment tests
-- `tests/test_seal_roundtrip.py`: Seal round-trip verification
-- `tests/test_bulk_pipeline.py`: Bulk pipeline tests
-- `tests/test_search_adapters.py`: Search adapter tests
-- `tests/test_dou_ingest.py`: DOU ingestion tests
-- `src/frontend/web/src/test/example.test.ts`: Frontend example test
+### State Files
+- `src/backend/data/es_sync_cursor.json`: ES sync cursor state
+- `ops/data/ingest_progress.log`: Ingestion progress log
 
 ## Naming Conventions
 
-**Files (Python):**
-- `snake_case.py` for all modules: `xml_parser.py`, `bulk_pipeline.py`, `es_indexer.py`
-- `__init__.py` in every package directory
+### Files
+- **Python modules**: `snake_case.py` (e.g., `dou_processor.py`, `es_indexer.py`)
+- **Configuration**: `snake_case.json` (e.g., `es_index_v1.json`)
+- **Shell scripts**: `snake_case.sh` (e.g., `setup_elasticsearch.sh`)
+- **Markdown**: `UPPERCASE.md` for docs (e.g., `ARCHITECTURE.md`)
 
-**Files (TypeScript/React):**
-- `PascalCase.tsx` for components and pages: `AppShell.tsx`, `SearchBar.tsx`, `HomePage.tsx`
-- `camelCase.ts` for utilities and hooks: `sectionParser.ts`, `useDeepLink.ts`
-- `ui/` directory contains lowercase shadcn primitives: `button.tsx`, `card.tsx`
+### Directories
+- **Python packages**: `snake_case/` (e.g., `ingest/`, `data/`)
+- **Operational**: Short names (`ops/`, `bin/`)
+- **Hidden**: Dot-prefix for tooling (`.dev/`, `.agents/`)
 
-**Directories:**
-- `snake_case` for Python packages: `ingest/`, `dbsync/`, `commitment/`
-- `kebab-case` for ops directories: `frontend-static/`, `crss1-golden/`
-- `camelCase` or `lowercase` for frontend: `components/`, `hooks/`, `lib/`, `pages/`
-
-**Python Modules:**
-- Prefix private helpers with `_`: `_log()`, `_nfc()`, `_build_dsn()`
-- CLI entrypoints use `main()` function + `if __name__ == "__main__": raise SystemExit(main())`
-- Dataclasses use `slots=True` and often `frozen=True`
-
-**SQL Files:**
-- `{domain}_schema.sql` pattern: `dou_schema.sql`, `bm25_schema.sql`, `registry_schema.sql`
+### Code Elements
+- **Classes**: `PascalCase` (e.g., `DouDocument`, `ESClient`, `MongoDB`)
+- **Functions**: `snake_case` (e.g., `parse_date()`, `generate_id()`)
+- **Constants**: `UPPER_SNAKE` (e.g., `BASE_URL`, `GROUP_ID`, `_MAPPING_PATH`)
+- **Private functions**: Leading underscore (e.g., `_log()`, `_mongo_to_es()`)
 
 ## Where to Add New Code
 
-**New Ingest Pipeline Module:**
-- Primary code: `src/backend/ingest/{module_name}.py`
-- Tests: `tests/test_{module_name}.py`
-- Wire into: `src/backend/ingest/orchestrator.py` or `src/backend/ingest/bulk_pipeline.py`
+### New Ingestion Stage
+- Implementation: `src/backend/ingest/<stage_name>.py`
+- Integration: Import in `sync_dou.py` and add to pipeline
 
-**New API Endpoint:**
-- Add route to: `src/backend/apps/web_server.py`
-- Add payload builder to: `src/backend/apps/mcp_server.py` (if shared with MCP)
-- Add security rules to: `src/backend/apps/middleware/security.py`
+### New Search Feature
+- MCP tool: `ops/bin/mcp_es_server.py` (add function, decorate with `@mcp.tool()`)
+- ES mapping: `src/backend/search/es_index_v1.json` (add fields)
+- Indexer: `src/backend/ingest/es_indexer.py` (update `_mongo_to_es()`)
 
-**New MCP Tool:**
-- Add to: `src/backend/apps/mcp_server.py` or `src/backend/apps/mcp_es_server.py`
-- Register with: `mcp.tool()` decorator
+### New Document Field
+- Model: `src/backend/data/models/document.py` (add to DouDocument)
+- Processor: `src/backend/ingest/dou_processor.py` (extract in `process_xml()`)
+- ES mapping: `src/backend/search/es_index_v1.json` (add field definition)
+- Indexer: `src/backend/ingest/es_indexer.py` (include in `_mongo_to_es()`)
 
-**New Search Backend:**
-- Implement `SearchAdapter` protocol in: `src/backend/search/adapters.py`
-- Update factory: `create_search_adapter()` in same file
+### New MCP Server
+- Implementation: `ops/bin/<server_name>.py` or `.dev/<name>/`
+- Configuration: Add to `.mcp.json` under `mcpServers`
 
-**New Frontend Page:**
-- Create page component: `src/frontend/web/src/pages/{PageName}.tsx`
-- Add lazy import + route in: `src/frontend/web/src/App.tsx`
-- Add nav link in: `src/frontend/web/src/components/AppShell.tsx`
+### New Utility Script
+- Operational: `ops/<script_name>.py`
+- Development: `.dev/<script_name>.py`
 
-**New Frontend Component:**
-- Shared component: `src/frontend/web/src/components/{ComponentName}.tsx`
-- shadcn/ui primitive: `src/frontend/web/src/components/ui/{component}.tsx`
-- Custom hook: `src/frontend/web/src/hooks/{hookName}.ts`
-- Utility: `src/frontend/web/src/lib/{utilName}.ts`
-
-**New Database Entity:**
-- Add entity to: `config/sources/sources_v3.yaml`
-- Run schema sync: `python ops/bin/schema_sync.py plan` then `apply`
-
-**New CLI Command:**
-- Add app module: `src/backend/apps/{command_name}.py`
-- Add thin launcher: `ops/bin/{command_name}.py` (sys.path setup + import)
-
-**New Operational Script:**
-- Add to: `ops/scripts/{script_name}.py` or `ops/scripts/{script_name}.sh`
+### Tests
+- Location: Co-located with source (e.g., `src/backend/ingest/test_es_indexer.py`)
+- Pattern: `test_<module_name>.py`
+- Note: Current project has ad-hoc tests in `ops/test_*.py`
 
 ## Special Directories
 
-**`ops/data/`:**
-- Purpose: Runtime data files (sync cursors, catalog registry, logs)
-- Generated: Yes (by pipeline runs)
-- Committed: Partially (registry JSON is committed; cursor files and logs are gitignored)
+### `.dev/mcp/runs/`
+- Purpose: MCP development run artifacts
+- Contains: JSON logs, diffs, metrics from AI agent runs
+- Generated: Yes (by dev-converge MCP server)
+- Committed: Yes (for run history)
 
-**`ops/proofs/`:**
-- Purpose: Cryptographic commitment proof chain
-- Generated: Yes (by commitment sealing)
-- Committed: Yes (anchors and golden test vectors)
-
-**`ops/bin/`:**
-- Purpose: Thin CLI launcher scripts that set up sys.path and delegate to `src/backend/apps/`
+### `archive_legacy/`
+- Purpose: Deprecated code reference
+- Contains: Old implementations with Postgres, workers, web frontend
 - Generated: No
+- Committed: Yes (for reference only)
+- Note: Do not modify; kept for historical context
+
+### `ops/data/`
+- Purpose: Runtime data files
+- Contains:
+  - `dou_catalog_registry.json`: Scraped catalog of DOU ZIPs
+  - `ingest_progress.log`: Ingestion progress
+- Generated: Partially (registry scraped, log created during runs)
 - Committed: Yes
 
-**`var/`:**
-- Purpose: Runtime variable data (temp files, caches)
-- Generated: Yes
-- Committed: No (gitignored contents)
+### `src/backend/data/es_sync_cursor.json`
+- Purpose: ES sync high-water mark
+- Contains: Last indexed MongoDB `_id`
+- Generated: Yes (by es_indexer.py)
+- Committed: No (in `.gitignore`? No - currently committed)
+- Note: Should be in `.gitignore` for multi-instance deployments
 
-**`.dev/`:**
-- Purpose: Development MCP servers and tooling (ui-copilot, dev-converge, shannon, json-render)
-- Generated: No
-- Committed: Partially
+## Import Paths
+
+All imports use absolute paths from `src/`:
+
+```python
+# Correct
+from src.backend.core.config import settings
+from src.backend.data.db import MongoDB
+from src.backend.data.models.document import DouDocument
+
+# Incorrect (relative imports)
+from ..core.config import settings
+from .db import MongoDB
+```
+
+This enables:
+- Running scripts from project root: `python3 sync_dou.py`
+- Running modules: `python3 -m src.backend.ingest.es_indexer backfill`
 
 ---
 
-*Structure analysis: 2026-03-08. Legacy web/ (Alpine.js) removed Phase 10.*
+*Structure analysis: 2026-03-11*

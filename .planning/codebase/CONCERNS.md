@@ -1,181 +1,200 @@
 # Codebase Concerns
 
-**Analysis Date:** 2026-03-08
+**Analysis Date:** 2026-03-11
 
 ## Tech Debt
 
-**Monolithic web_server.py (2720 lines):**
-- Issue: `src/backend/apps/web_server.py` is the single largest file in the project. It contains API endpoints, document loading, PDF generation, chat/RAG logic, media serving, static file serving, and SPA routing all in one file.
-- Files: `src/backend/apps/web_server.py`
-- Impact: Difficult to navigate, test in isolation, or modify without risk of side effects. PDF generation alone spans ~350 lines inline.
-- Fix approach: Extract into focused modules: `src/backend/apps/routes/search.py`, `src/backend/apps/routes/chat.py`, `src/backend/apps/routes/document.py`, `src/backend/apps/pdf_export.py`, `src/backend/apps/routes/media.py`. Keep `web_server.py` as the app assembly point.
+### No Version Pinning in Requirements
+- Issue: `requirements.txt` contains unpinned dependencies without version constraints
+- Files: `requirements.txt`
+- Impact: Builds may break unexpectedly when packages release breaking changes; reproducibility compromised
+- Fix approach: Pin all dependencies with exact versions or minimum versions (e.g., `pymongo>=4.0,<5.0`)
 
-**Duplicated utility functions across modules:**
-- Issue: `_build_dsn()`, `_env_bool()`, and `_parse_csv_env()` are copy-pasted across 5+ files with identical or near-identical implementations.
-- Files: `src/backend/apps/web_server.py`, `src/backend/apps/auth.py`, `src/backend/search/adapters.py`, `src/backend/ingest/embedding_pipeline.py`, `src/backend/ingest/es_indexer.py`, `src/backend/ingest/bm25_indexer.py`
-- Impact: Bug fixes or DSN format changes must be replicated in every copy. Risk of drift between implementations.
-- Fix approach: Create `src/backend/core/config.py` with shared `build_dsn()`, `env_bool()`, `parse_csv_env()`. Import everywhere.
+### Legacy Code Archive
+- Issue: Large `archive_legacy/` directory contains outdated code mixed with potentially useful patterns
+- Files: `archive_legacy/` (multiple files, 3500+ lines in single web_server.py)
+- Impact: Code rot, confusion about which code is active, maintenance burden
+- Fix approach: Evaluate and either delete or properly archive outside repository
 
-**Mixed psycopg2 and psycopg (v3) usage:**
-- Issue: The codebase uses both `psycopg2-binary` (sync, legacy) and `psycopg[binary]` (v3, async-capable). Web server and search adapters use psycopg2; dbsync and registry_ingest use psycopg v3.
-- Files: `src/backend/apps/web_server.py` (psycopg2), `src/backend/apps/mcp_server.py` (psycopg2), `src/backend/search/adapters.py` (psycopg2), `src/backend/dbsync/registry_ingest.py` (psycopg v3), `src/backend/dbsync/executor.py` (psycopg v3)
-- Impact: Two PostgreSQL driver dependencies to maintain. Inconsistent connection patterns. psycopg2 blocks the event loop in async FastAPI handlers.
-- Fix approach: Migrate all modules to psycopg v3. Use async connections in FastAPI endpoints. Remove psycopg2-binary from requirements.
+### Global Mutable State in DB Connection
+- Issue: `MongoDB` class uses class-level mutable state for connection singleton
+- Files: `src/backend/data/db.py`
+- Impact: Thread safety concerns, testing difficulties, hidden dependencies
+- Fix approach: Use dependency injection or context manager pattern
 
-**No database connection pooling in web server:**
-- Issue: Every API request creates a new `psycopg2.connect()` call and closes the connection after use. No connection pool.
-- Files: `src/backend/apps/web_server.py:171-177` (`_conn()` function)
-- Impact: Under load, connection churn causes PostgreSQL overhead and potential connection exhaustion. Each request pays TCP + auth latency.
-- Fix approach: Use `psycopg_pool.AsyncConnectionPool` (psycopg v3) or `psycopg2.pool.ThreadedConnectionPool` in the lifespan context manager.
-
-**Hardcoded default credentials in DSN construction:**
-- Issue: Multiple files contain `password=gabi` as a hardcoded default fallback when environment variables are not set.
-- Files: `src/backend/apps/web_server.py:80`, `src/backend/apps/mcp_server.py:61`, `src/backend/search/adapters.py:37`, `src/backend/ingest/embedding_pipeline.py:53`, `src/backend/ingest/es_indexer.py:45`, `src/backend/ingest/orchestrator.py:51`, `src/backend/ingest/auto_discovery.py:56`, `src/backend/dbsync/schema_sync.py:16`
-- Impact: Production risk if environment variables are missing -- silently connects with dev credentials. No fail-fast for misconfiguration.
-- Fix approach: Remove default password values. Require explicit environment variable or fail with a clear error message at startup.
-
-**Legacy standalone HTML frontend (resolved Phase 10):**
-- Was: `web/index.html` (Alpine.js) and fallback in web_server. React SPA is now the only frontend; `web/` and legacy fallback removed.
+### Duplicated Environment Handling
+- Issue: Multiple files read environment variables directly with `os.getenv()` instead of using centralized `Settings`
+- Files: `src/backend/ingest/es_indexer.py` (lines 42-44, 100-107), `ops/bin/mcp_es_server.py` (lines 144-151)
+- Impact: Configuration drift, harder to maintain, inconsistent defaults
+- Fix approach: Consolidate all config in `src/backend/core/config.py` `Settings` class
 
 ## Known Bugs
 
-**Synchronous DB calls blocking async event loop:**
-- Symptoms: FastAPI chat endpoint is `async def` but calls synchronous `psycopg2.connect()` and cursor operations that block the event loop.
-- Files: `src/backend/apps/web_server.py:2238-2572` (`api_chat`), `src/backend/apps/web_server.py:171-177` (`_conn()`)
-- Trigger: Any chat or document request under concurrent load.
-- Workaround: FastAPI runs sync endpoints in a thread pool, but `api_chat` is explicitly async, so DB calls block the main thread.
+### MCP Server Tool Mismatch
+- Issue: `src/backend/mcp_server.py` uses MongoDB Atlas Search aggregation but actual MCP server in `ops/bin/mcp_es_server.py` uses Elasticsearch
+- Files: `src/backend/mcp_server.py`, `ops/bin/mcp_es_server.py`
+- Trigger: Running the documented MCP server
+- Impact: Confusion, wrong code path used, docstrings claim "hybrid search (BM25 + Vector)" but implementation uses Atlas Search
+- Workaround: Use `ops/bin/mcp_es_server.py` as documented in AGENTS.md
+
+### Empty Return Without Logging
+- Issue: Multiple functions return `None` or empty lists without logging why
+- Files: `src/backend/ingest/dou_processor.py` (lines 165, 169, 178, 291), `src/backend/ingest/downloader.py` (lines 36, 62)
+- Impact: Silent failures make debugging difficult; data may be lost without visibility
+- Fix approach: Add logging before all early returns
+
+### Year Extraction Bug
+- Issue: `extract_structured_data()` extracts year incorrectly - matches `19` or `20` instead of full year
+- Files: `src/backend/ingest/dou_processor.py` (line 104)
+- Impact: `act_year` will be `19` or `20` instead of `2019`, `2020`, etc.
+- Trigger: Documents with year in identifica field
+- Fix approach: Change regex from `r'\b(19|20)\d{2}\b'` to capture full year, or use `match_year.group(0)`
 
 ## Security Considerations
 
-**In-memory WAF state not shared across workers:**
-- Risk: `BLOCKED_IPS` and `SCAN_SCORES` dicts in `security_middleware.py` are process-local. With multiple Uvicorn workers, a scanner hitting different workers never accumulates enough score to be blocked.
-- Files: `src/backend/apps/middleware/security_middleware.py:37-38`
-- Current mitigation: Rate limiting via Redis is available separately.
-- Recommendations: Move WAF block state to Redis or use a shared-memory mechanism. Consider removing in-memory WAF in favor of Redis-only rate limiting.
+### Unvalidated External XML Input
+- Risk: XML files from external source (in.gov.br) are parsed without schema validation
+- Files: `src/backend/ingest/dou_processor.py` (line 21 - `etree.XMLParser(recover=True)`)
+- Current mitigation: `recover=True` prevents crashes from malformed XML
+- Recommendations: Add XML schema validation; consider limiting entity expansion (XXE protection)
 
-**Session secret auto-derived from token hashes:**
-- Risk: When `GABI_AUTH_SECRET` is not set, the session signing secret is derived from a hash of configured API tokens. If tokens change, all sessions are invalidated. If tokens are leaked, the session secret is also compromised.
-- Files: `src/backend/apps/auth.py:73-77`
-- Current mitigation: Works for single-instance dev; production should set `GABI_AUTH_SECRET`.
-- Recommendations: Log a warning at startup when `GABI_AUTH_SECRET` is not set. Require it when `FLY_APP_NAME` is present (production).
+### No TLS Certificate Validation Override
+- Risk: `ES_VERIFY_TLS` environment variable can disable TLS verification
+- Files: `src/backend/ingest/es_indexer.py` (line 103), `ops/bin/mcp_es_server.py` (line 148)
+- Current mitigation: Defaults to `True`
+- Recommendations: Document clearly when this should be used (dev only), add warning log when disabled
 
-**Qwen API key passed through without validation:**
-- Risk: The chat endpoint forwards user messages to DashScope Qwen API. If `QWEN_API_KEY` is empty, chat silently falls back to static responses rather than clearly indicating misconfiguration.
-- Files: `src/backend/apps/web_server.py:84`, `src/backend/apps/web_server.py:2479-2489`
-- Current mitigation: Fallback to RAG-only responses when API key is missing.
-- Recommendations: Add startup validation. Log warning when QWEN_API_KEY is empty.
+### MongoDB Connection String in Environment
+- Risk: `MONGO_STRING` may contain credentials in connection URI
+- Files: `src/backend/core/config.py`
+- Current mitigation: Loaded from `.env` file which is in `.gitignore`
+- Recommendations: Consider using separate username/password fields for credential rotation
+
+### External Download Without Integrity Verification
+- Risk: ZIP files downloaded from in.gov.br are not verified for integrity beyond HTTP status
+- Files: `src/backend/ingest/downloader.py` (lines 46-61)
+- Current mitigation: HTTP status check
+- Recommendations: Add checksum verification if available from source
 
 ## Performance Bottlenecks
 
-**Per-request database connections:**
-- Problem: Every API request opens a new database connection, executes queries, and closes it.
-- Files: `src/backend/apps/web_server.py:171-177`
-- Cause: No connection pooling. `_conn()` creates a fresh `psycopg2.connect()` each time.
-- Improvement path: Implement connection pooling in the FastAPI lifespan. Use `psycopg_pool.AsyncConnectionPool` for async endpoints.
+### No Rate Limiting on External Downloads
+- Problem: `DouDownloader` makes requests without rate limiting or backoff for server errors
+- Files: `src/backend/ingest/downloader.py`
+- Cause: No retry logic or exponential backoff for 429/5xx responses
+- Impact: May overwhelm external server or get blocked
+- Improvement path: Add `tenacity` library for retries with exponential backoff
 
-**Document detail page fires 5 sequential queries:**
-- Problem: Loading a single document requires 5 separate SQL queries executed sequentially (document, normative_refs, procedure_refs, signatures, media).
-- Files: `src/backend/apps/web_server.py:228-298` (`_load_document_payload`)
-- Cause: Separate queries for each related table rather than a single joined query or parallel execution.
-- Improvement path: Use a single query with LEFT JOINs and `json_agg()` to fetch all related data in one round trip.
+### Large File Processing in Memory
+- Problem: ZIP files are loaded entirely into memory before processing
+- Files: `src/backend/ingest/dou_processor.py` (line 298 - `io.BytesIO(zip_bytes)`)
+- Cause: Design decision for simplicity
+- Impact: Memory pressure with large archives, potential OOM
+- Improvement path: Stream to disk first, process from disk
 
-**Search adapter loads embedding model on import:**
-- Problem: `src/backend/search/adapters.py` imports from `src/backend/ingest/embedding_pipeline.py` at module level, which can trigger model loading even when hybrid search is not configured.
-- Files: `src/backend/search/adapters.py:16`
-- Cause: Direct import of `_create_embedder` and `_load_embed_config` at top of file.
-- Improvement path: Lazy-import embedding pipeline only when hybrid/vector search is actually used.
+### Cursor File as Single Point of Failure
+- Problem: ES sync cursor stored in single JSON file; corruption causes data loss or re-processing
+- Files: `src/backend/ingest/es_indexer.py` (lines 48-63)
+- Cause: Simple file-based persistence
+- Impact: Must re-run full backfill if cursor file corrupted
+- Improvement path: Store cursor in MongoDB alongside documents
+
+### Bulk Write Without Batch Size Limit
+- Problem: `ingest_documents()` creates operations for all documents without chunking
+- Files: `sync_dou.py` (lines 31-58)
+- Cause: Assuming batch is from single ZIP
+- Impact: Memory exhaustion with large ZIP files
+- Improvement path: Add configurable batch size and chunk operations
 
 ## Fragile Areas
 
-**Chat RAG pipeline in web_server.py:**
-- Files: `src/backend/apps/web_server.py:2050-2572`
-- Why fragile: Complex control flow with nested helper functions (`_chat_search`, `_is_off_topic`, `_should_use_rag`), inline regex patterns for Portuguese NLP, multiple fallback paths (RAG only, Qwen only, static response). Hardcoded Portuguese stop words and off-topic patterns.
-- Safe modification: Test with diverse Portuguese queries. Ensure fallback chain works when Qwen API is down.
-- Test coverage: No automated tests cover chat endpoint behavior.
+### Disk Space Management
+- Files: `sync_dou.py` (lines 144-147), `sync_dou.py` (lines 65-107)
+- Why fragile: Critical check at 2GB threshold; archive to iCloud can fail silently; cleanup may not run if process crashes
+- Safe modification: Increase threshold, add pre-flight checks, implement transactional cleanup
+- Test coverage: None
 
-**PDF generation inline in web_server.py:**
-- Files: `src/backend/apps/web_server.py:700-1080` (approximately)
-- Why fragile: ~380 lines of ReportLab PDF generation code with hardcoded layout constants, font sizes, and page templates. Mixed with API endpoint logic.
-- Safe modification: Extract to standalone module. Add visual regression tests for PDF output.
-- Test coverage: No tests for PDF generation.
+### ES Index Schema Migration
+- Files: `src/backend/search/es_index_v1.json`, `src/backend/ingest/es_indexer.py`
+- Why fragile: `--recreate-index` destroys all data; no migration path for schema changes
+- Safe modification: Create versioned indexes, implement zero-downtime reindexing
+- Test coverage: None
 
-**XML parser blob splitting heuristic:**
-- Files: `src/backend/ingest/xml_parser.py:373`
-- Why fragile: Uses a hardcoded `_BLOB_MIN_LENGTH = 15000` threshold to decide when to split document bodies. Sensitive to document structure changes from INLabs.
-- Safe modification: Validate against XML fixtures in `tests/fixtures/xml_samples/`.
-- Test coverage: Partial -- fixture-based tests exist but may not cover edge cases.
+### Date Parsing with Single Format
+- Files: `src/backend/ingest/dou_processor.py` (lines 23-31)
+- Why fragile: Only handles `DD/MM/YYYY` format; documents with different date formats return `None`
+- Safe modification: Add fallback formats or use dateutil parser
+- Test coverage: None
 
 ## Scaling Limits
 
-**Redis optional / graceful degradation:**
-- Current capacity: Redis is optional. All Redis operations silently return empty results on failure (`src/backend/search/redis_signals.py`).
-- Limit: Without Redis, features like top searches, search result caching, suggest caching, and rate limiting are silently disabled. No alerts.
-- Scaling path: Make Redis required in production. Add health check endpoint that reports Redis connectivity status.
+### Single-Threaded Ingestion
+- Current capacity: Processes one ZIP file at a time sequentially
+- Limit: Throughput bounded by single-thread performance and network I/O
+- Scaling path: Implement parallel ZIP processing with multiprocessing or async
 
-**Single-process ingestion pipeline:**
-- Current capacity: Bulk pipeline processes dates sequentially within a single process.
-- Limit: Backfilling large date ranges (years of data) is slow. No parallelism across dates.
-- Scaling path: Add multiprocessing or task queue (Celery/RQ) for parallel date ingestion.
+### MongoDB Connection Pool
+- Current capacity: Single MongoClient instance shared globally
+- Limit: Default connection pool (100 connections) may be insufficient for high concurrency
+- Scaling path: Configure `maxPoolSize` explicitly, monitor connection usage
+
+### Elasticsearch Batch Size
+- Current capacity: 2000 documents per batch (configurable)
+- Limit: Large documents may hit request size limits
+- Scaling path: Implement adaptive batch sizing based on document size
 
 ## Dependencies at Risk
 
-**psycopg2-binary alongside psycopg:**
-- Risk: Maintaining two PostgreSQL drivers increases dependency surface. psycopg2 is in maintenance mode; psycopg v3 is the future.
-- Impact: psycopg2-binary may not receive timely updates for new PostgreSQL versions.
-- Migration plan: Replace all psycopg2 usage with psycopg v3 (already used in dbsync modules). Remove psycopg2-binary from `requirements.txt`.
+### `mcp` Package (Unpinned)
+- Risk: Fast-moving API, potential breaking changes
+- Impact: MCP server may break on package update
+- Migration plan: Pin version, monitor changelog
 
-**Unpinned dependency versions:**
-- Risk: `requirements.txt` uses `>=` minimum versions with no upper bounds. A `pip install` can pull breaking changes.
-- Files: `requirements.txt`
-- Impact: Builds are not reproducible. Dependency updates may silently break functionality.
-- Migration plan: Add a `requirements.lock` or use `pip-compile` to pin exact versions. Keep `requirements.txt` for minimum bounds.
+### `lxml` Package
+- Risk: C extension, may have platform-specific issues
+- Impact: Installation failures on some systems
+- Migration plan: Consider pure-Python fallback (defusedxml) for development
 
 ## Missing Critical Features
 
-**No frontend test coverage:**
-- Problem: The React frontend has only a placeholder test (`src/frontend/web/src/test/example.test.ts`) that asserts `true === true`.
-- Blocks: Cannot refactor frontend components with confidence. No regression detection.
+### No Health Check Endpoint
+- Problem: No programmatic way to verify system health (MongoDB + Elasticsearch connectivity)
+- Blocks: Monitoring, automated alerts, graceful degradation
 
-**No backend API integration tests:**
-- Problem: Backend tests (`tests/`) test search adapters and ingest pipeline in isolation with mocked HTTP. No tests exercise FastAPI endpoints end-to-end.
-- Blocks: Cannot verify that API contract matches frontend expectations. Auth, rate limiting, and middleware interactions are untested.
+### No Graceful Shutdown
+- Problem: No signal handling for SIGTERM/SIGINT during long-running operations
+- Blocks: Clean container orchestration, safe deployments
 
-**No type checking enforced:**
-- Problem: No `mypy.ini`, `pyproject.toml` mypy config, or CI type-checking step detected for the Python backend. No `tsconfig.json` strict mode verification for frontend.
-- Blocks: Type errors caught only at runtime.
+### No Data Validation on Ingest
+- Problem: Documents are ingested without schema validation beyond Pydantic model
+- Blocks: Data quality assurance, early error detection
 
 ## Test Coverage Gaps
 
-**Chat and RAG endpoints:**
-- What's not tested: The entire `/api/chat` flow including off-topic detection, RAG search, Qwen API proxy, streaming SSE, and fallback chains.
-- Files: `src/backend/apps/web_server.py:2050-2572`
-- Risk: Regression in chat behavior goes unnoticed. Portuguese NLP heuristics may break with edge-case inputs.
+### No Unit Test Suite
+- What's not tested: All business logic in `src/backend/ingest/`
+- Files: `src/backend/ingest/dou_processor.py`, `src/backend/ingest/es_indexer.py`
+- Risk: Refactoring may introduce bugs without detection
 - Priority: High
 
-**PDF generation:**
-- What's not tested: PDF export endpoint and ReportLab template rendering.
-- Files: `src/backend/apps/web_server.py:700-1080`
-- Risk: Layout breaks, encoding issues with Portuguese characters, or missing fonts produce corrupt PDFs.
+### No Integration Tests
+- What's not tested: MongoDB operations, Elasticsearch indexing, end-to-end sync
+- Files: `sync_dou.py`, `src/backend/data/db.py`
+- Risk: Infrastructure changes may break production
+- Priority: High
+
+### Only Ad-Hoc Test Scripts
+- What's tested: Basic connectivity only
+- Files: `ops/test_mongo_connection.py`, `ops/test_extraction.py`, `ops/test_icloud_json.py`
+- Risk: Not part of CI/CD, manual execution only
 - Priority: Medium
 
-**Security middleware:**
-- What's not tested: WAF rules, scanner detection, IP blocking, path traversal prevention.
-- Files: `src/backend/apps/middleware/security_middleware.py`, `src/backend/apps/middleware/security.py`
-- Risk: Security regressions when modifying middleware. False positives blocking legitimate requests.
-- Priority: High
-
-**Auth session lifecycle:**
-- What's not tested: Session creation, cookie signing/verification, expiration, token rotation.
-- Files: `src/backend/apps/auth.py`
-- Risk: Auth bypass or session fixation issues.
-- Priority: High
-
-**Frontend components:**
-- What's not tested: All React components, pages, hooks, and API client functions.
-- Files: `src/frontend/web/src/pages/*.tsx`, `src/frontend/web/src/components/*.tsx`, `src/frontend/web/src/lib/api.ts`
-- Risk: UI regressions undetected. API contract drift between frontend types and backend responses.
+### Untested Error Paths
+- What's not tested: Network failures, invalid XML, corrupt ZIP, disk full
+- Files: All modules
+- Risk: System may crash or corrupt data on edge cases
 - Priority: Medium
 
 ---
 
-*Concerns audit: 2026-03-08*
+*Concerns audit: 2026-03-11*

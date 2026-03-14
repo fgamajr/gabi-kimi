@@ -1,211 +1,215 @@
 # Architecture
 
-**Analysis Date:** 2026-03-08
+**Analysis Date:** 2026-03-11
 
 ## Pattern Overview
 
-**Overall:** Pipeline-oriented data platform with a search API layer
+**Overall:** Pipeline-oriented batch processing with dual storage (MongoDB + Elasticsearch)
 
 **Key Characteristics:**
-- Backend-heavy Python system for ingesting Brazilian government legal publications (Diario Oficial da Uniao / DOU)
-- Multi-phase data pipeline: discover -> download -> parse -> normalize -> ingest -> index -> search
-- Single frontend: Vite+React SPA at `src/frontend/web/` (legacy Alpine.js removed in Phase 10)
-- PostgreSQL as primary data store, Elasticsearch as search index, Redis for query analytics caching
-- MCP (Model Context Protocol) servers expose search tools for AI assistants
-- Cryptographic commitment chain (CRSS-1) for data integrity verification
+- **ETL Pipeline**: Sequential stages for download, parse, store, index
+- **Dual Storage**: MongoDB as source of truth, Elasticsearch for search
+- **Cursor-based Pagination**: Stateless incremental sync using MongoDB `_id` cursors
+- **MCP Server**: External tool interface via stdio/SSE transport
+- **Pydantic Models**: Strong typing with validation throughout data layer
 
 ## Layers
 
-**Ingest Layer (Data Pipeline):**
-- Purpose: Discover, download, parse, normalize, and persist DOU publications
+### Ingestion Layer
+- Purpose: Download and parse DOU ZIP archives from in.gov.br
 - Location: `src/backend/ingest/`
-- Contains: Pipeline orchestration, ZIP downloading, XML parsing, normalization, ES indexing, embedding generation, chunking
-- Depends on: PostgreSQL (via psycopg2), Elasticsearch (via httpx), in.gov.br public APIs
-- Used by: CLI entrypoints, systemd timers, ops scripts
+- Contains:
+  - `downloader.py` - HTTP client for Liferay document portal
+  - `dou_processor.py` - XML parsing, text extraction, entity recognition
+  - `es_indexer.py` - MongoDB to Elasticsearch sync
+- Depends on: `src/backend/core/config.py`, `src/backend/data/models/`
+- Used by: `sync_dou.py` (orchestrator)
 
-**Commitment Layer (Integrity):**
-- Purpose: Cryptographic sealing of ingested data using CRSS-1 Merkle trees
-- Location: `src/backend/commitment/`
-- Contains: Canonical serialization (`crss1.py`), Merkle tree construction (`tree.py`), anchor chaining (`chain.py`), verification (`verify.py`), anchor persistence (`anchor.py`)
-- Depends on: PostgreSQL registry data, hashlib (SHA-256)
-- Used by: Ingest pipeline (sealing phase), commitment CLI
+### Data Layer
+- Purpose: Database connections and data models
+- Location: `src/backend/data/`
+- Contains:
+  - `db.py` - MongoDB singleton connection
+  - `models/document.py` - Pydantic models for DOU documents
+- Depends on: `src/backend/core/config.py`, `pymongo`, `pydantic`
+- Used by: Ingestion layer, MCP server, API layer
 
-**DBSync Layer (Schema Management):**
-- Purpose: Declarative schema reconciliation from YAML source models to PostgreSQL
-- Location: `src/backend/dbsync/`
-- Contains: YAML model loader (`loader.py`), PostgreSQL introspection (`introspect.py`), diff engine (`differ.py`), migration planner (`planner.py`), migration executor (`executor.py`), SQL schema files
-- Depends on: `config/sources/sources_v3.yaml` for desired schema, PostgreSQL catalog
-- Used by: Schema sync CLI (`src/backend/apps/schema_sync.py`)
+### Core Layer
+- Purpose: Centralized configuration management
+- Location: `src/backend/core/config.py`
+- Contains: Pydantic Settings class with environment variable binding
+- Depends on: `pydantic-settings`, `.env` file
+- Used by: All other layers
 
-**Search Layer (Query):**
-- Purpose: Multi-backend search with PostgreSQL BM25, Elasticsearch, and hybrid (BM25 + vector + RRF) retrieval
+### Search Layer
+- Purpose: Elasticsearch index definition and search utilities
 - Location: `src/backend/search/`
-- Contains: Search adapter protocol and implementations (`adapters.py`), legal norm query detection (`norm_queries.py`), Redis-backed query analytics (`redis_signals.py`)
-- Depends on: PostgreSQL, Elasticsearch, Redis, embedding models
-- Used by: MCP servers, FastAPI web server
+- Contains:
+  - `es_index_v1.json` - BM25 index mapping with Portuguese analyzer
+- Depends on: Elasticsearch cluster
+- Used by: `es_indexer.py`, MCP server
 
-**Application Layer (API & Services):**
-- Purpose: HTTP API, MCP tool servers, CLI commands, security middleware
-- Location: `src/backend/apps/`
-- Contains: FastAPI web server (`web_server.py`), MCP servers (`mcp_server.py`, `mcp_es_server.py`), auth (`auth.py`), chat security (`chat_security.py`), security middleware (`middleware/`)
-- Depends on: Search layer, ingest layer, commitment layer
-- Used by: End users (via API), AI assistants (via MCP)
+### API Layer
+- Purpose: HTTP API for frontend integration
+- Location: `src/backend/main.py`, `src/backend/api/`
+- Contains: FastAPI application with startup/shutdown hooks
+- Depends on: `src/backend/data/db.py`
+- Used by: Frontend (not yet implemented)
 
-**Frontend Layer (UI):**
-- Purpose: User-facing search and document reading interface
-- Location: `src/frontend/web/` (React SPA only)
-- Contains: React pages (Home, Search, Document, Analytics, Chat, Admin Upload/Jobs), shadcn/ui components, Tailwind styling
-- Depends on: FastAPI backend `/api/*` endpoints
-- Used by: End users via browser
+### MCP Server Layer
+- Purpose: Expose search tools to Claude Code and other MCP clients
+- Location: `ops/bin/mcp_es_server.py`
+- Contains: 5 search tools (es_search, es_suggest, es_facets, es_document, es_health)
+- Depends on: `httpx`, Elasticsearch, `mcp` package
+- Used by: Claude Code via `.mcp.json` configuration
 
 ## Data Flow
 
-**Ingestion Pipeline:**
+### Ingestion Pipeline
 
-1. `src/backend/ingest/orchestrator.py` or `src/backend/ingest/bulk_pipeline.py` is invoked via CLI
-2. `src/backend/ingest/auto_discovery.py` + `src/backend/ingest/catalog_scraper.py` detect new publications from in.gov.br
-3. `src/backend/ingest/zip_downloader.py` downloads monthly ZIP bundles using folder IDs from `ops/data/dou_catalog_registry.json`
-4. `src/backend/ingest/xml_parser.py` parses INLabs XML into `DOUArticle` dataclasses
-5. `src/backend/ingest/normalizer.py` computes content hashes, natural key hashes, and canonical fields
-6. `src/backend/ingest/dou_ingest.py` enriches documents via `html_extractor.py` (NLP extraction of signatures, normative references, procedure references) and inserts into PostgreSQL `dou.*` schema
-7. `src/backend/commitment/` seals the batch with a CRSS-1 Merkle tree commitment, appending an anchor to the chain
-8. `src/backend/ingest/es_indexer.py` syncs documents from PostgreSQL to Elasticsearch
-9. `src/backend/ingest/embedding_pipeline.py` generates vector embeddings and indexes chunks into `gabi_chunks_v1`
+1. **Orchestration** (`sync_dou.py`):
+   - Reads catalog registry for folder IDs and ZIP filenames
+   - Iterates by year/month, invokes downloader
 
-**Incremental Sync Pipeline:**
+2. **Download** (`downloader.py`):
+   - Constructs URLs from registry: `https://www.in.gov.br/documents/{GROUP_ID}/{folder_id}/{filename}`
+   - Downloads ZIP content, saves to temp directory
 
-1. `src/backend/ingest/sync_pipeline.py` compares catalog registry against `dou.source_zip` table
-2. Downloads only missing ZIPs, ingests into `dou.*` schema
-3. Designed for periodic cron/systemd execution
+3. **Parse** (`dou_processor.py`):
+   - Extracts XMLs from ZIP
+   - Parses XML with lxml (recover mode for malformed XML)
+   - Extracts metadata, content, references, entities
+   - Generates deterministic `_id` from content hash
 
-**Search Request Flow:**
+4. **Store** (`sync_dou.py::ingest_documents`):
+   - Bulk upsert to MongoDB `documents` collection
+   - Uses `UpdateOne` with `upsert=True`
 
-1. Client sends request to FastAPI (`src/backend/apps/web_server.py`) endpoints: `/api/search`, `/api/suggest`, `/api/document/{id}`, `/api/stats`, etc.
-2. Web server delegates to `src/backend/apps/mcp_server.py` payload builders which use search adapters
-3. `src/backend/search/adapters.py` dispatches to configured backend: `PGSearchAdapter` (BM25), `ESSearchAdapter` (Elasticsearch), or `HybridSearchAdapter` (BM25 + vector + RRF reranking)
-4. `src/backend/search/redis_signals.py` caches results and tracks query analytics (top searches)
-5. `src/backend/search/norm_queries.py` detects legal norm patterns in queries for special handling
+5. **Archive** (`sync_dou.py::archive_and_cleanup`):
+   - Copies ZIP to iCloud shared folder with size verification
+   - Deletes local ZIP and extracted XMLs
 
-**MCP Tool Flow:**
+6. **Index** (`es_indexer.py`):
+   - Reads from MongoDB with cursor-based pagination
+   - Transforms to ES schema via `_mongo_to_es()`
+   - Bulk indexes with retry logic
 
-1. AI assistant (Claude Desktop, VS Code) connects via stdio or SSE to MCP servers
-2. `src/backend/apps/mcp_es_server.py` exposes: `es_search`, `es_suggest`, `es_facets`, `es_document`, `es_health`
-3. `src/backend/apps/mcp_server.py` exposes: `dou_search`, `dou_search_filtered`, `dou_stats`, `dou_document`
-4. Both use the search adapter layer for actual query execution
+### Search Flow
 
-**State Management:**
-- Server-side: PostgreSQL is the authoritative data store; Elasticsearch is a derived search index; Redis holds ephemeral query analytics
-- Frontend React SPA: React Query (`@tanstack/react-query`) for server state caching
+1. **Query** → MCP tool `es_search()`
+2. **Filter Inference** → `_infer_request_filters()` extracts section, art_type, organ from query
+3. **ES Query Build** → `_query_clause()` with field boosts, `_build_filters()` for date/range
+4. **Elasticsearch** → BM25 search with `pt_folded` analyzer
+5. **Response** → Formatted with highlights, snippets, pagination metadata
 
 ## Key Abstractions
 
-**DOUArticle:**
-- Purpose: Parsed article from INLabs XML, core domain object
-- Defined in: `src/backend/ingest/xml_parser.py`
-- Pattern: Frozen dataclass with slots, mirrors XML `<article>` element attributes
+### DouDocument (Pydantic Model)
+- Purpose: Represents a DOU legal document with full metadata
+- Examples: `src/backend/data/models/document.py`
+- Pattern: Pydantic `BaseModel` with nested models for structured data
+- Key fields:
+  - `id` (alias `_id`) - Deterministic hash for MongoDB
+  - `pub_date` - Publication datetime
+  - `texto` - Plain text content (searchable)
+  - `content_html` - Original HTML (display)
+  - `references` - Extracted legal citations
+  - `structured` - Parsed act number/year
 
-**SearchAdapter (Protocol):**
-- Purpose: Polymorphic search backend abstraction
-- Defined in: `src/backend/search/adapters.py`
-- Implementations: `PGSearchAdapter`, `ESSearchAdapter`, `HybridSearchAdapter`
-- Pattern: Python Protocol class; factory function `create_search_adapter()` selects implementation based on `SEARCH_BACKEND` env var
+### ESClient
+- Purpose: Elasticsearch HTTP client with retry and auth
+- Examples: `src/backend/ingest/es_indexer.py`, `ops/bin/mcp_es_server.py`
+- Pattern: Class-based wrapper around `httpx.Client`
+- Features:
+  - Configurable timeout, TLS verification
+  - Basic auth support
+  - Bulk indexing with retry on 429/502/503/504
 
-**PipelineResult:**
-- Purpose: Aggregate metrics from a complete pipeline run
-- Defined in: `src/backend/ingest/bulk_pipeline.py`
-- Pattern: Mutable dataclass accumulating counts across pipeline phases
-
-**PipelineConfig / PipelineOrchestrator:**
-- Purpose: Configuration and coordination of multi-phase ingestion
-- Defined in: `src/backend/ingest/orchestrator.py`
-- Pattern: Config dataclass + orchestrator class with phase tracking
-
-**Sources V3 YAML DSL:**
-- Purpose: Declarative data model definition driving schema sync
-- Defined in: `config/sources/sources_v3.yaml`
-- Pattern: Custom DSL with entities, fields, constraints, indexes, and relations; parsed by `src/backend/dbsync/loader.py`
-
-**CRSS-1 Commitment:**
-- Purpose: Deterministic canonical serialization for Merkle tree integrity proofs
-- Defined in: `src/backend/commitment/crss1.py`
-- Pattern: Fixed field ordering, NFC normalization, pipe-delimited canonical bytes, SHA-256 hashing
+### MongoDB (Singleton)
+- Purpose: Global database connection management
+- Examples: `src/backend/data/db.py`
+- Pattern: Class with `@classmethod` for connection pooling
+- Usage: `MongoDB.get_db()` returns database handle
 
 ## Entry Points
 
-**FastAPI Web Server:**
-- Location: `src/backend/apps/web_server.py`
-- Launcher: `ops/bin/web_server.py`
-- Triggers: HTTP requests from browser/clients
-- Responsibilities: REST API for search, document retrieval, stats, chat proxy, static file serving
+### sync_dou.py
+- Location: `sync_dou.py`
+- Triggers: Manual execution via CLI
+- Responsibilities:
+  - Orchestrates full ingestion pipeline
+  - Disk space monitoring
+  - Progress logging
+  - Automatic ES sync at completion
 
-**MCP Server (general):**
-- Location: `src/backend/apps/mcp_server.py`
-- Launcher: `ops/bin/mcp_server.py`
-- Triggers: MCP protocol connections (stdio/SSE)
-- Responsibilities: Expose DOU search tools to AI assistants
+### es_indexer.py
+- Location: `src/backend/ingest/es_indexer.py`
+- Triggers: CLI with subcommands (`backfill`, `sync`, `stats`)
+- Responsibilities:
+  - Creates ES index if missing
+  - Bulk indexes documents with cursor persistence
+  - Reports parity between MongoDB and ES
 
-**MCP ES Server (Elasticsearch-specific):**
-- Location: `src/backend/apps/mcp_es_server.py`
-- Launcher: `ops/bin/mcp_es_server.py`
-- Triggers: MCP protocol connections (stdio/SSE)
-- Responsibilities: Direct Elasticsearch search, facets, suggest, health
+### mcp_es_server.py
+- Location: `ops/bin/mcp_es_server.py`
+- Triggers: MCP client (Claude Code) via stdio or SSE
+- Responsibilities:
+  - Exposes search tools
+  - Filter inference from natural language
+  - Error handling with graceful degradation
 
-**Pipeline Orchestrator:**
-- Location: `src/backend/ingest/orchestrator.py`
-- Triggers: CLI invocation (`python -m src.backend.ingest.orchestrator`)
-- Responsibilities: Full automated ingestion pipeline with discovery, download, parse, ingest, seal, report
-
-**Bulk Pipeline:**
-- Location: `src/backend/ingest/bulk_pipeline.py`
-- Triggers: CLI invocation (`python -m src.backend.ingest.bulk_pipeline`)
-- Responsibilities: Date-range based bulk ingestion
-
-**Sync Pipeline:**
-- Location: `src/backend/ingest/sync_pipeline.py`
-- Triggers: CLI or systemd timer (`config/systemd/gabi-ingest.timer`)
-- Responsibilities: Incremental sync of new publications
-
-**Schema Sync:**
-- Location: `src/backend/apps/schema_sync.py` / `src/backend/dbsync/schema_sync.py`
-- Launcher: `ops/bin/schema_sync.py`
-- Triggers: CLI invocation
-- Responsibilities: Declarative PostgreSQL schema reconciliation (plan/apply/verify)
-
-**Commitment CLI:**
-- Location: `src/backend/apps/commitment_cli.py`
-- Launcher: `ops/bin/commitment_cli.py`
-- Triggers: CLI invocation
-- Responsibilities: Compute and verify CRSS-1 cryptographic commitments
-
-**Embedding Pipeline:**
-- Location: `src/backend/ingest/embedding_pipeline.py`
-- Triggers: CLI invocation (`python -m src.backend.ingest.embedding_pipeline`)
-- Responsibilities: Generate vector embeddings, create/backfill ES chunks index
-
-**React SPA:**
-- Location: `src/frontend/web/src/main.tsx`
-- Triggers: Browser navigation
-- Responsibilities: Client-side search UI, document reader, analytics dashboard, chat interface
+### main.py (FastAPI)
+- Location: `src/backend/main.py`
+- Triggers: uvicorn server
+- Responsibilities:
+  - HTTP API skeleton
+  - MongoDB connection lifecycle
 
 ## Error Handling
 
-**Strategy:** Function-level try/except with stderr logging; no centralized error framework
+**Strategy:** Graceful degradation with logging
 
 **Patterns:**
-- Pipeline phases use phase-level error tracking in `PipelineOrchestrator` with status=failed markers
-- Bulk pipeline accumulates errors in `PipelineResult.extraction_errors` and `PipelineResult.ingestion_errors` lists
-- Search adapters raise on HTTP errors via `httpx` response `raise_for_status()`
-- FastAPI web server uses `HTTPException` for API error responses
-- Auth module raises `HTTPException` with 401/403 status codes
-- DBSync raises custom `ModelLoadError`, `PlanningError`, `ApplyError` exception classes
+- Try/except with logging for non-critical failures (ES sync after ingestion)
+- Empty list returns with warning for parse failures
+- Retry logic in ES bulk operations (exponential backoff)
+- Optional returns with None for missing data
+
+```python
+# Pattern: Non-fatal sync failure
+try:
+    _run_sync(reset_cursor=False, recreate_index=False, batch_size=2000)
+except Exception as e:
+    logger.warning(f"ES sync failed (non-fatal): {e}")
+
+# Pattern: Parse error with logging
+except Exception as e:
+    logger.error(f"Error processing {filename}: {e}")
+    return None
+```
 
 ## Cross-Cutting Concerns
 
-**Logging:** Print to stderr via `_log()` helper functions (no structured logging framework); `loguru` is in `requirements.txt` but not yet widely adopted
-**Validation:** Pydantic models in FastAPI endpoints; dataclass-based validation in pipeline code; Zod on frontend
-**Authentication:** Token-based auth with HMAC-signed session cookies (`src/backend/apps/auth.py`); rate limiting via `src/backend/apps/middleware/security.py`
-**Configuration:** Environment variables (`.env` file via `python-dotenv`), YAML config files (`config/production.yaml`, `config/sources/sources_v3.yaml`), CLI arguments
+**Logging:**
+- Standard library `logging` module
+- Format: `'%(asctime)s - %(levelname)s - %(message)s'`
+- Output: stdout (streaming)
+
+**Validation:**
+- Pydantic models for all data structures
+- Environment variable validation via `pydantic-settings`
+- XML parsing with `recover=True` for malformed content
+
+**Configuration:**
+- `.env` file for secrets and environment-specific values
+- `Settings` class with defaults for optional values
+- `extra = "ignore"` for forward compatibility
+
+**Authentication:**
+- MongoDB: Connection string in `MONGO_STRING`
+- Elasticsearch: Optional basic auth via `ES_USERNAME`/`ES_PASSWORD`
+- No application-level auth (internal tool)
 
 ---
 
-*Architecture analysis: 2026-03-08*
+*Architecture analysis: 2026-03-11*

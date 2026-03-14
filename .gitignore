@@ -12,11 +12,24 @@ __pycache__/
 .venv/
 venv/
 var/
-.dev/shannon
+.dev/
+
+# Node / Next.js
+node_modules/
+.next/
+
+# Data files (ZIPs, legacy)
+inlabs_data/
+Gabi_OLD/
+
+# .NET build artifacts
+**/bin/Debug/
+**/bin/Release/
 
 # Environment / secrets
 .env
 .env.local
+.env.fly-backup
 !.env.example
 
 # AI agent state
@@ -25,7 +38,6 @@ var/
 .claude/
 .cursor/
 .github/
-.planning/
 .playwright-cli/
 .ollama_models/
 archive_legacy
