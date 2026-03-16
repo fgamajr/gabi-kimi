@@ -5,16 +5,15 @@ usage() {
   cat <<'EOF'
 Usage: run_adversarial_remote.sh [options]
 
-Runs the adversarial API suite on the Linux host over SSH using a clean Uvicorn
-startup (no stale __pycache__) and stops the server at the end by default.
+Runs the adversarial API suite on the Linux host over SSH using the Docker
+backend service and stops the backend container at the end by default.
 
 Options:
   --host NAME         SSH host alias. Default: ubuntu-vm
   --remote-root PATH  Project path on Linux. Default: /home/parallels/dev/gabi-kimi
-  --python PATH       Python executable on Linux. Default: <remote-root>/.venv/bin/python
-  --port N            API port on Linux. Default: 8000
+  --python PATH       Deprecated. Ignored in Docker mode.
+  --port N            Published backend port on Linux. Default: 8001
   --runs N            Number of full suite runs. Default: 3
-  --workers N         Uvicorn worker count. Default: 1
   --keep-server       Leave the API running after the tests
   --help              Show this help
 
@@ -26,9 +25,8 @@ EOF
 host="ubuntu-vm"
 remote_root="/home/parallels/dev/gabi-kimi"
 python_bin=""
-port="8000"
+port="8001"
 runs="3"
-workers="1"
 keep_server="0"
 
 while [[ $# -gt 0 ]]; do
@@ -53,10 +51,6 @@ while [[ $# -gt 0 ]]; do
       runs="$2"
       shift 2
       ;;
-    --workers)
-      workers="$2"
-      shift 2
-      ;;
     --keep-server)
       keep_server="1"
       shift
@@ -73,28 +67,24 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "$python_bin" ]]; then
-  python_bin="${remote_root}/.venv/bin/python"
+if [[ -n "$python_bin" ]]; then
+  echo "Warning: --python is deprecated and ignored; Docker backend service is used instead." >&2
 fi
 
 echo "Remote adversarial runner"
 echo "  host: ${host}"
 echo "  root: ${remote_root}"
-echo "  python: ${python_bin}"
 echo "  port: ${port}"
 echo "  runs: ${runs}"
-echo "  workers: ${workers}"
 echo "  keep_server: ${keep_server}"
 
-ssh "$host" bash -s -- "$remote_root" "$python_bin" "$port" "$runs" "$workers" "$keep_server" <<'REMOTE'
+ssh "$host" bash -s -- "$remote_root" "$port" "$runs" "$keep_server" <<'REMOTE'
 set -euo pipefail
 
 remote_root="$1"
-python_bin="$2"
-port="$3"
-runs="$4"
-workers="$5"
-keep_server="$6"
+port="$2"
+runs="$3"
+keep_server="$4"
 
 cd "$remote_root"
 
@@ -105,23 +95,16 @@ server_log="${log_root}/server-${timestamp}.log"
 
 cleanup() {
   if [[ "$keep_server" != "1" ]]; then
-    fuser -k "${port}/tcp" >/dev/null 2>&1 || true
+    docker compose stop backend >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
 
-echo "Cleaning stale Python bytecode..."
-find src -name '__pycache__' -type d -prune -exec rm -rf {} +
-
-echo "Stopping anything already bound to :${port}..."
-fuser -k "${port}/tcp" >/dev/null 2>&1 || true
-
-echo "Starting API server..."
-if [[ "$workers" == "1" ]]; then
-  setsid -f "$python_bin" -B -m uvicorn src.backend.main:app --host 127.0.0.1 --port "$port" >"$server_log" 2>&1
-else
-  setsid -f "$python_bin" -B -m uvicorn src.backend.main:app --host 127.0.0.1 --port "$port" --workers "$workers" >"$server_log" 2>&1
-fi
+echo "Starting Docker services..."
+docker compose up -d mongo elasticsearch backend >/dev/null
+echo "Restarting backend for a clean app start..."
+docker compose restart backend >/dev/null
+docker compose logs backend --tail 100 >"$server_log" 2>&1 || true
 
 healthy="0"
 for _ in $(seq 1 30); do
@@ -134,7 +117,7 @@ done
 
 if [[ "$healthy" != "1" ]]; then
   echo "API failed to become healthy. Server log:" >&2
-  tail -n 80 "$server_log" >&2 || true
+  docker compose logs backend --tail 80 >&2 || true
   exit 1
 fi
 
@@ -145,7 +128,9 @@ for run in $(seq 1 "$runs"); do
   run_log="${log_root}/run-${timestamp}-${run}.log"
   echo
   echo "=== Run ${run}/${runs} ==="
-  if GABI_API_BASE="http://127.0.0.1:${port}" "$python_bin" -B ops/test_api_adversarial.py >"$run_log" 2>&1; then
+  if docker compose exec -T backend sh -lc \
+    'GABI_API_BASE="http://127.0.0.1:8000" python ops/test_api_adversarial.py' \
+    >"$run_log" 2>&1; then
     rc="0"
   else
     rc="$?"
@@ -156,6 +141,8 @@ for run in $(seq 1 "$runs"); do
   if [[ "$rc" != "0" ]]; then
     echo "Run ${run} failed. Full log: ${run_log}" >&2
     tail -n 80 "$run_log" >&2 || true
+    echo "Recent backend logs:" >&2
+    docker compose logs backend --tail 80 >&2 || true
   else
     echo "Run ${run} log: ${run_log}"
   fi

@@ -2,12 +2,15 @@
 
 Run on your Mac (Apple Silicon) to serve embeddings to the VM.
 
-## 1. Create venv
+Do not create the environment inside this repo. Keep it machine-wide instead.
+
+## 1. Create machine-wide venv
 
 ```bash
+mkdir -p ~/.local/share/gabi-kimi/embedding-server
+python3 -m venv ~/.local/share/gabi-kimi/embedding-server/.venv
+source ~/.local/share/gabi-kimi/embedding-server/.venv/bin/activate
 cd ~/dev/gabi-kimi/ops/embedding-server
-python3 -m venv .venv
-source .venv/bin/activate
 ```
 
 ## 2. Install dependencies

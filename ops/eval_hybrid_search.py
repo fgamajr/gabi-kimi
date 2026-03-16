@@ -33,8 +33,9 @@ _QWEN_MODELS = {"qwen-plus", "qwen-turbo", "qwen-max", "qwen-flash", "qwen3-max"
                 "qwen3.5-plus", "qwen3.5-flash", "qwen3-coder-plus", "qwen3-coder-flash"}
 
 DASHSCOPE_KEY = (
-    os.getenv("DASHSCOPE_API_API_KEY")
-    or os.getenv("DASHSCOPE_API_KEY")
+    os.getenv("DASHSCOPE_API_KEY")
+    # Backward-compat for older local env files that used the typo.
+    or os.getenv("DASHSCOPE_API_API_KEY")
     or os.getenv("ALIBABA_API_KEY")
     or ""
 )

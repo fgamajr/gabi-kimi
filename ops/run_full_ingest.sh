@@ -13,17 +13,17 @@ echo "[$(date)] Starting full ingest from 2009-04" >> "$LOG"
 # 2009: remaining months
 for m in $(seq 4 12); do
   echo "[$(date)] Ingesting 2009-$m" >> "$LOG"
-  python3 sync_dou.py --year 2009 --month $m 2>&1 | tail -1 >> "$LOG"
+  docker compose exec -T backend python -m src.backend.ingest.sync_dou --year 2009 --month $m 2>&1 | tail -1 >> "$LOG"
 done
 
 # 2010 through 2025: full years
 for y in $(seq 2010 2025); do
   echo "[$(date)] Ingesting year $y" >> "$LOG"
-  python3 sync_dou.py --year $y 2>&1 | tail -1 >> "$LOG"
+  docker compose exec -T backend python -m src.backend.ingest.sync_dou --year $y 2>&1 | tail -1 >> "$LOG"
 done
 
 # 2026
 echo "[$(date)] Ingesting year 2026" >> "$LOG"
-python3 sync_dou.py --year 2026 2>&1 | tail -1 >> "$LOG"
+docker compose exec -T backend python -m src.backend.ingest.sync_dou --year 2026 2>&1 | tail -1 >> "$LOG"
 
 echo "[$(date)] Full ingest complete" >> "$LOG"

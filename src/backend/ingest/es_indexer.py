@@ -22,9 +22,21 @@ import httpx
 import pymongo
 from bson import ObjectId
 
+from src.backend.ingest.es_v2_minimal import mongo_to_es_v2_minimal
+from src.backend.ingest.es_v2_search import mongo_to_es_v2_search
 
-_MAPPING_PATH = Path(__file__).resolve().parent.parent / "search" / "es_index_v1.json"
+_SEARCH_DIR = Path(__file__).resolve().parent.parent / "search"
 _DEFAULT_CURSOR_PATH = Path(__file__).resolve().parent.parent / "data" / "es_sync_cursor.json"
+_SCHEMA_TO_MAPPING = {
+    "v1": _SEARCH_DIR / "es_index_v1.json",
+    "v2_minimal": _SEARCH_DIR / "es_index_min_v2.json",
+    "v2_search": _SEARCH_DIR / "es_index_v2_search.json",
+}
+_SCHEMA_TO_INDEX = {
+    "v1": "gabi_documents_v1",
+    "v2_minimal": "gabi_documents_v2_minimal",
+    "v2_search": "gabi_documents_v2_search",
+}
 
 
 def _log(msg: str) -> None:
@@ -38,11 +50,29 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _schema_name() -> str:
+    raw = (os.getenv("ES_DOC_SCHEMA") or "v1").strip().lower()
+    if raw not in _SCHEMA_TO_MAPPING:
+        raise RuntimeError(f"Unsupported ES_DOC_SCHEMA={raw}")
+    return raw
+
+
+def _mapping_path() -> Path:
+    override = (os.getenv("ES_MAPPING_PATH") or "").strip()
+    if override:
+        return Path(override)
+    return _SCHEMA_TO_MAPPING[_schema_name()]
+
+
 def _mongo_client():
     uri = os.getenv("MONGO_STRING", "mongodb://localhost:27017/gabi_dou")
     db_name = os.getenv("DB_NAME", "gabi_dou")
     client = pymongo.MongoClient(uri)
     return client, client[db_name]
+
+
+def _mongo_collection_name() -> str:
+    return os.getenv("MONGO_COLLECTION", "documents")
 
 
 def _load_cursor(path: Path) -> dict[str, str]:
@@ -65,6 +95,11 @@ def _save_cursor(path: Path, last_id: str) -> None:
 
 def _mongo_to_es(doc: dict[str, Any]) -> dict[str, Any]:
     """Map a MongoDB document to the ES index schema."""
+    if _schema_name() == "v2_minimal":
+        return mongo_to_es_v2_minimal(doc)
+    if _schema_name() == "v2_search":
+        return mongo_to_es_v2_search(doc)
+
     structured = doc.get("structured") or {}
     pub_date = doc.get("pub_date")
     if isinstance(pub_date, datetime):
@@ -98,7 +133,8 @@ def _mongo_to_es(doc: dict[str, Any]) -> dict[str, Any]:
 class ESClient:
     def __init__(self) -> None:
         self.url = os.getenv("ES_URL", "http://localhost:9200").rstrip("/")
-        self.index = os.getenv("ES_INDEX", "gabi_documents")
+        schema = _schema_name()
+        self.index = os.getenv("ES_INDEX", _SCHEMA_TO_INDEX[schema])
         self.alias = (os.getenv("ES_ALIAS") or "").strip() or None
         self.verify_tls = _env_bool("ES_VERIFY_TLS", True)
         self.timeout_sec = int(os.getenv("ES_TIMEOUT_SEC", "30"))
@@ -116,7 +152,8 @@ class ESClient:
         return data
 
     def ensure_index(self, recreate: bool = False) -> None:
-        with _MAPPING_PATH.open("r", encoding="utf-8") as f:
+        mapping_path = _mapping_path()
+        with mapping_path.open("r", encoding="utf-8") as f:
             mapping = json.load(f)
 
         if recreate:
@@ -124,10 +161,15 @@ class ESClient:
 
         exists_resp = self.client.request(method="HEAD", url=f"{self.url}/{self.index}")
         if exists_resp.status_code == 404:
-            _log(f"creating index {self.index}")
+            _log(f"creating index {self.index} using mapping {mapping_path.name}")
             self.request("PUT", f"/{self.index}", mapping)
         elif exists_resp.status_code >= 400:
             exists_resp.raise_for_status()
+
+        self.request(
+            "GET",
+            f"/_cluster/health/{self.index}?wait_for_status=yellow&wait_for_active_shards=1&timeout=120s",
+        )
 
         if self.alias:
             self.request(
@@ -136,10 +178,15 @@ class ESClient:
                 {"actions": [{"add": {"index": self.index, "alias": self.alias}}]},
             )
 
+    def refresh(self) -> None:
+        self.request("POST", f"/{self.index}/_refresh")
+
     def bulk(self, docs: list[dict[str, Any]], retries: int = 3) -> tuple[int, int]:
         lines: list[str] = []
         for doc in docs:
-            doc_id = doc["doc_id"]
+            doc_id = doc.get("doc_id") or doc.get("logical_doc_id") or doc.get("_id")
+            if not doc_id:
+                raise RuntimeError("Document is missing an index identifier")
             lines.append(json.dumps({"index": {"_index": self.index, "_id": doc_id}}, ensure_ascii=False))
             lines.append(json.dumps(doc, ensure_ascii=False))
         body = "\n".join(lines) + "\n"
@@ -163,6 +210,7 @@ class ESClient:
             ok = 0
             failed = 0
             first_error: str | None = None
+            retryable_item_failure = False
             for item in items:
                 row = item.get("index", {})
                 status = int(row.get("status", 500))
@@ -170,9 +218,15 @@ class ESClient:
                     ok += 1
                 else:
                     failed += 1
+                    err = row.get("error")
+                    if isinstance(err, dict) and err.get("type") == "unavailable_shards_exception":
+                        retryable_item_failure = True
                     if first_error is None:
-                        err = row.get("error")
                         first_error = json.dumps(err, ensure_ascii=True) if err else f"status={status}"
+            if failed and retryable_item_failure and attempt < retries:
+                last_error = first_error or "unavailable_shards_exception"
+                time.sleep(1.5 * attempt)
+                continue
             if failed:
                 raise RuntimeError(f"bulk indexing failed: failed={failed} ok={ok} first_error={first_error}")
             return ok, failed
@@ -203,7 +257,7 @@ def _run_sync(*, reset_cursor: bool, recreate_index: bool, batch_size: int, curs
     _log(f"starting from cursor _id={cursor['_id']}")
 
     client, db = _mongo_client()
-    collection = db["documents"]
+    collection = db[_mongo_collection_name()]
     total_ok = 0
     total_failed = 0
     loops = 0
@@ -230,8 +284,9 @@ def _run_sync(*, reset_cursor: bool, recreate_index: bool, batch_size: int, curs
         client.close()
 
     client, db = _mongo_client()
-    collection = db["documents"]
+    collection = db[_mongo_collection_name()]
     try:
+        es.refresh()
         mongo_count, es_count = _counts(collection, es)
     finally:
         client.close()
@@ -261,7 +316,7 @@ def cmd_stats(args: argparse.Namespace) -> None:
     cursor_path = Path(args.cursor)
     es = ESClient()
     client, db = _mongo_client()
-    collection = db["documents"]
+    collection = db[_mongo_collection_name()]
     try:
         mongo_count, es_count = _counts(collection, es)
     finally:

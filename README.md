@@ -6,7 +6,7 @@ Full-text search platform for Brazil's official gazette (DOU), covering 2002–2
 
 ```
 in.gov.br (Liferay ZIPs)
-    ↓  sync_dou.py
+    ↓  src.backend.ingest.sync_dou
 MongoDB (documents collection)
     ↓  es_indexer.py
 Elasticsearch (BM25 full-text)
@@ -27,19 +27,15 @@ MCP Server (5 tools) ← Claude Code
 
 ## Prerequisites
 
-- Python 3.12+ with pyenv
-- Docker (for MongoDB and Elasticsearch)
+- Docker with Compose
 - Parallels Desktop (for persistent storage on macOS host)
 
 ## Quick Start
 
-### 1. MongoDB
+### 1. Start the stack
 
 ```bash
-docker run -d --name gabi-mongo \
-  -p 27017:27017 \
-  -v /media/psf/gabi_mongo:/data/db \
-  mongo:7
+docker compose up -d
 ```
 
 ### 2. Ingest DOU Data
@@ -48,16 +44,16 @@ First-time full ingestion (2002–2026, ~7M documents):
 
 ```bash
 # Single year
-python3 sync_dou.py --year 2024
+docker compose exec backend python -m src.backend.ingest.sync_dou --year 2024
 
 # Single month
-python3 sync_dou.py --year 2024 --month 6
+docker compose exec backend python -m src.backend.ingest.sync_dou --year 2024 --month 6
 
 # Full backfill (all years)
 for year in $(seq 2002 2025); do
-  python3 sync_dou.py --year $year
+  docker compose exec -T backend python -m src.backend.ingest.sync_dou --year $year
 done
-python3 sync_dou.py --year 2026
+docker compose exec backend python -m src.backend.ingest.sync_dou --year 2026
 ```
 
 The DOU catalog registry (`ops/data/dou_catalog_registry.json`) maps 289 months (2002-01 to 2026-01) to Liferay folder IDs and ZIP filenames (851 ZIPs total).
@@ -86,7 +82,7 @@ docker run -d --name gabi-es \
   docker.elastic.co/elasticsearch/elasticsearch:8.15.4
 
 # Wait for ES, then backfill
-python3 -m src.backend.ingest.es_indexer backfill
+docker compose exec backend python -m src.backend.ingest.es_indexer backfill
 ```
 
 ### 4. Verify
@@ -102,7 +98,7 @@ curl -s localhost:9200/_cluster/health | python3 -m json.tool
 curl -s localhost:9200/gabi_documents_v1/_count | python3 -m json.tool
 
 # Parity check (MongoDB vs ES counts)
-python3 -m src.backend.ingest.es_indexer stats
+docker compose exec backend python -m src.backend.ingest.es_indexer stats
 ```
 
 ## ES Indexer
@@ -125,7 +121,7 @@ python3 -m src.backend.ingest.es_indexer backfill --recreate-index
 
 Cursor state is persisted at `src/backend/data/es_sync_cursor.json`.
 
-After the initial backfill, `sync_dou.py` automatically triggers an incremental ES sync at the end of each run — no manual step needed.
+After the initial backfill, `src.backend.ingest.sync_dou` automatically triggers an incremental ES sync at the end of each run.
 
 ## Adversarial API Testing
 
@@ -157,7 +153,7 @@ What the runner does:
 The test harness also accepts a custom base URL through `GABI_API_BASE`, which is useful for CI or a remote box already running the API.
 
 ```bash
-GABI_API_BASE=http://127.0.0.1:8000 .venv/bin/python ops/test_api_adversarial.py
+docker compose exec backend python ops/test_api_adversarial.py
 ```
 
 ## Remote-Only Workflow
@@ -174,9 +170,7 @@ Recommended setup:
 Typical remote-only flow:
 
 ```bash
-# On the Linux host
-cd /home/parallels/dev/gabi-kimi
-.venv/bin/python -B -m uvicorn src.backend.main:app --host 127.0.0.1 --port 8000
+docker compose up -d backend
 ```
 
 Then either:
@@ -199,7 +193,7 @@ The MCP server (`ops/bin/mcp_es_server.py`) exposes 5 tools for searching DOU vi
 | `es_document` | Fetch a single document by ID |
 | `es_health` | Cluster and index health summary |
 
-Configured in `.mcp.json` as `gabi-es`. Restart Claude Code after any config changes.
+Configured in the machine-wide Claude desktop MCP config as `gabi-es`. The repo-local `.mcp.json` is intentionally not used.
 
 The server auto-infers filters from natural language queries (e.g., "decreto do1 ministerio da saude" applies section, type, and organ filters automatically).
 
@@ -256,7 +250,7 @@ ops/
   data/               # Catalog registry, cursor state
   setup_elasticsearch.sh
   run_full_ingest.sh
-sync_dou.py           # Main ingestion orchestrator
+    ingest/sync_dou.py # Main ingestion orchestrator
 ```
 
 ## Environment Variables
@@ -274,7 +268,7 @@ Defined in `.env`:
 
 ## Data Flow
 
-1. **Download**: `sync_dou.py` reads the catalog registry, downloads ZIPs from `in.gov.br/documents`
+1. **Download**: `src.backend.ingest.sync_dou` reads the catalog registry and downloads ZIPs from `in.gov.br/documents`
 2. **Parse**: `dou_processor.py` extracts XMLs from ZIPs, parses into `DouDocument` models
 3. **Store**: Bulk upsert into MongoDB (`documents` collection)
 4. **Archive**: ZIPs copied to iCloud shared folder, extracted XMLs deleted

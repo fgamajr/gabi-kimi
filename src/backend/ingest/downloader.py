@@ -1,28 +1,42 @@
+import json
 import logging
+import os
+from pathlib import Path
 import requests
 import time
-import os
-from typing import Optional, List, Dict
-import json
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_DEFAULT_REGISTRY_PATH = _REPO_ROOT / "ops" / "data" / "dou_catalog_registry.json"
 
 class DouDownloader:
     BASE_URL = "https://www.in.gov.br/documents"
     GROUP_ID = "49035712"
     
-    def __init__(self, registry_path: str = "ops/data/dou_catalog_registry.json"):
+    def __init__(self, registry_path: str | None = None):
         self.registry = self._load_registry(registry_path)
         self.session = requests.Session()
         self.session.headers.update({
             "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
         })
 
-    def _load_registry(self, path: str) -> Dict:
-        if not os.path.exists(path):
-            logger.error(f"Registry not found at {path}")
-            return {}
-        with open(path, 'r') as f:
+    def _load_registry(self, path: str | None) -> Dict:
+        configured_path = path or os.getenv("DOU_REGISTRY_PATH")
+        registry_path = Path(configured_path).expanduser() if configured_path else _DEFAULT_REGISTRY_PATH
+
+        if not registry_path.is_absolute():
+            registry_path = (_REPO_ROOT / registry_path).resolve()
+
+        if not registry_path.exists():
+            raise FileNotFoundError(
+                f"DOU registry not found at {registry_path}. "
+                "Commit ops/data/dou_catalog_registry.json or set DOU_REGISTRY_PATH explicitly."
+            )
+
+        logger.info("Loading DOU registry from %s", registry_path)
+        with registry_path.open("r", encoding="utf-8") as f:
             return json.load(f)
 
     def get_month_data(self, year: int, month: int) -> Optional[Dict]:

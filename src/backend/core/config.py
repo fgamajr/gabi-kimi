@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     ICLOUD_DATA_PATH: Optional[str] = None
     PIPELINE_TMP: str = "/tmp/gabi-pipeline"
     ES_URL: str = "http://localhost:9200"
-    ES_INDEX: str = "gabi_documents"
+    ES_INDEX: str = "gabi_documents_v1"
     
     class Config:
         env_file = ".env"

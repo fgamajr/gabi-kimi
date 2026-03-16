@@ -13,8 +13,14 @@
 .planning/
 .dev/
 .playwright-cli/
+.venv/
+venv/
+archive_legacy/
 node_modules/
+src/frontend/app/node_modules/
+src/frontend/app/.vite/
 output/
+var/
 __pycache__/
 *.pyc
 .pytest_cache/

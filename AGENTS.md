@@ -10,14 +10,14 @@ GABI (Gestão Automatizada de Busca Inteligente) is a full-text search platform 
 
 ```bash
 # Data Ingestion
-python3 sync_dou.py --year 2024              # Single year
-python3 sync_dou.py --year 2024 --month 6    # Single month
+docker compose exec backend python -m src.backend.ingest.sync_dou --year 2024
+docker compose exec backend python -m src.backend.ingest.sync_dou --year 2024 --month 6
 
 # Elasticsearch Indexing
-python3 -m src.backend.ingest.es_indexer backfill    # Full reindex
-python3 -m src.backend.ingest.es_indexer sync        # Incremental sync
-python3 -m src.backend.ingest.es_indexer stats       # Show counts/parity
-python3 -m src.backend.ingest.es_indexer backfill --recreate-index  # Reset index
+docker compose exec backend python -m src.backend.ingest.es_indexer backfill
+docker compose exec backend python -m src.backend.ingest.es_indexer sync
+docker compose exec backend python -m src.backend.ingest.es_indexer stats
+docker compose exec backend python -m src.backend.ingest.es_indexer backfill --recreate-index
 
 # MCP Server
 python ops/bin/mcp_es_server.py                          # stdio transport
@@ -282,7 +282,7 @@ ops/
   bin/mcp_es_server.py  # MCP server for Claude Code
   data/dou_catalog_registry.json  # Maps YYYY-MM to folder IDs
 
-sync_dou.py             # Main ingestion orchestrator
+src/backend/ingest/sync_dou.py  # Main ingestion orchestrator
 ```
 
 ## Environment Variables

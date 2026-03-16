@@ -28,13 +28,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+def _documents_collection_name() -> str:
+    return os.getenv("MONGO_COLLECTION", "documents")
+
 def ingest_documents(documents: List[DouDocument]):
     """Bulk upsert documents to MongoDB."""
     if not documents:
         return
 
     db = MongoDB.get_db()
-    collection = db["documents"]
+    collection = db[_documents_collection_name()]
     
     operations = []
     
@@ -53,7 +57,12 @@ def ingest_documents(documents: List[DouDocument]):
     if operations:
         try:
             result = collection.bulk_write(operations)
-            logger.info(f"Upserted {result.upserted_count + result.modified_count} documents (Matched: {result.matched_count})")
+            logger.info(
+                "Upserted %s documents into %s (Matched: %s)",
+                result.upserted_count + result.modified_count,
+                _documents_collection_name(),
+                result.matched_count,
+            )
         except Exception as e:
             logger.error(f"Bulk write failed: {e}")
             

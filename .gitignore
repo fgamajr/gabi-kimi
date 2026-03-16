@@ -10,6 +10,7 @@ __pycache__/
 
 # Virtual environments
 .venv/
+.venv-mac/
 venv/
 var/
 .dev/
@@ -17,6 +18,7 @@ var/
 # Node / Next.js
 node_modules/
 .next/
+.vite/
 
 # Data files (ZIPs, legacy)
 inlabs_data/
@@ -31,6 +33,7 @@ Gabi_OLD/
 .env.local
 .env.fly-backup
 !.env.example
+.mcp.json
 
 # AI agent state
 .agents/
@@ -71,7 +74,7 @@ logs/
 docker-compose.override.yml
 
 # Downloaded data (ZIPs, PDFs)
-ops/data/
+ops/data/*
 !ops/data/.gitkeep
 !ops/data/dou_catalog_registry.json
 
@@ -84,6 +87,7 @@ tmp/
 # macOS / Windows
 .DS_Store
 Thumbs.db
+._*
 
 # ONNX / ML models
 models/

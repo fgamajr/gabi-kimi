@@ -64,5 +64,5 @@ curl -s localhost:9200/gabi_documents_v1/_count | python3 -m json.tool
 
 echo ""
 echo "=== Done! ==="
-echo "  Restart Claude Code to pick up the updated .mcp.json"
+echo "  Restart Claude Code to pick up the updated machine-wide MCP config"
 echo "  Then test: es_health(), es_search(\"decreto\")"
