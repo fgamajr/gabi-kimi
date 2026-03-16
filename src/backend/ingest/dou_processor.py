@@ -24,13 +24,15 @@ from src.backend.data.models.document import (
 )
 from src.backend.ingest.field_extractors import (
     extract_document_number,
-    extract_issuing_organ,
     extract_normative_references,
     extract_procedure_references,
     extract_signatures_precise,
+    infer_issuing_organ,
+    is_generic_organ_bucket,
     normalize_art_type,
     normalize_keyword,
     normalize_text,
+    split_organization_path,
     strip_html,
 )
 from src.backend.ingest.reconstruction import (
@@ -171,9 +173,7 @@ class DouProcessor:
         return _MONTH_SECTION_MAP.get(pub_name, normalize_keyword(pub_name))
 
     def _organization_path(self, art_category: str | None) -> list[str]:
-        if not art_category:
-            return []
-        return [part.strip() for part in art_category.split("/") if part.strip()]
+        return split_organization_path(art_category)
 
     def _art_class_hierarchy(self, art_class_raw: str | None) -> list[str]:
         if not art_class_raw:
@@ -296,7 +296,12 @@ class DouProcessor:
         canonical_body = self._canonicalize_content(body_text)
         section_normalized = self._section_normalized(article.pub_name)
         art_type_normalized = normalize_art_type(article.art_type_raw)
-        issuing_organ = extract_issuing_organ(article.art_category)
+        issuing_organ = infer_issuing_organ(
+            article.art_category,
+            body_text=canonical_body,
+            identifica=article.identifica,
+            ementa=article.ementa,
+        )
         organization_path = self._organization_path(article.art_category)
         art_class_hierarchy = self._art_class_hierarchy(article.art_class_raw)
         source_url = canonical_source_url(article.pdf_page)
@@ -333,7 +338,7 @@ class DouProcessor:
             {
                 entity
                 for entity in [issuing_organ, *organization_path]
-                if entity
+                if entity and not is_generic_organ_bucket(entity)
             }
         )
         search_all = self._build_search_all(article, canonical_body, references_flat, signatures, affected_entities)

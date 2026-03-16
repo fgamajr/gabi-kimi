@@ -149,8 +149,11 @@ def main():
             if not filename.lower().endswith(".zip"):
                 continue
 
-            # Disk space pre-check
-            free_gb = shutil.disk_usage("/tmp").free / (1024**3)
+            # Disk space pre-check against the configured pipeline workspace.
+            disk_target = settings.PIPELINE_TMP
+            if not os.path.exists(disk_target):
+                os.makedirs(disk_target, exist_ok=True)
+            free_gb = shutil.disk_usage(disk_target).free / (1024**3)
             if free_gb < 2:
                 logger.error(f"VM disk critical: {free_gb:.1f}GB free. Stopping.")
                 return

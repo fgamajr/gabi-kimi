@@ -5,8 +5,8 @@ set -euo pipefail
 
 cd /home/parallels/dev/gabi-kimi
 
-echo "=== Step 1: Build normalized images ==="
-docker compose build elasticsearch backend
+echo "=== Step 1: Pull/start Elasticsearch and backend ==="
+docker compose pull elasticsearch || true
 
 echo ""
 echo "=== Step 2: Start services ==="

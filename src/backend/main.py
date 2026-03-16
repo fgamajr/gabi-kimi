@@ -37,7 +37,7 @@ async def es_request(method: str, path: str, json: dict | None = None) -> dict:
 async def lifespan(app: FastAPI):
     global _es
     _es = httpx.AsyncClient()
-    logger.info("GABI API started — ES=%s, index=%s", settings.ES_URL, settings.ES_INDEX)
+    logger.info("GABI API started — ES=%s, index=%s", settings.ES_URL, settings.es_target_index)
     yield
     if _es:
         await _es.aclose()
@@ -249,7 +249,7 @@ async def search(
     }
 
     try:
-        data = await es_request("POST", f"/{settings.ES_INDEX}/_search", json=payload)
+        data = await es_request("POST", f"/{settings.es_target_index}/_search", json=payload)
     except httpx.HTTPStatusError as e:
         logger.error("ES search error: %s", e.response.text[:200])
         return {"results": [], "total": 0, "page": page, "max": max, "query": q, "took_ms": 0}
@@ -292,7 +292,7 @@ async def autocomplete(
         },
     }
 
-    data = await es_request("POST", f"/{settings.ES_INDEX}/_search", json=payload)
+    data = await es_request("POST", f"/{settings.es_target_index}/_search", json=payload)
     hits = data.get("hits", {}).get("hits", [])
 
     seen: set[str] = set()
@@ -325,7 +325,7 @@ async def autocomplete(
 async def document(doc_id: str):
     # Fetch full document from ES (all fields)
     try:
-        data = await es_request("GET", f"/{settings.ES_INDEX}/_doc/{doc_id}")
+        data = await es_request("GET", f"/{settings.es_target_index}/_doc/{doc_id}")
         src = data.get("_source", {})
     except httpx.HTTPStatusError:
         return Response(status_code=404, content='{"detail":"Document not found"}',
@@ -358,7 +358,7 @@ async def document(doc_id: str):
 
 @app.get("/api/stats")
 async def stats():
-    count_data = await es_request("GET", f"/{settings.ES_INDEX}/_count")
+    count_data = await es_request("GET", f"/{settings.es_target_index}/_count")
     total = count_data.get("count", 0)
 
     agg_payload = {
@@ -369,7 +369,7 @@ async def stats():
             "sections": {"terms": {"field": "edition_section", "size": 10}},
         },
     }
-    agg_data = await es_request("POST", f"/{settings.ES_INDEX}/_search", json=agg_payload)
+    agg_data = await es_request("POST", f"/{settings.es_target_index}/_search", json=agg_payload)
     aggs = agg_data.get("aggregations", {})
 
     min_date = aggs.get("min_date", {}).get("value_as_string", "")
@@ -392,7 +392,7 @@ async def types():
             "types": {"terms": {"field": "art_type.keyword", "size": 200}},
         },
     }
-    data = await es_request("POST", f"/{settings.ES_INDEX}/_search", json=payload)
+    data = await es_request("POST", f"/{settings.es_target_index}/_search", json=payload)
     buckets = data.get("aggregations", {}).get("types", {}).get("buckets", [])
 
     return [

@@ -44,10 +44,11 @@ python ops/test_extraction.py          # Test ZIP extraction
 
 ```bash
 # Compose-managed stack
-docker compose build mongo elasticsearch backend frontend
+docker compose build backend frontend
+docker compose pull mongo elasticsearch
 docker compose up -d mongo elasticsearch backend frontend
 
-# Normalized images/containers
+# Normalized containers
 #   gabi-kimi-mongo
 #   gabi-kimi-elasticsearch
 #   gabi-kimi-backend

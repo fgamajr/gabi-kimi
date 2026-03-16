@@ -36,6 +36,23 @@ class ProcedureReferenceMatch:
 
 _SPACE_RE = re.compile(r"\s+")
 
+_GENERIC_ORGAN_BUCKETS = {
+    "atos do poder executivo",
+    "atos do poder legislativo",
+    "atos do poder judiciário",
+    "atos do congresso nacional",
+    "poder executivo",
+    "poder legislativo",
+    "poder judiciário",
+    "presidência da república/secretaria especial",
+    "ineditoriais",
+}
+
+_PRESIDENCY_CUE_RE = re.compile(
+    r"\bpresidente da rep[úu]blica\b|\bpresid[êe]ncia da rep[úu]blica\b",
+    re.IGNORECASE,
+)
+
 
 def normalize_text(value: str | None) -> str:
     if not value:
@@ -46,6 +63,26 @@ def normalize_text(value: str | None) -> str:
 
 def normalize_keyword(value: str | None) -> str:
     return normalize_text(value).lower()
+
+
+def is_generic_organ_bucket(value: str | None) -> bool:
+    return normalize_keyword(value) in _GENERIC_ORGAN_BUCKETS
+
+
+def split_organization_path(art_category: str | None) -> list[str]:
+    if not art_category:
+        return []
+
+    merged: list[str] = []
+    for raw_part in art_category.split("/"):
+        part = normalize_text(raw_part)
+        if not part:
+            continue
+        if merged and merged[-1].endswith(","):
+            merged[-1] = normalize_text(f"{merged[-1]} {part}")
+            continue
+        merged.append(part)
+    return merged
 
 
 def strip_html(html: str) -> str:
@@ -67,19 +104,37 @@ def normalize_art_type(art_type: str | None) -> str:
     return mapping.get(value, value)
 
 
-def extract_issuing_organ(art_category: str | None) -> str:
-    if not art_category:
-        return ""
-    parts = [part.strip() for part in art_category.split("/") if part.strip()]
+def infer_issuing_organ(
+    art_category: str | None,
+    *,
+    body_text: str | None = None,
+    identifica: str | None = None,
+    ementa: str | None = None,
+) -> str:
+    parts = split_organization_path(art_category)
     if not parts:
+        haystack = normalize_text(" ".join(part for part in [identifica, ementa, body_text] if part))
+        if _PRESIDENCY_CUE_RE.search(haystack):
+            return "Presidência da República"
         return ""
-    result = parts[0]
-    for part in parts[1:]:
-        if result.endswith(","):
-            result = f"{result} {part}"
-        else:
-            break
-    return result
+
+    # Prefer the most specific non-generic authority, keeping umbrella buckets
+    # in organization_path/art_category instead of exposing them as issuing_organ.
+    for part in reversed(parts):
+        if not is_generic_organ_bucket(part):
+            return part
+
+    haystack = normalize_text(" ".join(part for part in [identifica, ementa, body_text] if part))
+    if _PRESIDENCY_CUE_RE.search(haystack):
+        return "Presidência da República"
+
+    # If the available category is only an umbrella bucket, it is safer to
+    # leave issuing_organ empty than to store a wrong concrete authority.
+    return ""
+
+
+def extract_issuing_organ(art_category: str | None) -> str:
+    return infer_issuing_organ(art_category)
 
 
 def extract_document_number(identifica: str | None) -> tuple[str | None, int | None]:
