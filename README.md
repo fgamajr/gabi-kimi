@@ -28,7 +28,7 @@ MCP Server (5 tools) ← Claude Code
 ## Prerequisites
 
 - Docker with Compose
-- Parallels Desktop (for persistent storage on macOS host)
+- Optional: larger host storage path if you do not want to use the repo-local `.data/` directory
 
 ## Quick Start
 
@@ -59,6 +59,22 @@ docker compose exec backend python -m src.backend.ingest.sync_dou --year 2026
 
 The DOU catalog registry (`ops/data/dou_catalog_registry.json`) maps 289 months (2002-01 to 2026-01) to Liferay folder IDs and ZIP filenames (851 ZIPs total).
 
+By default, Docker data is now portable and stays under the repo:
+
+```text
+./.data/mongo
+./.data/elasticsearch
+./.data/dou
+```
+
+Override those locations in `.env` if you want external storage:
+
+```bash
+GABI_MONGO_DATA=/Volumes/FastSSD/gabi/mongo
+GABI_ES_DATA=/Volumes/FastSSD/gabi/elasticsearch
+GABI_DOU_DATA=/Volumes/FastSSD/gabi/dou
+```
+
 ### 3. Elasticsearch
 
 Automated setup (starts the normalized `gabi-kimi-elasticsearch` service and runs backfill):
@@ -70,7 +86,8 @@ bash ops/setup_elasticsearch.sh
 Or manually with Compose:
 
 ```bash
-docker compose build elasticsearch backend
+docker compose build backend
+docker compose pull elasticsearch
 docker compose up -d elasticsearch backend
 docker compose exec -T backend python -m src.backend.ingest.es_indexer backfill
 ```
@@ -83,6 +100,8 @@ gabi-kimi-elasticsearch
 gabi-kimi-backend
 gabi-kimi-frontend
 ```
+
+MongoDB and Elasticsearch use the official upstream images directly; only the container names are project-scoped.
 
 ### 4. Verify
 
@@ -121,7 +140,7 @@ docker compose exec -T backend python -m src.backend.ingest.es_indexer stats
 docker compose exec -T backend python -m src.backend.ingest.es_indexer backfill --recreate-index
 ```
 
-Cursor state is persisted at `src/backend/data/es_sync_cursor.json`.
+Cursor state is persisted at `ES_SYNC_CURSOR_PATH`, which defaults to `./.data/dou/es_sync_cursor.json` through Docker Compose.
 
 After the initial backfill, `src.backend.ingest.sync_dou` automatically triggers an incremental ES sync at the end of each run.
 
@@ -154,10 +173,7 @@ docker compose exec -T backend python -m src.backend.ingest.reindex_v2 local-can
   --es-index gabi_documents_v2_search_canary
 ```
 
-Current preflight blockers on this machine are:
-
-- source collection `documents` is empty in the current Docker Mongo
-- free disk available to the stack is below the 4 GB gate
+Current preflight blockers depend on the machine. The portable default is repo-local `./.data/*`; override those paths in `.env` if you want a larger external disk.
 
 ## Repo Assistance Index
 
@@ -197,7 +213,7 @@ The sanctioned way to run the FastAPI adversarial suite is from the Linux host t
 Use the remote runner:
 
 ```bash
-# Default: 3 full runs on ubuntu-vm (1065 HTTP calls total with the current harness)
+# Default: 3 full runs on the target host alias (1065 HTTP calls total with the current harness)
 ops/bin/run_adversarial_remote.sh
 
 # Single run
@@ -209,7 +225,7 @@ ops/bin/run_adversarial_remote.sh --runs 1 --keep-server
 
 What the runner does:
 
-1. SSHes into the Linux host (`ubuntu-vm` by default)
+1. SSHes into the configured host alias (`ubuntu-vm` by default)
 2. Starts the Docker services it needs
 3. Restarts the backend for a clean app start
 4. Waits for health on `127.0.0.1:8001`
@@ -223,30 +239,31 @@ The test harness also accepts a custom base URL through `GABI_API_BASE`, which i
 docker compose exec backend python ops/test_api_adversarial.py
 ```
 
-## Remote-Only Workflow
+## Native macOS Workflow
 
-You can work on this project without a local Python environment if you have a reachable Linux host with the repo, MongoDB, and Elasticsearch.
+The repo can now run without the Ubuntu VM:
 
-Recommended setup:
-
-1. Keep the canonical repo checkout on Linux
-2. Run the backend, MCP servers, and adversarial tests on Linux
-3. Use Codex/Claude/web tools as a client over SSH or a browser-based editor
-4. Avoid running the Python app from an SMB-mounted macOS mirror
-
-Typical remote-only flow:
+1. Clone on macOS
+2. `cp .env.example .env`
+3. `docker compose build`
+4. `docker compose up -d`
+5. optionally install the repo MCP entry into Zed/Kiro/Kilo:
 
 ```bash
-docker compose up -d backend
+python3 ops/bin/install_repo_mcp_clients.py --create-missing
 ```
 
-Then either:
+That installer writes:
 
-- expose the app through a reverse proxy or tunnel;
-- use SSH port forwarding from another machine;
-- or run the adversarial suite directly on the Linux host with `ops/bin/run_adversarial_remote.sh`.
+- `~/Library/Application Support/Zed/settings.json`
+- `~/.kiro/settings/mcp.json`
+- `~/.kilo/settings/mcp.json`
 
-If you want to continue from a browser instead of a laptop with local tooling, the simplest model is: one persistent Linux machine or VM hosts the repo and services, and the web client only edits files and triggers commands there.
+with a local `gabi-es` entry pointing at:
+
+```text
+ops/bin/run_mcp_gabi_es.sh
+```
 
 ## MCP Server (Claude Code Integration)
 
@@ -332,14 +349,16 @@ Defined in `.env`:
 | `DB_NAME` | `gabi_dou` | MongoDB database name |
 | `ES_URL` | `http://localhost:9200` | Elasticsearch URL |
 | `ES_INDEX` | `gabi_documents_v1` | ES index name |
-| `DOU_DATA_PATH` | `/tmp/gabi-pipeline` | Temp path for downloads |
-| `ICLOUD_DATA_PATH` | — | Parallels shared folder for ZIP archival |
+| `GABI_MONGO_DATA` | `./.data/mongo` | Host path for MongoDB data |
+| `GABI_ES_DATA` | `./.data/elasticsearch` | Host path for Elasticsearch data |
+| `GABI_DOU_DATA` | `./.data/dou` | Host path for downloaded ZIPs, pipeline temp, and ES cursor |
+| `ES_SYNC_CURSOR_PATH` | `./.data/dou/es_sync_cursor.json` | Persistent ES sync cursor |
 
 ## Data Flow
 
 1. **Download**: `src.backend.ingest.sync_dou` reads the catalog registry and downloads ZIPs from `in.gov.br/documents`
 2. **Parse**: `dou_processor.py` extracts XMLs from ZIPs, parses into `DouDocument` models
 3. **Store**: Bulk upsert into MongoDB (`documents` collection)
-4. **Archive**: ZIPs copied to iCloud shared folder, extracted XMLs deleted
+4. **Archive**: ZIPs copied into the configured `GABI_DOU_DATA` root, extracted XMLs deleted
 5. **Index**: ES incremental sync runs automatically at end of ingestion
 6. **Search**: MCP server or API queries Elasticsearch with BM25

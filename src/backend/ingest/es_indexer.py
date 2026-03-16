@@ -26,7 +26,12 @@ from src.backend.ingest.es_v2_minimal import mongo_to_es_v2_minimal
 from src.backend.ingest.es_v2_search import mongo_to_es_v2_search
 
 _SEARCH_DIR = Path(__file__).resolve().parent.parent / "search"
-_DEFAULT_CURSOR_PATH = Path(__file__).resolve().parent.parent / "data" / "es_sync_cursor.json"
+_DEFAULT_CURSOR_PATH = Path(
+    os.getenv(
+        "ES_SYNC_CURSOR_PATH",
+        str(Path(__file__).resolve().parent.parent / "data" / "es_sync_cursor.json"),
+    )
+)
 _SCHEMA_TO_MAPPING = {
     "v1": _SEARCH_DIR / "es_index_v1.json",
     "v2_minimal": _SEARCH_DIR / "es_index_min_v2.json",
@@ -193,11 +198,18 @@ class ESClient:
 
         last_error: str | None = None
         for attempt in range(1, retries + 1):
-            resp = self.client.post(
-                f"{self.url}/_bulk",
-                data=body.encode("utf-8"),
-                headers={"Content-Type": "application/x-ndjson"},
-            )
+            try:
+                resp = self.client.post(
+                    f"{self.url}/_bulk",
+                    data=body.encode("utf-8"),
+                    headers={"Content-Type": "application/x-ndjson"},
+                )
+            except (httpx.ReadTimeout, httpx.WriteTimeout, httpx.ConnectTimeout) as exc:
+                last_error = f"{type(exc).__name__}: {exc}"
+                if attempt < retries:
+                    time.sleep(1.5 * attempt)
+                    continue
+                raise RuntimeError(f"bulk timed out after retries: {last_error}") from exc
             if resp.status_code in (429, 502, 503, 504):
                 last_error = f"http {resp.status_code}"
                 time.sleep(1.5 * attempt)
@@ -350,12 +362,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sp = sub.add_parser("backfill", help="Full backfill from MongoDB")
-    sp.add_argument("--batch-size", type=int, default=2000)
+    sp.add_argument("--batch-size", type=int, default=1000)
     sp.add_argument("--recreate-index", action="store_true")
     sp.set_defaults(func=cmd_backfill)
 
     sp = sub.add_parser("sync", help="Incremental sync from cursor high-water mark")
-    sp.add_argument("--batch-size", type=int, default=2000)
+    sp.add_argument("--batch-size", type=int, default=1000)
     sp.set_defaults(func=cmd_sync)
 
     sp = sub.add_parser("stats", help="Parity and index statistics")

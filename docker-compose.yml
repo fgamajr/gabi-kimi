@@ -1,28 +1,24 @@
 services:
   mongo:
-    build:
-      context: .
-      dockerfile: ops/docker/mongo/Dockerfile
-    image: gabi-kimi-mongo
+    image: mongo:7
     container_name: gabi-kimi-mongo
     restart: unless-stopped
+    ports:
+      - "27017:27017"
     volumes:
-      - mongo_data:/data/db
+      - ${GABI_MONGO_DATA:-./.data/mongo}:/data/db
 
   elasticsearch:
-    build:
-      context: .
-      dockerfile: ops/docker/elasticsearch/Dockerfile
-    image: gabi-kimi-elasticsearch
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.4
     container_name: gabi-kimi-elasticsearch
     restart: unless-stopped
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
-      ES_JAVA_OPTS: -Xms512m -Xmx512m
+      ES_JAVA_OPTS: -Xms1g -Xmx1g
       cluster.routing.allocation.disk.threshold_enabled: "false"
     volumes:
-      - es_data:/usr/share/elasticsearch/data
+      - ${GABI_ES_DATA:-./.data/elasticsearch}:/usr/share/elasticsearch/data
 
   backend:
     build:
@@ -39,8 +35,14 @@ services:
       DB_NAME: gabi_dou
       ES_URL: http://elasticsearch:9200
       ES_INDEX: gabi_documents_v1
+      ES_ALIAS: gabi_documents
+      ES_SYNC_CURSOR_PATH: /data/gabi_dou/es_sync_cursor.json
+      PIPELINE_TMP: /data/gabi_dou/pipeline
+      ICLOUD_DATA_PATH: /data/gabi_dou
     ports:
       - "${BACKEND_PORT:-8001}:8000"
+    volumes:
+      - ${GABI_DOU_DATA:-./.data/dou}:/data/gabi_dou
 
   frontend:
     build:
@@ -55,7 +57,3 @@ services:
       VITE_API_PROXY_TARGET: ${VITE_API_PROXY_TARGET:-http://backend:8000}
     ports:
       - "${FRONTEND_PORT:-8081}:8080"
-
-volumes:
-  mongo_data:
-  es_data:

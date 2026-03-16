@@ -23,6 +23,7 @@ node_modules/
 
 # Data files (ZIPs, legacy)
 inlabs_data/
+.data/
 Gabi_OLD/
 
 # .NET build artifacts
