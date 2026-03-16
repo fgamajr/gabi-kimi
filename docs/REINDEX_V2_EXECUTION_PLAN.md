@@ -86,6 +86,20 @@ docker compose exec -T backend python -m src.backend.ingest.reindex_v2 local-can
   --report /tmp/reindex_v2_dryrun_report.json
 ```
 
+## Preflight Command
+
+Run this before a broader historical backfill:
+
+```bash
+docker compose exec -T backend python -m src.backend.ingest.reindex_v2 preflight \
+  --schema v2_search \
+  --glob 'ops/data/raw_export/2002/01/*.zip' \
+  --source-collection documents \
+  --mongo-collection documents_v2_canary \
+  --es-index gabi_documents_v2_search_canary \
+  --report /tmp/reindex_v2_preflight.json
+```
+
 ## Runtime Rule
 
 The live application remains on ES v1 until the minimum-v2 canary passes. The

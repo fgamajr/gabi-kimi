@@ -7,6 +7,7 @@ Usage: run_adversarial_remote.sh [options]
 
 Runs the adversarial API suite on the Linux host over SSH using the Docker
 backend service and stops the backend container at the end by default.
+Artifacts are written to the Linux host state directory instead of the repo.
 
 Options:
   --host NAME         SSH host alias. Default: ubuntu-vm
@@ -88,7 +89,7 @@ keep_server="$4"
 
 cd "$remote_root"
 
-log_root="${remote_root}/var/tmp/adversarial-remote"
+log_root="${HOME}/.local/state/gabi-kimi/adversarial-remote"
 mkdir -p "$log_root"
 timestamp="$(date +%Y%m%d-%H%M%S)"
 server_log="${log_root}/server-${timestamp}.log"

@@ -1,6 +1,6 @@
 # GABI - Busca Inteligente no Diário Oficial da União
 
-Full-text search platform for Brazil's official gazette (DOU), covering 2002–2026. Downloads, processes, and indexes ~7M legal documents for BM25 search via Elasticsearch, with an MCP server for Claude Code integration.
+Full-text search platform for Brazil's official gazette (DOU), covering 2002–2026. Downloads, processes, and indexes the DOU corpus into MongoDB and Elasticsearch BM25, with a local repo-assistance index for code/docs search and MCP tooling for agent workflows.
 
 ## Architecture
 
@@ -32,9 +32,10 @@ MCP Server (5 tools) ← Claude Code
 
 ## Quick Start
 
-### 1. Start the stack
+### 1. Build and start the stack
 
 ```bash
+docker compose build
 docker compose up -d
 ```
 
@@ -60,45 +61,46 @@ The DOU catalog registry (`ops/data/dou_catalog_registry.json`) maps 289 months 
 
 ### 3. Elasticsearch
 
-Automated setup (creates index, runs backfill):
+Automated setup (starts the normalized `gabi-kimi-elasticsearch` service and runs backfill):
 
 ```bash
 bash ops/setup_elasticsearch.sh
 ```
 
-Or manually:
+Or manually with Compose:
 
 ```bash
-# Create Parallels shared folder first:
-#   macOS: mkdir -p ~/Data/gabi_es
-#   Parallels > VM Settings > Shared Folders > Add ~/Data/gabi_es
+docker compose build elasticsearch backend
+docker compose up -d elasticsearch backend
+docker compose exec -T backend python -m src.backend.ingest.es_indexer backfill
+```
 
-docker run -d --name gabi-es \
-  -p 9200:9200 \
-  -e discovery.type=single-node \
-  -e xpack.security.enabled=false \
-  -e "ES_JAVA_OPTS=-Xms512m -Xmx512m" \
-  -v /media/psf/gabi_es:/usr/share/elasticsearch/data \
-  docker.elastic.co/elasticsearch/elasticsearch:8.15.4
+The stack now uses project-scoped image/container names consistently:
 
-# Wait for ES, then backfill
-docker compose exec backend python -m src.backend.ingest.es_indexer backfill
+```text
+gabi-kimi-mongo
+gabi-kimi-elasticsearch
+gabi-kimi-backend
+gabi-kimi-frontend
 ```
 
 ### 4. Verify
 
 ```bash
 # MongoDB count
-python3 -c "from pymongo import MongoClient; print(MongoClient('mongodb://localhost:27017')['gabi_dou']['documents'].count_documents({}))"
+docker compose exec -T backend python - <<'PY'
+from pymongo import MongoClient
+print(MongoClient('mongodb://mongo:27017')['gabi_dou']['documents'].count_documents({}))
+PY
 
 # ES health
-curl -s localhost:9200/_cluster/health | python3 -m json.tool
+docker compose exec -T elasticsearch curl -s localhost:9200/_cluster/health | python3 -m json.tool
 
 # ES document count
-curl -s localhost:9200/gabi_documents_v1/_count | python3 -m json.tool
+docker compose exec -T elasticsearch curl -s localhost:9200/gabi_documents_v1/_count | python3 -m json.tool
 
 # Parity check (MongoDB vs ES counts)
-docker compose exec backend python -m src.backend.ingest.es_indexer stats
+docker compose exec -T backend python -m src.backend.ingest.es_indexer stats
 ```
 
 ## ES Indexer
@@ -107,21 +109,86 @@ The indexer (`src/backend/ingest/es_indexer.py`) reads from MongoDB and bulk-ind
 
 ```bash
 # Full reindex (resets cursor, re-reads all MongoDB docs)
-python3 -m src.backend.ingest.es_indexer backfill
+docker compose exec -T backend python -m src.backend.ingest.es_indexer backfill
 
 # Incremental sync (from last cursor position)
-python3 -m src.backend.ingest.es_indexer sync
+docker compose exec -T backend python -m src.backend.ingest.es_indexer sync
 
 # Show counts and parity
-python3 -m src.backend.ingest.es_indexer stats
+docker compose exec -T backend python -m src.backend.ingest.es_indexer stats
 
 # Nuclear option: delete index and rebuild
-python3 -m src.backend.ingest.es_indexer backfill --recreate-index
+docker compose exec -T backend python -m src.backend.ingest.es_indexer backfill --recreate-index
 ```
 
 Cursor state is persisted at `src/backend/data/es_sync_cursor.json`.
 
 After the initial backfill, `src.backend.ingest.sync_dou` automatically triggers an incremental ES sync at the end of each run.
+
+## Reindex V2
+
+The v2 reindex work is staged through a canary path before any broad historical backfill. The current execution artifacts live in:
+
+- `docs/REINDEX_V2_MINIMUM.md`
+- `docs/REINDEX_V2_FULL_FIELDS.md`
+- `docs/REINDEX_V2_EXECUTION_PLAN.md`
+- `docs/REINDEX_V2_SEARCH_CANARY.md`
+
+Typical preflight and canary commands:
+
+```bash
+# Check whether the environment is ready for a broader canary/backfill
+docker compose exec -T backend python -m src.backend.ingest.reindex_v2 preflight \
+  --schema v2_search \
+  --glob 'ops/data/raw_export/2002/01/*.zip' \
+  --source-collection documents \
+  --mongo-collection documents_v2_canary \
+  --es-index gabi_documents_v2_search_canary
+
+# Run a local canary against a limited ZIP sample
+docker compose exec -T backend python -m src.backend.ingest.reindex_v2 local-canary \
+  --schema v2_search \
+  --glob 'ops/data/raw_export/2002/01/*.zip' \
+  --source-collection documents \
+  --mongo-collection documents_v2_canary \
+  --es-index gabi_documents_v2_search_canary
+```
+
+Current preflight blockers on this machine are:
+
+- source collection `documents` is empty in the current Docker Mongo
+- free disk available to the stack is below the 4 GB gate
+
+## Repo Assistance Index
+
+For local codebase search and future agent assistance, the repo can build a hidden SQLite index under `.ai/` with FTS5 and an optional embedding cache.
+
+```bash
+# Lexical-only build
+python3 -m src.backend.repo_index build
+
+# Optional embedding cache build (uses OPENAI_API_KEY / EMBED_* from .env)
+python3 -m src.backend.repo_index build --with-embeddings
+
+# Lexical-only query
+python3 -m src.backend.repo_index query "multipart reconstruction" --mode lexical
+
+# Embeddings-only query (requires build --with-embeddings first)
+python3 -m src.backend.repo_index query "multipart reconstruction" --mode semantic
+
+# Hybrid query (lexical + embeddings; falls back to lexical if no embedding cache exists)
+python3 -m src.backend.repo_index query "multipart reconstruction" --mode hybrid
+
+# Stats
+python3 -m src.backend.repo_index stats
+```
+
+The `.ai/` directory is local-only and ignored by git. The first lexical build on this repo created:
+
+- `.ai/repo_index.db`
+- `.ai/manifest.json`
+
+with roughly `5,979` files and `9,541` chunks indexed.
 
 ## Adversarial API Testing
 
@@ -143,12 +210,12 @@ ops/bin/run_adversarial_remote.sh --runs 1 --keep-server
 What the runner does:
 
 1. SSHes into the Linux host (`ubuntu-vm` by default)
-2. Clears `__pycache__`
-3. Starts Uvicorn with `python -B`
-4. Waits for health on `127.0.0.1:8000`
+2. Starts the Docker services it needs
+3. Restarts the backend for a clean app start
+4. Waits for health on `127.0.0.1:8001`
 5. Runs `ops/test_api_adversarial.py`
-6. Stores logs under `var/tmp/adversarial-remote`
-7. Stops the server unless `--keep-server` is set
+6. Stores logs under `~/.local/state/gabi-kimi/adversarial-remote` on the Linux host
+7. Stops the backend container unless `--keep-server` is set
 
 The test harness also accepts a custom base URL through `GABI_API_BASE`, which is useful for CI or a remote box already running the API.
 
@@ -199,11 +266,11 @@ The server auto-infers filters from natural language queries (e.g., "decreto do1
 
 ## MongoDB Schema
 
-Collection: `documents`
+Primary collection: `documents`
 
 | Field | Type | Description |
 |---|---|---|
-| `_id` | string | Deterministic hash: `{date}_{section}_{content_hash}` |
+| `_id` | string | Deterministic hash or Mongo object ID, depending on ingest path |
 | `pub_date` | datetime | Publication date |
 | `section` | string | DOU section (DO1, DO2, DO3, etc.) |
 | `edition` | string | Edition number |
@@ -215,10 +282,12 @@ Collection: `documents`
 | `ementa` | string | Summary |
 | `texto` | string | Plain text content (searchable) |
 | `content_html` | string | Original HTML content |
-| `structured` | object | `{act_number, act_year}` |
+| `structured` | object | Legacy structured fields |
 | `source_zip` | string | Origin ZIP filename |
 | `references` | array | Legal references found in text |
-| `enrichment` | object | `{relevance_score, category}` |
+| `enrichment` | object | Optional derived/enrichment fields |
+
+For the v2 parse/store contract and expanded field surface, see `docs/REINDEX_V2_FULL_FIELDS.md`.
 
 ## ES Index Mapping
 

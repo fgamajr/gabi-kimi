@@ -43,16 +43,15 @@ python ops/test_extraction.py          # Test ZIP extraction
 ### Docker Services
 
 ```bash
-# MongoDB
-docker run -d --name gabi-mongo -p 27017:27017 -v /media/psf/gabi_mongo:/data/db mongo:7
+# Compose-managed stack
+docker compose build mongo elasticsearch backend frontend
+docker compose up -d mongo elasticsearch backend frontend
 
-# Elasticsearch
-docker run -d --name gabi-es -p 9200:9200 \
-  -e discovery.type=single-node \
-  -e xpack.security.enabled=false \
-  -e "ES_JAVA_OPTS=-Xms512m -Xmx512m" \
-  -v /media/psf/gabi_es:/usr/share/elasticsearch/data \
-  docker.elastic.co/elasticsearch/elasticsearch:8.15.4
+# Normalized images/containers
+#   gabi-kimi-mongo
+#   gabi-kimi-elasticsearch
+#   gabi-kimi-backend
+#   gabi-kimi-frontend
 ```
 
 ## Code Style Guidelines
