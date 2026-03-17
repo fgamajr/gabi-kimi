@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     RAW_CACHE_PATH: str = "/workspace/ops/data/raw_cache"
     DOU_INGEST_PARALLELISM: int = 3
     ES_URL: str = "http://elasticsearch:9200"
-    ES_INDEX: str = "gabi_documents_v1"
+    ES_INDEX: str = "gabi_documents_v3"
     ES_ALIAS: Optional[str] = "gabi_documents"
     GABI_CORS_ORIGINS: str = "http://localhost:8081,http://127.0.0.1:8081"
 

@@ -14,7 +14,6 @@ from __future__ import annotations
 import argparse
 import fcntl
 from datetime import datetime, timezone
-import functools
 import json
 import os
 from pathlib import Path
@@ -26,8 +25,7 @@ from typing import Any
 import httpx
 import pymongo
 
-from src.backend.ingest.es_v2_minimal import mongo_to_es_v2_minimal
-from src.backend.ingest.es_v2_search import mongo_to_es_v2_search
+from src.backend.ingest.es_v3_full import mongo_to_es_v3_full
 
 _SEARCH_DIR = Path(__file__).resolve().parent.parent / "search"
 _DEFAULT_CURSOR_PATH = Path(
@@ -36,16 +34,8 @@ _DEFAULT_CURSOR_PATH = Path(
         str(Path(__file__).resolve().parent.parent / "data" / "es_sync_cursor.json"),
     )
 )
-_SCHEMA_TO_MAPPING = {
-    "v1": _SEARCH_DIR / "es_index_v1.json",
-    "v2_minimal": _SEARCH_DIR / "es_index_min_v2.json",
-    "v2_search": _SEARCH_DIR / "es_index_v2_search.json",
-}
-_SCHEMA_TO_INDEX = {
-    "v1": "gabi_documents_v1",
-    "v2_minimal": "gabi_documents_v2_minimal",
-    "v2_search": "gabi_documents_v2_search",
-}
+_ES_MAPPING_PATH = _SEARCH_DIR / "es_index_v3_full.json"
+_ES_INDEX_NAME = "gabi_documents_v3"
 _DEFAULT_CURSOR = {
     "updated_at": datetime(1970, 1, 1, tzinfo=timezone.utc).isoformat(timespec="microseconds"),
     "_id": "",
@@ -66,19 +56,11 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
-@functools.lru_cache(maxsize=1)
-def _schema_name() -> str:
-    raw = (os.getenv("ES_DOC_SCHEMA") or "v1").strip().lower()
-    if raw not in _SCHEMA_TO_MAPPING:
-        raise RuntimeError(f"Unsupported ES_DOC_SCHEMA={raw}")
-    return raw
-
-
 def _mapping_path() -> Path:
     override = (os.getenv("ES_MAPPING_PATH") or "").strip()
     if override:
         return Path(override)
-    return _SCHEMA_TO_MAPPING[_schema_name()]
+    return _ES_MAPPING_PATH
 
 
 def _mongo_client():
@@ -119,52 +101,9 @@ def _save_cursor(path: Path, last_updated_at: datetime, last_id: str) -> None:
         json.dump(payload, f, ensure_ascii=True, indent=2)
 
 
-def _mongo_to_es(doc: dict[str, Any], schema: str) -> dict[str, Any]:
-    """Map a MongoDB document to the ES index schema."""
-    if schema == "v2_minimal":
-        return mongo_to_es_v2_minimal(doc)
-    if schema == "v2_search":
-        return mongo_to_es_v2_search(doc)
-
-    structured = doc.get("structured") or {}
-    pub_date = doc.get("pub_date")
-    if isinstance(pub_date, datetime):
-        pub_date_str = pub_date.strftime("%Y-%m-%d")
-    elif pub_date:
-        pub_date_str = str(pub_date)[:10]
-    else:
-        pub_date_str = None
-
-    page = doc.get("page")
-    edition = doc.get("edition")
-
-    return {
-        "doc_id": str(doc["_id"]),
-        "identifica": doc.get("identifica"),
-        "ementa": doc.get("ementa"),
-        "body_plain": doc.get("texto"),
-        "art_type": doc.get("art_type"),
-        "art_category": doc.get("art_category"),
-        "issuing_organ": doc.get("orgao"),
-        "edition_section": doc.get("section"),
-        "pub_date": pub_date_str,
-        "document_number": structured.get("act_number"),
-        "document_year": structured.get("act_year"),
-        "page_number": str(page) if page is not None else None,
-        "edition_number": str(edition) if edition is not None else None,
-        "source_zip": doc.get("source_zip"),
-    }
-
-
-# ---------------------------------------------------------------------------
-# DLQ + safe batch conversion (Fix 2)
-# ---------------------------------------------------------------------------
-
-
 def _convert_batch_safe(
     rows: list[dict[str, Any]],
     dlq_collection,
-    schema: str,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
     """Convert a batch of Mongo docs to ES docs, quarantining failures to DLQ.
 
@@ -176,7 +115,7 @@ def _convert_batch_safe(
 
     for row in rows:
         try:
-            es_doc = _mongo_to_es(row, schema=schema)
+            es_doc = mongo_to_es_v3_full(row)
             es_docs.append(es_doc)
             valid_rows.append(row)
         except Exception as exc:
@@ -241,8 +180,7 @@ class _CursorLock:
 class ESClient:
     def __init__(self) -> None:
         self.url = os.getenv("ES_URL", "http://elasticsearch:9200").rstrip("/")
-        schema = _schema_name()
-        self.index = os.getenv("ES_INDEX", _SCHEMA_TO_INDEX[schema])
+        self.index = os.getenv("ES_INDEX", _ES_INDEX_NAME)
         self.alias = (os.getenv("ES_ALIAS") or "").strip() or None
         self.verify_tls = _env_bool("ES_VERIFY_TLS", True)
         self.timeout_sec = int(os.getenv("ES_TIMEOUT_SEC", "30"))
@@ -410,8 +348,6 @@ def _run_sync_inner(*, reset_cursor: bool, recreate_index: bool, batch_size: int
     es = ESClient()
     es.ensure_index(recreate=recreate_index)
 
-    schema = _schema_name()
-
     if reset_cursor:
         cursor = dict(_DEFAULT_CURSOR)
     else:
@@ -427,19 +363,21 @@ def _run_sync_inner(*, reset_cursor: bool, recreate_index: bool, batch_size: int
     total_skipped = 0
     loops = 0
     consecutive_corrupt = 0
+    _HEALTH_CHECK_INTERVAL = 50
     try:
         while True:
-            # Backpressure: wait for ES to be healthy before fetching
-            if not es.wait_for_healthy(max_wait=60):
-                _log("ABORT: ES cluster not healthy")
-                break
+            # Backpressure: check ES health every N batches (or on first batch)
+            if loops % _HEALTH_CHECK_INTERVAL == 0:
+                if not es.wait_for_healthy(max_wait=60):
+                    _log("ABORT: ES cluster not healthy")
+                    break
 
             loops += 1
             rows = _fetch_batch(collection, cursor, batch_size)
             if not rows:
                 break
 
-            es_docs, valid_rows, skip_count = _convert_batch_safe(rows, dlq, schema)
+            es_docs, valid_rows, skip_count = _convert_batch_safe(rows, dlq)
             total_skipped += skip_count
 
             if not valid_rows:
@@ -474,21 +412,15 @@ def _run_sync_inner(*, reset_cursor: bool, recreate_index: bool, batch_size: int
                 f"batch={loops} fetched={len(rows)} indexed_ok={ok} failed={failed} "
                 f"skipped={skip_count} cursor_updated_at={cursor['updated_at']} cursor_id={cursor['_id']}"
             )
-    finally:
-        client.close()
-
-    client, db = _mongo_client()
-    collection = db[_mongo_collection_name()]
-    try:
+        # Final stats
         es.refresh()
         mongo_count, es_count = _counts(collection, es)
+        _log(
+            f"done indexed_ok={total_ok} failed={total_failed} skipped={total_skipped} "
+            f"mongo_count={mongo_count} es_count={es_count}"
+        )
     finally:
         client.close()
-
-    _log(
-        f"done indexed_ok={total_ok} failed={total_failed} skipped={total_skipped} "
-        f"mongo_count={mongo_count} es_count={es_count}"
-    )
 
 
 def cmd_backfill(args: argparse.Namespace) -> None:
@@ -557,7 +489,6 @@ def cmd_verify(args: argparse.Namespace) -> None:
     es = ESClient()
     client, db = _mongo_client()
     collection = db[_mongo_collection_name()]
-    schema = _schema_name()
 
     try:
         # Sample random documents from Mongo
@@ -570,39 +501,40 @@ def cmd_verify(args: argparse.Namespace) -> None:
         _log("no documents in Mongo to verify")
         return
 
-    checked = 0
-    missing_in_es = 0
-    field_mismatches = 0
-    mismatch_details: list[dict] = []
-
+    # Convert all sampled docs and collect expected values
+    expected: dict[str, dict[str, Any]] = {}
+    conversion_failures = 0
     for doc in sampled:
         doc_id = str(doc["_id"])
         try:
-            es_doc = _mongo_to_es(doc, schema=schema)
+            expected[doc_id] = mongo_to_es_v3_full(doc)
         except Exception as exc:
             _log(f"verify: doc {doc_id} conversion failed: {exc}")
-            field_mismatches += 1
-            continue
+            conversion_failures += 1
 
-        checked += 1
-        try:
-            resp = es.client.request(
-                method="GET",
-                url=f"{es.url}/{es.index}/_doc/{doc_id}",
-            )
-        except Exception:
+    # Batch fetch from ES using _mget
+    mget_resp = es.client.post(
+        f"{es.url}/{es.index}/_mget",
+        json={"ids": list(expected.keys())},
+        headers={"Content-Type": "application/json"},
+    )
+    mget_resp.raise_for_status()
+    es_docs_by_id: dict[str, dict[str, Any]] = {}
+    for hit in mget_resp.json().get("docs", []):
+        if hit.get("found"):
+            es_docs_by_id[hit["_id"]] = hit.get("_source", {})
+
+    checked = len(expected)
+    missing_in_es = 0
+    field_mismatches = conversion_failures
+    mismatch_details: list[dict] = []
+
+    for doc_id, es_doc in expected.items():
+        es_source = es_docs_by_id.get(doc_id)
+        if es_source is None:
             missing_in_es += 1
             continue
 
-        if resp.status_code == 404:
-            missing_in_es += 1
-            continue
-
-        if resp.status_code >= 400:
-            missing_in_es += 1
-            continue
-
-        es_source = resp.json().get("_source", {})
         for field in _VERIFY_FIELDS:
             es_val = es_source.get(field)
             expected_val = es_doc.get(field)
@@ -614,7 +546,7 @@ def cmd_verify(args: argparse.Namespace) -> None:
                     "expected": expected_val,
                     "actual": es_val,
                 })
-                break  # one mismatch per doc is enough
+                break
 
     report = {
         "sampled": len(sampled),

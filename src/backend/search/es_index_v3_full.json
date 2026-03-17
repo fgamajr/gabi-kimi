@@ -1,0 +1,179 @@
+{
+  "settings": {
+    "index": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "refresh_interval": "30s"
+    },
+    "analysis": {
+      "filter": {
+        "pt_br_stop": {
+          "type": "stop",
+          "stopwords": "_portuguese_"
+        },
+        "pt_br_stemmer": {
+          "type": "stemmer",
+          "language": "light_portuguese"
+        },
+        "pt_br_synonym": {
+          "type": "synonym",
+          "lenient": true,
+          "synonyms": [
+            "portaria,port",
+            "resolucao,res",
+            "instrucao normativa,in",
+            "decreto,dec",
+            "medida provisoria,mp"
+          ]
+        }
+      },
+      "analyzer": {
+        "pt_br_full": {
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "asciifolding",
+            "pt_br_stop",
+            "pt_br_stemmer",
+            "pt_br_synonym"
+          ]
+        },
+        "pt_br_folded": {
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "asciifolding",
+            "pt_br_stop",
+            "pt_br_stemmer"
+          ]
+        },
+        "keyword_lower": {
+          "tokenizer": "keyword",
+          "filter": ["lowercase", "asciifolding"]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "dynamic": false,
+    "properties": {
+
+      "doc_id":            { "type": "keyword" },
+      "logical_doc_id":    { "type": "keyword" },
+      "deterministic_hash": { "type": "keyword" },
+
+      "identifica": {
+        "type": "text",
+        "analyzer": "pt_br_full",
+        "fields": {
+          "keyword": { "type": "keyword", "ignore_above": 1024 }
+        }
+      },
+      "normalized_title": { "type": "keyword", "ignore_above": 1024 },
+
+      "ementa": {
+        "type": "text",
+        "analyzer": "pt_br_full"
+      },
+
+      "body_plain": {
+        "type": "text",
+        "analyzer": "pt_br_folded"
+      },
+
+      "search_all": {
+        "type": "text",
+        "analyzer": "pt_br_full"
+      },
+
+      "art_type": {
+        "type": "keyword"
+      },
+      "art_type_normalized": {
+        "type": "keyword"
+      },
+      "art_category": {
+        "type": "text",
+        "analyzer": "keyword_lower",
+        "fields": {
+          "keyword": { "type": "keyword", "ignore_above": 512 }
+        }
+      },
+
+      "issuing_organ": {
+        "type": "text",
+        "analyzer": "pt_br_folded",
+        "fields": {
+          "keyword": { "type": "keyword", "ignore_above": 1024 }
+        }
+      },
+      "organization_path": {
+        "type": "keyword",
+        "ignore_above": 1024
+      },
+      "affected_entities_normalized": {
+        "type": "keyword",
+        "ignore_above": 256
+      },
+
+      "section":       { "type": "keyword" },
+      "edition_number": { "type": "keyword" },
+      "edition_id":    { "type": "keyword" },
+      "edition_date": {
+        "type": "date",
+        "format": "strict_date_optional_time||yyyy-MM-dd"
+      },
+      "page_number":   { "type": "keyword" },
+
+      "pub_date": {
+        "type": "date",
+        "format": "strict_date_optional_time||yyyy-MM-dd"
+      },
+
+      "document_number": { "type": "keyword", "ignore_above": 256 },
+      "document_year":   { "type": "integer" },
+
+      "primary_signer": {
+        "type": "keyword",
+        "ignore_above": 512
+      },
+      "primary_signer_normalized": {
+        "type": "keyword",
+        "ignore_above": 512
+      },
+      "signers_all_flat": {
+        "type": "keyword",
+        "ignore_above": 512
+      },
+      "has_multiple_signers": { "type": "boolean" },
+      "signature_count":     { "type": "integer" },
+
+      "references_flat":  { "type": "keyword", "ignore_above": 512 },
+      "reference_types":  { "type": "keyword" },
+      "reference_count":  { "type": "integer" },
+
+      "art_class_hierarchy": { "type": "keyword" },
+
+      "is_tombstone":     { "type": "boolean" },
+      "is_retification":  { "type": "boolean" },
+      "is_revocation":    { "type": "boolean" },
+      "is_multipart":     { "type": "boolean" },
+      "multipart_seq":    { "type": "integer" },
+
+      "parse_quality_score": { "type": "float" },
+      "text_language":       { "type": "keyword" },
+
+      "source_url": { "type": "keyword", "ignore_above": 2048 },
+      "source_zip": { "type": "keyword" },
+
+      "embedding": {
+        "type": "dense_vector",
+        "dims": 384,
+        "index": true,
+        "similarity": "cosine"
+      },
+      "embedding_status": { "type": "keyword" },
+      "embedding_model":  { "type": "keyword" }
+    }
+  }
+}

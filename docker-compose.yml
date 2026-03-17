@@ -54,7 +54,7 @@ services:
       MONGO_STRING: mongodb://mongo:27017/gabi_dou
       DB_NAME: gabi_dou
       ES_URL: http://elasticsearch:9200
-      ES_INDEX: gabi_documents_v1
+      ES_INDEX: gabi_documents_v3
       ES_ALIAS: gabi_documents
       ES_SYNC_CURSOR_PATH: /data/gabi_dou/es_sync_cursor.json
       PIPELINE_TMP: /data/gabi_dou/pipeline
@@ -100,7 +100,7 @@ services:
       MONGO_STRING: mongodb://mongo:27017/gabi_dou
       DB_NAME: gabi_dou
       ES_URL: http://elasticsearch:9200
-      ES_INDEX: gabi_documents_v1
+      ES_INDEX: gabi_documents_v3
       ES_ALIAS: gabi_documents
       ES_SYNC_CURSOR_PATH: /data/gabi_dou/es_sync_cursor.json
       PIPELINE_TMP: /data/gabi_dou/pipeline

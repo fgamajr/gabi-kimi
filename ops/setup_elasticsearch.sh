@@ -32,7 +32,7 @@ docker compose exec -T backend python -m json.tool < /tmp/gabi-es-health.json
 echo ""
 echo "=== Step 3: Add dense_vector mapping for embeddings ==="
 docker compose exec -T elasticsearch curl -fsS -X PUT \
-  "http://localhost:9200/gabi_documents_v1/_mapping" \
+  "http://localhost:9200/gabi_documents_v3/_mapping" \
   -H 'Content-Type: application/json' \
   -d '{
     "properties": {
@@ -57,7 +57,7 @@ docker compose exec -T backend python -m src.backend.ingest.es_indexer backfill
 echo ""
 echo "=== Step 5: Verify ==="
 echo "  Index count:"
-docker compose exec -T elasticsearch curl -fsS http://localhost:9200/gabi_documents_v1/_count | docker compose exec -T backend python -m json.tool
+docker compose exec -T elasticsearch curl -fsS http://localhost:9200/gabi_documents_v3/_count | docker compose exec -T backend python -m json.tool
 
 echo ""
 echo "=== Done! ==="

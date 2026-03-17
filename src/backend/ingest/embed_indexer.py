@@ -69,7 +69,7 @@ def _mongo_client():
 class ESClient:
     def __init__(self) -> None:
         self.url = os.getenv("ES_URL", "http://elasticsearch:9200").rstrip("/")
-        self.index = os.getenv("ES_INDEX", "gabi_documents_v2")
+        self.index = os.getenv("ES_INDEX", "gabi_documents_v3")
         self.client = httpx.Client(timeout=30)
 
     def bulk_update_embeddings(
@@ -131,6 +131,7 @@ _HTML_TAG_RE = re.compile(
     r"<(?:/?(?:p|br|div|table|tr|td|th|span|a|b|i|em|strong|ul|ol|li|h[1-6])\b)[^>]*>",
     re.IGNORECASE,
 )
+_CLOSE_P_RE = re.compile(r"</p>", re.IGNORECASE)
 _WHITESPACE_RE = re.compile(r"\s+")
 
 
@@ -139,7 +140,7 @@ def _clean_text(raw: str | None) -> str | None:
         return None
     text = raw.replace("\x00", "")
     text = unescape(text)
-    text = re.sub(r"</p>", "\n\n", text, flags=re.IGNORECASE)
+    text = _CLOSE_P_RE.sub("\n\n", text)
     text = _HTML_TAG_RE.sub(" ", text)
     text = _WHITESPACE_RE.sub(" ", text)
     text = text.strip()
