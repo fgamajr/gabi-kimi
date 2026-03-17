@@ -3,10 +3,17 @@ services:
     image: mongo:7
     container_name: gabi-kimi-mongo
     restart: unless-stopped
+    command: ["mongod", "--bind_ip_all"]
+    volumes:
+      - mongo_data:/data/db
     ports:
       - "27017:27017"
-    volumes:
-      - ${GABI_MONGO_DATA:-./.data/mongo}:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet mongodb://127.0.0.1:27017/admin --eval 'db.runCommand({ ping: 1 }).ok' | grep 1 >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.15.4
@@ -15,45 +22,130 @@ services:
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
-      ES_JAVA_OPTS: -Xms1g -Xmx1g
+      ES_JAVA_OPTS: -Xms${ES_JAVA_HEAP:-1g} -Xmx${ES_JAVA_HEAP:-1g}
       cluster.routing.allocation.disk.threshold_enabled: "false"
     volumes:
-      - ${GABI_ES_DATA:-./.data/elasticsearch}:/usr/share/elasticsearch/data
+      - elastic_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9200/_cluster/health >/dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 20s
 
   backend:
     build:
       context: .
-      dockerfile: src/backend/Dockerfile
+      dockerfile: Dockerfile.backend
     image: gabi-kimi-backend
     container_name: gabi-kimi-backend
     restart: unless-stopped
     depends_on:
-      - mongo
-      - elasticsearch
+      mongo:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    env_file:
+      - .env
     environment:
-      MONGO_STRING: mongodb://mongo:27017
+      BACKEND_INTERNAL_PORT: 8000
+      PYTHONPATH: /workspace
+      WATCHFILES_FORCE_POLLING: "true"
+      MONGO_STRING: mongodb://mongo:27017/gabi_dou
       DB_NAME: gabi_dou
       ES_URL: http://elasticsearch:9200
       ES_INDEX: gabi_documents_v1
       ES_ALIAS: gabi_documents
       ES_SYNC_CURSOR_PATH: /data/gabi_dou/es_sync_cursor.json
       PIPELINE_TMP: /data/gabi_dou/pipeline
+      DOU_DATA_PATH: /data/gabi_dou
       ICLOUD_DATA_PATH: /data/gabi_dou
+      GABI_CORS_ORIGINS: http://localhost:${FRONTEND_PORT:-8081},http://127.0.0.1:${FRONTEND_PORT:-8081}
+      VECTOR_SEARCH_ENABLED: ${VECTOR_SEARCH_ENABLED:-false}
+      EMBED_SERVER_URL: ${EMBED_SERVER_URL:-http://host.docker.internal:8900}
+      RERANKER_ENABLED: ${RERANKER_ENABLED:-false}
+      RERANKER_URL: ${RERANKER_URL:-http://host.docker.internal:8902}
+      RERANKER_TOP_K: ${RERANKER_TOP_K:-50}
+      RERANKER_TIMEOUT: ${RERANKER_TIMEOUT:-5.0}
+    working_dir: /workspace
+    command: ["sh", "/opt/container-scripts/backend-dev.sh"]
+    volumes:
+      - .:/workspace
+      - dou_data:/data/gabi_dou
     ports:
       - "${BACKEND_PORT:-8001}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=5).read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: gabi-kimi-backend
+    container_name: gabi-kimi-worker
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /workspace
+      MONGO_STRING: mongodb://mongo:27017/gabi_dou
+      DB_NAME: gabi_dou
+      ES_URL: http://elasticsearch:9200
+      ES_INDEX: gabi_documents_v1
+      ES_ALIAS: gabi_documents
+      ES_SYNC_CURSOR_PATH: /data/gabi_dou/es_sync_cursor.json
+      PIPELINE_TMP: /data/gabi_dou/pipeline
+      DOU_DATA_PATH: /data/gabi_dou
+      ICLOUD_DATA_PATH: /data/gabi_dou
+      WORKER_BATCH_SIZE: ${WORKER_BATCH_SIZE:-1000}
+      WORKER_POLL_INTERVAL_SEC: ${WORKER_POLL_INTERVAL_SEC:-30}
+    working_dir: /workspace
+    command: ["sh", "/opt/container-scripts/worker-dev.sh"]
     volumes:
-      - ${GABI_DOU_DATA:-./.data/dou}:/data/gabi_dou
+      - .:/workspace
+      - dou_data:/data/gabi_dou
 
   frontend:
     build:
       context: .
-      dockerfile: src/frontend/app/Dockerfile
+      dockerfile: Dockerfile.frontend
     image: gabi-kimi-frontend
     container_name: gabi-kimi-frontend
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     environment:
-      VITE_API_PROXY_TARGET: ${VITE_API_PROXY_TARGET:-http://backend:8000}
+      FRONTEND_INTERNAL_PORT: 8080
+      VITE_API_PROXY_TARGET: http://backend:8000
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+      WDS_SOCKET_PORT: "0"
+    working_dir: /workspace/src/frontend/app
+    command: ["sh", "/opt/container-scripts/frontend-dev.sh"]
+    volumes:
+      - .:/workspace
+      - frontend_node_modules:/workspace/src/frontend/app/node_modules
     ports:
       - "${FRONTEND_PORT:-8081}:8080"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+volumes:
+  mongo_data:
+  elastic_data:
+  dou_data:
+  frontend_node_modules:

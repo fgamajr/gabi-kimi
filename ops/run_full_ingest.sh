@@ -1,29 +1,57 @@
 #!/bin/bash
-# Full DOU ingestion: 2009-04 through 2026-01
+# Full DOU ingestion on the host, using only local MongoDB.
 # Run from project root: bash ops/run_full_ingest.sh
-set -e
+set -euo pipefail
 
-cd /home/parallels/dev/gabi-kimi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_ROOT"
 
-LOG="ops/data/ingest_progress.log"
+VENV_DIR="${REPO_ROOT}/.venv-ingest"
+LOG_DIR="${REPO_ROOT}/ops/data"
+LOG_FILE="${LOG_DIR}/ingest_progress.log"
+PYTHON_BIN="${INGEST_PYTHON_BIN:-}"
+mkdir -p "$LOG_DIR"
 
-# Resume from 2009 month 4, then 2010-2025 full years, then 2026
-echo "[$(date)] Starting full ingest from 2009-04" >> "$LOG"
+if [ -z "$PYTHON_BIN" ]; then
+  if [ -x /opt/homebrew/bin/python3 ]; then
+    PYTHON_BIN="/opt/homebrew/bin/python3"
+  else
+    PYTHON_BIN="$(command -v python3)"
+  fi
+fi
 
-# 2009: remaining months
-for m in $(seq 4 12); do
-  echo "[$(date)] Ingesting 2009-$m" >> "$LOG"
-  docker compose exec -T backend python -m src.backend.ingest.sync_dou --year 2009 --month $m 2>&1 | tail -1 >> "$LOG"
-done
+if [ ! -x "${VENV_DIR}/bin/python" ]; then
+  "$PYTHON_BIN" -m venv "$VENV_DIR"
+fi
 
-# 2010 through 2025: full years
-for y in $(seq 2010 2025); do
-  echo "[$(date)] Ingesting year $y" >> "$LOG"
-  docker compose exec -T backend python -m src.backend.ingest.sync_dou --year $y 2>&1 | tail -1 >> "$LOG"
-done
+if ! "${VENV_DIR}/bin/python" -c 'import sys; assert sys.version_info >= (3, 10)' >/dev/null 2>&1; then
+  rm -rf "$VENV_DIR"
+  "$PYTHON_BIN" -m venv "$VENV_DIR"
+fi
 
-# 2026
-echo "[$(date)] Ingesting year 2026" >> "$LOG"
-docker compose exec -T backend python -m src.backend.ingest.sync_dou --year 2026 2>&1 | tail -1 >> "$LOG"
+if ! "${VENV_DIR}/bin/python" -c 'import lxml, pymongo, pydantic_settings, requests' >/dev/null 2>&1; then
+  "${VENV_DIR}/bin/pip" install --upgrade pip
+  "${VENV_DIR}/bin/pip" install -r ops/requirements-ingest.txt
+fi
 
-echo "[$(date)] Full ingest complete" >> "$LOG"
+export PYTHONPATH="${REPO_ROOT}"
+export PYTHONUNBUFFERED=1
+export MONGO_STRING="${MONGO_STRING:-mongodb://127.0.0.1:27017/gabi_dou}"
+export DB_NAME="${DB_NAME:-gabi_dou}"
+export PIPELINE_TMP="${PIPELINE_TMP:-${REPO_ROOT}/ops/data/pipeline}"
+export DOU_DATA_PATH="${DOU_DATA_PATH:-${REPO_ROOT}/ops/data}"
+export ICLOUD_DATA_PATH="${ICLOUD_DATA_PATH:-}"
+export RAW_CACHE_PATH="${RAW_CACHE_PATH:-${REPO_ROOT}/ops/data/raw_cache}"
+export DOU_MONTH_PARALLELISM="${DOU_MONTH_PARALLELISM:-6}"
+export DOU_INGEST_PARALLELISM="${DOU_INGEST_PARALLELISM:-3}"
+
+{
+  echo "[$(date)] Starting host-native full ingest"
+  echo "[$(date)] MONGO_STRING=${MONGO_STRING}"
+  echo "[$(date)] RAW_CACHE_PATH=${RAW_CACHE_PATH}"
+  echo "[$(date)] DOU_MONTH_PARALLELISM=${DOU_MONTH_PARALLELISM}"
+  echo "[$(date)] DOU_INGEST_PARALLELISM=${DOU_INGEST_PARALLELISM}"
+} >> "$LOG_FILE"
+
+exec "${VENV_DIR}/bin/python" ops/full_ingest_host.py "$@" >> "$LOG_FILE" 2>&1

@@ -19,6 +19,8 @@ archive_legacy/
 node_modules/
 src/frontend/app/node_modules/
 src/frontend/app/.vite/
+src/frontend/app/dist/
+dist/
 output/
 var/
 __pycache__/

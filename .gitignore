@@ -93,5 +93,7 @@ Thumbs.db
 
 # ONNX / ML models
 models/
+!src/backend/data/models/
+!src/backend/data/models/*.py
 .qwen/
 nohup.out

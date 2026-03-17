@@ -1,6 +1,6 @@
 # GABI - Busca Inteligente no Diário Oficial da União
 
-Full-text search platform for Brazil's official gazette (DOU), covering 2002–2026. Downloads, processes, and indexes the DOU corpus into MongoDB and Elasticsearch BM25, with a local repo-assistance index for code/docs search and MCP tooling for agent workflows.
+Full-text search platform for Brazil's official gazette (DOU), covering 2002–2026. Downloads, processes, and indexes the DOU corpus into MongoDB and Elasticsearch BM25, with all runtime code expected to run inside Docker containers.
 
 ## Architecture
 
@@ -14,13 +14,20 @@ Elasticsearch (BM25 full-text)
 MCP Server (5 tools) ← Claude Code
 ```
 
+Runtime topology under Docker Compose:
+
+- `frontend` serves the Vite dev server on host port `8081`
+- `backend` serves the FastAPI API on host port `8001`
+- `worker` runs background Elasticsearch sync loops
+- `mongo` and `elasticsearch` stay on the Docker internal network only
+
 ## Stack
 
 | Layer | Tech |
 |---|---|
 | Ingestion | Python, pymongo, requests |
-| Database | MongoDB (localhost:27017, db: `gabi_dou`) |
-| Search | Elasticsearch 8.15.4 (localhost:9200) |
+| Database | MongoDB 7 in Docker Compose |
+| Search | Elasticsearch 8.15.4 in Docker Compose |
 | MCP | FastMCP (stdio), httpx |
 | Backend API | FastAPI, uvicorn |
 | Frontend | Vite + React 18 + Tailwind CSS 3 + TypeScript |
@@ -28,18 +35,36 @@ MCP Server (5 tools) ← Claude Code
 ## Prerequisites
 
 - Docker with Compose
-- Optional: larger host storage path if you do not want to use the repo-local `.data/` directory
 
 ## Quick Start
 
 ### 1. Build and start the stack
 
 ```bash
-docker compose build
-docker compose up -d
+cp .env.example .env
+docker compose up --build
 ```
 
-### 2. Ingest DOU Data
+The host machine only needs Docker and Docker Compose.
+
+### 2. Development endpoints
+
+```text
+Frontend:    http://localhost:8081
+Backend API: http://localhost:8001
+```
+
+Container-to-container networking uses Docker DNS, never host localhost:
+
+```text
+frontend -> backend:8000
+backend  -> mongo:27017
+backend  -> elasticsearch:9200
+worker   -> mongo:27017
+worker   -> elasticsearch:9200
+```
+
+### 3. Ingest DOU Data
 
 First-time full ingestion (2002–2026, ~7M documents):
 
@@ -59,36 +84,20 @@ docker compose exec backend python -m src.backend.ingest.sync_dou --year 2026
 
 The DOU catalog registry (`ops/data/dou_catalog_registry.json`) maps 289 months (2002-01 to 2026-01) to Liferay folder IDs and ZIP filenames (851 ZIPs total).
 
-By default, Docker data is now portable and stays under the repo:
+By default, all persistent Docker data lives in Docker-managed named volumes:
 
 ```text
-./.data/mongo
-./.data/elasticsearch
-./.data/dou
+mongo_data
+elastic_data
+dou_data
 ```
 
-Override those locations in `.env` if you want external storage:
+### 4. Elasticsearch
+
+Initialize Elasticsearch from inside the backend container:
 
 ```bash
-GABI_MONGO_DATA=/Volumes/FastSSD/gabi/mongo
-GABI_ES_DATA=/Volumes/FastSSD/gabi/elasticsearch
-GABI_DOU_DATA=/Volumes/FastSSD/gabi/dou
-```
-
-### 3. Elasticsearch
-
-Automated setup (starts the normalized `gabi-kimi-elasticsearch` service and runs backfill):
-
-```bash
-bash ops/setup_elasticsearch.sh
-```
-
-Or manually with Compose:
-
-```bash
-docker compose build backend
-docker compose pull elasticsearch
-docker compose up -d elasticsearch backend
+docker compose up -d elasticsearch backend worker
 docker compose exec -T backend python -m src.backend.ingest.es_indexer backfill
 ```
 
@@ -103,7 +112,7 @@ gabi-kimi-frontend
 
 MongoDB and Elasticsearch use the official upstream images directly; only the container names are project-scoped.
 
-### 4. Verify
+### 5. Verify
 
 ```bash
 # MongoDB count
@@ -113,10 +122,10 @@ print(MongoClient('mongodb://mongo:27017')['gabi_dou']['documents'].count_docume
 PY
 
 # ES health
-docker compose exec -T elasticsearch curl -s localhost:9200/_cluster/health | python3 -m json.tool
+docker compose exec -T elasticsearch curl -s localhost:9200/_cluster/health | docker compose exec -T backend python -m json.tool
 
 # ES document count
-docker compose exec -T elasticsearch curl -s localhost:9200/gabi_documents_v1/_count | python3 -m json.tool
+docker compose exec -T elasticsearch curl -s localhost:9200/gabi_documents_v1/_count | docker compose exec -T backend python -m json.tool
 
 # Parity check (MongoDB vs ES counts)
 docker compose exec -T backend python -m src.backend.ingest.es_indexer stats
@@ -140,7 +149,7 @@ docker compose exec -T backend python -m src.backend.ingest.es_indexer stats
 docker compose exec -T backend python -m src.backend.ingest.es_indexer backfill --recreate-index
 ```
 
-Cursor state is persisted at `ES_SYNC_CURSOR_PATH`, which defaults to `./.data/dou/es_sync_cursor.json` through Docker Compose.
+Cursor state is persisted at `ES_SYNC_CURSOR_PATH`, which defaults to `/data/gabi_dou/es_sync_cursor.json` inside the backend container.
 
 After the initial backfill, `src.backend.ingest.sync_dou` automatically triggers an incremental ES sync at the end of each run.
 
@@ -173,33 +182,33 @@ docker compose exec -T backend python -m src.backend.ingest.reindex_v2 local-can
   --es-index gabi_documents_v2_search_canary
 ```
 
-Current preflight blockers depend on the machine. The portable default is repo-local `./.data/*`; override those paths in `.env` if you want a larger external disk.
+Current preflight blockers depend on the machine. The default storage target is Docker-managed volumes; override those paths in `.env` only if you want bind mounts on a specific host disk.
 
 ## Repo Assistance Index
 
-For local codebase search and future agent assistance, the repo can build a hidden SQLite index under `.ai/` with FTS5 and an optional embedding cache.
+For containerized codebase search and future agent assistance, the repo can build a hidden SQLite index under `.ai/` inside the backend container with FTS5 and an optional embedding cache.
 
 ```bash
 # Lexical-only build
-python3 -m src.backend.repo_index build
+docker compose exec -T backend python -m src.backend.repo_index build
 
 # Optional embedding cache build (uses OPENAI_API_KEY / EMBED_* from .env)
-python3 -m src.backend.repo_index build --with-embeddings
+docker compose exec -T backend python -m src.backend.repo_index build --with-embeddings
 
 # Lexical-only query
-python3 -m src.backend.repo_index query "multipart reconstruction" --mode lexical
+docker compose exec -T backend python -m src.backend.repo_index query "multipart reconstruction" --mode lexical
 
 # Embeddings-only query (requires build --with-embeddings first)
-python3 -m src.backend.repo_index query "multipart reconstruction" --mode semantic
+docker compose exec -T backend python -m src.backend.repo_index query "multipart reconstruction" --mode semantic
 
 # Hybrid query (lexical + embeddings; falls back to lexical if no embedding cache exists)
-python3 -m src.backend.repo_index query "multipart reconstruction" --mode hybrid
+docker compose exec -T backend python -m src.backend.repo_index query "multipart reconstruction" --mode hybrid
 
 # Stats
-python3 -m src.backend.repo_index stats
+docker compose exec -T backend python -m src.backend.repo_index stats
 ```
 
-The `.ai/` directory is local-only and ignored by git. The first lexical build on this repo created:
+The `.ai/` directory is container-generated and ignored by git. The first lexical build on this repo created:
 
 - `.ai/repo_index.db`
 - `.ai/manifest.json`
@@ -239,30 +248,40 @@ The test harness also accepts a custom base URL through `GABI_API_BASE`, which i
 docker compose exec backend python ops/test_api_adversarial.py
 ```
 
-## Native macOS Workflow
+## Docker-Only Workflow
 
-The repo can now run without the Ubuntu VM:
+The repo now runs entirely inside containers. No host `node`, `npm`, `python`, `pip`, MongoDB, or Elasticsearch installation is required.
 
-1. Clone on macOS
-2. `cp .env.example .env`
-3. `docker compose build`
-4. `docker compose up -d`
-5. optionally install the repo MCP entry into Zed/Kiro/Kilo:
+Optional: install the repo MCP entry into machine-local client configs from inside a container:
 
 ```bash
-python3 ops/bin/install_repo_mcp_clients.py --create-missing
+docker compose run --rm -T \
+  -v "$HOME:/host-home" \
+  backend \
+  python ops/bin/install_repo_mcp_clients.py \
+  --home /host-home \
+  --repo-root "$PWD" \
+  --create-missing
 ```
 
-That installer writes:
+That installer writes `gabi-es` into the supported machine-local client configs it finds, including:
 
+- `~/Library/Application Support/Claude/claude_desktop_config.json`
+- `~/.codex/config.toml`
+- `~/Library/Application Support/Code/User/mcp.json`
+- `~/.cursor/mcp.json`
+- `~/.gemini/settings.json`
+- `~/.kimi/mcp.json`
+- `~/.qwen/settings.json`
+- `~/.config/zed/settings.json`
 - `~/Library/Application Support/Zed/settings.json`
 - `~/.kiro/settings/mcp.json`
 - `~/.kilo/settings/mcp.json`
 
-with a local `gabi-es` entry pointing at:
+with a `gabi-es` entry that launches the MCP server inside Docker:
 
 ```text
-ops/bin/run_mcp_gabi_es.sh
+docker compose -f /absolute/path/to/docker-compose.yml run --rm -T backend python ops/bin/mcp_es_server.py
 ```
 
 ## MCP Server (Claude Code Integration)
@@ -345,20 +364,20 @@ Defined in `.env`:
 
 | Variable | Default | Description |
 |---|---|---|
-| `MONGO_STRING` | `mongodb://localhost:27017/gabi_dou` | MongoDB connection URI |
+| `MONGO_STRING` | `mongodb://mongo:27017/gabi_dou` | MongoDB connection URI inside Docker |
 | `DB_NAME` | `gabi_dou` | MongoDB database name |
-| `ES_URL` | `http://localhost:9200` | Elasticsearch URL |
+| `ES_URL` | `http://elasticsearch:9200` | Elasticsearch URL inside Docker |
 | `ES_INDEX` | `gabi_documents_v1` | ES index name |
-| `GABI_MONGO_DATA` | `./.data/mongo` | Host path for MongoDB data |
-| `GABI_ES_DATA` | `./.data/elasticsearch` | Host path for Elasticsearch data |
-| `GABI_DOU_DATA` | `./.data/dou` | Host path for downloaded ZIPs, pipeline temp, and ES cursor |
-| `ES_SYNC_CURSOR_PATH` | `./.data/dou/es_sync_cursor.json` | Persistent ES sync cursor |
+| `ES_SYNC_CURSOR_PATH` | `/data/gabi_dou/es_sync_cursor.json` | Persistent ES sync cursor inside the backend container |
+| `GABI_CORS_ORIGINS` | `http://localhost:8081,http://127.0.0.1:8081` | Allowed browser origins for the Dockerized frontend |
+| `WORKER_BATCH_SIZE` | `1000` | Batch size used by the background ES sync worker |
+| `WORKER_POLL_INTERVAL_SEC` | `30` | Sleep interval between worker sync passes |
 
 ## Data Flow
 
 1. **Download**: `src.backend.ingest.sync_dou` reads the catalog registry and downloads ZIPs from `in.gov.br/documents`
 2. **Parse**: `dou_processor.py` extracts XMLs from ZIPs, parses into `DouDocument` models
 3. **Store**: Bulk upsert into MongoDB (`documents` collection)
-4. **Archive**: ZIPs copied into the configured `GABI_DOU_DATA` root, extracted XMLs deleted
+4. **Archive**: ZIPs copied into `/data/gabi_dou` inside the shared Docker volume, extracted XMLs deleted
 5. **Index**: ES incremental sync runs automatically at end of ingestion
 6. **Search**: MCP server or API queries Elasticsearch with BM25

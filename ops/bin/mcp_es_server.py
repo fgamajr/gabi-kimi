@@ -561,7 +561,7 @@ def _search_context_payload(
 
 class ElasticClient:
     def __init__(self) -> None:
-        self.url = os.getenv("ES_URL", "http://localhost:9200").rstrip("/")
+        self.url = os.getenv("ES_URL", "http://elasticsearch:9200").rstrip("/")
         self.index = (os.getenv("ES_ALIAS") or os.getenv("ES_INDEX") or "gabi_documents").strip()
         username = (os.getenv("ES_USERNAME") or "").strip() or None
         password = (os.getenv("ES_PASSWORD") or "").strip() or None

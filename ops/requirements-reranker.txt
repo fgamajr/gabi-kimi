@@ -1,0 +1,6 @@
+torch
+sentence-transformers
+transformers
+fastapi
+uvicorn
+psutil

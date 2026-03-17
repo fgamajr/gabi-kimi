@@ -4,7 +4,7 @@ import path from "path";
 import { componentTagger } from "lovable-tagger";
 
 // https://vitejs.dev/config/
-const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || "http://localhost:8000";
+const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || "http://backend:8000";
 
 export default defineConfig(({ mode }) => ({
   server: {

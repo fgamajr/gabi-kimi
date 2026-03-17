@@ -10,7 +10,7 @@ class MongoDB:
         if cls.client is None:
             cls.client = MongoClient(settings.MONGO_STRING)
             cls.db = cls.client[settings.DB_NAME]
-            print("Connected to MongoDB Atlas")
+            print("Connected to MongoDB")
 
     @classmethod
     def get_db(cls):

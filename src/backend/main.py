@@ -8,6 +8,8 @@ from fastapi import FastAPI, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.backend.core.config import settings
+from src.backend.search.hybrid import hybrid_search
+from src.backend.search.reranker import rerank
 
 logger = logging.getLogger(__name__)
 
@@ -47,11 +49,7 @@ app = FastAPI(title="GABI DOU API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:8080",
-        "http://localhost:5173",
-        "http://[::]:8080",
-    ],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -187,69 +185,41 @@ async def search(
     art_type: Optional[str] = None,
     issuing_organ: Optional[str] = None,
 ):
-    es_from = (page - 1) * max
+    offset = (page - 1) * max
     filters = _build_filters(date_from, date_to, section, art_type, issuing_organ)
 
-    query: dict[str, Any] = {
-        "simple_query_string": {
-            "query": q,
-            "fields": [
-                "identifica^5",
-                "ementa^4",
-                "issuing_organ^2",
-                "art_type^2",
-                "art_category",
-                "body_plain",
-            ],
-            "default_operator": "and",
-            "fuzzy_max_expansions": 20,
-        },
-    }
-    should: list[dict] = [
-        {"match_phrase": {"identifica": {"query": q, "boost": 20}}},
-        {"match_phrase": {"ementa": {"query": q, "boost": 15}}},
-        {"match_phrase": {"body_plain": {"query": q, "boost": 5}}},
-    ]
+    use_hybrid = settings.VECTOR_SEARCH_ENABLED
+    use_reranker = settings.RERANKER_ENABLED
 
-    bool_query: dict[str, Any] = {
-        "bool": {
-            "must": [query],
-            "should": should,
-        }
-    }
-    if filters:
-        bool_query["bool"]["filter"] = filters
-
-    # Recency decay
-    final_query: dict[str, Any] = {
-        "function_score": {
-            "query": bool_query,
-            "functions": [{
-                "gauss": {
-                    "pub_date": {
-                        "origin": "now",
-                        "scale": "365d",
-                        "offset": "30d",
-                        "decay": 0.5,
-                    },
-                },
-            }],
-            "boost_mode": "multiply",
-        },
-    }
-
-    payload: dict[str, Any] = {
-        "from": es_from,
-        "size": max,
-        "track_total_hits": True,
-        "query": final_query,
-        "sort": [{"_score": {"order": "desc"}}, {"pub_date": {"order": "desc"}}],
-        "_source": _SOURCE_FIELDS,
-        "highlight": _HIGHLIGHT_SPEC,
-    }
+    # When reranking, fetch more candidates from ES for the reranker to sort
+    es_size = settings.RERANKER_TOP_K if use_reranker else max
+    es_from = 0 if use_reranker else offset
 
     try:
-        data = await es_request("POST", f"/{settings.es_target_index}/_search", json=payload)
+        if use_hybrid:
+            data = await hybrid_search(
+                query=q,
+                filters=filters,
+                size=es_size,
+                source_fields=_SOURCE_FIELDS,
+                highlight_spec=_HIGHLIGHT_SPEC,
+                client=_es,
+            )
+        else:
+            # BM25-only path (current default)
+            from src.backend.search.hybrid import build_bm25_query
+            final_query = build_bm25_query(q, filters)
+
+            payload: dict[str, Any] = {
+                "from": es_from,
+                "size": es_size,
+                "track_total_hits": True,
+                "query": final_query,
+                "sort": [{"_score": {"order": "desc"}}, {"pub_date": {"order": "desc"}}],
+                "_source": _SOURCE_FIELDS,
+                "highlight": _HIGHLIGHT_SPEC,
+            }
+            data = await es_request("POST", f"/{settings.es_target_index}/_search", json=payload)
     except httpx.HTTPStatusError as e:
         logger.error("ES search error: %s", e.response.text[:200])
         return {"results": [], "total": 0, "page": page, "max": max, "query": q, "took_ms": 0}
@@ -258,8 +228,15 @@ async def search(
     total = int(data.get("hits", {}).get("total", {}).get("value", 0))
     took = data.get("took", 0)
 
+    if use_reranker and hits:
+        hits = await rerank(q, hits, top_k=settings.RERANKER_TOP_K, client=_es)
+        page_hits = hits[offset : offset + max]
+        results = [_hit_to_result(h) for h in page_hits]
+    else:
+        results = [_hit_to_result(h) for h in hits]
+
     return {
-        "results": [_hit_to_result(h) for h in hits],
+        "results": results,
         "total": total,
         "page": page,
         "max": max,

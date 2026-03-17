@@ -2,57 +2,157 @@
 
 ## Project Overview
 
-GABI (Gestão Automatizada de Busca Inteligente) is a full-text search platform for Brazil's official gazette (Diário Oficial da União - DOU). It processes ~16M legal documents from 2002-2026 with MongoDB storage and Elasticsearch BM25 search.
+**GABI (Gestão Automatizada de Busca Inteligente)** is a full-text search platform for Brazil's official gazette (Diário Oficial da União - DOU). It processes ~16M legal documents from 2002-2026, providing enterprise-grade BM25 search over the complete DOU corpus.
 
-## Build/Lint/Test Commands
+### Data Flow Architecture
 
-### Primary Operations
+```
+in.gov.br (Liferay ZIPs)
+    ↓  src.backend.ingest.sync_dou
+MongoDB (documents collection)
+    ↓  es_indexer.py
+Elasticsearch (BM25 full-text)
+    ↑
+MCP Server (13 tools) ← Claude Code / AI Agents
+    ↑
+FastAPI Backend ← React Frontend
+```
+
+### Runtime Topology (Docker Compose)
+
+| Service | Container Name | Port | Description |
+|---------|---------------|------|-------------|
+| MongoDB | gabi-kimi-mongo | 27017 | Document storage |
+| Elasticsearch | gabi-kimi-elasticsearch | 9200 | BM25 search index |
+| Backend | gabi-kimi-backend | 8001 | FastAPI API server |
+| Worker | gabi-kimi-worker | - | Background ES sync loop |
+| Frontend | gabi-kimi-frontend | 8081 | Vite + React dev server |
+
+Container-to-container networking uses Docker DNS:
+- `frontend → backend:8000`
+- `backend → mongo:27017`
+- `backend → elasticsearch:9200`
+- `worker → mongo:27017`, `elasticsearch:9200`
+
+## Technology Stack
+
+| Layer | Technology |
+|-------|------------|
+| Language | Python 3.12+ |
+| Web Framework | FastAPI, uvicorn |
+| Database | MongoDB 7 |
+| Search | Elasticsearch 8.15.4 (BM25) |
+| Frontend | Vite + React 18 + TypeScript + Tailwind CSS 3 |
+| UI Components | Radix UI primitives + shadcn/ui patterns |
+| MCP Framework | FastMCP (stdio/SSE transports) |
+| HTTP Client | httpx |
+| Data Validation | Pydantic v2 |
+
+## Build, Test & Development Commands
+
+### Docker Compose Operations
 
 ```bash
-# Data Ingestion
+# Build and start the full stack
+docker compose up --build
+
+# Start specific services only
+docker compose up -d mongo elasticsearch
+
+# View logs
+docker compose logs -f backend
+docker compose logs -f worker
+
+# Restart a service
+docker compose restart backend
+```
+
+### Data Ingestion (MongoDB)
+
+```bash
+# Single year
 docker compose exec backend python -m src.backend.ingest.sync_dou --year 2024
+
+# Single month
 docker compose exec backend python -m src.backend.ingest.sync_dou --year 2024 --month 6
 
-# Elasticsearch Indexing
+# With XML extraction to disk (for debugging)
+docker compose exec backend python -m src.backend.ingest.sync_dou --year 2024 --extract-xmls
+
+# Skip ES sync at end of run
+docker compose exec backend python -m src.backend.ingest.sync_dou --year 2024 --skip-es-sync
+```
+
+### Elasticsearch Indexing
+
+```bash
+# Full backfill (resets cursor, re-reads all MongoDB docs)
 docker compose exec backend python -m src.backend.ingest.es_indexer backfill
+
+# Incremental sync (from last cursor position)
 docker compose exec backend python -m src.backend.ingest.es_indexer sync
+
+# Show counts and parity check
 docker compose exec backend python -m src.backend.ingest.es_indexer stats
+
+# Nuclear option: delete index and rebuild
 docker compose exec backend python -m src.backend.ingest.es_indexer backfill --recreate-index
 
-# MCP Server
-python ops/bin/mcp_es_server.py                          # stdio transport
-python ops/bin/mcp_es_server.py --transport sse --port 8766  # SSE transport
+# Custom batch size
+docker compose exec backend python -m src.backend.ingest.es_indexer sync --batch-size 2000
+```
+
+### MCP Server
+
+```bash
+# stdio transport (for Claude Code integration)
+python ops/bin/mcp_es_server.py
+
+# SSE transport (for HTTP clients)
+python ops/bin/mcp_es_server.py --transport sse --port 8766
 ```
 
 ### Linting & Formatting
 
 ```bash
-ruff check .                      # Lint
-ruff check . --fix                # Auto-fix linting issues
-ruff format .                     # Format code
+# Lint check
+ruff check .
+
+# Auto-fix linting issues
+ruff check . --fix
+
+# Format code
+ruff format .
+```
+
+### Frontend (inside container)
+
+```bash
+# The frontend runs via Docker. To run commands inside:
+docker compose exec frontend sh
+cd /workspace/src/frontend/app
+npm run dev      # Dev server (already running by default)
+npm run build    # Production build
+npm run lint     # ESLint
+npm run test     # Vitest
 ```
 
 ### Testing
 
-No formal test suite in main codebase. Ad-hoc tests in `ops/test_*.py`:
-```bash
-python ops/test_mongo_connection.py    # Test MongoDB connection
-python ops/test_extraction.py          # Test ZIP extraction
-```
-
-### Docker Services
+No formal test suite in main codebase. Ad-hoc tests in `ops/`:
 
 ```bash
-# Compose-managed stack
-docker compose build backend frontend
-docker compose pull mongo elasticsearch
-docker compose up -d mongo elasticsearch backend frontend
+# Test MongoDB connection
+docker compose exec backend python ops/test_mongo_connection.py
 
-# Normalized containers
-#   gabi-kimi-mongo
-#   gabi-kimi-elasticsearch
-#   gabi-kimi-backend
-#   gabi-kimi-frontend
+# Test ZIP extraction
+docker compose exec backend python ops/test_extraction.py
+
+# Test MCP tools
+docker compose exec backend python ops/test_mcp_tools.py
+
+# Adversarial API testing (from Linux host)
+ops/bin/run_adversarial_remote.sh
 ```
 
 ## Code Style Guidelines
@@ -61,8 +161,8 @@ docker compose up -d mongo elasticsearch backend frontend
 
 - **Python 3.12+**
 - **Line length**: 120 characters
-- **Linter/Formatter**: Ruff (pyflakes + pycodestyle errors)
-- **Ignored rules**: E402 (imports after code), E501 (line length - handled by formatter)
+- **Linter/Formatter**: Ruff
+- **Ignored rules**: E402 (imports after code), E501 (line length handled by formatter)
 
 ### Import Order
 
@@ -74,13 +174,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional, List
+from typing import Any, Optional
 
 # 3. Third-party (alphabetical)
-from bson import ObjectId
 import httpx
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
@@ -107,8 +205,9 @@ from src.backend.data.models.document import DouDocument
 ### Type Annotations
 
 Use modern Python type hints:
+
 ```python
-from typing import Any, Optional, List
+from typing import Any, Optional
 
 def _mongo_to_es(doc: dict[str, Any]) -> dict[str, Any]:
     ...
@@ -119,7 +218,6 @@ def _infer_filters(query: str) -> tuple[str, str | None, str | None]:
 class DouDocument(BaseModel):
     pub_date: datetime
     art_type: Optional[str] = None
-    references: List[Reference] = Field(default_factory=list)
 ```
 
 ### Error Handling
@@ -152,13 +250,14 @@ def parse_date(self, date_str: str) -> Optional[datetime]:
 ### Configuration Pattern
 
 Use Pydantic Settings with `.env` file:
+
 ```python
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
-    MONGO_STRING: str
+    MONGO_STRING: str = "mongodb://mongo:27017/gabi_dou"
     DB_NAME: str = "gabi_dou"
-    ES_URL: str = "http://localhost:9200"
+    ES_URL: str = "http://elasticsearch:9200"
     
     class Config:
         env_file = ".env"
@@ -171,7 +270,7 @@ settings = Settings()
 
 ```python
 from pydantic import BaseModel, Field
-from typing import Optional, List, Literal
+from typing import Optional, List
 
 class StructuredData(BaseModel):
     act_number: Optional[str] = None
@@ -183,10 +282,10 @@ class DouDocument(BaseModel):
     source_id: str
     pub_date: datetime
     texto: str
-    references: List[Reference] = Field(default_factory=list)
     
     class Config:
         populate_by_name = True
+        extra = "allow"  # For forward compatibility
 ```
 
 ### CLI Pattern (argparse with subcommands)
@@ -250,47 +349,244 @@ logger.info(f"Processing {count} documents")
 logger.error(f"Failed: {e}")
 ```
 
-### Module Docstrings
-
-Include usage examples in module docstrings:
-```python
-"""Elasticsearch indexer for DOU documents.
-
-Usage:
-  python3 -m src.backend.ingest.es_indexer backfill
-  python3 -m src.backend.ingest.es_indexer sync
-  python3 -m src.backend.ingest.es_indexer stats
-"""
-```
-
 ## Project Structure
 
 ```
-src/backend/
-  core/config.py        # Settings (Mongo, ES, paths)
-  data/
-    db.py               # DB connection
-    models/document.py  # Pydantic models
-  ingest/
-    downloader.py       # Downloads ZIPs from in.gov.br
-    dou_processor.py    # Parses XML -> DouDocument
-    es_indexer.py       # MongoDB -> Elasticsearch indexer
-  search/
-    es_index_v1.json    # ES mapping definition
+src/
+  backend/
+    core/
+      config.py           # Pydantic Settings (Mongo, ES, paths)
+    data/
+      db.py               # MongoDB connection singleton
+      models/
+        document.py       # Pydantic models (DouDocument, etc.)
+    ingest/
+      sync_dou.py         # Main ingestion orchestrator (CLI)
+      downloader.py       # Downloads ZIPs from in.gov.br
+      dou_processor.py    # Parses XML → DouDocument
+      es_indexer.py       # MongoDB → Elasticsearch indexer
+      es_v2_minimal.py    # v2 schema: minimal mapping
+      es_v2_search.py     # v2 schema: search-optimized
+      reindex_v2.py       # v2 reindex orchestrator
+      field_extractors.py # Structured data extractors
+      reconstruction.py   # Document reconstruction logic
+    search/
+      es_index_v1.json    # ES mapping definition (current)
+      es_index_v2.json    # ES mapping definition (v2)
+      es_index_v2_search.json  # v2 search-optimized mapping
+      es_index_min_v2.json     # v2 minimal mapping
+      es_index_v3.json    # Experimental v3 mapping
+      hybrid.py           # Hybrid search (BM25 + vector)
+      reranker.py         # Neural reranker client
+    api/                  # FastAPI routes (if modularized)
+    services/             # Business logic
+    main.py               # FastAPI application entry
+    mcp_server.py         # Legacy MCP server (use ops/bin/)
+    
+  frontend/
+    app/
+      src/
+        pages/            # Route pages (HomePage, SearchPage, etc.)
+        components/       # React components
+          ui/             # shadcn/ui primitive components
+        lib/              # Utilities
+      public/             # Static assets
+      package.json        # npm dependencies
+      tsconfig.json       # TypeScript config
+      vite.config.ts      # Vite configuration
+      tailwind.config.js  # Tailwind CSS config
 
 ops/
-  bin/mcp_es_server.py  # MCP server for Claude Code
-  data/dou_catalog_registry.json  # Maps YYYY-MM to folder IDs
+  bin/
+    mcp_es_server.py      # MCP server entry (13 tools)
+    install_repo_mcp_clients.py  # MCP client config installer
+    monitor_ingest.sh     # Mongo-based ingest monitor
+    run_adversarial_remote.sh    # Remote API testing
+    run_overnight_ingest.sh      # Scheduled ingest runner
+  container/
+    backend-dev.sh        # Backend container startup
+    frontend-dev.sh       # Frontend container startup
+    worker-dev.sh         # Worker container startup
+  data/
+    dou_catalog_registry.json    # Maps YYYY-MM to folder IDs
+    ingest_state.json            # Ingest progress tracking
+  embedding-server/       # MLX embedding server (optional)
+  repo_index/             # Repo assistance index tools
 
-src/backend/ingest/sync_dou.py  # Main ingestion orchestrator
+docs/
+  LIFERAY.md              # Liferay integration notes
+  MACHINE_TOOLING.md      # Machine-level tooling
+  REINDEX_V2_*.md         # v2 reindex documentation
 ```
 
 ## Environment Variables
 
-Required in `.env`:
-- `MONGO_STRING` - MongoDB connection URI
-- `DB_NAME` - Database name (default: gabi_dou)
-- `ES_URL` - Elasticsearch URL (default: http://localhost:9200)
-- `ES_INDEX` - ES index name (default: gabi_documents_v1)
-- `DOU_DATA_PATH` - Local data storage path
-- `ICLOUD_DATA_PATH` - iCloud archive path (optional)
+Required in `.env` (copy from `.env.example`):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MONGO_STRING` | `mongodb://mongo:27017/gabi_dou` | MongoDB connection URI |
+| `DB_NAME` | `gabi_dou` | MongoDB database name |
+| `ES_URL` | `http://elasticsearch:9200` | Elasticsearch URL |
+| `ES_INDEX` | `gabi_documents_v1` | ES index name |
+| `ES_ALIAS` | `gabi_documents` | ES alias name |
+| `ES_SYNC_CURSOR_PATH` | `/data/gabi_dou/es_sync_cursor.json` | Persistent cursor |
+| `DOU_DATA_PATH` | `/data/gabi_dou` | Local data storage path |
+| `GABI_CORS_ORIGINS` | `http://localhost:8081` | Allowed browser origins |
+| `WORKER_BATCH_SIZE` | `1000` | ES sync batch size |
+| `WORKER_POLL_INTERVAL_SEC` | `30` | Worker sleep interval |
+| `VECTOR_SEARCH_ENABLED` | `false` | Enable hybrid search |
+| `EMBED_SERVER_URL` | `http://host.docker.internal:8900` | Embedding server |
+| `RERANKER_ENABLED` | `false` | Enable neural reranker |
+| `RERANKER_URL` | `http://host.docker.internal:8902` | Reranker server |
+
+## MCP Server Tools (13 Tools)
+
+The MCP server (`ops/bin/mcp_es_server.py`) exposes these tools for AI agents:
+
+| Tool | Description |
+|------|-------------|
+| `es_search` | Primary search with BM25 + re-ranking. Smart query parsing, quoted phrases, legal references, synonym expansion |
+| `es_suggest` | Autocomplete on title, organ, and type fields |
+| `es_facets` | Aggregations for sections, types, organs, date histogram |
+| `es_document` | Fetch a single document by ID |
+| `es_health` | Cluster and index health summary |
+| `es_more_like_this` | Find similar documents using TF-IDF |
+| `es_significant_terms` | Statistically significant terms for theme discovery |
+| `es_timeline` | Temporal distribution of publications |
+| `es_trending` | Recent publication activity analysis |
+| `es_cross_reference` | Find documents citing a legal reference |
+| `es_organ_profile` | Publishing profile for a government organ |
+| `es_compare_periods` | Compare results between two time periods |
+| `es_explain` | Debug why a document scored as it did |
+
+### MCP Configuration
+
+The server auto-infers filters from natural language queries:
+- "decreto do1 ministerio da saude" → applies section, type, and organ filters
+
+## Elasticsearch Index Schema
+
+Index: `gabi_documents_v1` (defined in `src/backend/search/es_index_v1.json`)
+
+Uses a `pt_folded` analyzer (standard tokenizer + lowercase + asciifolding) for Portuguese text without diacritics sensitivity.
+
+Field boost weights for search:
+```
+identifica^5 > ementa^4 > issuing_organ^2 = art_type^2 > art_category > body_plain
+```
+
+### Key Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `doc_id` | keyword | Document identifier |
+| `identifica` | text | Document title (boosted) |
+| `ementa` | text | Summary/abstract |
+| `body_plain` | text | Full text content |
+| `art_type` | text | Act type (Portaria, Decreto, etc.) |
+| `art_category` | text | Full category path |
+| `issuing_organ` | text | Publishing organ |
+| `edition_section` | keyword | DO1, DO2, DO3, DOE |
+| `pub_date` | date | Publication date |
+
+## MongoDB Schema
+
+Primary collection: `documents` (configurable via `MONGO_COLLECTION`)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `_id` | string | Deterministic hash or ObjectId |
+| `source_id` | string | Original source identifier |
+| `pub_date` | datetime | Publication date |
+| `section` | string | DOU section (DO1, DO2, DO3) |
+| `edition` | string | Edition number |
+| `page` | int | Page number |
+| `art_type` | string | Act type |
+| `art_category` | string | Full category path |
+| `orgao` / `issuing_organ` | string | Issuing organ |
+| `identifica` | string | Document title |
+| `ementa` | string | Summary |
+| `texto` | string | Plain text content |
+| `content_html` | string | Original HTML |
+| `structured` | object | Structured fields (act_number, act_year, signer) |
+| `source_zip` | string | Origin ZIP filename |
+| `references` | array | Legal references found in text |
+| `embedding_status` | string | Vector embedding status |
+
+## Deployment
+
+### Docker-Only Workflow
+
+The repo runs entirely inside containers. No host `node`, `npm`, `python`, `pip`, MongoDB, or Elasticsearch installation is required.
+
+### Persistent Data (Docker Volumes)
+
+```
+mongo_data      → MongoDB data
+elastic_data    → Elasticsearch data
+dou_data        → DOU raw files and pipeline
+dou_data/host   → Host-mounted via bind mount (optional)
+```
+
+### Port Mapping
+
+| Host Port | Container | Service |
+|-----------|-----------|---------|
+| 27017 | mongo:27017 | MongoDB |
+| 9200 | elasticsearch:9200 | Elasticsearch |
+| 8001 | backend:8000 | FastAPI |
+| 8081 | frontend:8080 | Vite dev server |
+
+## Security Considerations
+
+- Elasticsearch: security disabled (`xpack.security.enabled=false`) for local dev
+- CORS configured via `GABI_CORS_ORIGINS`
+- No authentication on API by default (add reverse proxy for production)
+- `.env` files contain secrets — never commit to git
+
+## Key Files for Development
+
+| File | Purpose |
+|------|---------|
+| `src/backend/core/config.py` | Central configuration |
+| `src/backend/data/models/document.py` | Data models |
+| `src/backend/ingest/sync_dou.py` | Main ingest orchestrator |
+| `src/backend/ingest/es_indexer.py` | ES indexing logic |
+| `src/backend/main.py` | FastAPI app |
+| `ops/bin/mcp_es_server.py` | MCP server (13 tools) |
+| `docker-compose.yml` | Service definitions |
+| `.env.example` | Configuration template |
+
+## Troubleshooting
+
+### Check service health
+
+```bash
+# MongoDB
+docker compose exec mongo mongosh --eval 'db.runCommand({ping: 1})'
+
+# Elasticsearch
+curl http://localhost:9200/_cluster/health
+
+# Backend API
+curl http://localhost:8001/
+
+# Frontend
+curl http://localhost:8081
+```
+
+### Reset ES sync cursor
+
+```bash
+rm ops/data/es_sync_cursor.json
+# or
+docker compose exec backend rm /data/gabi_dou/es_sync_cursor.json
+```
+
+### Clear MongoDB and restart
+
+```bash
+docker compose exec mongo mongosh gabi_dou --eval 'db.documents.drop()'
+docker compose exec backend python -m src.backend.ingest.es_indexer backfill --recreate-index
+```

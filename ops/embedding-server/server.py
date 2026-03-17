@@ -37,7 +37,7 @@ MODEL_NAME = os.getenv("EMBED_MODEL", "mlx-community/Qwen3-Embedding-0.6B-4bit-D
 MAX_TOKEN_LENGTH = int(os.getenv("MAX_TOKEN_LENGTH", "512"))
 MEM_LIMIT_PCT = float(os.getenv("MEM_LIMIT_PCT", "85"))
 EMBED_DIM = int(os.getenv("EMBED_DIM", "384"))
-GC_EVERY_N = int(os.getenv("GC_EVERY_N", "1"))  # force GC + metal cache clear every N requests
+GC_EVERY_N = int(os.getenv("GC_EVERY_N", "8"))  # avoid aggressive cache churn on every request
 _model = None
 _tokenizer = None
 _requests_total = 0
@@ -146,11 +146,14 @@ def embed_texts_sync(texts: list[str], dimensions: int = 384) -> list[list[float
     mx.eval(normalized)
     result = np.array(normalized).tolist()
 
-    # Aggressive cleanup: delete intermediate tensors, clear Metal cache
+    # Cleanup tensors. Keep cache clears infrequent to avoid MLX/Metal churn.
     del input_ids, attention_mask, hidden_states, pooled, norm, normalized, sequence_lengths
     if _requests_total % GC_EVERY_N == 0:
         try:
-            mx.metal.clear_cache()
+            if hasattr(mx, "clear_cache"):
+                mx.clear_cache()
+            elif hasattr(mx, "metal") and hasattr(mx.metal, "clear_cache"):
+                mx.metal.clear_cache()
         except Exception:
             pass
         gc.collect()

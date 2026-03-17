@@ -2,9 +2,11 @@ import json
 import logging
 import os
 from pathlib import Path
-import requests
 import time
 from typing import Dict, List, Optional
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +23,18 @@ class DouDownloader:
         self.session.headers.update({
             "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
         })
+        retry = Retry(
+            total=5,
+            connect=5,
+            read=5,
+            backoff_factor=1.0,
+            status_forcelist=(429, 500, 502, 503, 504),
+            allowed_methods=("GET",),
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(pool_connections=32, pool_maxsize=32, max_retries=retry)
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
 
     def _load_registry(self, path: str | None) -> Dict:
         configured_path = path or os.getenv("DOU_REGISTRY_PATH")
@@ -59,7 +73,7 @@ class DouDownloader:
         url = f"{self.BASE_URL}/{self.GROUP_ID}/{folder_id}/{filename}"
         try:
             logger.info(f"Downloading {url}")
-            response = self.session.get(url, timeout=120) # Increased timeout for larger files
+            response = self.session.get(url, timeout=(10, 180))
             response.raise_for_status()
             content = response.content
             

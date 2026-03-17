@@ -24,7 +24,8 @@ from typing import Any
 
 import httpx
 import pymongo
-from pymongo import ReturnDocument
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -54,7 +55,7 @@ def _log(msg: str) -> None:
 
 
 def _mongo_client():
-    uri = os.getenv("MONGO_STRING", "mongodb://localhost:27017/gabi_dou")
+    uri = os.getenv("MONGO_STRING", "mongodb://mongo:27017/gabi_dou")
     db_name = os.getenv("DB_NAME", "gabi_dou")
     client = pymongo.MongoClient(uri)
     return client, client[db_name]
@@ -67,13 +68,13 @@ def _mongo_client():
 
 class ESClient:
     def __init__(self) -> None:
-        self.url = os.getenv("ES_URL", "http://localhost:9200").rstrip("/")
+        self.url = os.getenv("ES_URL", "http://elasticsearch:9200").rstrip("/")
         self.index = os.getenv("ES_INDEX", "gabi_documents_v2")
         self.client = httpx.Client(timeout=30)
 
     def bulk_update_embeddings(
         self, updates: list[dict[str, Any]], retries: int = 3
-    ) -> tuple[int, int]:
+    ) -> tuple[list[str], list[str]]:
         """Partial update: write embedding vector to existing ES docs."""
         lines: list[str] = []
         for u in updates:
@@ -101,15 +102,24 @@ class ESClient:
             resp.raise_for_status()
             data = resp.json()
             items = data.get("items", [])
-            ok = sum(1 for it in items if 200 <= it.get("update", {}).get("status", 500) < 300)
-            failed = len(items) - ok
-            if failed:
-                first_err = next(
-                    (it["update"].get("error") for it in items if it.get("update", {}).get("status", 500) >= 300),
-                    None,
+            ok_ids: list[str] = []
+            failed_ids: list[str] = []
+            first_err = None
+            for update, item in zip(updates, items):
+                row = item.get("update", {})
+                status = int(row.get("status", 500))
+                if 200 <= status < 300:
+                    ok_ids.append(update["doc_id"])
+                else:
+                    failed_ids.append(update["doc_id"])
+                    if first_err is None:
+                        first_err = row.get("error")
+            if failed_ids:
+                _log(
+                    f"ES bulk partial failure: ok={len(ok_ids)} failed={len(failed_ids)} "
+                    f"first_error={first_err}"
                 )
-                _log(f"ES bulk partial failure: ok={ok} failed={failed} first_error={first_err}")
-            return ok, failed
+            return ok_ids, failed_ids
         raise RuntimeError(f"ES bulk update failed after retries: {last_error}")
 
 
@@ -209,43 +219,59 @@ def _handle_signal(signum, frame):
 
 
 def _fetch_and_claim_batch(collection, batch_size: int) -> list[dict]:
-    """Atomically fetch and claim docs using findOneAndUpdate."""
+    """Claim a batch of pending docs in 3 roundtrips instead of N serial find_one_and_update calls.
+
+    1. find(pending).limit(batch_size) → candidate IDs
+    2. update_many({_id: {$in: ids}, status: "pending"}) → atomic claim
+    3. find({_id: {$in: ids}, status: "processing", queued_at: now}) → fetch claimed
+    """
     now = datetime.now(timezone.utc)
-    base_query = {
+    pending_query = {
         "embedding_status": "pending",
         "embedding_attempts": {"$not": {"$gte": MAX_ATTEMPTS}},
     }
-    docs = []
-    last_id = None
 
-    for _ in range(batch_size):
-        query = {**base_query}
-        if last_id is not None:
-            query["_id"] = {"$gt": last_id}
+    # Step 1: find candidate IDs (lightweight projection)
+    candidates = list(
+        collection.find(pending_query, {"_id": 1})
+        .sort("_id", 1)
+        .limit(batch_size)
+    )
+    if not candidates:
+        return []
+    candidate_ids = [c["_id"] for c in candidates]
 
-        doc = collection.find_one_and_update(
-            query,
-            {
-                "$set": {
-                    "embedding_status": "processing",
-                    "embedding_queued_at": now,
-                },
-                "$inc": {"embedding_attempts": 1},
+    # Step 2: atomically claim — only docs still "pending" get claimed
+    collection.update_many(
+        {
+            "_id": {"$in": candidate_ids},
+            "embedding_status": "pending",
+        },
+        {
+            "$set": {
+                "embedding_status": "processing",
+                "embedding_queued_at": now,
             },
-            sort=[("_id", 1)],
-            return_document=ReturnDocument.AFTER,
-            projection={
+            "$inc": {"embedding_attempts": 1},
+        },
+    )
+
+    # Step 3: fetch the docs we actually claimed (filter by our queued_at timestamp)
+    docs = list(
+        collection.find(
+            {
+                "_id": {"$in": candidate_ids},
+                "embedding_status": "processing",
+                "embedding_queued_at": now,
+            },
+            {
                 "_id": 1,
                 "identifica": 1,
                 "ementa": 1,
                 "texto": 1,
             },
-        )
-        if doc is None:
-            break
-        docs.append(doc)
-        last_id = doc["_id"]
-
+        ).sort("_id", 1)
+    )
     return docs
 
 
@@ -310,21 +336,37 @@ def _write_results(
         {"doc_id": did, "embedding": emb}
         for did, emb in zip(text_doc_ids, embeddings)
     ]
-    es_ok, es_failed = es.bulk_update_embeddings(es_updates)
+    ok_ids, failed_ids = es.bulk_update_embeddings(es_updates)
 
     # Update MongoDB status
     now = datetime.now(timezone.utc)
-    bulk_ops = [
-        pymongo.UpdateOne(
-            {"_id": did},
-            {"$set": {"embedding_status": "done", "embedding_model": EMBED_MODEL, "embedding_updated_at": now}},
+    bulk_ops: list[pymongo.UpdateOne] = []
+    if ok_ids:
+        bulk_ops.extend(
+            pymongo.UpdateOne(
+                {"_id": did},
+                {"$set": {"embedding_status": "done", "embedding_model": EMBED_MODEL, "embedding_updated_at": now}},
+            )
+            for did in ok_ids
         )
-        for did in text_doc_ids
-    ]
+    if failed_ids:
+        bulk_ops.extend(
+            pymongo.UpdateOne(
+                {"_id": did},
+                {
+                    "$set": {
+                        "embedding_status": "pending",
+                        "embedding_updated_at": now,
+                        "embedding_error": "es_document_missing",
+                    }
+                },
+            )
+            for did in failed_ids
+        )
     if bulk_ops:
         collection.bulk_write(bulk_ops, ordered=False)
 
-    return es_ok, es_failed, len(skipped_ids)
+    return len(ok_ids), len(failed_ids), len(skipped_ids)
 
 
 # ---------------------------------------------------------------------------

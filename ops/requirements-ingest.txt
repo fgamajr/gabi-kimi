@@ -1,9 +1,5 @@
-fastapi
-uvicorn[standard]
 pymongo
 pydantic-settings
 python-dotenv
-mcp
 lxml
 requests
-httpx

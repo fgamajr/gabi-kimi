@@ -1,4 +1,4 @@
-"""Elasticsearch indexer for DOU documents (backfill, incremental sync, stats).
+"""Elasticsearch indexer for DOU documents (backfill, incremental sync, stats, verify).
 
 Reads from MongoDB, indexes into Elasticsearch with BM25.
 
@@ -6,21 +6,25 @@ Usage:
   python3 -m src.backend.ingest.es_indexer backfill
   python3 -m src.backend.ingest.es_indexer sync
   python3 -m src.backend.ingest.es_indexer stats
+  python3 -m src.backend.ingest.es_indexer verify
 """
 
 from __future__ import annotations
 
 import argparse
+import fcntl
 from datetime import datetime, timezone
+import functools
 import json
 import os
 from pathlib import Path
+import sys
 import time
+import traceback
 from typing import Any
 
 import httpx
 import pymongo
-from bson import ObjectId
 
 from src.backend.ingest.es_v2_minimal import mongo_to_es_v2_minimal
 from src.backend.ingest.es_v2_search import mongo_to_es_v2_search
@@ -42,6 +46,13 @@ _SCHEMA_TO_INDEX = {
     "v2_minimal": "gabi_documents_v2_minimal",
     "v2_search": "gabi_documents_v2_search",
 }
+_DEFAULT_CURSOR = {
+    "updated_at": datetime(1970, 1, 1, tzinfo=timezone.utc).isoformat(timespec="microseconds"),
+    "_id": "",
+}
+_LOCK_PATH = Path(
+    os.getenv("ES_SYNC_LOCK_PATH", "/tmp/es_indexer_sync.lock")
+)
 
 
 def _log(msg: str) -> None:
@@ -55,6 +66,7 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+@functools.lru_cache(maxsize=1)
 def _schema_name() -> str:
     raw = (os.getenv("ES_DOC_SCHEMA") or "v1").strip().lower()
     if raw not in _SCHEMA_TO_MAPPING:
@@ -70,7 +82,7 @@ def _mapping_path() -> Path:
 
 
 def _mongo_client():
-    uri = os.getenv("MONGO_STRING", "mongodb://localhost:27017/gabi_dou")
+    uri = os.getenv("MONGO_STRING", "mongodb://mongo:27017/gabi_dou")
     db_name = os.getenv("DB_NAME", "gabi_dou")
     client = pymongo.MongoClient(uri)
     return client, client[db_name]
@@ -82,27 +94,36 @@ def _mongo_collection_name() -> str:
 
 def _load_cursor(path: Path) -> dict[str, str]:
     if not path.exists():
-        return {"_id": "000000000000000000000000"}
+        return dict(_DEFAULT_CURSOR)
     with path.open("r", encoding="utf-8") as f:
         data = json.load(f)
-    return {"_id": str(data.get("_id", "000000000000000000000000"))}
+    updated_at = str(data.get("updated_at") or _DEFAULT_CURSOR["updated_at"])
+    doc_id = str(data.get("_id") or _DEFAULT_CURSOR["_id"])
+    return {"updated_at": updated_at, "_id": doc_id}
 
 
-def _save_cursor(path: Path, last_id: str) -> None:
+def _parse_cursor_timestamp(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _save_cursor(path: Path, last_updated_at: datetime, last_id: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
+        "updated_at": last_updated_at.astimezone(timezone.utc).isoformat(timespec="microseconds"),
         "_id": last_id,
-        "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
     with path.open("w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=True, indent=2)
 
 
-def _mongo_to_es(doc: dict[str, Any]) -> dict[str, Any]:
+def _mongo_to_es(doc: dict[str, Any], schema: str) -> dict[str, Any]:
     """Map a MongoDB document to the ES index schema."""
-    if _schema_name() == "v2_minimal":
+    if schema == "v2_minimal":
         return mongo_to_es_v2_minimal(doc)
-    if _schema_name() == "v2_search":
+    if schema == "v2_search":
         return mongo_to_es_v2_search(doc)
 
     structured = doc.get("structured") or {}
@@ -135,9 +156,91 @@ def _mongo_to_es(doc: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------------------
+# DLQ + safe batch conversion (Fix 2)
+# ---------------------------------------------------------------------------
+
+
+def _convert_batch_safe(
+    rows: list[dict[str, Any]],
+    dlq_collection,
+    schema: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
+    """Convert a batch of Mongo docs to ES docs, quarantining failures to DLQ.
+
+    Returns (es_docs, valid_rows, skip_count).
+    """
+    es_docs: list[dict[str, Any]] = []
+    valid_rows: list[dict[str, Any]] = []
+    skip_count = 0
+
+    for row in rows:
+        try:
+            es_doc = _mongo_to_es(row, schema=schema)
+            es_docs.append(es_doc)
+            valid_rows.append(row)
+        except Exception as exc:
+            skip_count += 1
+            doc_id = str(row.get("_id", "unknown"))
+            _log(f"DLQ: doc {doc_id} conversion failed: {exc}")
+            try:
+                dlq_collection.update_one(
+                    {"_id": doc_id},
+                    {
+                        "$set": {
+                            "error": str(exc),
+                            "traceback": traceback.format_exc(),
+                            "failed_at": datetime.now(timezone.utc),
+                        },
+                        "$setOnInsert": {"_id": doc_id},
+                    },
+                    upsert=True,
+                )
+            except Exception as dlq_exc:
+                _log(f"DLQ: failed to write dlq entry for {doc_id}: {dlq_exc}")
+
+    return es_docs, valid_rows, skip_count
+
+
+# ---------------------------------------------------------------------------
+# Cursor lock (Fix 4)
+# ---------------------------------------------------------------------------
+
+
+class _CursorLock:
+    """File-based exclusive lock to prevent concurrent sync execution."""
+
+    def __init__(self, lock_path: Path = _LOCK_PATH) -> None:
+        self._path = lock_path
+        self._fd = None
+
+    def acquire(self) -> None:
+        self._fd = open(self._path, "w")
+        try:
+            fcntl.flock(self._fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            self._fd.close()
+            self._fd = None
+            raise RuntimeError(
+                f"Another es_indexer process is already running (lock: {self._path})"
+            )
+        self._fd.write(str(os.getpid()))
+        self._fd.flush()
+
+    def release(self) -> None:
+        if self._fd is not None:
+            try:
+                fcntl.flock(self._fd, fcntl.LOCK_UN)
+                self._fd.close()
+                self._path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            self._fd = None
+
+
 class ESClient:
     def __init__(self) -> None:
-        self.url = os.getenv("ES_URL", "http://localhost:9200").rstrip("/")
+        self.url = os.getenv("ES_URL", "http://elasticsearch:9200").rstrip("/")
         schema = _schema_name()
         self.index = os.getenv("ES_INDEX", _SCHEMA_TO_INDEX[schema])
         self.alias = (os.getenv("ES_ALIAS") or "").strip() or None
@@ -185,6 +288,30 @@ class ESClient:
 
     def refresh(self) -> None:
         self.request("POST", f"/{self.index}/_refresh")
+
+    def wait_for_healthy(self, max_wait: int = 60) -> bool:
+        """Block until ES cluster is yellow/green. Returns True if healthy."""
+        waited = 0
+        while waited < max_wait:
+            try:
+                resp = self.client.request(
+                    method="GET",
+                    url=f"{self.url}/_cluster/health?timeout=5s",
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    status = data.get("status", "red")
+                    if status in ("yellow", "green"):
+                        if waited > 0:
+                            _log(f"ES cluster healthy ({status}) after {waited}s")
+                        return True
+                    _log(f"ES cluster status={status}, waiting...")
+            except Exception as exc:
+                _log(f"ES health check failed: {exc}")
+            time.sleep(10)
+            waited += 10
+        _log(f"ES cluster not healthy after {max_wait}s")
+        return False
 
     def bulk(self, docs: list[dict[str, Any]], retries: int = 3) -> tuple[int, int]:
         lines: list[str] = []
@@ -245,11 +372,18 @@ class ESClient:
         raise RuntimeError(f"bulk failed after retries: {last_error}")
 
 
-def _fetch_batch(collection, cursor_id: str, batch_size: int) -> list[dict[str, Any]]:
-    """Fetch a batch of documents from MongoDB using cursor pagination."""
-    query = {"_id": {"$gt": cursor_id}}
-    cursor = collection.find(query).sort("_id", 1).limit(batch_size)
-    return list(cursor)
+def _fetch_batch(collection, cursor: dict[str, str], batch_size: int) -> list[dict[str, Any]]:
+    """Fetch a batch of documents from MongoDB using updated_at + _id pagination."""
+    cursor_updated_at = _parse_cursor_timestamp(cursor["updated_at"])
+    cursor_id = cursor["_id"]
+    query = {
+        "$or": [
+            {"updated_at": {"$gt": cursor_updated_at}},
+            {"updated_at": cursor_updated_at, "_id": {"$gt": cursor_id}},
+        ]
+    }
+    cursor_iter = collection.find(query).sort([("updated_at", 1), ("_id", 1)]).limit(batch_size)
+    return list(cursor_iter)
 
 
 def _counts(collection, es: ESClient) -> tuple[int, int]:
@@ -259,38 +393,86 @@ def _counts(collection, es: ESClient) -> tuple[int, int]:
 
 
 def _run_sync(*, reset_cursor: bool, recreate_index: bool, batch_size: int, cursor_path: Path) -> None:
+    lock = _CursorLock()
+    lock.acquire()
+    try:
+        _run_sync_inner(
+            reset_cursor=reset_cursor,
+            recreate_index=recreate_index,
+            batch_size=batch_size,
+            cursor_path=cursor_path,
+        )
+    finally:
+        lock.release()
+
+
+def _run_sync_inner(*, reset_cursor: bool, recreate_index: bool, batch_size: int, cursor_path: Path) -> None:
     es = ESClient()
     es.ensure_index(recreate=recreate_index)
 
+    schema = _schema_name()
+
     if reset_cursor:
-        cursor = {"_id": "000000000000000000000000"}
+        cursor = dict(_DEFAULT_CURSOR)
     else:
         cursor = _load_cursor(cursor_path)
-    _log(f"starting from cursor _id={cursor['_id']}")
+    _log(f"starting from cursor updated_at={cursor['updated_at']} _id={cursor['_id']}")
 
     client, db = _mongo_client()
     collection = db[_mongo_collection_name()]
+    dlq = db["dlq_es_indexer"]
+    collection.create_index([("updated_at", 1), ("_id", 1)])
     total_ok = 0
     total_failed = 0
+    total_skipped = 0
     loops = 0
+    consecutive_corrupt = 0
     try:
         while True:
+            # Backpressure: wait for ES to be healthy before fetching
+            if not es.wait_for_healthy(max_wait=60):
+                _log("ABORT: ES cluster not healthy")
+                break
+
             loops += 1
-            rows = _fetch_batch(collection, cursor["_id"], batch_size)
+            rows = _fetch_batch(collection, cursor, batch_size)
             if not rows:
                 break
-            es_docs = [_mongo_to_es(row) for row in rows]
+
+            es_docs, valid_rows, skip_count = _convert_batch_safe(rows, dlq, schema)
+            total_skipped += skip_count
+
+            if not valid_rows:
+                consecutive_corrupt += 1
+                _log(f"batch={loops} all {len(rows)} docs corrupt (consecutive={consecutive_corrupt})")
+                if consecutive_corrupt >= 3:
+                    _log("ABORT: 3 consecutive fully-corrupt batches — manual investigation required")
+                    break
+                # Advance cursor past the corrupt batch
+                last = rows[-1]
+                last_updated_at = last.get("updated_at") or last.get("indexed_at")
+                if isinstance(last_updated_at, datetime):
+                    cursor["updated_at"] = last_updated_at.astimezone(timezone.utc).isoformat(timespec="microseconds")
+                    cursor["_id"] = str(last["_id"])
+                    _save_cursor(cursor_path, last_updated_at, cursor["_id"])
+                continue
+
+            consecutive_corrupt = 0
             ok, failed = es.bulk(es_docs)
             total_ok += ok
             total_failed += failed
 
-            last = rows[-1]
+            last = valid_rows[-1]
+            last_updated_at = last.get("updated_at") or last.get("indexed_at")
+            if not isinstance(last_updated_at, datetime):
+                raise RuntimeError("Mongo row is missing datetime updated_at for cursor pagination")
+            cursor["updated_at"] = last_updated_at.astimezone(timezone.utc).isoformat(timespec="microseconds")
             cursor["_id"] = str(last["_id"])
-            _save_cursor(cursor_path, cursor["_id"])
+            _save_cursor(cursor_path, last_updated_at, cursor["_id"])
 
             _log(
                 f"batch={loops} fetched={len(rows)} indexed_ok={ok} failed={failed} "
-                f"cursor={cursor['_id']}"
+                f"skipped={skip_count} cursor_updated_at={cursor['updated_at']} cursor_id={cursor['_id']}"
             )
     finally:
         client.close()
@@ -303,10 +485,16 @@ def _run_sync(*, reset_cursor: bool, recreate_index: bool, batch_size: int, curs
     finally:
         client.close()
 
-    _log(f"done indexed_ok={total_ok} failed={total_failed} mongo_count={mongo_count} es_count={es_count}")
+    _log(
+        f"done indexed_ok={total_ok} failed={total_failed} skipped={total_skipped} "
+        f"mongo_count={mongo_count} es_count={es_count}"
+    )
 
 
 def cmd_backfill(args: argparse.Namespace) -> None:
+    if args.recreate_index and not args.yes_destroy:
+        _log("ERROR: --recreate-index requires --yes-destroy to confirm destructive operation")
+        sys.exit(1)
     _run_sync(
         reset_cursor=True,
         recreate_index=args.recreate_index,
@@ -356,6 +544,94 @@ def cmd_stats(args: argparse.Namespace) -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# Verify command (Fix 6)
+# ---------------------------------------------------------------------------
+
+_VERIFY_FIELDS = ("identifica", "pub_date", "art_type", "issuing_organ")
+
+
+def cmd_verify(args: argparse.Namespace) -> None:
+    """Sample random Mongo docs and verify they exist with matching fields in ES."""
+    sample_size = args.sample_size
+    es = ESClient()
+    client, db = _mongo_client()
+    collection = db[_mongo_collection_name()]
+    schema = _schema_name()
+
+    try:
+        # Sample random documents from Mongo
+        pipeline = [{"$sample": {"size": sample_size}}]
+        sampled = list(collection.aggregate(pipeline))
+    finally:
+        client.close()
+
+    if not sampled:
+        _log("no documents in Mongo to verify")
+        return
+
+    checked = 0
+    missing_in_es = 0
+    field_mismatches = 0
+    mismatch_details: list[dict] = []
+
+    for doc in sampled:
+        doc_id = str(doc["_id"])
+        try:
+            es_doc = _mongo_to_es(doc, schema=schema)
+        except Exception as exc:
+            _log(f"verify: doc {doc_id} conversion failed: {exc}")
+            field_mismatches += 1
+            continue
+
+        checked += 1
+        try:
+            resp = es.client.request(
+                method="GET",
+                url=f"{es.url}/{es.index}/_doc/{doc_id}",
+            )
+        except Exception:
+            missing_in_es += 1
+            continue
+
+        if resp.status_code == 404:
+            missing_in_es += 1
+            continue
+
+        if resp.status_code >= 400:
+            missing_in_es += 1
+            continue
+
+        es_source = resp.json().get("_source", {})
+        for field in _VERIFY_FIELDS:
+            es_val = es_source.get(field)
+            expected_val = es_doc.get(field)
+            if es_val != expected_val:
+                field_mismatches += 1
+                mismatch_details.append({
+                    "doc_id": doc_id,
+                    "field": field,
+                    "expected": expected_val,
+                    "actual": es_val,
+                })
+                break  # one mismatch per doc is enough
+
+    report = {
+        "sampled": len(sampled),
+        "checked": checked,
+        "missing_in_es": missing_in_es,
+        "field_mismatches": field_mismatches,
+        "ok": checked - missing_in_es - field_mismatches,
+    }
+    if mismatch_details:
+        report["mismatch_details"] = mismatch_details[:10]  # cap output
+
+    print(json.dumps(report, ensure_ascii=True, indent=2, default=str))
+
+    if missing_in_es > 0 or field_mismatches > 0:
+        sys.exit(1)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Elasticsearch indexer for GABI DOU (MongoDB → ES)")
     p.add_argument("--cursor", default=str(_DEFAULT_CURSOR_PATH), help="Cursor state file path")
@@ -364,6 +640,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("backfill", help="Full backfill from MongoDB")
     sp.add_argument("--batch-size", type=int, default=1000)
     sp.add_argument("--recreate-index", action="store_true")
+    sp.add_argument("--yes-destroy", action="store_true", help="Confirm destructive --recreate-index")
     sp.set_defaults(func=cmd_backfill)
 
     sp = sub.add_parser("sync", help="Incremental sync from cursor high-water mark")
@@ -372,6 +649,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("stats", help="Parity and index statistics")
     sp.set_defaults(func=cmd_stats)
+
+    sp = sub.add_parser("verify", help="Sample-based parity check (Mongo vs ES)")
+    sp.add_argument("--sample-size", type=int, default=100, help="Number of random docs to check")
+    sp.set_defaults(func=cmd_verify)
+
     return p
 
 

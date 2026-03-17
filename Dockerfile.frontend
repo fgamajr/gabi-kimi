@@ -1,0 +1,18 @@
+FROM node:20-alpine
+
+WORKDIR /opt/frontend
+
+COPY src/frontend/app/package*.json ./
+RUN npm ci
+
+COPY src/frontend/app/ /opt/frontend/
+COPY ops/container /opt/container-scripts
+
+ENV PATH="/opt/frontend/node_modules/.bin:$PATH" \
+    VITE_API_PROXY_TARGET=http://backend:8000
+
+WORKDIR /workspace/src/frontend/app
+
+EXPOSE 8080
+
+CMD ["sh", "/opt/container-scripts/frontend-dev.sh"]
