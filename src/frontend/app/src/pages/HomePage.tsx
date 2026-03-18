@@ -1,24 +1,23 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { SearchBar } from '@/components/SearchBar';
-import { SkeletonBlock } from '@/components/Skeletons';
 import { Icons } from '@/components/Icons';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { getStats, getTopSearches, getSearchExamples } from '@/lib/api';
-import type { StatsResponse, TopSearch, SearchExample } from '@/lib/api';
+import { getStats, getTrending, getSearchExamples } from '@/lib/api';
+import type { StatsResponse, TrendingTopic, SearchExample } from '@/lib/api';
 
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
   const [stats, setStats] = useState<StatsResponse | null>(null);
-  const [topSearches, setTopSearches] = useState<TopSearch[]>([]);
+  const [trendingTopics, setTrendingTopics] = useState<TrendingTopic[]>([]);
   const [examples, setExamples] = useState<SearchExample[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.allSettled([getStats(), getTopSearches(), getSearchExamples()])
+    Promise.allSettled([getStats(), getTrending(), getSearchExamples()])
       .then(([s, t, e]) => {
         if (s.status === 'fulfilled') setStats(s.value);
-        if (t.status === 'fulfilled') setTopSearches(t.value?.slice(0, 8) || []);
+        if (t.status === 'fulfilled') setTrendingTopics(t.value?.slice(0, 8) || []);
         if (e.status === 'fulfilled') setExamples(e.value?.slice(0, 6) || []);
       })
       .finally(() => setLoading(false));
@@ -56,6 +55,11 @@ const HomePage: React.FC = () => {
 
         <div className="w-full animate-fade-in" style={{ animationDelay: '100ms' }}>
           <SearchBar autoFocus placeholder="Pesquisar atos, portarias, decretos..." />
+          {stats?.date_range?.max && (
+            <p className="text-center text-xs text-text-tertiary mt-2">
+              Atualizado até {new Date(stats.date_range.max).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })}
+            </p>
+          )}
         </div>
 
         {/* Stats */}
@@ -93,20 +97,23 @@ const HomePage: React.FC = () => {
       <section className="bg-surface-sunken border-t border-border px-4 py-8">
         <div className="max-w-2xl mx-auto space-y-8">
           {/* Top searches */}
-          {topSearches.length > 0 && (
+          {trendingTopics.length > 0 && (
             <div className="animate-fade-in">
               <h2 className="text-xs font-semibold uppercase tracking-widest text-text-tertiary mb-3 flex items-center gap-2">
                 <Icons.trending className="w-3.5 h-3.5" />
-                Mais pesquisados
+                Em alta no DOU
               </h2>
               <div className="flex flex-wrap gap-2">
-                {topSearches.map((ts) => (
+                {trendingTopics.map((topic) => (
                   <button
-                    key={ts.query}
-                    onClick={() => navigate(`/search?q=${encodeURIComponent(ts.query)}`)}
+                    key={topic.query}
+                    onClick={() => navigate(`/search?q=${encodeURIComponent(topic.query)}&intent=trending&is_trending=true`)}
                     className="px-3 py-2 rounded-lg bg-card border border-border text-sm text-foreground hover:border-primary/30 hover:text-primary transition-colors press-effect focus-ring min-h-[44px]"
                   >
-                    {ts.query}
+                    <span className="inline-flex items-center gap-2">
+                      <span>{topic.trend_score >= 6 ? '🔥' : topic.trend_score >= 3 ? '↗' : '•'}</span>
+                      <span>{topic.label}</span>
+                    </span>
                   </button>
                 ))}
               </div>
