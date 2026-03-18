@@ -125,6 +125,8 @@ TOPIC_PROFILES: tuple[TopicProfile, ...] = (
         exclude_terms=(
             "chamamento publico",
             "chamamento público",
+            "chamada publica",
+            "chamada pública",
             "consulta publica",
             "consulta pública",
             "licitacao",
@@ -134,6 +136,8 @@ TOPIC_PROFILES: tuple[TopicProfile, ...] = (
             "credenciamento",
             "leilao",
             "leilão",
+            "agricultura familiar",
+            "pnae",
         ),
         required_art_types=("edital", "aviso", "portaria"),
         preferred_art_types=(("edital", 8.0), ("aviso", 0.6), ("portaria", 0.4)),
