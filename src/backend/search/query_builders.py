@@ -211,22 +211,19 @@ def build_topic_query(
     should: list[dict[str, Any]] = []
     must_not: list[dict[str, Any]] = []
 
-    if pure_act_type and text_gate_mode == "simple":
-        for group in required_groups:
-            terms = _dedupe_topic_terms(tuple(group))
-            if not terms:
-                continue
-            query = " | ".join(f'"{term}"' if " " in term else term for term in terms)
-            must.append(
-                {
-                    "simple_query_string": {
-                        "query": query,
-                        "fields": ["identifica^4", "ementa^3"],
-                        "default_operator": "or",
-                    }
-                }
-            )
-    elif not pure_act_type:
+    # For pure_act_type: simple filter + match_all, no expensive text scoring
+    if pure_act_type:
+        # Light text match on the original query (cheap, no body_plain)
+        should.append({
+            "multi_match": {
+                "query": original_q,
+                "fields": ["identifica^3", "ementa^2"],
+                "type": "best_fields",
+                "boost": 2,
+            }
+        })
+    else:
+        # Full text scoring for thematic profiles
         for group in required_groups:
             group_should: list[dict[str, Any]] = []
             for term in _dedupe_topic_terms(tuple(group)):
@@ -234,23 +231,23 @@ def build_topic_query(
             if group_should:
                 must.append({"bool": {"should": group_should, "minimum_should_match": 1}})
 
-    should.extend(
-        [
-            {
-                "multi_match": {
-                    "query": original_q,
-                    "fields": _TOPIC_TEXT_FIELDS,
-                    "type": "best_fields",
-                    "boost": 5,
-                }
-            },
-            {"match_phrase": {"identifica": {"query": original_q, "slop": 2, "boost": 8}}},
-            {"match_phrase": {"ementa": {"query": original_q, "slop": 3, "boost": 6}}},
-        ]
-    )
+        should.extend(
+            [
+                {
+                    "multi_match": {
+                        "query": original_q,
+                        "fields": _TOPIC_TEXT_FIELDS,
+                        "type": "best_fields",
+                        "boost": 5,
+                    }
+                },
+                {"match_phrase": {"identifica": {"query": original_q, "slop": 2, "boost": 8}}},
+                {"match_phrase": {"ementa": {"query": original_q, "slop": 3, "boost": 6}}},
+            ]
+        )
 
-    for term in _dedupe_topic_terms(should_terms):
-        should.extend(_topic_text_clauses(term, phrase_boost=4, match_boost=2.2))
+        for term in _dedupe_topic_terms(should_terms):
+            should.extend(_topic_text_clauses(term, phrase_boost=4, match_boost=2.2))
 
     if legal_refs:
         for ref in legal_refs:
