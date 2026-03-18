@@ -158,13 +158,12 @@ def classify_document(
 
 
 def _get_mongo_collection() -> Any:
-    from src.backend.core.config import get_settings
+    from src.backend.core.config import settings
     from pymongo import MongoClient
 
-    settings = get_settings()
-    client: Any = MongoClient(settings.MONGODB_URL)
-    db = client[settings.MONGODB_DB]
-    return db[settings.MONGODB_COLLECTION]
+    client: Any = MongoClient(settings.MONGO_STRING)
+    db = client[settings.DB_NAME]
+    return db["documents"]
 
 
 def _backfill_pending() -> None:
