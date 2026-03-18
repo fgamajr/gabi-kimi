@@ -129,6 +129,19 @@ def _is_person_name(query: str) -> bool:
     return first_is_name or all_capitalized
 
 
+_LAW_NAME_PATTERNS = [
+    re.compile(r"^lei\s+(geral|complementar|orgânica|federal|estadual|municipal)", re.IGNORECASE),
+    re.compile(r"^(código|estatuto)\s+d[aeo]", re.IGNORECASE),
+    re.compile(r"^(lei|decreto|mp|medida\s+provisória)\s*(n[°º.]?\s*)?\d", re.IGNORECASE),
+]
+
+
+def _is_law_name_query(q: str) -> bool:
+    """Detect queries seeking a specific law/decree by name."""
+    stripped = q.strip()
+    return any(p.search(stripped) for p in _LAW_NAME_PATTERNS)
+
+
 def _has_legal_ref(query: str) -> list[dict[str, str]]:
     """Extract legal references from query (e.g., 'Lei 13709' → [{'type': 'lei', 'number': '13709'}])."""
     refs = []
@@ -382,6 +395,87 @@ def build_bm25_query(
     return _wrap_function_score(bool_query)
 
 
+def build_canonical_query(
+    q: str,
+    filters: list[dict[str, Any]],
+    legal_refs: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    """Build query for canonical document lookup (Lei X, Código Y, etc.)"""
+    # Extract the likely art_type from query
+    art_type_match = re.match(
+        r"^(lei(?:\s+complementar)?|decreto(?:\s*-?\s*lei)?|código|estatuto|medida\s+provisória|emenda\s+constitucional)",
+        q.strip(), re.IGNORECASE,
+    )
+    art_type_term = art_type_match.group(1).strip().lower() if art_type_match else None
+
+    # The full query as phrase MUST appear in at least one field
+    phrase_must = {
+        "bool": {
+            "should": [
+                {"match_phrase": {"identifica": {"query": q, "slop": 1}}},
+                {"match_phrase": {"ementa": {"query": q, "slop": 2}}},
+                {"match_phrase": {"body_plain": {"query": q, "slop": 2}}},
+            ],
+            "minimum_should_match": 1,
+        }
+    }
+
+    # Ranking boosts
+    should: list[dict] = [
+        {"match_phrase": {"identifica": {"query": q, "boost": 500}}},
+        {"match_phrase": {"identifica": {"query": q, "slop": 1, "boost": 200}}},
+        {"match_phrase": {"ementa": {"query": q, "boost": 100}}},
+        {"match_phrase": {"body_plain": {"query": q, "boost": 10}}},
+    ]
+
+    # Legal reference pinning
+    if legal_refs:
+        for ref in legal_refs:
+            ref_text = f"{ref['type']} {ref['number']}"
+            should.extend([
+                {"match_phrase": {"identifica": {"query": ref_text, "boost": 300}}},
+                {"match_phrase": {"ementa": {"query": ref_text, "boost": 150}}},
+            ])
+
+    bool_query: dict[str, Any] = {
+        "bool": {
+            "must": [phrase_must],
+            "should": should,
+        }
+    }
+    if filters:
+        bool_query["bool"]["filter"] = filters
+
+    # Art type boost via function_score
+    functions = []
+    if art_type_term:
+        # Map query term to ES art_type values
+        type_variants = [art_type_term]
+        if art_type_term == "código":
+            type_variants = ["lei"]  # Códigos are published as Leis
+        elif art_type_term == "estatuto":
+            type_variants = ["lei"]
+
+        for tv in type_variants:
+            functions.append({
+                "filter": {"match": {"art_type": tv}},
+                "weight": 5,
+            })
+
+    if functions:
+        return {
+            "function_score": {
+                "query": bool_query,
+                "functions": functions,
+                "score_mode": "multiply",
+                "boost_mode": "multiply",
+            }
+        }
+
+    # No art_type boost applicable — just return bool_query without decay
+    return bool_query
+
+
 # ---------------------------------------------------------------------------
 # Query classification & routing
 # ---------------------------------------------------------------------------
@@ -392,13 +486,17 @@ def classify_and_build(
     """Classify query intent and build the appropriate ES query.
 
     Returns (query_body, strategy_name) where strategy is one of:
-      "person", "phrase", "legal", "bm25"
+      "person", "canonical", "phrase", "legal", "bm25"
     """
     legal_refs = _has_legal_ref(q)
 
     # Person name detection (highest priority — most restrictive)
     if _is_person_name(q):
         return build_person_query(q, filters), "person"
+
+    # Canonical document lookup (Lei X, Código Y, etc.)
+    if _is_law_name_query(q):
+        return build_canonical_query(q, filters, legal_refs), "canonical"
 
     word_count = _query_word_count(q)
 
@@ -476,11 +574,12 @@ async def hybrid_search(
 
     Classification:
       - Person names → strict phrase with orthographic variants + progressive relaxation
+      - Canonical laws (Lei X, Código Y) → phrase-first with art_type boost, no recency decay
       - 3+ word queries → phrase-first, fallback to bag-of-words
       - Legal references → bag-of-words with reference pinning
       - Short queries → standard bag-of-words
 
-    Two-pass cascade (for person/phrase strategies):
+    Two-pass cascade (for person/phrase/canonical strategies):
       Pass 1: strict query
       Pass 2: if < MIN_PHRASE_RESULTS, fall back to bag-of-words
     """
@@ -522,7 +621,7 @@ async def hybrid_search(
 
         # Fallback for strict strategies
         total = result.get("hits", {}).get("total", {}).get("value", 0)
-        if strategy in ("person", "phrase") and total < MIN_PHRASE_RESULTS:
+        if strategy in ("person", "phrase", "canonical") and total < MIN_PHRASE_RESULTS:
             logger.info("strategy=%s returned %d, falling back to bm25", strategy, total)
             fallback_query = build_bm25_query(query, filters, _has_legal_ref(query))
             payload["retriever"]["rrf"]["retrievers"][0] = {"standard": {"query": fallback_query}}
@@ -537,7 +636,7 @@ async def hybrid_search(
     total = result.get("hits", {}).get("total", {}).get("value", 0)
 
     # Two-pass: strict → bag-of-words fallback
-    if strategy in ("person", "phrase") and total < MIN_PHRASE_RESULTS:
+    if strategy in ("person", "phrase", "canonical") and total < MIN_PHRASE_RESULTS:
         if strategy == "person":
             # Progressive relaxation: try name variants before bag-of-words
             variants = _person_name_variants(query)
