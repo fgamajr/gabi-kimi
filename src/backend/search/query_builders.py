@@ -32,11 +32,19 @@ def _number_variants(number: str, year: int | None) -> list[str]:
     if year:
         variants.add(f"{number}/{year}")
     # Without dots (e.g. "13.709" → "13709")
+    # Without dots
     no_dots = number.replace(".", "")
     if no_dots != number:
         variants.add(no_dots)
         if year:
             variants.add(f"{no_dots}/{year}")
+    # With dots (e.g., "13709" → "13.709" for Brazilian numbering)
+    if "." not in number and len(number) >= 4:
+        # Try adding dot as thousands separator: 13709 → 13.709
+        dotted = f"{number[:-3]}.{number[-3:]}"
+        variants.add(dotted)
+        if year:
+            variants.add(f"{dotted}/{year}")
     return list(variants)
 
 

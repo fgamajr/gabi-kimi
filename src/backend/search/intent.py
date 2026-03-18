@@ -200,16 +200,25 @@ def _match_canonical(query: str) -> dict | None:
             "matched_alias": norm,
         }
 
-    # 2. Substring match (min 4 chars) -> confidence 0.80
+    # 2. Substring match — query must be substantial part of an alias
+    #    (min 4 chars, and query must cover >=50% of alias length)
     if len(norm) >= 4:
+        best_match = None
+        best_overlap = 0.0
         for alias, entry in _ALIAS_INDEX.items():
-            if norm in alias or alias in norm:
-                return {
-                    "entry": entry,
-                    "confidence": 0.80,
-                    "matched_alias": alias,
-                    "suggestion": entry["aliases"][0],
-                }
+            if norm in alias:
+                overlap = len(norm) / len(alias)
+                if overlap >= 0.5 and overlap > best_overlap:
+                    best_match = (alias, entry)
+                    best_overlap = overlap
+        if best_match:
+            alias, entry = best_match
+            return {
+                "entry": entry,
+                "confidence": 0.80,
+                "matched_alias": alias,
+                "suggestion": entry["aliases"][0],
+            }
 
     return None
 

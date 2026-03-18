@@ -70,7 +70,10 @@ _NON_NAME_WORDS = frozenset({
     "contrato", "licitação", "licitacao", "pregão", "pregao", "aviso", "extrato",
     "reforma", "tributária", "tributaria", "fiscal", "saúde", "saude", "educação",
     "educacao", "defesa", "agricultura", "artigo", "parágrafo", "paragrafo",
-    "concurso", "público", "publico",
+    "concurso", "concursos", "público", "publico", "públicos", "publicos",
+    "nomeação", "nomeacao", "nomeações", "nomeacoes", "exoneração", "exoneracao",
+    "aposentadoria", "pensão", "pensao", "designação", "designacao",
+    "homologação", "homologacao", "ratificação", "ratificacao",
 })
 
 _LEGAL_REF_PATTERN = re.compile(
