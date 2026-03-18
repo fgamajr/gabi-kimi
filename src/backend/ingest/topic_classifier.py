@@ -70,7 +70,7 @@ def classify_document(
     # --- Function topics (what the doc DOES) ---
 
     # concurso_selecao
-    if _art_is("edital", "aviso", "portaria", "resultado", "extrato") and _has_any(
+    if _art_is("edital", "aviso", "portaria", "resultado", "resultados", "extrato") and _has_any(
         combined,
         ["concurso", "processo seletivo", "selecao publica", "vestibular", "homologacao do resultado"],
     ) and not _has_any(
@@ -80,7 +80,7 @@ def classify_document(
         topics.append("concurso_selecao")
 
     # licitacao_compras
-    if _art_is("edital", "aviso", "pregao", "extrato", "resultado") and _has_any(
+    if _art_is("edital", "aviso", "pregao", "extrato", "resultado", "resultados") and _has_any(
         combined,
         [
             "licitacao", "pregao", "dispensa", "inexigibilidade",
