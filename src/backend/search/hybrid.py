@@ -213,6 +213,36 @@ def _person_name_variants(query: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Public interest scoring (PageRank proxy for DOU)
+# ---------------------------------------------------------------------------
+
+def _public_interest_functions() -> list[dict[str, Any]]:
+    """Approximate public interest without click data.
+
+    Boosts documents from important organs, normative sections, front pages,
+    and high-hierarchy act types. Applied to subject/trending/topic queries.
+    """
+    return [
+        # Organ importance
+        {"filter": {"match_phrase": {"issuing_organ": "Presidência da República"}}, "weight": 3.0},
+        {"filter": {"match_phrase": {"issuing_organ": "Congresso Nacional"}}, "weight": 2.5},
+        {"filter": {"match_phrase": {"issuing_organ": "Supremo Tribunal Federal"}}, "weight": 2.5},
+        {"filter": {"match_phrase": {"issuing_organ": "Tribunal de Contas da União"}}, "weight": 2.0},
+        {"filter": {"match": {"issuing_organ": "Ministério"}}, "weight": 1.4},
+        # DOU Section (Seção 1 = normativa > Seção 3 = contratos)
+        {"filter": {"bool": {"should": [{"term": {"section": "do1"}}, {"term": {"section": "DO1"}}]}}, "weight": 1.6},
+        # Art type hierarchy
+        {"filter": {"terms": {"art_type_normalized": ["lei", "lei complementar"]}}, "weight": 2.5},
+        {"filter": {"terms": {"art_type_normalized": ["decreto", "decreto-lei", "medida provisoria"]}}, "weight": 2.0},
+        {"filter": {"terms": {"art_type_normalized": ["resolucao"]}}, "weight": 1.5},
+        # Front page docs
+        {"filter": {"range": {"page_number": {"lte": 5}}}, "weight": 1.3},
+        # Cited docs
+        {"filter": {"range": {"reference_count": {"gte": 1}}}, "weight": 1.2},
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Query builders
 # ---------------------------------------------------------------------------
 

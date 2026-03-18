@@ -503,6 +503,8 @@ def build_trending_query(
         }
     }
 
+    from src.backend.search.hybrid import _public_interest_functions
+
     functions: list[dict[str, Any]] = [
         # Heavy recency decay — documents from today score 5x, 30 days ago ~1.5x
         {
@@ -526,6 +528,9 @@ def build_trending_query(
                 "filter": {"term": {"art_type_normalized": at.lower()}},
                 "weight": weight,
             })
+
+    # Public interest signals (organ importance, section, page)
+    functions.extend(_public_interest_functions())
 
     bool_query: dict[str, Any] = {"bool": {"must": [text_query]}}
     if filters:
@@ -591,6 +596,8 @@ def build_subject_query(
     if filters:
         bool_query["bool"]["filter"] = filters
 
+    from src.backend.search.hybrid import _public_interest_functions
+
     functions: list[dict[str, Any]] = [
         # Soft recency — 6 months is still relevant for thematic exploration
         {
@@ -604,12 +611,10 @@ def build_subject_query(
             },
             "weight": 1.5,
         },
-        # Canonical document types get boosted
-        {"filter": {"term": {"art_type_normalized": "lei"}}, "weight": 3},
-        {"filter": {"term": {"art_type_normalized": "decreto"}}, "weight": 2.5},
-        {"filter": {"term": {"art_type_normalized": "resolucao"}}, "weight": 2},
-        {"filter": {"term": {"art_type_normalized": "instrucao normativa"}}, "weight": 1.5},
     ]
+
+    # Public interest signals (replaces the old hardcoded art_type boosts)
+    functions.extend(_public_interest_functions())
 
     return {
         "function_score": {
