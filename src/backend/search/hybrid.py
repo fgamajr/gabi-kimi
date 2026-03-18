@@ -734,14 +734,20 @@ def _build_payload(
     from_: int,
     source_fields: list[str],
     highlight_spec: dict[str, Any],
+    *,
+    sort_by_date: bool = False,
 ) -> dict[str, Any]:
+    if sort_by_date:
+        sort = [{"pub_date": {"order": "desc"}}, {"_score": {"order": "desc"}}]
+    else:
+        sort = [{"_score": {"order": "desc"}}, {"pub_date": {"order": "desc"}}]
     return {
         "from": from_,
         "size": size,
         "track_total_hits": True,
         "timeout": "800ms",
         "query": query_body,
-        "sort": [{"_score": {"order": "desc"}}, {"pub_date": {"order": "desc"}}],
+        "sort": sort,
         "_source": source_fields,
         "highlight": highlight_spec,
     }
@@ -844,7 +850,9 @@ async def hybrid_search(
         return result
 
     # BM25-only mode
-    payload = _build_payload(query_body, size, from_, effective_source_fields, effective_highlight_spec)
+    # For browse-by-type queries (pure_act_type), sort by date (most recent first)
+    use_date_sort = strategy in ("topic_profile", "trending")
+    payload = _build_payload(query_body, size, from_, effective_source_fields, effective_highlight_spec, sort_by_date=use_date_sort)
     result = await _execute_search(es_url, payload, client)
 
     total = result.get("hits", {}).get("total", {}).get("value", 0)
