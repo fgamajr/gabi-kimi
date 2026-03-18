@@ -486,35 +486,137 @@ def build_canonical_query(
 # ---------------------------------------------------------------------------
 
 def classify_and_build(
-    q: str, filters: list[dict[str, Any]]
-) -> tuple[dict[str, Any], str]:
+    q: str,
+    filters: list[dict[str, Any]],
+    *,
+    is_trending: bool = False,
+    intent_override: str | None = None,
+) -> tuple[dict[str, Any], str, dict[str, Any]]:
     """Classify query intent and build the appropriate ES query.
 
-    Returns (query_body, strategy_name) where strategy is one of:
-      "person", "canonical", "phrase", "legal", "bm25"
+    Returns (query_body, strategy_name, intent_metadata).
     """
+    from src.backend.search.intent import (
+        classify_intent, QueryIntent, IntentResult,
+    )
+    from src.backend.search.query_builders import (
+        build_exact_name_query, build_trending_query, build_subject_query,
+    )
+
     legal_refs = _has_legal_ref(q)
 
-    # Person name detection (highest priority — most restrictive)
-    if _is_person_name(q):
-        return build_person_query(q, filters), "person"
+    # Allow intent override
+    if intent_override:
+        _OVERRIDE_MAP = {
+            "exact_name": QueryIntent.EXACT_NAME,
+            "canonical": QueryIntent.CANONICAL_LOOKUP,
+            "trending": QueryIntent.TRENDING_BROWSE,
+            "explore": QueryIntent.SUBJECT_EXPLORE,
+            "person": QueryIntent.PERSON_NAME,
+        }
+        forced = _OVERRIDE_MAP.get(intent_override)
+        if forced:
+            intent_result = IntentResult(intent=forced, confidence=1.0, metadata={})
+        else:
+            intent_result = classify_intent(q, is_trending=is_trending)
+    else:
+        intent_result = classify_intent(q, is_trending=is_trending)
 
-    # Canonical document lookup (Lei X, Código Y, etc.)
-    if _is_law_name_query(q):
-        return build_canonical_query(q, filters, legal_refs), "canonical"
+    intent = intent_result.intent
+    meta = intent_result.metadata
+    intent_data = {
+        "detected": intent.value,
+        "confidence": intent_result.confidence,
+        **{k: v for k, v in meta.items() if k in ("suggestion", "matched_alias")},
+    }
 
-    word_count = _query_word_count(q)
+    # Route to appropriate builder
+    if intent == QueryIntent.EXACT_NAME:
+        query_body = build_exact_name_query(meta, q, filters)
+        return query_body, "exact_name", intent_data
 
-    # Multi-word (3+ meaningful terms) — phrase-first
-    if word_count >= 3:
-        return build_phrase_query(q, filters, legal_refs), "phrase"
+    if intent == QueryIntent.CANONICAL_LOOKUP:
+        # Enhance existing canonical builder with metadata from canonical dict
+        entry = meta.get("entry", {})
+        formal_ref = entry.get("formal_ref", {})
+        boost_organs = entry.get("boost_organs", [])
 
-    # Legal reference with number — boost the reference
-    if legal_refs:
-        return build_bm25_query(q, filters, legal_refs), "legal"
+        # Build enhanced canonical query using formal reference
+        if formal_ref.get("number"):
+            # Pin the formal reference with structured fields
+            from src.backend.search.query_builders import build_exact_name_query as _build_exact
+            pin_query = _build_exact(
+                {"art_type": formal_ref.get("art_type", "lei"),
+                 "number": formal_ref["number"],
+                 "year": formal_ref.get("year"),
+                 "organ": None},
+                q, [],
+            )
+            # Also build the text-based canonical query
+            canon_query = build_canonical_query(q, filters, legal_refs)
+            # Combine: pin + canonical in a bool/should
+            combined = {
+                "bool": {
+                    "should": [
+                        {"bool": {"should": [pin_query], "boost": 3}},
+                        canon_query.get("function_score", {}).get("query", canon_query),
+                    ],
+                    "minimum_should_match": 1,
+                }
+            }
+            if filters:
+                combined["bool"]["filter"] = filters
+            # Add organ boost + art_type hierarchy via function_score
+            functions = []
+            for organ in boost_organs:
+                functions.append({
+                    "filter": {"match": {"issuing_organ": organ}},
+                    "weight": 5,
+                })
+            # Art type hierarchy (same as canonical)
+            _ART_TYPE_KEYWORD_VARIANTS = {
+                "lei": ["Lei", "LEI"],
+                "decreto": ["Decreto", "DECRETO"],
+                "decreto-lei": ["Decreto-Lei", "DECRETO-LEI"],
+                "lei complementar": ["Lei Complementar", "LEI COMPLEMENTAR"],
+            }
+            ref_type = formal_ref.get("art_type", "lei")
+            for kw in _ART_TYPE_KEYWORD_VARIANTS.get(ref_type, []):
+                functions.append({"filter": {"term": {"art_type": kw}}, "weight": 10})
+            # Also use normalized field
+            functions.append({"filter": {"term": {"art_type_normalized": ref_type}}, "weight": 10})
 
-    # Default: bag-of-words
-    return build_bm25_query(q, filters), "bm25"
+            if functions:
+                query_body = {
+                    "function_score": {
+                        "query": combined,
+                        "functions": functions,
+                        "score_mode": "multiply",
+                        "boost_mode": "multiply",
+                    }
+                }
+            else:
+                query_body = combined
+        else:
+            # No formal reference — fall back to existing canonical builder
+            query_body = build_canonical_query(q, filters, legal_refs)
+        return query_body, "canonical", intent_data
+
+    if intent == QueryIntent.PERSON_NAME:
+        query_body = build_person_query(q, filters)
+        return query_body, "person", intent_data
+
+    if intent == QueryIntent.TRENDING_BROWSE:
+        query_body = build_trending_query(q, filters)
+        return query_body, "trending", intent_data
+
+    if intent == QueryIntent.SUBJECT_EXPLORE:
+        query_body = build_subject_query(q, filters, legal_refs)
+        return query_body, "subject", intent_data
+
+    # Ultimate fallback
+    query_body = build_bm25_query(q, filters, legal_refs)
+    return query_body, "bm25", intent_data
 
 
 # ---------------------------------------------------------------------------
@@ -574,21 +676,26 @@ async def hybrid_search(
     source_fields: list[str],
     highlight_spec: dict[str, Any],
     client: httpx.AsyncClient,
+    *,
+    is_trending: bool = False,
+    intent: str | None = None,
 ) -> dict[str, Any]:
-    """Execute search with query classification and two-pass cascade.
+    """Execute search with intent-based query classification and two-pass cascade.
 
-    Classification:
-      - Person names → strict phrase with orthographic variants + progressive relaxation
-      - Canonical laws (Lei X, Código Y) → phrase-first with art_type boost, no recency decay
-      - 3+ word queries → phrase-first, fallback to bag-of-words
-      - Legal references → bag-of-words with reference pinning
-      - Short queries → standard bag-of-words
+    Intent classification (priority order):
+      1. EXACT_NAME → structured field lookup (art_type + number)
+      2. CANONICAL → law by popular name (LGPD, CLT) with regulatory cluster
+      3. PERSON → name detection with orthographic variants
+      4. TRENDING → heavy recency decay for browsing queries
+      5. SUBJECT → thematic exploration with phrase proximity
 
-    Two-pass cascade (for person/phrase/canonical strategies):
+    Two-pass cascade (for person/phrase/canonical/exact_name):
       Pass 1: strict query
       Pass 2: if < MIN_PHRASE_RESULTS, fall back to bag-of-words
     """
-    query_body, strategy = classify_and_build(query, filters)
+    query_body, strategy, intent_data = classify_and_build(
+        query, filters, is_trending=is_trending, intent_override=intent,
+    )
     query_vector = await _get_query_embedding(query, client)
     es_url = f"{settings.ES_URL}/{settings.es_target_index}/_search"
 
@@ -626,12 +733,13 @@ async def hybrid_search(
 
         # Fallback for strict strategies
         total = result.get("hits", {}).get("total", {}).get("value", 0)
-        if strategy in ("person", "phrase", "canonical") and total < MIN_PHRASE_RESULTS:
+        if strategy in ("person", "phrase", "canonical", "exact_name") and total < MIN_PHRASE_RESULTS:
             logger.info("strategy=%s returned %d, falling back to bm25", strategy, total)
             fallback_query = build_bm25_query(query, filters, _has_legal_ref(query))
             payload["retriever"]["rrf"]["retrievers"][0] = {"standard": {"query": fallback_query}}
             result = await _execute_search(es_url, payload, client)
 
+        result["_intent"] = intent_data
         return result
 
     # BM25-only mode
@@ -641,7 +749,7 @@ async def hybrid_search(
     total = result.get("hits", {}).get("total", {}).get("value", 0)
 
     # Two-pass: strict → bag-of-words fallback
-    if strategy in ("person", "phrase", "canonical") and total < MIN_PHRASE_RESULTS:
+    if strategy in ("person", "phrase", "canonical", "exact_name") and total < MIN_PHRASE_RESULTS:
         if strategy == "person":
             # Progressive relaxation: try name variants before bag-of-words
             variants = _person_name_variants(query)
@@ -652,6 +760,7 @@ async def hybrid_search(
                 result = await _execute_search(es_url, payload, client)
                 total = result.get("hits", {}).get("total", {}).get("value", 0)
                 if total >= MIN_PHRASE_RESULTS:
+                    result["_intent"] = intent_data
                     return result
 
         # Final fallback: bag-of-words
@@ -660,4 +769,5 @@ async def hybrid_search(
         payload = _build_payload(fallback, size, from_, source_fields, highlight_spec)
         result = await _execute_search(es_url, payload, client)
 
+    result["_intent"] = intent_data
     return result

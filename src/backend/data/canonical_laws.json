@@ -1,0 +1,219 @@
+[
+  {
+    "id": "constituicao_federal",
+    "aliases": ["constituicao federal", "constituicao", "cf", "cf/88", "carta magna"],
+    "formal_ref": {"art_type": "constituicao", "number": "", "year": 1988},
+    "boost_organs": [],
+    "related_terms": ["direitos fundamentais", "emenda constitucional", "supremo tribunal federal"]
+  },
+  {
+    "id": "lgpd",
+    "aliases": ["lgpd", "lei geral de protecao de dados", "lei geral de protecao de dados pessoais", "lei 13709", "lei 13.709"],
+    "formal_ref": {"art_type": "lei", "number": "13.709", "year": 2018},
+    "boost_organs": ["ANPD", "Autoridade Nacional de Protecao de Dados"],
+    "related_terms": ["dados pessoais", "tratamento de dados", "privacidade", "consentimento"]
+  },
+  {
+    "id": "codigo_penal",
+    "aliases": ["codigo penal", "cp", "decreto-lei 2848", "decreto-lei 2.848"],
+    "formal_ref": {"art_type": "decreto-lei", "number": "2.848", "year": 1940},
+    "boost_organs": [],
+    "related_terms": ["crime", "pena", "tipificacao", "dolo", "culpa"]
+  },
+  {
+    "id": "codigo_civil",
+    "aliases": ["codigo civil", "cc", "lei 10406", "lei 10.406"],
+    "formal_ref": {"art_type": "lei", "number": "10.406", "year": 2002},
+    "boost_organs": [],
+    "related_terms": ["obrigacoes", "contratos", "responsabilidade civil", "propriedade"]
+  },
+  {
+    "id": "clt",
+    "aliases": ["clt", "consolidacao das leis do trabalho", "consolidacao das leis trabalhistas", "decreto-lei 5452", "decreto-lei 5.452"],
+    "formal_ref": {"art_type": "decreto-lei", "number": "5.452", "year": 1943},
+    "boost_organs": ["MTE"],
+    "related_terms": ["trabalho", "emprego", "ferias", "salario", "jornada"]
+  },
+  {
+    "id": "eca",
+    "aliases": ["eca", "estatuto da crianca e do adolescente", "estatuto da crianca", "lei 8069", "lei 8.069"],
+    "formal_ref": {"art_type": "lei", "number": "8.069", "year": 1990},
+    "boost_organs": [],
+    "related_terms": ["crianca", "adolescente", "menor", "tutela", "guarda"]
+  },
+  {
+    "id": "marco_civil_internet",
+    "aliases": ["marco civil da internet", "marco civil internet", "lei 12965", "lei 12.965"],
+    "formal_ref": {"art_type": "lei", "number": "12.965", "year": 2014},
+    "boost_organs": ["ANATEL"],
+    "related_terms": ["internet", "neutralidade de rede", "privacidade online", "provedor"]
+  },
+  {
+    "id": "lei_licitacoes_nova",
+    "aliases": ["nova lei de licitacoes", "lei de licitacoes nova", "lei 14133", "lei 14.133"],
+    "formal_ref": {"art_type": "lei", "number": "14.133", "year": 2021},
+    "boost_organs": ["TCU", "CGU"],
+    "related_terms": ["licitacao", "contrato administrativo", "pregao", "concorrencia"]
+  },
+  {
+    "id": "lei_licitacoes_antiga",
+    "aliases": ["lei de licitacoes", "lei de licitacoes antiga", "lei 8666", "lei 8.666"],
+    "formal_ref": {"art_type": "lei", "number": "8.666", "year": 1993},
+    "boost_organs": ["TCU", "CGU"],
+    "related_terms": ["licitacao", "contrato administrativo", "tomada de precos", "concorrencia"]
+  },
+  {
+    "id": "lai",
+    "aliases": ["lai", "lei de acesso a informacao", "lei de acesso a informacao publica", "lei 12527", "lei 12.527"],
+    "formal_ref": {"art_type": "lei", "number": "12.527", "year": 2011},
+    "boost_organs": ["CGU"],
+    "related_terms": ["transparencia", "acesso a informacao", "sigilo", "dados publicos"]
+  },
+  {
+    "id": "lei_anticorrupcao",
+    "aliases": ["lei anticorrupcao", "lei anti-corrupcao", "lei da empresa limpa", "lei 12846", "lei 12.846"],
+    "formal_ref": {"art_type": "lei", "number": "12.846", "year": 2013},
+    "boost_organs": ["CGU"],
+    "related_terms": ["corrupcao", "suborno", "acordo de leniencia", "pessoa juridica"]
+  },
+  {
+    "id": "lei_improbidade",
+    "aliases": ["lei de improbidade administrativa", "lei de improbidade", "lia", "lei 8429", "lei 8.429"],
+    "formal_ref": {"art_type": "lei", "number": "8.429", "year": 1992},
+    "boost_organs": [],
+    "related_terms": ["improbidade", "enriquecimento ilicito", "agente publico", "sancao"]
+  },
+  {
+    "id": "cdc",
+    "aliases": ["cdc", "codigo de defesa do consumidor", "codigo do consumidor", "lei 8078", "lei 8.078"],
+    "formal_ref": {"art_type": "lei", "number": "8.078", "year": 1990},
+    "boost_organs": ["SENACON"],
+    "related_terms": ["consumidor", "fornecedor", "produto defeituoso", "pratica abusiva"]
+  },
+  {
+    "id": "lei_maria_da_penha",
+    "aliases": ["lei maria da penha", "maria da penha", "lei 11340", "lei 11.340"],
+    "formal_ref": {"art_type": "lei", "number": "11.340", "year": 2006},
+    "boost_organs": [],
+    "related_terms": ["violencia domestica", "violencia contra mulher", "medida protetiva"]
+  },
+  {
+    "id": "estatuto_idoso",
+    "aliases": ["estatuto do idoso", "lei 10741", "lei 10.741"],
+    "formal_ref": {"art_type": "lei", "number": "10.741", "year": 2003},
+    "boost_organs": [],
+    "related_terms": ["idoso", "terceira idade", "aposentadoria", "atendimento prioritario"]
+  },
+  {
+    "id": "lrf",
+    "aliases": ["lrf", "lei de responsabilidade fiscal", "lc 101", "lei complementar 101"],
+    "formal_ref": {"art_type": "lei complementar", "number": "101", "year": 2000},
+    "boost_organs": ["TCU", "STN"],
+    "related_terms": ["responsabilidade fiscal", "gasto publico", "divida publica", "orcamento"]
+  },
+  {
+    "id": "cpc",
+    "aliases": ["cpc", "codigo de processo civil", "novo cpc", "lei 13105", "lei 13.105"],
+    "formal_ref": {"art_type": "lei", "number": "13.105", "year": 2015},
+    "boost_organs": [],
+    "related_terms": ["processo civil", "acao judicial", "recurso", "sentenca", "tutela"]
+  },
+  {
+    "id": "cpp",
+    "aliases": ["cpp", "codigo de processo penal", "decreto-lei 3689", "decreto-lei 3.689"],
+    "formal_ref": {"art_type": "decreto-lei", "number": "3.689", "year": 1941},
+    "boost_organs": [],
+    "related_terms": ["processo penal", "inquerito", "prisao", "juri", "denuncia"]
+  },
+  {
+    "id": "ctn",
+    "aliases": ["ctn", "codigo tributario nacional", "lei 5172", "lei 5.172"],
+    "formal_ref": {"art_type": "lei", "number": "5.172", "year": 1966},
+    "boost_organs": ["RFB"],
+    "related_terms": ["tributo", "imposto", "taxa", "contribuicao", "fato gerador"]
+  },
+  {
+    "id": "estatuto_cidade",
+    "aliases": ["estatuto da cidade", "lei 10257", "lei 10.257"],
+    "formal_ref": {"art_type": "lei", "number": "10.257", "year": 2001},
+    "boost_organs": [],
+    "related_terms": ["politica urbana", "plano diretor", "funcao social da propriedade"]
+  },
+  {
+    "id": "lei_pregao",
+    "aliases": ["lei do pregao", "lei 10520", "lei 10.520"],
+    "formal_ref": {"art_type": "lei", "number": "10.520", "year": 2002},
+    "boost_organs": [],
+    "related_terms": ["pregao", "pregao eletronico", "licitacao", "menor preco"]
+  },
+  {
+    "id": "lei_sa",
+    "aliases": ["lei das sa", "lei das sociedades anonimas", "lei das sociedades por acoes", "lei 6404", "lei 6.404"],
+    "formal_ref": {"art_type": "lei", "number": "6.404", "year": 1976},
+    "boost_organs": ["CVM"],
+    "related_terms": ["sociedade anonima", "acionista", "dividendo", "assembleia", "conselho de administracao"]
+  },
+  {
+    "id": "lei_falencias",
+    "aliases": ["lei de falencias", "lei de recuperacao judicial", "lei 11101", "lei 11.101"],
+    "formal_ref": {"art_type": "lei", "number": "11.101", "year": 2005},
+    "boost_organs": [],
+    "related_terms": ["falencia", "recuperacao judicial", "recuperacao extrajudicial", "credor"]
+  },
+  {
+    "id": "estatuto_pcd",
+    "aliases": ["estatuto da pessoa com deficiencia", "lei brasileira de inclusao", "lbi", "lei 13146", "lei 13.146"],
+    "formal_ref": {"art_type": "lei", "number": "13.146", "year": 2015},
+    "boost_organs": [],
+    "related_terms": ["pessoa com deficiencia", "acessibilidade", "inclusao", "barreira"]
+  },
+  {
+    "id": "lei_drogas",
+    "aliases": ["lei de drogas", "lei antidrogas", "lei 11343", "lei 11.343"],
+    "formal_ref": {"art_type": "lei", "number": "11.343", "year": 2006},
+    "boost_organs": [],
+    "related_terms": ["droga", "entorpecente", "trafico", "uso pessoal", "dependencia"]
+  },
+  {
+    "id": "marco_legal_startups",
+    "aliases": ["marco legal das startups", "lei complementar 182", "lc 182"],
+    "formal_ref": {"art_type": "lei complementar", "number": "182", "year": 2021},
+    "boost_organs": [],
+    "related_terms": ["startup", "inovacao", "empreendedorismo", "investidor anjo", "sandbox regulatorio"]
+  },
+  {
+    "id": "lei_mandado_seguranca",
+    "aliases": ["lei do mandado de seguranca", "mandado de seguranca", "lei 12016", "lei 12.016"],
+    "formal_ref": {"art_type": "lei", "number": "12.016", "year": 2009},
+    "boost_organs": [],
+    "related_terms": ["mandado de seguranca", "direito liquido e certo", "autoridade coatora", "liminar"]
+  },
+  {
+    "id": "lei_crimes_ambientais",
+    "aliases": ["lei de crimes ambientais", "lei ambiental", "lei 9605", "lei 9.605"],
+    "formal_ref": {"art_type": "lei", "number": "9.605", "year": 1998},
+    "boost_organs": ["IBAMA"],
+    "related_terms": ["crime ambiental", "meio ambiente", "desmatamento", "poluicao", "fauna", "flora"]
+  },
+  {
+    "id": "estatuto_militares",
+    "aliases": ["estatuto dos militares", "lei 6880", "lei 6.880"],
+    "formal_ref": {"art_type": "lei", "number": "6.880", "year": 1980},
+    "boost_organs": [],
+    "related_terms": ["militar", "forcas armadas", "exercito", "marinha", "aeronautica"]
+  },
+  {
+    "id": "lei_servidor_publico",
+    "aliases": ["estatuto do servidor publico", "lei do servidor publico", "lei 8112", "lei 8.112"],
+    "formal_ref": {"art_type": "lei", "number": "8.112", "year": 1990},
+    "boost_organs": [],
+    "related_terms": ["servidor publico", "concurso publico", "estabilidade", "remuneracao"]
+  },
+  {
+    "id": "lei_processo_administrativo",
+    "aliases": ["lei do processo administrativo", "lei 9784", "lei 9.784"],
+    "formal_ref": {"art_type": "lei", "number": "9.784", "year": 1999},
+    "boost_organs": [],
+    "related_terms": ["processo administrativo", "recurso administrativo", "contraditorio", "ampla defesa"]
+  }
+]

@@ -211,6 +211,8 @@ async def search(
     section: Optional[str] = None,
     art_type: Optional[str] = None,
     issuing_organ: Optional[str] = None,
+    intent: Optional[str] = None,
+    is_trending: bool = False,
 ):
     offset = (page - 1) * max
     filters = _build_filters(date_from, date_to, section, art_type, issuing_organ)
@@ -223,8 +225,6 @@ async def search(
     es_from = 0 if use_reranker else offset
 
     try:
-        # Both hybrid and BM25-only paths now use hybrid_search which
-        # handles the two-pass cascade for multi-word queries internally
         data = await hybrid_search(
             query=q,
             filters=filters,
@@ -233,6 +233,8 @@ async def search(
             source_fields=_SOURCE_FIELDS,
             highlight_spec=_HIGHLIGHT_SPEC,
             client=_es,
+            is_trending=is_trending,
+            intent=intent,
         )
     except httpx.HTTPStatusError as e:
         logger.error("ES search error: %s", e.response.text[:200])
@@ -241,6 +243,7 @@ async def search(
     hits = data.get("hits", {}).get("hits", [])
     total = int(data.get("hits", {}).get("total", {}).get("value", 0))
     took = data.get("took", 0)
+    intent_data = data.get("_intent")
 
     if use_reranker and hits:
         hits = await rerank(q, hits, top_k=settings.RERANKER_TOP_K, client=_es)
@@ -249,7 +252,7 @@ async def search(
     else:
         results = [_hit_to_result(h) for h in hits]
 
-    return {
+    response = {
         "results": results,
         "total": total,
         "page": page,
@@ -257,6 +260,9 @@ async def search(
         "query": q,
         "took_ms": took,
     }
+    if intent_data:
+        response["intent"] = intent_data
+    return response
 
 
 @app.get("/api/autocomplete")
