@@ -212,14 +212,17 @@ def _decay_functions() -> list[dict[str, Any]]:
     }]
 
 
-def _wrap_function_score(bool_query: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "function_score": {
-            "query": bool_query,
-            "functions": _decay_functions(),
-            "boost_mode": "multiply",
-        },
-    }
+def _wrap_function_score(bool_query: dict[str, Any], *, use_decay: bool = True) -> dict[str, Any]:
+    if use_decay:
+        return {
+            "function_score": {
+                "query": bool_query,
+                "functions": _decay_functions(),
+                "boost_mode": "multiply",
+            },
+        }
+    # No decay — pure BM25 relevance (smaller docs with phrase match rank higher)
+    return bool_query
 
 
 def build_person_query(
@@ -277,7 +280,9 @@ def build_person_query(
     if filters:
         bool_query["bool"]["filter"] = filters
 
-    return _wrap_function_score(bool_query)
+    # Person names: pure BM25 relevance, no recency decay.
+    # Smaller docs where the name appears rank higher naturally.
+    return _wrap_function_score(bool_query, use_decay=False)
 
 
 def build_phrase_query(
