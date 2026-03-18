@@ -36,8 +36,8 @@ export const FilterChip: React.FC<FilterChipProps> = ({ label, active, onRemove,
     onClick={onClick || onRemove}
     className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors press-effect focus-ring min-h-[44px] min-w-[44px] justify-center
       ${active
-        ? 'bg-primary text-primary-foreground'
-        : 'bg-secondary text-secondary-foreground hover:bg-muted'
+        ? 'border border-primary/25 bg-primary/10 text-primary'
+        : 'border border-border bg-card text-secondary-foreground hover:bg-muted'
       }`}
     aria-pressed={active}
   >

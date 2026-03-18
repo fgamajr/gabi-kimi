@@ -1,4 +1,27 @@
-import { Search, FileText, Home, ArrowLeft, Filter, X, ChevronRight, ChevronDown, Calendar, ExternalLink, Image, Share2, BookOpen, TrendingUp, Clock, Hash, Building, Sun, Moon, Download } from 'lucide-react';
+import {
+  Search,
+  FileText,
+  Home,
+  ArrowLeft,
+  Filter,
+  X,
+  ChevronRight,
+  ChevronDown,
+  Calendar,
+  ExternalLink,
+  Image,
+  Share2,
+  BookOpen,
+  TrendingUp,
+  Clock,
+  Hash,
+  Building,
+  Sun,
+  Moon,
+  Download,
+  Printer,
+  EllipsisVertical,
+} from 'lucide-react';
 
 export const Icons = {
   search: Search,
@@ -21,4 +44,6 @@ export const Icons = {
   sun: Sun,
   moon: Moon,
   download: Download,
+  printer: Printer,
+  more: EllipsisVertical,
 };

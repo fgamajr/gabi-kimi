@@ -1,8 +1,8 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 @layer base {
   :root {
@@ -16,7 +16,7 @@
     --popover: 0 0% 100%;
     --popover-foreground: 225 15% 10%;
 
-    --primary: 256 80% 55%;
+    --primary: 239 62% 55%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 220 15% 93%;
@@ -64,6 +64,7 @@
 
     /* Typography */
     --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --font-serif: 'Lora', Georgia, serif;
     --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 
     /* Motion tokens */
@@ -104,7 +105,7 @@
     --popover: 225 14% 12%;
     --popover-foreground: 220 10% 94%;
 
-    --primary: 256 96% 67%;
+    --primary: 239 85% 70%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 225 10% 15%;
@@ -170,6 +171,10 @@
 @layer base {
   * {
     @apply border-border;
+  }
+
+  html {
+    scroll-padding-top: 5.5rem;
   }
 
   body {
@@ -273,6 +278,53 @@
     100% { background-position: 200% 50%; }
   }
 
+  .glass {
+    backdrop-filter: blur(16px);
+    background: hsl(var(--card) / 0.85);
+  }
+
+  @supports not (backdrop-filter: blur(1px)) {
+    .glass {
+      background: hsl(var(--card));
+    }
+  }
+
+  .search-glow {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .search-glow::before {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    border-radius: inherit;
+    background: linear-gradient(
+      120deg,
+      hsl(var(--primary) / 0.34),
+      hsl(var(--ring) / 0.2),
+      hsl(var(--primary) / 0.34)
+    );
+    background-size: 220% 100%;
+    opacity: 0;
+    transition: opacity var(--motion-normal) var(--motion-settle);
+    animation: gradientSweep 4.5s linear infinite;
+    z-index: -1;
+  }
+
+  .search-glow:focus-within::before {
+    opacity: 1;
+  }
+
+  .dark .search-glow::before {
+    background: linear-gradient(
+      120deg,
+      hsl(var(--primary) / 0.5),
+      hsl(217 91% 60% / 0.25),
+      hsl(var(--primary) / 0.5)
+    );
+  }
+
   /* Count-up placeholder */
   @keyframes countPulse {
     0% { opacity: 0.5; }
@@ -356,7 +408,7 @@
 
   /* ===== DOCUMENT PROSE ===== */
   .prose-doc {
-    font-family: var(--font-sans);
+    font-family: var(--font-serif);
     font-size: 0.9375rem;
     line-height: 1.7;
     color: hsl(var(--text-primary));
@@ -364,6 +416,7 @@
   .prose-doc p { margin-bottom: 0.875em; }
   .prose-doc h1, .prose-doc h2, .prose-doc h3,
   .prose-doc h4, .prose-doc h5, .prose-doc h6 {
+    font-family: var(--font-sans);
     font-weight: 600;
     margin-top: 1.5em;
     margin-bottom: 0.5em;
@@ -374,6 +427,11 @@
     border-collapse: collapse;
     margin: 1.5em 0;
     font-size: 0.8125rem;
+    display: block;
+    overflow-x: auto;
+  }
+  .prose-doc pre {
+    overflow-x: auto;
   }
   .prose-doc th, .prose-doc td {
     padding: 0.5rem 0.75rem;
@@ -423,6 +481,10 @@
       animation-duration: 0.01ms !important;
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
+    }
+
+    .search-glow::before {
+      animation: none !important;
     }
   }
 }

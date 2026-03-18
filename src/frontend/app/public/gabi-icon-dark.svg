@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Isometric document stack -->
+  <g transform="translate(256, 220)">
+    <path d="M-120 80 L0 140 L120 80 L0 20Z" fill="#c88efa" opacity="0.2"/>
+    <path d="M-120 40 L0 100 L120 40 L0 -20Z" fill="#c88efa" opacity="0.35"/>
+    <path d="M-120 0 L0 60 L120 0 L0 -60Z" fill="#c88efa" opacity="0.6"/>
+    <!-- Text lines on top document -->
+    <line x1="-60" y1="-16" x2="50" y2="18" stroke="#c88efa" stroke-width="10" stroke-linecap="round" opacity="0.85"/>
+    <line x1="-50" y1="0" x2="36" y2="28" stroke="#c88efa" stroke-width="8" stroke-linecap="round" opacity="0.55"/>
+  </g>
+  <!-- Search magnifying glass -->
+  <circle cx="256" cy="110" r="48" fill="none" stroke="#c88efa" stroke-width="16"/>
+  <line x1="290" y1="148" x2="320" y2="178" stroke="#c88efa" stroke-width="18" stroke-linecap="round"/>
+</svg>

@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { searchDocuments, getTypes } from '@/lib/api';
 import type { SearchResponse, TypeOption, SearchParams } from '@/lib/api';
-import { SearchBar } from '@/components/SearchBar';
+import { Header } from '@/components/Header';
 import { ResultCard } from '@/components/ResultCard';
 import { FilterChip } from '@/components/Badges';
 import { BottomSheet } from '@/components/BottomSheet';
@@ -115,23 +115,13 @@ const SearchPage: React.FC = () => {
   const badge = response?.intent ? INTENT_BADGES[response.intent.detected] : null;
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      {/* Sticky header */}
-      <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-xl border-b border-border">
-        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center gap-3">
-          <button
-            onClick={() => navigate('/')}
-            className="p-2 rounded-lg hover:bg-muted transition-colors focus-ring min-w-[44px] min-h-[44px] flex items-center justify-center shrink-0"
-            aria-label="Voltar"
-          >
-            <Icons.back className="w-5 h-5" />
-          </button>
-          <div className="flex-1">
-            <SearchBar defaultValue={query} onSearch={handleSearch} compact />
-          </div>
-          <ThemeToggle />
-        </div>
-      </header>
+    <div className="min-h-full bg-background flex flex-col">
+      <Header
+        showBack
+        onBack={() => navigate('/')}
+        searchProps={{ defaultValue: query, onSearch: handleSearch, compact: true }}
+        actionsRight={<ThemeToggle />}
+      />
 
       {/* Active filters bar */}
       <div className="max-w-3xl mx-auto px-4 w-full">
@@ -139,15 +129,23 @@ const SearchPage: React.FC = () => {
           <div className="inline-flex items-center rounded-full bg-secondary p-1 shrink-0">
             <button
               onClick={() => updateParams({ intent: '', is_trending: '', page: '1' })}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors min-h-[36px]
-                ${currentMode === 'relevance' ? 'bg-card text-foreground shadow-sm' : 'text-text-secondary hover:text-foreground'}`}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors min-h-[36px] border
+                ${
+                  currentMode === 'relevance'
+                    ? 'bg-card text-foreground shadow-sm border-border'
+                    : 'text-text-secondary hover:text-foreground border-transparent'
+                }`}
             >
               Por relevância
             </button>
             <button
               onClick={() => updateParams({ intent: 'trending', is_trending: 'true', page: '1' })}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors min-h-[36px]
-                ${currentMode === 'trending' ? 'bg-card text-foreground shadow-sm' : 'text-text-secondary hover:text-foreground'}`}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors min-h-[36px] border
+                ${
+                  currentMode === 'trending'
+                    ? 'bg-card text-foreground shadow-sm border-border'
+                    : 'text-text-secondary hover:text-foreground border-transparent'
+                }`}
             >
               Mais recentes
             </button>

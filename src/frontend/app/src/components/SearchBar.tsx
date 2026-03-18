@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { getAutocomplete } from '@/lib/api';
+import type { AutocompleteResult } from '@/lib/api';
 import { Icons } from './Icons';
 
 interface SearchBarProps {
@@ -39,7 +40,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
     try {
       const data = await getAutocomplete(q);
       const items = Array.isArray(data)
-        ? data.map((d) => (typeof d === 'string' ? d : (d as any).suggestion || ''))
+        ? data.map((d) => (typeof d === 'string' ? d : (d as AutocompleteResult).suggestion || ''))
         : [];
       setSuggestions(items.filter(Boolean));
     } catch {
@@ -92,35 +93,51 @@ export const SearchBar: React.FC<SearchBarProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    const initial = defaultValue.trim();
+    if (initial.length >= 2) {
+      fetchSuggestions(initial);
+    }
+  }, [defaultValue, fetchSuggestions]);
+
+  const wrapperClass = compact
+    ? 'flex items-center gap-3 rounded-xl bg-card border border-border px-3 py-2 transition-all focus-within:border-primary'
+    : 'flex items-center gap-3 rounded-full glass border border-border px-4 py-3.5 transition-all focus-within:border-primary';
+
   return (
     <div ref={containerRef} className="relative w-full">
-      <div className={`flex items-center gap-3 rounded-xl bg-card border border-border transition-all focus-within:border-primary focus-within:shadow-[var(--shadow-glow)]
-        ${compact ? 'px-3 py-2' : 'px-4 py-3.5'}`}>
-        <Icons.search className="w-5 h-5 text-muted-foreground shrink-0" />
-        <input
-          ref={inputRef}
-          type="text"
-          value={query}
-          onChange={handleChange}
-          onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholder}
-          autoFocus={autoFocus}
-          className="flex-1 bg-transparent outline-none text-foreground placeholder:text-muted-foreground text-base"
-          role="combobox"
-          aria-expanded={showSuggestions}
-          aria-autocomplete="list"
-          aria-controls="search-suggestions"
-        />
-        {query && (
-          <button
-            onClick={() => { setQuery(''); setSuggestions([]); inputRef.current?.focus(); }}
-            className="p-1 rounded-md hover:bg-muted transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-            aria-label="Limpar pesquisa"
-          >
-            <Icons.close className="w-4 h-4 text-muted-foreground" />
-          </button>
-        )}
+      <div className={compact ? 'rounded-xl' : 'search-glow rounded-full'}>
+        <div className={wrapperClass}>
+          <Icons.search className="w-5 h-5 text-muted-foreground shrink-0" />
+          <input
+            ref={inputRef}
+            type="text"
+            value={query}
+            onChange={handleChange}
+            onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+            onKeyDown={handleKeyDown}
+            placeholder={placeholder}
+            autoFocus={autoFocus}
+            className="flex-1 bg-transparent outline-none text-foreground placeholder:text-muted-foreground text-base"
+            role="combobox"
+            aria-expanded={showSuggestions}
+            aria-autocomplete="list"
+            aria-controls="search-suggestions"
+          />
+          {query && (
+            <button
+              onClick={() => {
+                setQuery('');
+                setSuggestions([]);
+                inputRef.current?.focus();
+              }}
+              className="p-1 rounded-md hover:bg-muted transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+              aria-label="Limpar pesquisa"
+            >
+              <Icons.close className="w-4 h-4 text-muted-foreground" />
+            </button>
+          )}
+        </div>
       </div>
 
       {showSuggestions && suggestions.length > 0 && (

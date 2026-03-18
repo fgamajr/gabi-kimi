@@ -10,6 +10,14 @@ interface ResultCardProps {
 
 export const ResultCard: React.FC<ResultCardProps> = ({ result, index = 0 }) => {
   const navigate = useNavigate();
+  const sectionColorClass =
+    result.section === '1'
+      ? 'border-l-[hsl(var(--do1))]'
+      : result.section === '2'
+        ? 'border-l-[hsl(var(--do2))]'
+        : result.section === '3'
+          ? 'border-l-[hsl(var(--do3))]'
+          : 'border-l-[hsl(var(--do-extra))]';
 
   const formatDate = (d: string) => {
     try {
@@ -23,7 +31,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, index = 0 }) => 
       tabIndex={0}
       onClick={() => navigate(`/document/${encodeURIComponent(result.id)}`)}
       onKeyDown={(e) => e.key === 'Enter' && navigate(`/document/${encodeURIComponent(result.id)}`)}
-      className="group rounded-lg bg-card border border-border p-4 cursor-pointer transition-all hover:border-primary/30 hover:shadow-[var(--shadow-md)] press-effect focus-ring animate-fade-in"
+      className={`group rounded-xl bg-surface-elevated border border-border border-l-4 ${sectionColorClass} p-5 cursor-pointer transition-all hover:border-primary/30 hover:shadow-[var(--shadow-md)] press-effect focus-ring animate-fade-in`}
       style={{ animationDelay: `${index * 50}ms` }}
     >
       {/* Meta row */}
@@ -37,7 +45,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, index = 0 }) => 
       </div>
 
       {/* Title */}
-      <h3 className="font-semibold text-foreground leading-snug mb-1 group-hover:text-primary transition-colors line-clamp-2">
+      <h3 className="text-lg font-semibold text-foreground leading-snug mb-1 group-hover:text-primary transition-colors line-clamp-2">
         {result.title}
       </h3>
 
