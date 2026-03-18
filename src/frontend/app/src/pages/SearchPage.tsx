@@ -8,6 +8,7 @@ import { FilterChip } from '@/components/Badges';
 import { BottomSheet } from '@/components/BottomSheet';
 import { SkeletonCard } from '@/components/Skeletons';
 import { Icons } from '@/components/Icons';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 const SECTIONS = [
   { value: '', label: 'Todas' },
@@ -114,6 +115,7 @@ const SearchPage: React.FC = () => {
           <div className="flex-1">
             <SearchBar defaultValue={query} onSearch={handleSearch} compact />
           </div>
+          <ThemeToggle />
         </div>
       </header>
 

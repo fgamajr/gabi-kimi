@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { SearchBar } from '@/components/SearchBar';
 import { SkeletonBlock } from '@/components/Skeletons';
 import { Icons } from '@/components/Icons';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { getStats, getTopSearches, getSearchExamples } from '@/lib/api';
 import type { StatsResponse, TopSearch, SearchExample } from '@/lib/api';
 
@@ -31,7 +32,12 @@ const HomePage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="min-h-screen bg-background flex flex-col relative">
+      {/* Theme toggle */}
+      <div className="absolute top-4 right-4 z-10">
+        <ThemeToggle />
+      </div>
+
       {/* Hero */}
       <header className="flex-1 flex flex-col items-center justify-center px-4 pt-16 pb-8 max-w-2xl mx-auto w-full">
         <div className="mb-8 text-center animate-fade-in">

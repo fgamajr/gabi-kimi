@@ -6,7 +6,95 @@
 
 @layer base {
   :root {
-    /* === Work-tool palette — purple accent, dark-first === */
+    /* === Light theme (default) === */
+    --background: 220 20% 97%;
+    --foreground: 225 15% 10%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 225 15% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 225 15% 10%;
+
+    --primary: 256 80% 55%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 15% 93%;
+    --secondary-foreground: 225 10% 30%;
+
+    --muted: 220 15% 93%;
+    --muted-foreground: 220 8% 45%;
+
+    --accent: 256 80% 55%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 62% 50%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 220 15% 88%;
+    --input: 220 15% 88%;
+    --ring: 256 80% 55%;
+
+    --radius: 0.625rem;
+
+    /* Status */
+    --status-ok: 160 60% 38%;
+    --status-warn: 43 96% 44%;
+    --status-error: 0 72% 50%;
+
+    /* DOU section badges */
+    --do1: 217 91% 50%;
+    --do2: 263 70% 48%;
+    --do3: 330 81% 50%;
+    --do-extra: 43 96% 44%;
+
+    /* Surfaces */
+    --surface-elevated: 0 0% 100%;
+    --surface-sunken: 220 20% 95%;
+
+    /* Text semantic */
+    --text-primary: 225 15% 10%;
+    --text-secondary: 220 8% 40%;
+    --text-tertiary: 220 6% 60%;
+    --text-accent: 256 80% 50%;
+
+    /* Skeleton */
+    --skeleton-base: 220 15% 92%;
+    --skeleton-shimmer: 220 15% 96%;
+
+    /* Typography */
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+    /* Motion tokens */
+    --motion-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+    --motion-spring-soft: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    --motion-settle: cubic-bezier(0.22, 1, 0.36, 1);
+    --motion-fast: 150ms;
+    --motion-normal: 250ms;
+    --motion-slow: 400ms;
+    --motion-stagger: 60ms;
+
+    /* Shadows */
+    --shadow-sm: 0 1px 2px hsl(220 15% 50% / 0.06);
+    --shadow-md: 0 4px 12px hsl(220 15% 50% / 0.08);
+    --shadow-lg: 0 8px 24px hsl(220 15% 50% / 0.12);
+    --shadow-lift: 0 8px 24px hsl(220 15% 50% / 0.12), 0 2px 4px hsl(220 15% 50% / 0.04);
+    --shadow-glow: 0 0 16px hsl(256 80% 55% / 0.12);
+
+    /* Sidebar (shadcn compat) */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 225 15% 10%;
+    --sidebar-primary: 256 80% 55%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 15% 93%;
+    --sidebar-accent-foreground: 225 15% 10%;
+    --sidebar-border: 220 15% 88%;
+    --sidebar-ring: 256 80% 55%;
+  }
+
+  /* Dark mode via class (next-themes adds class="dark" to <html>) */
+  .dark {
     --background: 225 14% 7%;
     --foreground: 220 10% 94%;
 
@@ -35,9 +123,7 @@
     --input: 225 10% 16%;
     --ring: 256 96% 67%;
 
-    --radius: 0.625rem;
-
-    /* Status (Flighty) */
+    /* Status */
     --status-ok: 160 60% 45%;
     --status-warn: 43 96% 56%;
     --status-error: 0 72% 63%;
@@ -62,19 +148,6 @@
     --skeleton-base: 225 10% 11%;
     --skeleton-shimmer: 225 10% 17%;
 
-    /* Typography */
-    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
-
-    /* Motion tokens */
-    --motion-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-    --motion-spring-soft: cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    --motion-settle: cubic-bezier(0.22, 1, 0.36, 1);
-    --motion-fast: 150ms;
-    --motion-normal: 250ms;
-    --motion-slow: 400ms;
-    --motion-stagger: 60ms;
-
     /* Shadows */
     --shadow-sm: 0 1px 2px hsl(225 14% 3% / 0.4);
     --shadow-md: 0 4px 12px hsl(225 14% 3% / 0.5);
@@ -91,41 +164,6 @@
     --sidebar-accent-foreground: 220 10% 94%;
     --sidebar-border: 225 10% 16%;
     --sidebar-ring: 256 96% 67%;
-  }
-
-  /* Light mode via class or media query */
-  .light,
-  :root[data-theme="light"] {
-    --background: 220 20% 97%;
-    --foreground: 225 15% 10%;
-    --card: 0 0% 100%;
-    --card-foreground: 225 15% 10%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 225 15% 10%;
-    --primary: 256 80% 55%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 220 15% 93%;
-    --secondary-foreground: 225 10% 30%;
-    --muted: 220 15% 93%;
-    --muted-foreground: 220 8% 45%;
-    --accent: 256 80% 55%;
-    --accent-foreground: 0 0% 100%;
-    --border: 220 15% 88%;
-    --input: 220 15% 88%;
-    --ring: 256 80% 55%;
-    --surface-elevated: 0 0% 100%;
-    --surface-sunken: 220 20% 95%;
-    --text-primary: 225 15% 10%;
-    --text-secondary: 220 8% 40%;
-    --text-tertiary: 220 6% 60%;
-    --text-accent: 256 80% 50%;
-    --skeleton-base: 220 15% 92%;
-    --skeleton-shimmer: 220 15% 96%;
-    --shadow-sm: 0 1px 2px hsl(220 15% 50% / 0.06);
-    --shadow-md: 0 4px 12px hsl(220 15% 50% / 0.08);
-    --shadow-lg: 0 8px 24px hsl(220 15% 50% / 0.12);
-    --shadow-lift: 0 8px 24px hsl(220 15% 50% / 0.12), 0 2px 4px hsl(220 15% 50% / 0.04);
-    --shadow-glow: 0 0 16px hsl(256 80% 55% / 0.12);
   }
 }
 

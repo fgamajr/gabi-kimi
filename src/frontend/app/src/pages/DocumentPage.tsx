@@ -7,6 +7,7 @@ import { SectionBadge } from '@/components/Badges';
 import { BottomSheet } from '@/components/BottomSheet';
 import { SkeletonDocument } from '@/components/Skeletons';
 import { Icons } from '@/components/Icons';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 const DocumentPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -88,6 +89,8 @@ const DocumentPage: React.FC = () => {
           >
             <Icons.back className="w-5 h-5" />
           </button>
+          <div className="flex items-center gap-1">
+          <ThemeToggle />
           <button
             onClick={() => setShowActions(true)}
             className="p-2 rounded-lg hover:bg-muted transition-colors focus-ring min-w-[44px] min-h-[44px] flex items-center justify-center"
@@ -97,6 +100,7 @@ const DocumentPage: React.FC = () => {
               <circle cx="12" cy="5" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="12" cy="19" r="2" />
             </svg>
           </button>
+          </div>
         </div>
       </header>
 
