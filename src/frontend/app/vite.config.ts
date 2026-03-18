@@ -5,11 +5,11 @@ import { componentTagger } from "lovable-tagger";
 
 // https://vitejs.dev/config/
 const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || "http://backend:8000";
-
 export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
+    allowedHosts: true,
     hmr: {
       overlay: false,
     },
