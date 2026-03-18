@@ -57,30 +57,35 @@ def classify_document(
     """Classify a DOU document into 1-3 topic tags using deterministic rules."""
     art = _norm(art_type_normalized)
     organ = _norm(issuing_organ)
-    # Combine identifica + ementa + first 512 chars of texto for matching
-    combined = _norm(identifica) + " " + _norm(ementa) + " " + _norm(texto[:512])
+    # Combine identifica + ementa + art_type + first 512 chars of texto for matching
+    combined = _norm(identifica) + " " + _norm(ementa) + " " + art + " " + _norm(texto[:512])
+
+    def _art_is(*keywords: str) -> bool:
+        """Check if art_type contains any of the keywords (handles compound types).
+        Uses word boundary matching to avoid 'ato' matching 'contrato'."""
+        return any(re.search(r'\b' + re.escape(k) + r'\b', art) for k in keywords)
 
     topics: list[str] = []
 
     # --- Function topics (what the doc DOES) ---
 
     # concurso_selecao
-    if art in ("edital", "aviso", "portaria", "resultado", "extrato") and _has_any(
+    if _art_is("edital", "aviso", "portaria", "resultado", "extrato") and _has_any(
         combined,
         ["concurso", "processo seletivo", "selecao publica", "vestibular", "homologacao do resultado"],
     ) and not _has_any(
         combined,
-        ["chamada publica", "chamamento", "licitacao", "agricultura familiar", "pnae", "alimentacao escolar"],
+        ["chamada publica", "chamamento", "agricultura familiar", "pnae", "alimentacao escolar"],
     ):
         topics.append("concurso_selecao")
 
     # licitacao_compras
-    if art in ("edital", "aviso", "pregao", "extrato", "resultado") and _has_any(
+    if _art_is("edital", "aviso", "pregao", "extrato", "resultado") and _has_any(
         combined,
         [
             "licitacao", "pregao", "dispensa", "inexigibilidade",
             "chamada publica", "chamamento", "registro de precos",
-            "tomada de precos", "concorrencia publica",
+            "tomada de precos", "concorrencia",
         ],
     ):
         topics.append("licitacao_compras")
@@ -100,14 +105,11 @@ def classify_document(
             "designacao", "cessao", "ferias", "licenca",
             "vacancia", "redistribuicao", "remocao",
         ],
-    ) and art in ("portaria", "decreto", "ato", "despacho", "apostila", ""):
+    ) and (not art or _art_is("portaria", "decreto", "ato", "despacho", "apostila")):
         topics.append("pessoal_rh")
 
     # regulacao_norma
-    if art in (
-        "lei", "decreto", "resolucao", "instrucao normativa",
-        "medida provisoria", "emenda constitucional", "deliberacao",
-    ):
+    if _art_is("lei", "decreto", "resolucao", "instrucao normativa", "medida provisoria", "emenda constitucional", "deliberacao"):
         topics.append("regulacao_norma")
 
     # consulta_participacao
