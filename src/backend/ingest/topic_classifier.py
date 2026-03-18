@@ -1,0 +1,282 @@
+"""Deterministic rules-based topic classifier for DOU documents.
+
+Assigns 1-3 topic tags per document using art_type, issuing_organ,
+and the first 512 chars of body text + ementa. No ML — pure keyword
+matching for speed and predictability.
+
+CLI:
+    python -m src.backend.ingest.topic_classifier --pending   # backfill unclassified docs
+    python -m src.backend.ingest.topic_classifier --stats     # show classification coverage
+    python -m src.backend.ingest.topic_classifier --sample 20 # classify 20 random docs for review
+"""
+
+from __future__ import annotations
+
+import re
+import unicodedata
+from typing import Any
+
+TOPICS = [
+    "concurso_selecao",
+    "licitacao_compras",
+    "contrato_convenio",
+    "pessoal_rh",
+    "regulacao_norma",
+    "consulta_participacao",
+    "saude",
+    "educacao",
+    "meio_ambiente",
+    "financeiro",
+    "energia_telecom",
+    "administrativo",
+]
+
+_SPACE_RE = re.compile(r"\s+")
+
+
+def _norm(text: str | None) -> str:
+    """Lowercase, ASCII-fold, collapse whitespace."""
+    if not text:
+        return ""
+    s = unicodedata.normalize("NFD", str(text))
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    return _SPACE_RE.sub(" ", s).lower().strip()
+
+
+def _has_any(text: str, terms: list[str]) -> bool:
+    return any(t in text for t in terms)
+
+
+def classify_document(
+    identifica: str,
+    ementa: str,
+    texto: str,
+    art_type_normalized: str,
+    issuing_organ: str,
+) -> list[str]:
+    """Classify a DOU document into 1-3 topic tags using deterministic rules."""
+    art = _norm(art_type_normalized)
+    organ = _norm(issuing_organ)
+    # Combine identifica + ementa + first 512 chars of texto for matching
+    combined = _norm(identifica) + " " + _norm(ementa) + " " + _norm(texto[:512])
+
+    topics: list[str] = []
+
+    # --- Function topics (what the doc DOES) ---
+
+    # concurso_selecao
+    if art in ("edital", "aviso", "portaria", "resultado", "extrato") and _has_any(
+        combined,
+        ["concurso", "processo seletivo", "selecao publica", "vestibular", "homologacao do resultado"],
+    ) and not _has_any(
+        combined,
+        ["chamada publica", "chamamento", "licitacao", "agricultura familiar", "pnae", "alimentacao escolar"],
+    ):
+        topics.append("concurso_selecao")
+
+    # licitacao_compras
+    if art in ("edital", "aviso", "pregao", "extrato", "resultado") and _has_any(
+        combined,
+        [
+            "licitacao", "pregao", "dispensa", "inexigibilidade",
+            "chamada publica", "chamamento", "registro de precos",
+            "tomada de precos", "concorrencia publica",
+        ],
+    ):
+        topics.append("licitacao_compras")
+
+    # contrato_convenio
+    if _has_any(art, ["contrato", "convenio"]) or _has_any(
+        combined,
+        ["extrato de contrato", "termo aditivo", "extrato de convenio", "extrato do contrato", "extrato do convenio"],
+    ):
+        topics.append("contrato_convenio")
+
+    # pessoal_rh
+    if _has_any(
+        combined,
+        [
+            "nomeacao", "exoneracao", "aposentadoria", "pensao",
+            "designacao", "cessao", "ferias", "licenca",
+            "vacancia", "redistribuicao", "remocao",
+        ],
+    ) and art in ("portaria", "decreto", "ato", "despacho", "apostila", ""):
+        topics.append("pessoal_rh")
+
+    # regulacao_norma
+    if art in (
+        "lei", "decreto", "resolucao", "instrucao normativa",
+        "medida provisoria", "emenda constitucional", "deliberacao",
+    ):
+        topics.append("regulacao_norma")
+
+    # consulta_participacao
+    if _has_any(combined, ["consulta publica", "audiencia publica"]):
+        topics.append("consulta_participacao")
+
+    # --- Subject topics (what the doc is ABOUT) ---
+
+    # saude
+    if _has_any(organ, ["anvisa", "saude", "ministerio da saude", "sus"]) or _has_any(
+        combined, ["medicamento", "vigilancia sanitaria", "registro de medicamento"],
+    ):
+        topics.append("saude")
+
+    # educacao
+    if _has_any(organ, ["mec", "educacao", "capes", "cnpq", "universidade", "instituto federal"]):
+        topics.append("educacao")
+
+    # meio_ambiente
+    if _has_any(organ, ["ibama", "icmbio", "meio ambiente"]) or _has_any(
+        combined, ["licenciamento ambiental", "estudo de impacto ambiental"],
+    ):
+        topics.append("meio_ambiente")
+
+    # financeiro
+    if _has_any(organ, ["banco central", "bcb", "cvm", "receita federal", "rfb", "tesouro nacional"]) or _has_any(
+        combined, ["irpf", "imposto de renda", "cambio"],
+    ):
+        topics.append("financeiro")
+
+    # energia_telecom
+    if _has_any(organ, ["aneel", "anatel", "anp", "agencia nacional de energia"]) or _has_any(
+        combined, ["tarifa de energia", "espectro de radiofrequencia"],
+    ):
+        topics.append("energia_telecom")
+
+    # Catch-all
+    if not topics:
+        topics.append("administrativo")
+
+    # Cap at 3 topics
+    return topics[:3]
+
+
+# ---------------------------------------------------------------------------
+# CLI: backfill, stats, sample
+# ---------------------------------------------------------------------------
+
+
+def _get_mongo_collection() -> Any:
+    from src.backend.core.config import get_settings
+    from pymongo import MongoClient
+
+    settings = get_settings()
+    client: Any = MongoClient(settings.MONGODB_URL)
+    db = client[settings.MONGODB_DB]
+    return db[settings.MONGODB_COLLECTION]
+
+
+def _backfill_pending() -> None:
+    import time
+    from datetime import datetime, timezone
+
+    collection = _get_mongo_collection()
+    total = collection.count_documents({"topics": {"$exists": False}})
+    print(f"Found {total:,} unclassified documents")
+
+    batch_size = 500
+    classified = 0
+    batch_num = 0
+
+    while True:
+        cursor = collection.find(
+            {"topics": {"$exists": False}},
+            {"identifica": 1, "ementa": 1, "texto": 1, "art_type_normalized": 1, "issuing_organ": 1},
+        ).limit(batch_size)
+
+        docs = list(cursor)
+        if not docs:
+            break
+
+        batch_num += 1
+        ops = []
+        from pymongo import UpdateOne
+
+        for doc in docs:
+            topics = classify_document(
+                identifica=doc.get("identifica") or "",
+                ementa=doc.get("ementa") or "",
+                texto=doc.get("texto") or "",
+                art_type_normalized=doc.get("art_type_normalized") or "",
+                issuing_organ=doc.get("issuing_organ") or "",
+            )
+            ops.append(
+                UpdateOne(
+                    {"_id": doc["_id"]},
+                    {"$set": {"topics": topics, "updated_at": datetime.now(timezone.utc)}},
+                )
+            )
+
+        if ops:
+            collection.bulk_write(ops, ordered=False)
+            classified += len(ops)
+
+        print(f"  batch {batch_num}: classified {len(ops)} docs (total: {classified:,}/{total:,})")
+        time.sleep(1)
+
+    print(f"Done. Classified {classified:,} documents.")
+
+
+def _show_stats() -> None:
+    collection = _get_mongo_collection()
+    total = collection.count_documents({})
+    classified = collection.count_documents({"topics": {"$exists": True}})
+    unclassified = total - classified
+    pct = (classified / total * 100) if total else 0
+    print(f"Total documents:      {total:,}")
+    print(f"Classified:           {classified:,} ({pct:.1f}%)")
+    print(f"Unclassified:         {unclassified:,}")
+
+    if classified > 0:
+        print("\nTopic distribution:")
+        pipeline = [
+            {"$match": {"topics": {"$exists": True}}},
+            {"$unwind": "$topics"},
+            {"$group": {"_id": "$topics", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}},
+        ]
+        for row in collection.aggregate(pipeline):
+            print(f"  {row['_id']:30s} {row['count']:>10,}")
+
+
+def _sample(n: int) -> None:
+    collection = _get_mongo_collection()
+    pipeline = [
+        {"$sample": {"size": n}},
+        {"$project": {"identifica": 1, "ementa": 1, "texto": 1, "art_type_normalized": 1, "issuing_organ": 1}},
+    ]
+    for doc in collection.aggregate(pipeline):
+        topics = classify_document(
+            identifica=doc.get("identifica") or "",
+            ementa=doc.get("ementa") or "",
+            texto=doc.get("texto") or "",
+            art_type_normalized=doc.get("art_type_normalized") or "",
+            issuing_organ=doc.get("issuing_organ") or "",
+        )
+        title = (doc.get("identifica") or "(sem título)")[:80]
+        organ = (doc.get("issuing_organ") or "")[:40]
+        art = doc.get("art_type_normalized") or ""
+        print(f"  [{art:20s}] {title}")
+        print(f"    organ: {organ}")
+        print(f"    topics: {topics}")
+        print()
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="DOU document topic classifier")
+    parser.add_argument("--pending", action="store_true", help="Backfill unclassified Mongo docs")
+    parser.add_argument("--stats", action="store_true", help="Show classification coverage")
+    parser.add_argument("--sample", type=int, metavar="N", help="Classify N random docs for review")
+    args = parser.parse_args()
+
+    if args.pending:
+        _backfill_pending()
+    elif args.stats:
+        _show_stats()
+    elif args.sample:
+        _sample(args.sample)
+    else:
+        parser.print_help()

@@ -166,6 +166,9 @@
       "source_url": { "type": "keyword", "ignore_above": 2048 },
       "source_zip": { "type": "keyword" },
 
+      "topics":        { "type": "keyword" },
+      "topic_primary": { "type": "keyword" },
+
       "embedding": {
         "type": "dense_vector",
         "dims": 384,

@@ -365,6 +365,16 @@ class DouProcessor:
         normalized_title = normalize_keyword(article.identifica or article.titulo)
         published_at = pub_date.replace(tzinfo=timezone.utc)
         now = datetime.now(timezone.utc)
+
+        from src.backend.ingest.topic_classifier import classify_document
+        topics = classify_document(
+            identifica=article.identifica or "",
+            ementa=article.ementa or "",
+            texto=canonical_body[:512],
+            art_type_normalized=art_type_normalized or "",
+            issuing_organ=issuing_organ or "",
+        )
+
         doc = DouDocument(
             _id=logical_doc_id,
             source_id=article.source_xml_path,
@@ -463,6 +473,7 @@ class DouProcessor:
             published_at=published_at,
             indexed_at=now,
             updated_at=now,
+            topics=topics,
         )
         return doc
 

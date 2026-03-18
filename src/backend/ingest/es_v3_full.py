@@ -167,4 +167,8 @@ def mongo_to_es_v3_full(doc: dict[str, Any]) -> dict[str, Any]:
         # Source
         "source_url": _normalize_text(doc.get("source_url")) or None,
         "source_zip": _normalize_text(doc.get("source_zip")) or None,
+
+        # Topic classification
+        "topics": _keyword_list(doc.get("topics")) or None,
+        "topic_primary": (doc.get("topics") or [None])[0],
     }

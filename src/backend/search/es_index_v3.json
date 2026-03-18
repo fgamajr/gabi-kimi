@@ -54,7 +54,9 @@
       "document_year": { "type": "integer" },
       "page_number": { "type": "keyword" },
       "edition_number": { "type": "keyword" },
-      "source_zip": { "type": "keyword" }
+      "source_zip": { "type": "keyword" },
+      "topics":        { "type": "keyword" },
+      "topic_primary": { "type": "keyword" }
     }
   }
 }
