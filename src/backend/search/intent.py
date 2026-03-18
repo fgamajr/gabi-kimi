@@ -12,6 +12,7 @@ from typing import Any
 
 # Import person name detector from existing code
 from src.backend.search.hybrid import _is_person_name, _query_word_count
+from src.backend.search.topic_profiles import match_topic_profile
 
 
 # ---------------------------------------------------------------------------
@@ -289,9 +290,10 @@ def classify_intent(
     Priority:
       1. EXACT_NAME   - regex detects art_type + number
       2. CANONICAL_LOOKUP - match in canonical laws index
-      3. PERSON_NAME  - existing _is_person_name() heuristic
-      4. TRENDING_BROWSE - is_trending flag or DOU recurring category
-      5. SUBJECT_EXPLORE - fallback
+      3. CURATED_TOPIC - explicit high-value topic profile
+      4. PERSON_NAME  - existing _is_person_name() heuristic
+      5. TRENDING_BROWSE - is_trending flag or DOU recurring category
+      6. SUBJECT_EXPLORE - fallback
     """
     # Truncate long queries
     q = query[:200].strip()
@@ -305,16 +307,48 @@ def classify_intent(
             metadata=exact,
         )
 
+    profile = match_topic_profile(q)
+
     # 2. CANONICAL_LOOKUP — known law by alias
     canon = _match_canonical(q)
     if canon:
+        if profile and canon["confidence"] < 0.9:
+            intent = (
+                QueryIntent.TRENDING_BROWSE
+                if profile.intent == QueryIntent.TRENDING_BROWSE.value
+                else QueryIntent.SUBJECT_EXPLORE
+            )
+            return IntentResult(
+                intent=intent,
+                confidence=0.84,
+                metadata={
+                    "topic_profile": profile.to_metadata(),
+                    "topic": profile.label,
+                },
+            )
         return IntentResult(
             intent=QueryIntent.CANONICAL_LOOKUP,
             confidence=canon["confidence"],
             metadata=canon,
         )
 
-    # 3. PERSON_NAME — heuristic name detection
+    # 3. CURATED_TOPIC — explicit high-value browse/explore profiles
+    if profile:
+        intent = (
+            QueryIntent.TRENDING_BROWSE
+            if profile.intent == QueryIntent.TRENDING_BROWSE.value
+            else QueryIntent.SUBJECT_EXPLORE
+        )
+        return IntentResult(
+            intent=intent,
+            confidence=0.9 if is_trending else 0.84,
+            metadata={
+                "topic_profile": profile.to_metadata(),
+                "topic": profile.label,
+            },
+        )
+
+    # 4. PERSON_NAME — heuristic name detection
     if _is_person_name(q):
         return IntentResult(
             intent=QueryIntent.PERSON_NAME,
@@ -322,7 +356,7 @@ def classify_intent(
             metadata={},
         )
 
-    # 4. TRENDING_BROWSE — recurring DOU categories
+    # 5. TRENDING_BROWSE — recurring DOU categories
     if _is_trending_query(q, is_trending=is_trending):
         return IntentResult(
             intent=QueryIntent.TRENDING_BROWSE,
@@ -330,7 +364,7 @@ def classify_intent(
             metadata={"category": _normalize_for_matching(q)},
         )
 
-    # 5. SUBJECT_EXPLORE — fallback
+    # 6. SUBJECT_EXPLORE — fallback
     return IntentResult(
         intent=QueryIntent.SUBJECT_EXPLORE,
         confidence=0.50,

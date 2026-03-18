@@ -1,9 +1,12 @@
 """Intent-based query builders for the GABI DOU search system.
 
-Three specialised query builders that produce Elasticsearch query DSL dicts:
+Specialised query builders that produce Elasticsearch query DSL dicts:
 
   - build_exact_name_query : structured lookup for a specific document by its
     art_type + number + year (e.g. "Portaria MEC 234/2026").
+
+  - build_topic_query : curated high-value topic routing with explicit include /
+    exclude terms, art-type preferences and section/organ boosts.
 
   - build_trending_query : heavy recency ranking for trending / browsing
     queries where the user wants the latest publications on a topic.
@@ -14,12 +17,16 @@ Three specialised query builders that produce Elasticsearch query DSL dicts:
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from typing import Any
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+_TOPIC_TEXT_FIELDS = ["identifica^6", "ementa^5", "issuing_organ^2", "art_type^1.5"]
 
 def _number_variants(number: str, year: int | None) -> list[str]:
     """Generate document_number variants for keyword lookup.
@@ -100,8 +107,252 @@ def _art_type_variants(art_type: str) -> list[str]:
     return list(variants)
 
 
+def _topic_text_clauses(term: str, *, phrase_boost: float, match_boost: float) -> list[dict[str, Any]]:
+    clauses: list[dict[str, Any]] = [
+        {
+            "multi_match": {
+                "query": term,
+                "fields": _TOPIC_TEXT_FIELDS,
+                "type": "best_fields",
+                "boost": match_boost,
+            }
+        }
+    ]
+    if " " in term:
+        clauses.extend(
+            [
+                {"match_phrase": {"identifica": {"query": term, "boost": phrase_boost * 1.3}}},
+                {"match_phrase": {"ementa": {"query": term, "boost": phrase_boost}}},
+            ]
+        )
+    else:
+        clauses.extend(
+            [
+                {"match": {"identifica": {"query": term, "boost": phrase_boost}}},
+                {"match": {"ementa": {"query": term, "boost": phrase_boost * 0.7}}},
+            ]
+        )
+    return clauses
+
+
+def _topic_exclude_clauses(term: str) -> list[dict[str, Any]]:
+    if " " in term:
+        return [
+            {"match_phrase": {"identifica": {"query": term}}},
+            {"match_phrase": {"ementa": {"query": term}}},
+        ]
+    return [
+        {
+            "multi_match": {
+                "query": term,
+                "fields": ["identifica^2", "ementa^2"],
+                "type": "best_fields",
+            }
+        }
+    ]
+
+
+def _normalize_topic_term(value: str) -> str:
+    lowered = value.lower().strip()
+    normalized = unicodedata.normalize("NFD", lowered)
+    normalized = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+    return re.sub(r"\s+", " ", normalized)
+
+
+def _dedupe_topic_terms(values: list[str] | tuple[str, ...]) -> list[str]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        key = _normalize_topic_term(value)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        ordered.append(value)
+    return ordered
+
+
+def _section_filter_clause(section: str) -> dict[str, Any]:
+    return {
+        "bool": {
+            "should": [
+                {"term": {"section": section}},
+                {"term": {"edition_section": section}},
+            ],
+            "minimum_should_match": 1,
+        }
+    }
+
+
 # ---------------------------------------------------------------------------
-# 1. Exact-name query
+# 1. Curated topic query
+# ---------------------------------------------------------------------------
+
+def build_topic_query(
+    profile: dict[str, Any],
+    original_q: str,
+    filters: list[dict[str, Any]],
+    *,
+    legal_refs: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    required_groups = profile.get("required_groups") or []
+    should_terms = profile.get("should_terms") or []
+    exclude_terms = profile.get("exclude_terms") or []
+    required_art_types = profile.get("required_art_types") or []
+    preferred_art_types = profile.get("preferred_art_types") or []
+    excluded_art_types = profile.get("excluded_art_types") or []
+    preferred_sections = profile.get("preferred_sections") or []
+    organ_boosts = profile.get("organ_boosts") or []
+    recency_scale = profile.get("recency_scale", "45d")
+    recency_weight = float(profile.get("recency_weight", 3.5))
+    pure_act_type = bool(profile.get("pure_act_type"))
+    text_gate_mode = profile.get("text_gate_mode", "expanded")
+
+    must: list[dict[str, Any]] = []
+    should: list[dict[str, Any]] = []
+    must_not: list[dict[str, Any]] = []
+
+    if pure_act_type and text_gate_mode == "simple":
+        for group in required_groups:
+            terms = _dedupe_topic_terms(tuple(group))
+            if not terms:
+                continue
+            query = " | ".join(f'"{term}"' if " " in term else term for term in terms)
+            must.append(
+                {
+                    "simple_query_string": {
+                        "query": query,
+                        "fields": ["identifica^4", "ementa^3"],
+                        "default_operator": "or",
+                    }
+                }
+            )
+    elif not pure_act_type:
+        for group in required_groups:
+            group_should: list[dict[str, Any]] = []
+            for term in _dedupe_topic_terms(tuple(group)):
+                group_should.extend(_topic_text_clauses(term, phrase_boost=10, match_boost=5))
+            if group_should:
+                must.append({"bool": {"should": group_should, "minimum_should_match": 1}})
+
+    should.extend(
+        [
+            {
+                "multi_match": {
+                    "query": original_q,
+                    "fields": _TOPIC_TEXT_FIELDS,
+                    "type": "best_fields",
+                    "boost": 5,
+                }
+            },
+            {"match_phrase": {"identifica": {"query": original_q, "slop": 2, "boost": 8}}},
+            {"match_phrase": {"ementa": {"query": original_q, "slop": 3, "boost": 6}}},
+        ]
+    )
+
+    for term in _dedupe_topic_terms(should_terms):
+        should.extend(_topic_text_clauses(term, phrase_boost=4, match_boost=2.2))
+
+    if legal_refs:
+        for ref in legal_refs:
+            ref_text = f"{ref['type']} {ref['number']}"
+            should.extend(
+                [
+                    {"match_phrase": {"identifica": {"query": ref_text, "boost": 18}}},
+                    {"match_phrase": {"ementa": {"query": ref_text, "boost": 10}}},
+                ]
+            )
+
+    for term in _dedupe_topic_terms(exclude_terms):
+        must_not.extend(_topic_exclude_clauses(term))
+
+    for art_type in excluded_art_types:
+        must_not.append({"term": {"art_type_normalized": art_type}})
+
+    bool_query: dict[str, Any] = {
+        "bool": {
+            "should": should,
+            "minimum_should_match": 0 if pure_act_type else 1,
+        }
+    }
+    if must:
+        bool_query["bool"]["must"] = must
+    if must_not:
+        bool_query["bool"]["must_not"] = must_not
+    if filters:
+        bool_query["bool"]["filter"] = filters
+    if required_art_types:
+        art_type_filter = {"terms": {"art_type_normalized": list(required_art_types)}}
+        if "filter" in bool_query["bool"]:
+            bool_query["bool"]["filter"].append(art_type_filter)
+        else:
+            bool_query["bool"]["filter"] = [art_type_filter]
+
+    functions: list[dict[str, Any]] = [
+        {
+            "gauss": {
+                "pub_date": {
+                    "origin": "now",
+                    "scale": recency_scale,
+                    "offset": "1d",
+                    "decay": 0.4,
+                }
+            },
+            "weight": recency_weight,
+        }
+    ]
+
+    for item in preferred_art_types:
+        if isinstance(item, dict):
+            value = item.get("value")
+            weight = float(item.get("weight", 1.0))
+        else:
+            value, weight = item
+        if value:
+            functions.append({"filter": {"term": {"art_type_normalized": value}}, "weight": weight})
+
+    for item in preferred_sections:
+        if isinstance(item, dict):
+            value = item.get("value")
+            weight = float(item.get("weight", 1.0))
+        else:
+            value, weight = item
+        if value:
+            functions.append({"filter": _section_filter_clause(value), "weight": weight})
+
+    for item in organ_boosts:
+        if isinstance(item, dict):
+            value = item.get("value")
+            weight = float(item.get("weight", 1.0))
+        else:
+            value, weight = item
+        if value:
+            functions.append(
+                {
+                    "filter": {
+                        "bool": {
+                            "should": [
+                                {"match_phrase": {"issuing_organ": value}},
+                                {"match": {"issuing_organ": {"query": value}}},
+                            ],
+                            "minimum_should_match": 1,
+                        }
+                    },
+                    "weight": weight,
+                }
+            )
+
+    return {
+        "function_score": {
+            "query": bool_query,
+            "functions": functions,
+            "score_mode": "sum",
+            "boost_mode": "sum",
+        }
+    }
+
+
+# ---------------------------------------------------------------------------
+# 2. Exact-name query
 # ---------------------------------------------------------------------------
 
 def build_exact_name_query(
@@ -218,7 +469,7 @@ def build_exact_name_query(
 
 
 # ---------------------------------------------------------------------------
-# 2. Trending query
+# 3. Trending query
 # ---------------------------------------------------------------------------
 
 def build_trending_query(
@@ -289,7 +540,7 @@ def build_trending_query(
 
 
 # ---------------------------------------------------------------------------
-# 3. Subject query
+# 4. Subject query
 # ---------------------------------------------------------------------------
 
 def build_subject_query(

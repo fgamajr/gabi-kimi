@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import re
+from copy import deepcopy
 from typing import Any
 
 import httpx
@@ -502,9 +503,8 @@ def classify_and_build(
         classify_intent, QueryIntent, IntentResult,
     )
     from src.backend.search.query_builders import (
-        build_exact_name_query, build_trending_query, build_subject_query,
+        build_exact_name_query, build_topic_query, build_trending_query, build_subject_query,
     )
-    from src.backend.search.trending import get_topic_metadata
 
     legal_refs = _has_legal_ref(q)
 
@@ -519,7 +519,17 @@ def classify_and_build(
         }
         forced = _OVERRIDE_MAP.get(intent_override)
         if forced:
-            intent_result = IntentResult(intent=forced, confidence=1.0, metadata={})
+            metadata: dict[str, Any] = {}
+            if forced in (QueryIntent.TRENDING_BROWSE, QueryIntent.SUBJECT_EXPLORE):
+                from src.backend.search.topic_profiles import match_topic_profile
+
+                profile = match_topic_profile(q)
+                if profile:
+                    metadata = {
+                        "topic_profile": profile.to_metadata(),
+                        "topic": profile.label,
+                    }
+            intent_result = IntentResult(intent=forced, confidence=1.0, metadata=metadata)
         else:
             intent_result = classify_intent(q, is_trending=is_trending)
     else:
@@ -532,6 +542,10 @@ def classify_and_build(
         "confidence": intent_result.confidence,
         **{k: v for k, v in meta.items() if k in ("suggestion", "matched_alias")},
     }
+    topic_profile = meta.get("topic_profile")
+    if topic_profile:
+        intent_data["topic"] = topic_profile.get("label")
+        intent_data["topic_profile_id"] = topic_profile.get("id")
 
     # Route to appropriate builder
     if intent == QueryIntent.EXACT_NAME:
@@ -643,13 +657,16 @@ def classify_and_build(
         return query_body, "person", intent_data
 
     if intent == QueryIntent.TRENDING_BROWSE:
-        topic_meta = get_topic_metadata(q)
-        if topic_meta:
-            intent_data["topic"] = topic_meta["label"]
-        query_body = build_trending_query(q, filters, topic_meta)
+        if topic_profile:
+            query_body = build_topic_query(topic_profile, q, filters, legal_refs=legal_refs)
+            return query_body, "topic_profile", intent_data
+        query_body = build_trending_query(q, filters, None)
         return query_body, "trending", intent_data
 
     if intent == QueryIntent.SUBJECT_EXPLORE:
+        if topic_profile:
+            query_body = build_topic_query(topic_profile, q, filters, legal_refs=legal_refs)
+            return query_body, "topic_profile", intent_data
         query_body = build_subject_query(q, filters, legal_refs)
         return query_body, "subject", intent_data
 
@@ -700,6 +717,14 @@ def _build_payload(
     }
 
 
+def _lightweight_highlight_spec(highlight_spec: dict[str, Any]) -> dict[str, Any]:
+    lightweight = deepcopy(highlight_spec)
+    fields = dict(lightweight.get("fields", {}))
+    fields.pop("body_plain", None)
+    lightweight["fields"] = fields
+    return lightweight
+
+
 async def _execute_search(
     es_url: str, payload: dict[str, Any], client: httpx.AsyncClient
 ) -> dict[str, Any]:
@@ -741,6 +766,12 @@ async def hybrid_search(
 
     logger.info("search strategy=%s query=%r", strategy, query[:80])
 
+    effective_source_fields = source_fields
+    effective_highlight_spec = highlight_spec
+    if strategy in ("topic_profile", "trending"):
+        effective_source_fields = [field for field in source_fields if field != "body_plain"]
+        effective_highlight_spec = _lightweight_highlight_spec(highlight_spec)
+
     if query_vector is not None:
         # Hybrid mode with RRF
         knn_filter = filters if filters else None
@@ -766,8 +797,8 @@ async def hybrid_search(
             "from": from_,
             "size": size,
             "track_total_hits": True,
-            "_source": source_fields,
-            "highlight": highlight_spec,
+            "_source": effective_source_fields,
+            "highlight": effective_highlight_spec,
         }
         result = await _execute_search(es_url, payload, client)
 
@@ -783,7 +814,7 @@ async def hybrid_search(
         return result
 
     # BM25-only mode
-    payload = _build_payload(query_body, size, from_, source_fields, highlight_spec)
+    payload = _build_payload(query_body, size, from_, effective_source_fields, effective_highlight_spec)
     result = await _execute_search(es_url, payload, client)
 
     total = result.get("hits", {}).get("total", {}).get("value", 0)
@@ -796,7 +827,7 @@ async def hybrid_search(
             for variant in variants[1:]:
                 logger.info("person relaxation: trying variant %r", variant)
                 variant_query = build_person_query(variant, filters)
-                payload = _build_payload(variant_query, size, from_, source_fields, highlight_spec)
+                payload = _build_payload(variant_query, size, from_, effective_source_fields, effective_highlight_spec)
                 result = await _execute_search(es_url, payload, client)
                 total = result.get("hits", {}).get("total", {}).get("value", 0)
                 if total >= MIN_PHRASE_RESULTS:
@@ -806,7 +837,7 @@ async def hybrid_search(
         # Final fallback: bag-of-words
         logger.info("strategy=%s returned %d, falling back to bm25", strategy, total)
         fallback = build_bm25_query(query, filters, _has_legal_ref(query))
-        payload = _build_payload(fallback, size, from_, source_fields, highlight_spec)
+        payload = _build_payload(fallback, size, from_, effective_source_fields, effective_highlight_spec)
         result = await _execute_search(es_url, payload, client)
 
     result["_intent"] = intent_data
