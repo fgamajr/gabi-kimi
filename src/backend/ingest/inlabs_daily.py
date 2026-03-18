@@ -121,12 +121,17 @@ class InlabsClient:
         return response
 
     def login(self) -> None:
+        if not ((self.user and self.password) or self.cookie):
+            raise RuntimeError("INLABS credentials are not configured")
+
         if self.cookie:
             self.session.headers.update({"Cookie": self.cookie})
 
         if self.user and self.password:
             landing = self._request("GET", _ACCESS_URL)
             landing.raise_for_status()
+            if "Request Rejected" in landing.text:
+                raise RuntimeError("INLABS rejected the login page request")
 
             payload = {
                 "email": self.user,
@@ -134,6 +139,8 @@ class InlabsClient:
             }
             response = self._request("POST", _LOGIN_URL, data=payload, allow_redirects=True)
             response.raise_for_status()
+            if "Request Rejected" in response.text:
+                raise RuntimeError("INLABS rejected the login request")
             if "Minha Conta" in response.text or "Olá " in response.text:
                 logger.info("Authenticated with INLABS using user/password")
                 return
