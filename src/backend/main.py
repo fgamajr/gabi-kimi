@@ -315,6 +315,7 @@ def _build_filters(
     section: str | None,
     art_type: str | None,
     issuing_organ: str | None,
+    topic: str | None = None,
 ) -> list[dict]:
     filters: list[dict] = []
     if date_from or date_to:
@@ -344,6 +345,8 @@ def _build_filters(
         filters.append({"term": {"art_type_normalized": art_type.lower()}})
     if issuing_organ:
         filters.append({"match_phrase": {"issuing_organ": issuing_organ}})
+    if topic:
+        filters.append({"term": {"topics": topic}})
     return filters
 
 
@@ -393,9 +396,10 @@ async def search(
     issuing_organ: Optional[str] = None,
     intent: Optional[str] = None,
     is_trending: bool = False,
+    topic: Optional[str] = None,
 ):
     offset = (page - 1) * max
-    filters = _build_filters(date_from, date_to, section, art_type, issuing_organ)
+    filters = _build_filters(date_from, date_to, section, art_type, issuing_organ, topic)
 
     use_hybrid = settings.VECTOR_SEARCH_ENABLED
     use_reranker = settings.RERANKER_ENABLED
