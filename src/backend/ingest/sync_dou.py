@@ -195,6 +195,17 @@ def sync_month(year: int, month: int, *, extract_xmls: bool, parallelism: int) -
     logger.info("Processing %s-%02d...", year, month)
     data = downloader.get_month_data(year, month)
     if not data:
+        current_utc = datetime.now(timezone.utc)
+        if year == current_utc.year and month == current_utc.month:
+            logger.info("Falling back to INLABS for current month %s-%02d", year, month)
+            from src.backend.ingest.inlabs_daily import ingest_month_to_date
+
+            result = ingest_month_to_date(year, month)
+            return {
+                "zip_count": int(result["zip_count"]),
+                "doc_count": int(result["processed_docs"]),
+                "cache_hits": 0,
+            }
         logger.warning("No data found for %s-%02d", year, month)
         return {"zip_count": 0, "doc_count": 0, "cache_hits": 0}
 
