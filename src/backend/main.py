@@ -320,25 +320,30 @@ async def autocomplete(
     return results
 
 
-@app.get("/api/document/{doc_id}")
-async def document(doc_id: str):
-    # Fetch full document from ES (all fields)
+async def _fetch_document_source(doc_id: str) -> dict[str, Any] | None:
+    """Fetch raw ES source for a document. Returns None if not found."""
     try:
         data = await es_request("GET", f"/{settings.es_target_index}/_doc/{doc_id}")
-        src = data.get("_source", {})
+        return data.get("_source", {})
     except httpx.HTTPStatusError:
+        return None
+
+
+@app.get("/api/document/{doc_id}")
+async def document(doc_id: str):
+    src = await _fetch_document_source(doc_id)
+    if src is None:
         return Response(status_code=404, content='{"detail":"Document not found"}',
                         media_type="application/json")
 
     section = _section_to_frontend(src.get("edition_section"))
-    body_plain = src.get("body_plain") or ""
 
     return {
         "id": doc_id,
         "title": src.get("identifica") or "",
         "subtitle": src.get("ementa") or "",
         "body_html": None,
-        "body_plain": body_plain,
+        "body_plain": src.get("body_plain") or "",
         "pub_date": src.get("pub_date") or "",
         "section": section,
         "section_name": _SECTION_NAMES.get(section),
@@ -351,8 +356,48 @@ async def document(doc_id: str):
         "media": [],
         "identifica": src.get("identifica"),
         "ementa": src.get("ementa"),
-        "assinatura": None,
+        "assinatura": src.get("primary_signer"),
+        "primary_signer": src.get("primary_signer"),
+        "signers_all": src.get("signers_all_flat") or [],
     }
+
+
+@app.get("/api/document/{doc_id}/pdf")
+async def document_pdf(doc_id: str):
+    src = await _fetch_document_source(doc_id)
+    if src is None:
+        return Response(status_code=404, content='{"detail":"Document not found"}',
+                        media_type="application/json")
+
+    from src.backend.pdf.template import render_pdf_html
+    from src.backend.pdf.generator import generate_pdf
+
+    section = _section_to_frontend(src.get("edition_section"))
+    doc_data = {
+        "identifica": src.get("identifica"),
+        "ementa": src.get("ementa"),
+        "body_plain": src.get("body_plain"),
+        "issuing_organ": src.get("issuing_organ"),
+        "art_type": src.get("art_type"),
+        "pub_date": src.get("pub_date"),
+        "section": section,
+        "page_number": src.get("page_number"),
+        "edition_number": src.get("edition_number"),
+        "primary_signer": src.get("primary_signer"),
+        "signers_all_flat": src.get("signers_all_flat"),
+    }
+
+    html_content = render_pdf_html(doc_data)
+    pdf_bytes = generate_pdf(html_content)
+
+    title_slug = (src.get("identifica") or doc_id)[:60].replace(" ", "_")
+    filename = f"DOU_{title_slug}.pdf"
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 @app.get("/api/stats")

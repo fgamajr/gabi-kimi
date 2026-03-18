@@ -7,3 +7,4 @@ mcp
 lxml
 requests
 httpx
+weasyprint
