@@ -284,6 +284,11 @@ def build_topic_query(
         else:
             bool_query["bool"]["filter"] = [art_type_filter]
 
+    # For pure_act_type: skip function_score — just filter + sort by date
+    # function_score with gauss decay on millions of docs is too expensive
+    if pure_act_type:
+        return bool_query
+
     functions: list[dict[str, Any]] = [
         {
             "gauss": {
