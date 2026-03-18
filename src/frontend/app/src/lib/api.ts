@@ -67,6 +67,8 @@ export interface DocumentDetail {
   identifica?: string;
   ementa?: string;
   assinatura?: string;
+  primary_signer?: string;
+  signers_all?: string[];
 }
 
 export interface StatsResponse {

@@ -35,10 +35,17 @@ const DocumentPage: React.FC = () => {
     } catch { return d; }
   };
 
-  // Process body HTML to integrate images
+  // Process body: use body_html if available, otherwise convert body_plain to paragraphs
   const processedBody = useMemo(() => {
-    if (!doc?.body_html) return doc?.body_plain || '';
-    return doc.body_html;
+    if (doc?.body_html) return doc.body_html;
+    const plain = doc?.body_plain || '';
+    if (!plain) return '';
+    // Split on double newlines for paragraphs, single newlines within
+    return plain
+      .split(/\n{2,}/)
+      .filter(p => p.trim())
+      .map(p => `<p>${p.replace(/\n/g, '<br/>')}</p>`)
+      .join('\n');
   }, [doc]);
 
   // Separate media by position
@@ -90,6 +97,15 @@ const DocumentPage: React.FC = () => {
             <Icons.back className="w-5 h-5" />
           </button>
           <div className="flex items-center gap-1">
+          <a
+            href={`/api/document/${encodeURIComponent(doc.id)}/pdf`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="p-2 rounded-lg hover:bg-muted transition-colors focus-ring min-w-[44px] min-h-[44px] flex items-center justify-center"
+            aria-label="Baixar PDF"
+          >
+            <Icons.download className="w-5 h-5" />
+          </a>
           <ThemeToggle />
           <button
             onClick={() => setShowActions(true)}
@@ -163,7 +179,7 @@ const DocumentPage: React.FC = () => {
       {/* Document body */}
       <main className="max-w-3xl mx-auto px-4 py-8 animate-fade-in" style={{ animationDelay: '100ms' }}>
         <div
-          className="prose-editorial"
+          className="prose-doc"
           dangerouslySetInnerHTML={{ __html: processedBody }}
         />
 
@@ -180,11 +196,19 @@ const DocumentPage: React.FC = () => {
         ))}
 
         {/* Signature */}
-        {doc.assinatura && (
+        {(doc.assinatura || doc.primary_signer) && (
           <div className="mt-8 pt-6 border-t border-border text-center">
-            <p className="text-sm text-text-secondary font-serif whitespace-pre-line">
-              {doc.assinatura}
-            </p>
+            {doc.signers_all && doc.signers_all.length > 1 ? (
+              doc.signers_all.map((s, i) => (
+                <p key={i} className="text-sm text-text-secondary font-serif">
+                  {s}
+                </p>
+              ))
+            ) : (
+              <p className="text-sm text-text-secondary font-serif whitespace-pre-line">
+                {doc.primary_signer || doc.assinatura}
+              </p>
+            )}
           </div>
         )}
 
@@ -214,6 +238,14 @@ const DocumentPage: React.FC = () => {
               onClick={() => window.open(doc.dou_url, '_blank')}
             />
           )}
+          <ActionItem
+            icon={<Icons.download className="w-5 h-5" />}
+            label="Baixar PDF"
+            onClick={() => {
+              window.open(`/api/document/${encodeURIComponent(doc.id)}/pdf`, '_blank');
+              setShowActions(false);
+            }}
+          />
           <ActionItem
             icon={<Icons.share className="w-5 h-5" />}
             label="Compartilhar"
