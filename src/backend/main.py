@@ -229,6 +229,7 @@ async def search(
             query=q,
             filters=filters,
             size=es_size,
+            from_=es_from,
             source_fields=_SOURCE_FIELDS,
             highlight_spec=_HIGHLIGHT_SPEC,
             client=_es,

@@ -467,6 +467,7 @@ async def hybrid_search(
     query: str,
     filters: list[dict[str, Any]],
     size: int,
+    from_: int,
     source_fields: list[str],
     highlight_spec: dict[str, Any],
     client: httpx.AsyncClient,
@@ -511,6 +512,7 @@ async def hybrid_search(
                     "rank_constant": 60,
                 }
             },
+            "from": from_,
             "size": size,
             "track_total_hits": True,
             "_source": source_fields,
@@ -529,7 +531,7 @@ async def hybrid_search(
         return result
 
     # BM25-only mode
-    payload = _build_payload(query_body, size, 0, source_fields, highlight_spec)
+    payload = _build_payload(query_body, size, from_, source_fields, highlight_spec)
     result = await _execute_search(es_url, payload, client)
 
     total = result.get("hits", {}).get("total", {}).get("value", 0)
@@ -542,7 +544,7 @@ async def hybrid_search(
             for variant in variants[1:]:
                 logger.info("person relaxation: trying variant %r", variant)
                 variant_query = build_person_query(variant, filters)
-                payload = _build_payload(variant_query, size, 0, source_fields, highlight_spec)
+                payload = _build_payload(variant_query, size, from_, source_fields, highlight_spec)
                 result = await _execute_search(es_url, payload, client)
                 total = result.get("hits", {}).get("total", {}).get("value", 0)
                 if total >= MIN_PHRASE_RESULTS:
@@ -551,7 +553,7 @@ async def hybrid_search(
         # Final fallback: bag-of-words
         logger.info("strategy=%s returned %d, falling back to bm25", strategy, total)
         fallback = build_bm25_query(query, filters, _has_legal_ref(query))
-        payload = _build_payload(fallback, size, 0, source_fields, highlight_spec)
+        payload = _build_payload(fallback, size, from_, source_fields, highlight_spec)
         result = await _execute_search(es_url, payload, client)
 
     return result
