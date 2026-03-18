@@ -172,9 +172,10 @@ def _backfill_pending() -> None:
     import time
     from datetime import datetime, timezone
 
+    import sys
+
     collection = _get_mongo_collection()
-    total = collection.count_documents({"topics": {"$exists": False}})
-    print(f"Found {total:,} unclassified documents")
+    print("Starting backfill (skipping initial count for speed)...", flush=True)
 
     batch_size = 500
     classified = 0
@@ -213,15 +214,16 @@ def _backfill_pending() -> None:
             collection.bulk_write(ops, ordered=False)
             classified += len(ops)
 
-        print(f"  batch {batch_num}: classified {len(ops)} docs (total: {classified:,}/{total:,})")
+        print(f"  batch {batch_num}: classified {len(ops)} docs (total: {classified:,})", flush=True)
         time.sleep(1)
 
-    print(f"Done. Classified {classified:,} documents.")
+    print(f"Done. Classified {classified:,} documents.", flush=True)
 
 
 def _show_stats() -> None:
     collection = _get_mongo_collection()
-    total = collection.count_documents({})
+    total = collection.estimated_document_count()
+    print(f"Counting classified docs (may take a minute)...", flush=True)
     classified = collection.count_documents({"topics": {"$exists": True}})
     unclassified = total - classified
     pct = (classified / total * 100) if total else 0
