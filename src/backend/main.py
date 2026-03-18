@@ -5,12 +5,14 @@ from typing import Any, Optional
 
 import httpx
 from fastapi import FastAPI, Query, Response
-from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from src.backend.core.config import settings
+from src.backend.data.db import MongoDB
 from src.backend.search.hybrid import hybrid_search
 from src.backend.search.reranker import rerank
+from src.backend.search.trending import get_cached_trending
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +76,7 @@ def _section_to_frontend(es_val: str | None) -> str:
 
 
 _SECTION_NAMES = {"1": "Seção 1", "2": "Seção 2", "3": "Seção 3", "e": "Extra"}
+_mongo_db = MongoDB.get_db()
 
 
 def _section_to_es(fe_val: str) -> str | None:
@@ -88,6 +91,11 @@ def _hl_to_html(text: str) -> str:
     text = html.escape(text)
     text = text.replace("\x00MARK_OPEN\x00", "<mark>").replace("\x00MARK_CLOSE\x00", "</mark>")
     return text
+
+
+def _art_type_label(value: str) -> str:
+    label = value.replace("-", " ")
+    return " ".join(part.capitalize() for part in label.split())
 
 
 _HIGHLIGHT_SPEC: dict[str, Any] = {
@@ -159,9 +167,19 @@ def _build_filters(
     if section:
         es_sec = _section_to_es(section)
         if es_sec:
-            filters.append({"term": {"edition_section": es_sec}})
+            filters.append(
+                {
+                    "bool": {
+                        "should": [
+                            {"term": {"section": es_sec}},
+                            {"term": {"edition_section": es_sec}},
+                        ],
+                        "minimum_should_match": 1,
+                    }
+                }
+            )
     if art_type:
-        filters.append({"term": {"art_type.keyword": art_type}})
+        filters.append({"term": {"art_type_normalized": art_type.lower()}})
     if issuing_organ:
         filters.append({"match_phrase": {"issuing_organ": issuing_organ}})
     return filters
@@ -262,6 +280,8 @@ async def search(
     }
     if intent_data:
         response["intent"] = intent_data
+        if intent_data.get("suggestion"):
+            response["suggestion"] = intent_data["suggestion"]
     return response
 
 
@@ -279,13 +299,13 @@ async def autocomplete(
 
     payload = {
         "size": n * 4,
-        "_source": ["identifica", "issuing_organ", "art_type"],
+        "_source": ["identifica", "issuing_organ", "art_type", "art_type_normalized"],
         "query": {
             "bool": {
                 "should": [
                     {"match_phrase_prefix": {"identifica": {"query": p}}},
                     {"match_phrase_prefix": {"issuing_organ": {"query": p}}},
-                    {"prefix": {"art_type.keyword": {"value": p, "case_insensitive": True}}},
+                    {"prefix": {"art_type_normalized": {"value": p.lower()}}},
                 ],
                 "minimum_should_match": 1,
             }
@@ -416,7 +436,7 @@ async def stats():
         "aggs": {
             "min_date": {"min": {"field": "pub_date"}},
             "max_date": {"max": {"field": "pub_date"}},
-            "sections": {"terms": {"field": "edition_section", "size": 10}},
+            "sections": {"terms": {"field": "section", "size": 10}},
         },
     }
     agg_data = await es_request("POST", f"/{settings.es_target_index}/_search", json=agg_payload)
@@ -439,32 +459,26 @@ async def types():
     payload = {
         "size": 0,
         "aggs": {
-            "types": {"terms": {"field": "art_type.keyword", "size": 200}},
+            "types": {"terms": {"field": "art_type_normalized", "size": 200}},
         },
     }
     data = await es_request("POST", f"/{settings.es_target_index}/_search", json=payload)
     buckets = data.get("aggregations", {}).get("types", {}).get("buckets", [])
 
     return [
-        {"value": b["key"], "label": b["key"], "count": b["doc_count"]}
+        {"value": b["key"], "label": _art_type_label(b["key"]), "count": b["doc_count"]}
         for b in buckets
     ]
 
 
+@app.get("/api/trending")
+async def trending():
+    return get_cached_trending(_mongo_db)
+
+
 @app.get("/api/top-searches")
 async def top_searches():
-    return [
-        {"query": "concurso público", "count": 4820},
-        {"query": "nomeação", "count": 3915},
-        {"query": "portaria", "count": 3750},
-        {"query": "licitação", "count": 2890},
-        {"query": "LGPD", "count": 2410},
-        {"query": "aposentadoria", "count": 2105},
-        {"query": "pregão eletrônico", "count": 1890},
-        {"query": "decreto", "count": 1760},
-        {"query": "exoneração", "count": 1550},
-        {"query": "resolução", "count": 1320},
-    ]
+    return await trending()
 
 
 @app.get("/api/search-examples")

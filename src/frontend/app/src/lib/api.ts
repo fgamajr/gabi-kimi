@@ -13,6 +13,8 @@ export interface SearchParams {
   section?: string;
   art_type?: string;
   issuing_organ?: string;
+  intent?: string;
+  is_trending?: boolean;
 }
 
 export interface SearchResult {
@@ -36,6 +38,16 @@ export interface SearchResponse {
   max: number;
   query: string;
   took_ms?: number;
+  intent?: IntentMetadata;
+  suggestion?: string;
+}
+
+export interface IntentMetadata {
+  detected: string;
+  confidence: number;
+  suggestion?: string;
+  matched_alias?: string;
+  topic?: string;
 }
 
 export interface DocumentMedia {
@@ -85,9 +97,12 @@ export interface TypeOption {
   count?: number;
 }
 
-export interface TopSearch {
+export interface TrendingTopic {
+  label: string;
   query: string;
-  count: number;
+  doc_count_7d: number;
+  trend_score: number;
+  icon?: string;
 }
 
 export interface SearchExample {
@@ -118,6 +133,8 @@ export function searchDocuments(params: SearchParams): Promise<SearchResponse> {
   if (params.section) sp.set('section', params.section);
   if (params.art_type) sp.set('art_type', params.art_type);
   if (params.issuing_organ) sp.set('issuing_organ', params.issuing_organ);
+  if (params.intent) sp.set('intent', params.intent);
+  if (params.is_trending) sp.set('is_trending', 'true');
   return fetchJSON(`${API_BASE}/search?${sp.toString()}`);
 }
 
@@ -141,8 +158,8 @@ export function getTypes(): Promise<TypeOption[]> {
   return fetchJSON(`${API_BASE}/types`);
 }
 
-export function getTopSearches(): Promise<TopSearch[]> {
-  return fetchJSON(`${API_BASE}/top-searches`);
+export function getTrending(): Promise<TrendingTopic[]> {
+  return fetchJSON(`${API_BASE}/trending`);
 }
 
 export function getSearchExamples(): Promise<SearchExample[]> {

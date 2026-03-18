@@ -17,7 +17,7 @@
     "id": "codigo_penal",
     "aliases": ["codigo penal", "cp", "decreto-lei 2848", "decreto-lei 2.848"],
     "formal_ref": {"art_type": "decreto-lei", "number": "2.848", "year": 1940},
-    "boost_organs": [],
+    "boost_organs": ["Presidência da República"],
     "related_terms": ["crime", "pena", "tipificacao", "dolo", "culpa"]
   },
   {

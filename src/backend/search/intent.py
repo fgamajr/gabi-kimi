@@ -5,6 +5,7 @@ import json
 import re
 import unicodedata
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -57,6 +58,8 @@ _ALIAS_INDEX: dict[str, dict[str, Any]] = {}
 for _entry in CANONICAL_LAWS:
     for _alias in _entry["aliases"]:
         _ALIAS_INDEX[_normalize_for_matching(_alias)] = _entry
+
+_MATCH_STOPWORDS = frozenset({"da", "de", "do", "das", "dos", "e", "lei", "codigo", "estatuto"})
 
 
 # ---------------------------------------------------------------------------
@@ -164,13 +167,14 @@ def normalize_exact_name(query: str) -> dict | None:
     number = m.group("number")
 
     year_raw = m.group("year")
-    year: str | None = None
+    year: int | None = None
     if year_raw:
         if len(year_raw) == 2:
             yr = int(year_raw)
-            year = str(2000 + yr) if yr <= 36 else str(1900 + yr)
+            cutoff = (datetime.now(timezone.utc).year % 100) + 10
+            year = 2000 + yr if yr <= cutoff else 1900 + yr
         else:
-            year = year_raw
+            year = int(year_raw)
 
     return {
         "art_type": art_type,
@@ -216,6 +220,28 @@ def _match_canonical(query: str) -> dict | None:
             return {
                 "entry": entry,
                 "confidence": 0.80,
+                "matched_alias": alias,
+                "suggestion": entry["aliases"][0],
+            }
+
+    # 3. Token-overlap fuzzy match for partial canonical queries
+    query_tokens = {token for token in re.findall(r"[a-z0-9]+", norm) if token not in _MATCH_STOPWORDS}
+    if len(query_tokens) >= 2:
+        best_match = None
+        best_overlap = 0.0
+        for alias, entry in _ALIAS_INDEX.items():
+            alias_tokens = {token for token in re.findall(r"[a-z0-9]+", alias) if token not in _MATCH_STOPWORDS}
+            if not alias_tokens:
+                continue
+            overlap = len(query_tokens & alias_tokens) / len(query_tokens)
+            if overlap >= 0.66 and overlap > best_overlap:
+                best_match = (alias, entry)
+                best_overlap = overlap
+        if best_match:
+            alias, entry = best_match
+            return {
+                "entry": entry,
+                "confidence": 0.78,
                 "matched_alias": alias,
                 "suggestion": entry["aliases"][0],
             }

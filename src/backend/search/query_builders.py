@@ -62,8 +62,8 @@ def _build_identifica_string(
     """
     # Map lowercase art_type to its canonical capitalised form
     _SPECIAL_CAPS: dict[str, str] = {
-        "instrução normativa": "Instrução Normativa",
-        "medida provisória": "Medida Provisória",
+        "instrucao normativa": "Instrução Normativa",
+        "medida provisoria": "Medida Provisória",
         "decreto-lei": "Decreto-Lei",
         "lei complementar": "Lei Complementar",
     }
@@ -75,6 +75,29 @@ def _build_identifica_string(
     parts.append(f"Nº {number}")
     # Note: we don't append year/date here since identifica format varies
     return " ".join(parts)
+
+
+def _build_type_organ_string(art_type: str, organ: str | None) -> str:
+    _SPECIAL_CAPS: dict[str, str] = {
+        "instrucao normativa": "Instrução Normativa",
+        "medida provisoria": "Medida Provisória",
+        "decreto-lei": "Decreto-Lei",
+        "lei complementar": "Lei Complementar",
+    }
+    type_caps = _SPECIAL_CAPS.get(art_type, art_type.title())
+    return f"{type_caps} {organ}".strip() if organ else type_caps
+
+
+def _art_type_variants(art_type: str) -> list[str]:
+    variants = {art_type}
+    legacy_map: dict[str, list[str]] = {
+        "instrucao normativa": ["instrucao", "instrução normativa", "instrução"],
+        "resolucao": ["resolução", "resolucao-re", "resolução-re"],
+        "decreto-lei": ["decreto lei", "decreto-lei"],
+        "medida provisoria": ["medida provisória", "mp"],
+    }
+    variants.update(legacy_map.get(art_type, []))
+    return list(variants)
 
 
 # ---------------------------------------------------------------------------
@@ -106,47 +129,85 @@ def build_exact_name_query(
     organ: str | None = normalized.get("organ")
     number: str = normalized.get("number", "")
     year: int | None = normalized.get("year")
+    year_hint = int(number) if not year and number.isdigit() and len(number) == 4 else None
 
     number_variants = _number_variants(number, year)
+    art_type_terms = _art_type_variants(art_type)
 
     should: list[dict[str, Any]] = []
+    organ_should: list[dict[str, Any]] = []
 
-    # Tier 1 (boost 30): Structured lookup — art_type + document_number + year
+    if organ:
+        organ_should = [
+            {"match_phrase": {"issuing_organ": {"query": organ, "boost": 12}}},
+            {"match": {"issuing_organ": {"query": organ, "boost": 8}}},
+        ]
+
+    # Tier 1 (boost 60): Structured lookup — art_type + document_number + year
     structured_must: list[dict[str, Any]] = [
-        {"term": {"art_type_normalized": art_type}},
+        {"terms": {"art_type_normalized": art_type_terms}},
         {"terms": {"document_number": number_variants}},
     ]
     if year:
         structured_must.append({"term": {"document_year": year}})
-    should.append({"bool": {"must": structured_must, "boost": 30}})
+    should.append(
+        {
+            "bool": {
+                "must": structured_must,
+                "should": organ_should,
+                "boost": 60 if year else 45,
+            }
+        }
+    )
 
-    # Tier 2 (boost 20): Structured without year
+    # Tier 2 (boost 35): Structured without year
     if year:
-        should.append({"bool": {"must": [
-            {"term": {"art_type_normalized": art_type}},
-            {"terms": {"document_number": number_variants}},
-        ], "boost": 20}})
+        should.append(
+            {
+                "bool": {
+                    "must": [
+                        {"terms": {"art_type_normalized": art_type_terms}},
+                        {"terms": {"document_number": number_variants}},
+                    ],
+                    "should": organ_should,
+                    "boost": 35,
+                }
+            }
+        )
 
-    # Tier 3 (boost 15): Phrase match on identifica
+    # Tier 2b (boost 24): Ambiguous 4-digit token may really be a year hint
+    if year_hint:
+        should.append(
+            {
+                "bool": {
+                    "must": [
+                        {"terms": {"art_type_normalized": art_type_terms}},
+                        {"term": {"document_year": year_hint}},
+                    ],
+                    "should": organ_should,
+                    "boost": 24,
+                }
+            }
+        )
+
+    # Tier 3 (boost 20): Phrase match on identifica
     identifica_query = _build_identifica_string(art_type, organ, number, year)
-    should.append({"match_phrase": {"identifica": {"query": identifica_query, "boost": 15}}})
+    should.append({"match_phrase": {"identifica": {"query": identifica_query, "boost": 20}}})
 
-    # Tier 4 (boost 10): Phrase match on identifica without year
+    # Tier 4 (boost 12): Phrase match on identifica without year
     identifica_no_year = _build_identifica_string(art_type, organ, number, None)
     if identifica_no_year != identifica_query:
-        should.append({"match_phrase": {"identifica": {"query": identifica_no_year, "boost": 10}}})
+        should.append({"match_phrase": {"identifica": {"query": identifica_no_year, "boost": 12}}})
 
-    # Tier 5 (boost 5): Organ match if available
-    if organ:
-        should.append({"match": {"issuing_organ": {"query": organ, "boost": 5}}})
+    if year_hint:
+        type_organ_query = _build_type_organ_string(art_type, organ)
+        should.append({"match_phrase": {"identifica": {"query": type_organ_query, "boost": 10}}})
+        should.append({"match_phrase": {"ementa": {"query": type_organ_query, "boost": 6}}})
 
-    # Safety net: BM25 on original query
-    should.append({"multi_match": {
-        "query": original_q,
-        "fields": ["identifica^3", "ementa^2", "body_plain"],
-        "type": "best_fields",
-        "boost": 1,
-    }})
+    # Tier 5 (boost 6): Original text as exact-ish phrase, still much stricter than BM25 fallback
+    if not year_hint:
+        should.append({"match_phrase": {"identifica": {"query": original_q, "slop": 2, "boost": 6}}})
+        should.append({"match_phrase": {"ementa": {"query": original_q, "slop": 2, "boost": 3}}})
 
     bool_query: dict[str, Any] = {"bool": {"should": should, "minimum_should_match": 1}}
     if filters:
@@ -293,8 +354,8 @@ def build_subject_query(
         # Canonical document types get boosted
         {"filter": {"term": {"art_type_normalized": "lei"}}, "weight": 3},
         {"filter": {"term": {"art_type_normalized": "decreto"}}, "weight": 2.5},
-        {"filter": {"term": {"art_type_normalized": "resolução"}}, "weight": 2},
-        {"filter": {"term": {"art_type_normalized": "instrução normativa"}}, "weight": 1.5},
+        {"filter": {"term": {"art_type_normalized": "resolucao"}}, "weight": 2},
+        {"filter": {"term": {"art_type_normalized": "instrucao normativa"}}, "weight": 1.5},
     ]
 
     return {

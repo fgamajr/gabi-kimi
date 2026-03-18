@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { searchDocuments, getTypes } from '@/lib/api';
-import type { SearchResponse, SearchResult, TypeOption, SearchParams } from '@/lib/api';
+import type { SearchResponse, TypeOption, SearchParams } from '@/lib/api';
 import { SearchBar } from '@/components/SearchBar';
 import { ResultCard } from '@/components/ResultCard';
 import { FilterChip } from '@/components/Badges';
@@ -18,6 +18,14 @@ const SECTIONS = [
   { value: 'e', label: 'Extra' },
 ];
 
+const INTENT_BADGES: Record<string, { label: string; icon: string }> = {
+  exact_name: { label: 'Ato específico', icon: '📄' },
+  canonical_lookup: { label: 'Lei', icon: '📜' },
+  trending_browse: { label: 'Recentes', icon: '📅' },
+  subject_explore: { label: 'Tema', icon: '🔍' },
+  person_name: { label: 'Pessoa', icon: '👤' },
+};
+
 const SearchPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -27,6 +35,8 @@ const SearchPage: React.FC = () => {
   const artType = searchParams.get('art_type') || '';
   const dateFrom = searchParams.get('date_from') || '';
   const dateTo = searchParams.get('date_to') || '';
+  const intent = searchParams.get('intent') || '';
+  const isTrending = searchParams.get('is_trending') === 'true';
 
   const [response, setResponse] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -52,6 +62,8 @@ const SearchPage: React.FC = () => {
       if (artType) params.art_type = artType;
       if (dateFrom) params.date_from = dateFrom;
       if (dateTo) params.date_to = dateTo;
+      if (intent) params.intent = intent;
+      if (isTrending) params.is_trending = true;
       const data = await searchDocuments(params);
       setResponse(data);
     } catch (e) {
@@ -59,7 +71,7 @@ const SearchPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [query, page, section, artType, dateFrom, dateTo]);
+  }, [query, page, section, artType, dateFrom, dateTo, intent, isTrending]);
 
   useEffect(() => { doSearch(); }, [doSearch]);
 
@@ -99,6 +111,8 @@ const SearchPage: React.FC = () => {
 
   const activeFilterCount = [section, artType, dateFrom, dateTo].filter(Boolean).length;
   const totalPages = response ? Math.ceil(response.total / (response.max || 20)) : 0;
+  const currentMode = isTrending || intent === 'trending' ? 'trending' : 'relevance';
+  const badge = response?.intent ? INTENT_BADGES[response.intent.detected] : null;
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -122,6 +136,23 @@ const SearchPage: React.FC = () => {
       {/* Active filters bar */}
       <div className="max-w-3xl mx-auto px-4 w-full">
         <div className="flex items-center gap-2 py-3 overflow-x-auto scrollbar-none">
+          <div className="inline-flex items-center rounded-full bg-secondary p-1 shrink-0">
+            <button
+              onClick={() => updateParams({ intent: '', is_trending: '', page: '1' })}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors min-h-[36px]
+                ${currentMode === 'relevance' ? 'bg-card text-foreground shadow-sm' : 'text-text-secondary hover:text-foreground'}`}
+            >
+              Por relevância
+            </button>
+            <button
+              onClick={() => updateParams({ intent: 'trending', is_trending: 'true', page: '1' })}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors min-h-[36px]
+                ${currentMode === 'trending' ? 'bg-card text-foreground shadow-sm' : 'text-text-secondary hover:text-foreground'}`}
+            >
+              Mais recentes
+            </button>
+          </div>
+
           <button
             onClick={() => {
               setLocalSection(section);
@@ -167,15 +198,37 @@ const SearchPage: React.FC = () => {
       <main className="flex-1 max-w-3xl mx-auto px-4 pb-8 w-full">
         {/* Status */}
         {response && !loading && (
-          <div className="flex items-center justify-between mb-4 text-sm text-text-secondary">
-            <span>
-              {response.total.toLocaleString('pt-BR')} resultado{response.total !== 1 ? 's' : ''}
-              {response.took_ms != null && <span className="text-text-tertiary"> · {response.took_ms}ms</span>}
-            </span>
-            {totalPages > 1 && (
-              <span className="text-text-tertiary">
-                Página {page} de {totalPages}
+          <div className="mb-4 space-y-3 text-sm text-text-secondary">
+            <div className="flex items-center justify-between gap-3">
+              <span>
+                {response.total.toLocaleString('pt-BR')} resultado{response.total !== 1 ? 's' : ''}
+                {response.took_ms != null && <span className="text-text-tertiary"> · {response.took_ms}ms</span>}
               </span>
+              {totalPages > 1 && (
+                <span className="text-text-tertiary">
+                  Página {page} de {totalPages}
+                </span>
+              )}
+            </div>
+
+            {(badge || response.suggestion) && (
+              <div className="flex flex-wrap items-center gap-2">
+                {badge && (
+                  <span className="inline-flex items-center gap-2 rounded-full bg-secondary px-3 py-1.5 text-xs font-medium text-foreground">
+                    <span>{badge.icon}</span>
+                    <span>{badge.label}</span>
+                    {response.intent?.topic && <span className="text-text-tertiary">· {response.intent.topic}</span>}
+                  </span>
+                )}
+                {response.suggestion && response.suggestion !== query && (
+                  <button
+                    onClick={() => updateParams({ q: response.suggestion || '', page: '1', intent: '', is_trending: '' })}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:border-primary/30 hover:text-primary transition-colors"
+                  >
+                    Você quis dizer: {response.suggestion}
+                  </button>
+                )}
+              </div>
             )}
           </div>
         )}

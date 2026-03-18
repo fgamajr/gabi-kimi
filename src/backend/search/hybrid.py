@@ -417,7 +417,6 @@ def build_canonical_query(
             "should": [
                 {"match_phrase": {"identifica": {"query": q, "slop": 1}}},
                 {"match_phrase": {"ementa": {"query": q, "slop": 2}}},
-                {"match_phrase": {"body_plain": {"query": q, "slop": 2}}},
             ],
             "minimum_should_match": 1,
         }
@@ -428,7 +427,7 @@ def build_canonical_query(
         {"match_phrase": {"identifica": {"query": q, "boost": 500}}},
         {"match_phrase": {"identifica": {"query": q, "slop": 1, "boost": 200}}},
         {"match_phrase": {"ementa": {"query": q, "boost": 100}}},
-        {"match_phrase": {"body_plain": {"query": q, "boost": 10}}},
+        {"match": {"body_plain": {"query": q, "boost": 10}}},
     ]
 
     # Legal reference pinning
@@ -505,6 +504,7 @@ def classify_and_build(
     from src.backend.search.query_builders import (
         build_exact_name_query, build_trending_query, build_subject_query,
     )
+    from src.backend.search.trending import get_topic_metadata
 
     legal_refs = _has_legal_ref(q)
 
@@ -543,58 +543,91 @@ def classify_and_build(
         entry = meta.get("entry", {})
         formal_ref = entry.get("formal_ref", {})
         boost_organs = entry.get("boost_organs", [])
+        related_terms = entry.get("related_terms", [])
 
         # Build enhanced canonical query using formal reference
         if formal_ref.get("number"):
             # Pin the formal reference with structured fields
             from src.backend.search.query_builders import build_exact_name_query as _build_exact
+            formal_number = formal_ref["number"]
+            formal_year = formal_ref.get("year")
+            formal_type = formal_ref.get("art_type", "lei")
             pin_query = _build_exact(
-                {"art_type": formal_ref.get("art_type", "lei"),
-                 "number": formal_ref["number"],
-                 "year": formal_ref.get("year"),
+                {"art_type": formal_type,
+                 "number": formal_number,
+                 "year": formal_year,
                  "organ": None},
                 q, [],
             )
             # Also build the text-based canonical query
             canon_query = build_canonical_query(q, filters, legal_refs)
+            canon_base = canon_query.get("function_score", {}).get("query", canon_query)
             # Combine: pin + canonical in a bool/should
             combined = {
                 "bool": {
                     "should": [
-                        {"bool": {"should": [pin_query], "boost": 3}},
-                        canon_query.get("function_score", {}).get("query", canon_query),
+                        {"bool": {"must": [pin_query], "boost": 12}},
+                        {"bool": {"must": [canon_base], "boost": 1}},
                     ],
                     "minimum_should_match": 1,
                 }
             }
+            formal_phrases = [
+                f"{formal_type} {formal_number}",
+                f"{formal_type} nº {formal_number}",
+            ]
+            if formal_year:
+                formal_phrases.append(f"{formal_type} {formal_number} de {formal_year}")
+            for term in related_terms:
+                combined["bool"]["should"].append(
+                    {
+                        "multi_match": {
+                            "query": term,
+                            "fields": ["ementa^2", "identifica^2"],
+                            "type": "best_fields",
+                            "boost": 1.5,
+                        }
+                    }
+                )
+            for phrase in formal_phrases:
+                combined["bool"]["should"].extend(
+                    [
+                        {"match_phrase": {"identifica": {"query": phrase, "boost": 6}}},
+                        {"match_phrase": {"ementa": {"query": phrase, "boost": 4}}},
+                    ]
+                )
             if filters:
                 combined["bool"]["filter"] = filters
             # Add organ boost + art_type hierarchy via function_score
             functions = []
             for organ in boost_organs:
                 functions.append({
-                    "filter": {"match": {"issuing_organ": organ}},
-                    "weight": 5,
+                    "filter": {"match_phrase": {"issuing_organ": organ}},
+                    "weight": 8,
                 })
-            # Art type hierarchy (same as canonical)
-            _ART_TYPE_KEYWORD_VARIANTS = {
-                "lei": ["Lei", "LEI"],
-                "decreto": ["Decreto", "DECRETO"],
-                "decreto-lei": ["Decreto-Lei", "DECRETO-LEI"],
-                "lei complementar": ["Lei Complementar", "LEI COMPLEMENTAR"],
-            }
-            ref_type = formal_ref.get("art_type", "lei")
-            for kw in _ART_TYPE_KEYWORD_VARIANTS.get(ref_type, []):
-                functions.append({"filter": {"term": {"art_type": kw}}, "weight": 10})
-            # Also use normalized field
-            functions.append({"filter": {"term": {"art_type_normalized": ref_type}}, "weight": 10})
+            functions.append({"filter": {"term": {"art_type_normalized": formal_type}}, "weight": 10})
+            for term in related_terms:
+                functions.append(
+                    {
+                        "filter": {
+                            "bool": {
+                                "should": [
+                                    {"match_phrase": {"ementa": term}},
+                                    {"match_phrase": {"identifica": term}},
+                                ],
+                                "minimum_should_match": 1,
+                            }
+                        },
+                        "weight": 2,
+                    }
+                )
 
             if functions:
                 query_body = {
                     "function_score": {
                         "query": combined,
                         "functions": functions,
-                        "score_mode": "multiply",
+                        "score_mode": "sum",
                         "boost_mode": "multiply",
                     }
                 }
@@ -610,7 +643,10 @@ def classify_and_build(
         return query_body, "person", intent_data
 
     if intent == QueryIntent.TRENDING_BROWSE:
-        query_body = build_trending_query(q, filters)
+        topic_meta = get_topic_metadata(q)
+        if topic_meta:
+            intent_data["topic"] = topic_meta["label"]
+        query_body = build_trending_query(q, filters, topic_meta)
         return query_body, "trending", intent_data
 
     if intent == QueryIntent.SUBJECT_EXPLORE:
@@ -656,6 +692,7 @@ def _build_payload(
         "from": from_,
         "size": size,
         "track_total_hits": True,
+        "timeout": "800ms",
         "query": query_body,
         "sort": [{"_score": {"order": "desc"}}, {"pub_date": {"order": "desc"}}],
         "_source": source_fields,
