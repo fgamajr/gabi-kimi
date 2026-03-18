@@ -447,18 +447,23 @@ def build_canonical_query(
         bool_query["bool"]["filter"] = filters
 
     # Art type boost via function_score
+    # art_type is keyword (case-sensitive), so we need all casing variants
+    _ART_TYPE_KEYWORD_VARIANTS: dict[str, list[str]] = {
+        "lei": ["Lei", "LEI", "Lei Ordinária"],
+        "lei complementar": ["Lei Complementar", "LEI COMPLEMENTAR"],
+        "decreto": ["Decreto", "DECRETO"],
+        "decreto-lei": ["Decreto-Lei", "DECRETO-LEI"],
+        "medida provisória": ["Medida Provisória", "MEDIDA PROVISÓRIA"],
+        "emenda constitucional": ["Emenda Constitucional", "EMENDA CONSTITUCIONAL"],
+        "código": ["Lei", "LEI"],  # Códigos are published as Leis
+        "estatuto": ["Lei", "LEI"],
+    }
     functions = []
     if art_type_term:
-        # Map query term to ES art_type values
-        type_variants = [art_type_term]
-        if art_type_term == "código":
-            type_variants = ["lei"]  # Códigos are published as Leis
-        elif art_type_term == "estatuto":
-            type_variants = ["lei"]
-
-        for tv in type_variants:
+        keywords = _ART_TYPE_KEYWORD_VARIANTS.get(art_type_term, [])
+        if keywords:
             functions.append({
-                "filter": {"match": {"art_type": tv}},
+                "filter": {"terms": {"art_type": keywords}},
                 "weight": 5,
             })
 
