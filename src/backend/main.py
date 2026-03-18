@@ -5,6 +5,7 @@ from typing import Any, Optional
 
 import httpx
 from fastapi import FastAPI, Query, Response
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.backend.core.config import settings
@@ -101,7 +102,7 @@ _HIGHLIGHT_SPEC: dict[str, Any] = {
 
 _SOURCE_FIELDS = [
     "doc_id", "identifica", "ementa", "art_type", "art_category",
-    "pub_date", "edition_section", "edition_number", "page_number",
+    "pub_date", "section", "edition_number", "page_number",
     "issuing_organ", "body_plain",
 ]
 
@@ -129,7 +130,7 @@ def _hit_to_result(hit: dict) -> dict:
         "snippet": re.sub(r">>>|<<<", "", raw_snippet),
         "highlight": _hl_to_html(raw_snippet) if snippet_parts else None,
         "pub_date": src.get("pub_date") or "",
-        "section": _section_to_frontend(src.get("edition_section")),
+        "section": _section_to_frontend(src.get("section")),
         "page": src.get("page_number"),
         "art_type": src.get("art_type"),
         "issuing_organ": src.get("issuing_organ"),
@@ -172,6 +173,31 @@ def _build_filters(
 @app.get("/")
 async def root():
     return {"message": "GABI DOU API is running"}
+
+
+@app.get("/api/health")
+async def health():
+    try:
+        cluster = await es_request("GET", "/_cluster/health")
+    except Exception as exc:
+        logger.warning("health check failed to reach ES: %s", exc)
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "degraded",
+                "elasticsearch": False,
+                "index": settings.es_target_index,
+                "reranker_enabled": settings.RERANKER_ENABLED,
+            },
+        )
+
+    return {
+        "status": "ok",
+        "elasticsearch": True,
+        "es_cluster_status": cluster.get("status"),
+        "index": settings.es_target_index,
+        "reranker_enabled": settings.RERANKER_ENABLED,
+    }
 
 
 @app.get("/api/search")
@@ -253,6 +279,9 @@ async def autocomplete(
     p = q.strip()
     if not p:
         return []
+    p = p.strip("\"'`´“”‘’").strip()
+    if len(p) < 2:
+        return []
 
     payload = {
         "size": n * 4,
@@ -262,14 +291,19 @@ async def autocomplete(
                 "should": [
                     {"match_phrase_prefix": {"identifica": {"query": p}}},
                     {"match_phrase_prefix": {"issuing_organ": {"query": p}}},
-                    {"match_phrase_prefix": {"art_type": {"query": p}}},
+                    {"prefix": {"art_type.keyword": {"value": p, "case_insensitive": True}}},
                 ],
                 "minimum_should_match": 1,
             }
         },
     }
 
-    data = await es_request("POST", f"/{settings.es_target_index}/_search", json=payload)
+    try:
+        data = await es_request("POST", f"/{settings.es_target_index}/_search", json=payload)
+    except httpx.HTTPStatusError as e:
+        logger.warning("ES autocomplete error for query %r: %s", p, e.response.text[:300])
+        return []
+
     hits = data.get("hits", {}).get("hits", [])
 
     seen: set[str] = set()

@@ -28,7 +28,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, index = 0 }) => 
     >
       {/* Meta row */}
       <div className="flex items-center gap-2 mb-2 text-xs">
-        <SectionBadge section={result.section} />
+        {result.section && <SectionBadge section={result.section} />}
         <span className="text-text-tertiary">{formatDate(result.pub_date)}</span>
         {result.page && <span className="text-text-tertiary">p. {result.page}</span>}
         {result.art_type && (

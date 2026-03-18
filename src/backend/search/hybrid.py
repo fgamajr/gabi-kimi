@@ -57,9 +57,14 @@ def build_bm25_query(
         },
     }
     should: list[dict] = [
-        {"match_phrase": {"identifica": {"query": q, "boost": 20}}},
-        {"match_phrase": {"ementa": {"query": q, "boost": 15}}},
-        {"match_phrase": {"body_plain": {"query": q, "boost": 5}}},
+        # Exact phrase match — massive boost so exact matches always dominate
+        {"match_phrase": {"identifica": {"query": q, "boost": 200}}},
+        {"match_phrase": {"ementa": {"query": q, "boost": 150}}},
+        {"match_phrase": {"body_plain": {"query": q, "boost": 50}}},
+        # Near-phrase (slop=2): word order swaps, 1-2 intervening words
+        {"match_phrase": {"identifica": {"query": q, "slop": 2, "boost": 80}}},
+        {"match_phrase": {"ementa": {"query": q, "slop": 2, "boost": 60}}},
+        {"match_phrase": {"body_plain": {"query": q, "slop": 2, "boost": 20}}},
     ]
 
     bool_query: dict[str, Any] = {
