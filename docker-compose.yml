@@ -131,7 +131,7 @@ services:
       WATCHPACK_POLLING: "true"
       WDS_SOCKET_PORT: "0"
     working_dir: /workspace/src/frontend/app
-    command: ["sh", "/opt/container-scripts/frontend-dev.sh"]
+    command: ["sh", "/opt/container-scripts/frontend-prod.sh"]
     volumes:
       - .:/workspace
       - frontend_node_modules:/workspace/src/frontend/app/node_modules
