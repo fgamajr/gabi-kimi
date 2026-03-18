@@ -1,0 +1,1 @@
+ops/bin/mac_daily_ingest.sh

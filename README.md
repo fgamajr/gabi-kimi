@@ -1,383 +1,314 @@
-# GABI - Busca Inteligente no Diário Oficial da União
+# GABI DOU — Busca Inteligente no Diário Oficial da União
 
-Full-text search platform for Brazil's official gazette (DOU), covering 2002–2026. Downloads, processes, and indexes the DOU corpus into MongoDB and Elasticsearch BM25, with all runtime code expected to run inside Docker containers.
+**[gabidou.top](https://gabidou.top)** — Full-text search over ~16M Brazilian government gazette documents (2002–2026), with intent-based ranking, PDF generation, and dynamic trending.
+
+## Live System
+
+- **15.8M+ documents** indexed from the Diário Oficial da União
+- **Intent-based search**: queries automatically classified as exact name, canonical law, person name, trending, or thematic exploration
+- **PDF generation**: DOU-style A4 PDFs with coat of arms, two-column layout, serif typography
+- **Light/dark mode** with system preference detection
 
 ## Architecture
 
 ```
-in.gov.br (Liferay ZIPs)
-    ↓  src.backend.ingest.sync_dou
-MongoDB (documents collection)
-    ↓  es_indexer.py
-Elasticsearch (BM25 full-text)
+INLABS (in.gov.br)
+    ↓  inlabs_daily.py (Mac relay or server cron)
+MongoDB 7 (16M documents)
+    ↓  es_indexer.py (cursor-based sync)
+Elasticsearch 8.15 (BM25 + function_score ranking)
     ↑
-MCP Server (5 tools) ← Claude Code
+FastAPI backend ──→ React frontend (Vite production build)
+    ↑
+nginx (HTTPS, Let's Encrypt) → gabidou.top
 ```
 
-Runtime topology under Docker Compose:
+### Production topology (Hetzner CPX42)
 
-- `frontend` serves the Vite dev server on host port `8081`
-- `backend` serves the FastAPI API on host port `8001`
-- `worker` runs background Elasticsearch sync loops
-- `mongo` and `elasticsearch` stay on the Docker internal network only
+| Service | Port | Role |
+|---------|------|------|
+| nginx (host) | 80/443 | HTTPS termination, reverse proxy |
+| frontend | 8081→8080 | Vite production build (preview mode) |
+| backend | 8001→8000 | FastAPI API |
+| worker | — | Background ES sync |
+| mongo | 27017 | Document storage (authenticated) |
+| elasticsearch | 9200 | Full-text search index |
 
 ## Stack
 
 | Layer | Tech |
-|---|---|
-| Ingestion | Python, pymongo, requests |
-| Database | MongoDB 7 in Docker Compose |
-| Search | Elasticsearch 8.15.4 in Docker Compose |
-| MCP | FastMCP (stdio), httpx |
-| Backend API | FastAPI, uvicorn |
-| Frontend | Vite + React 18 + Tailwind CSS 3 + TypeScript |
-
-## Prerequisites
-
-- Docker with Compose
+|-------|------|
+| Ingestion | Python, pymongo, lxml, requests |
+| Database | MongoDB 7 (Docker) |
+| Search | Elasticsearch 8.15.4 (Docker) |
+| Backend | FastAPI, uvicorn, httpx |
+| Frontend | Vite 5 + React 18 + Tailwind CSS + shadcn/ui + TypeScript |
+| PDF | weasyprint (HTML→PDF with CSS @page rules) |
+| Theme | next-themes (light default, dark toggle) |
 
 ## Quick Start
-
-### 1. Build and start the stack
 
 ```bash
 cp .env.example .env
 docker compose up --build
 ```
 
-The host machine only needs Docker and Docker Compose.
+- Frontend: http://localhost:8081
+- Backend API: http://localhost:8001
+- API Health: http://localhost:8001/api/health
 
-### 2. Development endpoints
+## Search Features
 
-```text
-Frontend:    http://localhost:8081
-Backend API: http://localhost:8001
+### Intent-Based Query Classification
+
+The search pipeline automatically classifies queries into 5 intents, each with its own ranking strategy:
+
+| Intent | Example | Ranking Strategy |
+|--------|---------|------------------|
+| **EXACT_NAME** | "Lei 13709", "Portaria MEC 234" | Structured field lookup (art_type + document_number), no recency decay |
+| **CANONICAL** | "LGPD", "Código Penal", "CLT" | Popular name → formal reference pin + regulatory cluster boost |
+| **PERSON** | "Fernando Lima Gama Júnior" | Phrase match with orthographic variants (Y↔I, PH↔F), no recency decay |
+| **TRENDING** | "concursos", "nomeação", "licitação" | Heavy recency (gauss 30d scale), art_type boost from topic metadata |
+| **SUBJECT** | "dispensa licitação emergência saúde" | Phrase proximity (slop=3) + soft recency (180d) + canonical art_type boost |
+
+Classification priority: EXACT_NAME → CANONICAL → PERSON → TRENDING → SUBJECT
+
+### Fuzzy Normalization (EXACT_NAME)
+
+The normalizer handles imperfect input:
+- `"port. MEC 234/26"` → Portaria MEC 234/2026
+- `"IN RFB 2005"` → Instrução Normativa RFB 2005
+- `"dec. 9064/2017"` → Decreto 9064/2017
+- `"LC 101"` → Lei Complementar 101
+
+### Canonical Laws Dictionary
+
+30+ Brazilian laws mapped by popular name (`src/backend/data/canonical_laws.json`):
+- "LGPD" → Lei 13.709/2018 + boost ANPD docs
+- "CLT" → Decreto-Lei 5.452/1943
+- "Lei Maria da Penha" → Lei 11.340/2006
+- "Lei de Licitações" → Lei 14.133/2021 + Lei 8.666/1993
+
+### Dynamic Trending
+
+`GET /api/trending` returns curated topics with publication counts. Updated by cron at 06:30 UTC. Homepage shows "Em alta no DOU" chips with trend indicators.
+
+## API Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/search?q=...` | Full-text search with intent classification |
+| `GET /api/search?q=...&intent=trending&is_trending=true` | Force trending ranking |
+| `GET /api/document/{id}` | Full document with signer data |
+| `GET /api/document/{id}/pdf` | DOU-style PDF download |
+| `GET /api/autocomplete?q=...` | Search suggestions |
+| `GET /api/trending` | Dynamic trending topics |
+| `GET /api/stats` | Corpus statistics (total, date range) |
+| `GET /api/types` | Available art_type facets with counts |
+| `GET /api/health` | Service health check |
+
+### Search Response
+
+```json
+{
+  "results": [...],
+  "total": 6977,
+  "query": "LGPD",
+  "took_ms": 27,
+  "intent": {
+    "detected": "canonical_lookup",
+    "confidence": 0.95,
+    "matched_alias": "lgpd"
+  }
+}
 ```
 
-Container-to-container networking uses Docker DNS, never host localhost:
+## PDF Generation
 
-```text
-frontend -> backend:8000
-backend  -> mongo:27017
-backend  -> elasticsearch:9200
-worker   -> mongo:27017
-worker   -> elasticsearch:9200
-```
+`GET /api/document/{id}/pdf` generates an A4 PDF mimicking the printed DOU:
 
-### 3. Ingest DOU Data
+- Coat of arms SVG header
+- "REPÚBLICA FEDERATIVA DO BRASIL / DIÁRIO OFICIAL DA UNIÃO"
+- Two-column body with justified text and hyphens
+- CONSIDERANDO labels in crimson, article numbering (Art. 1º, I —)
+- Signature block with signer name
+- Footer: "Documento gerado por GABI DOU — gabidou.top"
 
-First-time full ingestion (2002–2026, ~7M documents):
+Uses weasyprint with Cormorant Garamond serif font.
+
+## Data Ingestion
+
+### Full backfill (historical, from Liferay)
 
 ```bash
 # Single year
 docker compose exec backend python -m src.backend.ingest.sync_dou --year 2024
 
-# Single month
-docker compose exec backend python -m src.backend.ingest.sync_dou --year 2024 --month 6
-
-# Full backfill (all years)
-for year in $(seq 2002 2025); do
+# All years
+for year in $(seq 2002 2026); do
   docker compose exec -T backend python -m src.backend.ingest.sync_dou --year $year
 done
-docker compose exec backend python -m src.backend.ingest.sync_dou --year 2026
 ```
 
-The DOU catalog registry (`ops/data/dou_catalog_registry.json`) maps 289 months (2002-01 to 2026-01) to Liferay folder IDs and ZIP filenames (851 ZIPs total).
+### Daily ingest (from INLABS)
 
-By default, all persistent Docker data lives in Docker-managed named volumes:
-
-```text
-mongo_data
-elastic_data
-dou_data
+**From the server** (if INLABS WAF allows):
+```bash
+# Cron at 06:00 UTC
+docker compose exec backend python -m src.backend.ingest.inlabs_daily --year 2026 --month 3
 ```
 
-### 4. Elasticsearch
+**From Mac** (INLABS WAF blocks Hetzner IP):
+```bash
+# Shortcut in repo root
+./ingest.sh              # Last 3 days (skips existing)
+./ingest.sh --days 7     # Last week
+./ingest.sh --date 2026-03-19  # Specific day
+./ingest.sh --force      # Skip existence check
+```
 
-Initialize Elasticsearch from inside the backend container:
+The Mac script (`ops/bin/mac_daily_ingest.sh`):
+1. Checks ES for which days have docs (skips existing)
+2. Downloads ZIPs from INLABS (Mac not blocked by WAF)
+3. SCPs ZIPs to server
+4. Processes in backend container (MongoDB upsert with deduplication)
+5. Runs ES incremental sync
+6. Verifies final counts
+
+### ES Indexer
 
 ```bash
-docker compose up -d elasticsearch backend worker
-docker compose exec -T backend python -m src.backend.ingest.es_indexer backfill
-```
+# Incremental sync (from cursor)
+docker compose exec backend python -m src.backend.ingest.es_indexer sync
 
-The stack now uses project-scoped image/container names consistently:
-
-```text
-gabi-kimi-mongo
-gabi-kimi-elasticsearch
-gabi-kimi-backend
-gabi-kimi-frontend
-```
-
-MongoDB and Elasticsearch use the official upstream images directly; only the container names are project-scoped.
-
-### 5. Verify
-
-```bash
-# MongoDB count
-docker compose exec -T backend python - <<'PY'
-from pymongo import MongoClient
-print(MongoClient('mongodb://mongo:27017')['gabi_dou']['documents'].count_documents({}))
-PY
-
-# ES health
-docker compose exec -T elasticsearch curl -s localhost:9200/_cluster/health | docker compose exec -T backend python -m json.tool
-
-# ES document count
-docker compose exec -T elasticsearch curl -s localhost:9200/gabi_documents_v1/_count | docker compose exec -T backend python -m json.tool
-
-# Parity check (MongoDB vs ES counts)
-docker compose exec -T backend python -m src.backend.ingest.es_indexer stats
-```
-
-## ES Indexer
-
-The indexer (`src/backend/ingest/es_indexer.py`) reads from MongoDB and bulk-indexes into Elasticsearch using cursor-based pagination.
-
-```bash
-# Full reindex (resets cursor, re-reads all MongoDB docs)
-docker compose exec -T backend python -m src.backend.ingest.es_indexer backfill
-
-# Incremental sync (from last cursor position)
-docker compose exec -T backend python -m src.backend.ingest.es_indexer sync
-
-# Show counts and parity
-docker compose exec -T backend python -m src.backend.ingest.es_indexer stats
-
-# Nuclear option: delete index and rebuild
-docker compose exec -T backend python -m src.backend.ingest.es_indexer backfill --recreate-index
-```
-
-Cursor state is persisted at `ES_SYNC_CURSOR_PATH`, which defaults to `/data/gabi_dou/es_sync_cursor.json` inside the backend container.
-
-After the initial backfill, `src.backend.ingest.sync_dou` automatically triggers an incremental ES sync at the end of each run.
-
-## Reindex V2
-
-The v2 reindex work is staged through a canary path before any broad historical backfill. The current execution artifacts live in:
-
-- `docs/REINDEX_V2_MINIMUM.md`
-- `docs/REINDEX_V2_FULL_FIELDS.md`
-- `docs/REINDEX_V2_EXECUTION_PLAN.md`
-- `docs/REINDEX_V2_SEARCH_CANARY.md`
-
-Typical preflight and canary commands:
-
-```bash
-# Check whether the environment is ready for a broader canary/backfill
-docker compose exec -T backend python -m src.backend.ingest.reindex_v2 preflight \
-  --schema v2_search \
-  --glob 'ops/data/raw_export/2002/01/*.zip' \
-  --source-collection documents \
-  --mongo-collection documents_v2_canary \
-  --es-index gabi_documents_v2_search_canary
-
-# Run a local canary against a limited ZIP sample
-docker compose exec -T backend python -m src.backend.ingest.reindex_v2 local-canary \
-  --schema v2_search \
-  --glob 'ops/data/raw_export/2002/01/*.zip' \
-  --source-collection documents \
-  --mongo-collection documents_v2_canary \
-  --es-index gabi_documents_v2_search_canary
-```
-
-Current preflight blockers depend on the machine. The default storage target is Docker-managed volumes; override those paths in `.env` only if you want bind mounts on a specific host disk.
-
-## Repo Assistance Index
-
-For containerized codebase search and future agent assistance, the repo can build a hidden SQLite index under `.ai/` inside the backend container with FTS5 and an optional embedding cache.
-
-```bash
-# Lexical-only build
-docker compose exec -T backend python -m src.backend.repo_index build
-
-# Optional embedding cache build (uses OPENAI_API_KEY / EMBED_* from .env)
-docker compose exec -T backend python -m src.backend.repo_index build --with-embeddings
-
-# Lexical-only query
-docker compose exec -T backend python -m src.backend.repo_index query "multipart reconstruction" --mode lexical
-
-# Embeddings-only query (requires build --with-embeddings first)
-docker compose exec -T backend python -m src.backend.repo_index query "multipart reconstruction" --mode semantic
-
-# Hybrid query (lexical + embeddings; falls back to lexical if no embedding cache exists)
-docker compose exec -T backend python -m src.backend.repo_index query "multipart reconstruction" --mode hybrid
+# Full reindex
+docker compose exec backend python -m src.backend.ingest.es_indexer backfill
 
 # Stats
-docker compose exec -T backend python -m src.backend.repo_index stats
+docker compose exec backend python -m src.backend.ingest.es_indexer stats
 ```
 
-The `.ai/` directory is container-generated and ignored by git. The first lexical build on this repo created:
+## Server Crons
 
-- `.ai/repo_index.db`
-- `.ai/manifest.json`
+| Schedule | Task |
+|----------|------|
+| 06:00 UTC | Daily INLABS ingest (`run_daily_ingest.sh`) |
+| 07:00 UTC | ES reconciliation (`reconcile_es.sh`) |
+| 08:00 UTC | Temp file cleanup (`/tmp/gabi_*`) |
 
-with roughly `5,979` files and `9,541` chunks indexed.
+## ES Index
 
-## Adversarial API Testing
+Index: `gabi_documents_v3` (alias: `gabi_documents`)
 
-The sanctioned way to run the FastAPI adversarial suite is from the Linux host that owns the Python environment and services. Do not trust results from a macOS SMB-mounted view of the repo: stale `__pycache__` and cross-filesystem behavior can produce false failures.
+Key fields:
+- `identifica` (text, pt_folded) — document title
+- `ementa` (text, pt_folded) — summary
+- `body_plain` (text, pt_folded) — full text
+- `art_type_normalized` (keyword, lowercase) — "lei", "portaria", "decreto"
+- `document_number` (keyword) — "13.709", "234"
+- `document_year` (integer) — 2018, 2026
+- `issuing_organ` (text, pt_folded) — issuing authority
+- `primary_signer` (text) — document signer
+- `pub_date` (date) — publication date
+- `section` (keyword) — DOU section (do1, do2, do3)
 
-Use the remote runner:
+Analyzer `pt_folded`: standard tokenizer + lowercase + asciifolding.
+
+## Frontend
+
+- **Light mode** default, dark mode via toggle (persists in localStorage)
+- **Intent badges** on search results ("📜 Lei", "📅 Recentes", "🔍 Tema", "👤 Pessoa")
+- **"Você quis dizer?"** suggestions for partial canonical matches
+- **Trending chips** on homepage with trend score indicators (🔥, ↗)
+- **"Atualizado até"** date below search bar
+- **PDF download** button in document viewer (header + actions sheet)
+- **Responsive** design (mobile-first with bottom sheets)
+
+## Production Deployment
 
 ```bash
-# Default: 3 full runs on the target host alias (1065 HTTP calls total with the current harness)
-ops/bin/run_adversarial_remote.sh
+# On Hetzner server
+cd /home/gabi/gabi-kimi
+git pull origin main
+docker compose up -d --build
 
-# Single run
-ops/bin/run_adversarial_remote.sh --runs 1
-
-# Keep the API running after the suite
-ops/bin/run_adversarial_remote.sh --runs 1 --keep-server
+# HTTPS via host nginx + certbot
+# See ops/nginx/ for config
 ```
 
-What the runner does:
+### Domain
 
-1. SSHes into the configured host alias (`ubuntu-vm` by default)
-2. Starts the Docker services it needs
-3. Restarts the backend for a clean app start
-4. Waits for health on `127.0.0.1:8001`
-5. Runs `ops/test_api_adversarial.py`
-6. Stores logs under `~/.local/state/gabi-kimi/adversarial-remote` on the Linux host
-7. Stops the backend container unless `--keep-server` is set
+- Domain: `gabidou.top` (Namesilo → Hetzner 204.168.173.163)
+- HTTPS: Let's Encrypt via certbot (auto-renewal)
 
-The test harness also accepts a custom base URL through `GABI_API_BASE`, which is useful for CI or a remote box already running the API.
+## Environment Variables
 
-```bash
-docker compose exec backend python ops/test_api_adversarial.py
-```
-
-## Docker-Only Workflow
-
-The repo now runs entirely inside containers. No host `node`, `npm`, `python`, `pip`, MongoDB, or Elasticsearch installation is required.
-
-Optional: install the repo MCP entry into machine-local client configs from inside a container:
-
-```bash
-docker compose run --rm -T \
-  -v "$HOME:/host-home" \
-  backend \
-  python ops/bin/install_repo_mcp_clients.py \
-  --home /host-home \
-  --repo-root "$PWD" \
-  --create-missing
-```
-
-That installer writes `gabi-es` into the supported machine-local client configs it finds, including:
-
-- `~/Library/Application Support/Claude/claude_desktop_config.json`
-- `~/.codex/config.toml`
-- `~/Library/Application Support/Code/User/mcp.json`
-- `~/.cursor/mcp.json`
-- `~/.gemini/settings.json`
-- `~/.kimi/mcp.json`
-- `~/.qwen/settings.json`
-- `~/.config/zed/settings.json`
-- `~/Library/Application Support/Zed/settings.json`
-- `~/.kiro/settings/mcp.json`
-- `~/.kilo/settings/mcp.json`
-
-with a `gabi-es` entry that launches the MCP server inside Docker:
-
-```text
-docker compose -f /absolute/path/to/docker-compose.yml run --rm -T backend python ops/bin/mcp_es_server.py
-```
-
-## MCP Server (Claude Code Integration)
-
-The MCP server (`ops/bin/mcp_es_server.py`) exposes 5 tools for searching DOU via Claude Code:
-
-| Tool | Description |
-|---|---|
-| `es_search` | BM25 full-text search with filters, highlights, pagination |
-| `es_suggest` | Autocomplete on title, organ, and type fields |
-| `es_facets` | Aggregations for sections, types, organs, date histogram |
-| `es_document` | Fetch a single document by ID |
-| `es_health` | Cluster and index health summary |
-
-Configured in the machine-wide Claude desktop MCP config as `gabi-es`. The repo-local `.mcp.json` is intentionally not used.
-
-The server auto-infers filters from natural language queries (e.g., "decreto do1 ministerio da saude" applies section, type, and organ filters automatically).
-
-## MongoDB Schema
-
-Primary collection: `documents`
-
-| Field | Type | Description |
-|---|---|---|
-| `_id` | string | Deterministic hash or Mongo object ID, depending on ingest path |
-| `pub_date` | datetime | Publication date |
-| `section` | string | DOU section (DO1, DO2, DO3, etc.) |
-| `edition` | string | Edition number |
-| `page` | int | Page number |
-| `art_type` | string | Act type (Decreto, Portaria, Edital, etc.) |
-| `art_category` | string | Full category path |
-| `orgao` | string | Issuing organ |
-| `identifica` | string | Document title/identifier |
-| `ementa` | string | Summary |
-| `texto` | string | Plain text content (searchable) |
-| `content_html` | string | Original HTML content |
-| `structured` | object | Legacy structured fields |
-| `source_zip` | string | Origin ZIP filename |
-| `references` | array | Legal references found in text |
-| `enrichment` | object | Optional derived/enrichment fields |
-
-For the v2 parse/store contract and expanded field surface, see `docs/REINDEX_V2_FULL_FIELDS.md`.
-
-## ES Index Mapping
-
-Index: `gabi_documents_v1` (defined in `src/backend/search/es_index_v1.json`)
-
-Uses a `pt_folded` analyzer (standard tokenizer + lowercase + asciifolding) for Portuguese text without diacritics sensitivity.
-
-Field boost weights for search: `identifica^5 > ementa^4 > issuing_organ^2 = art_type^2 > art_category > body_plain`.
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MONGO_STRING` | `mongodb://mongo:27017/gabi_dou` | MongoDB connection |
+| `ES_URL` | `http://elasticsearch:9200` | Elasticsearch URL |
+| `ES_INDEX` | `gabi_documents_v3` | ES index name |
+| `VECTOR_SEARCH_ENABLED` | `false` | Enable kNN vector search |
+| `RERANKER_ENABLED` | `false` | Enable neural reranker |
+| `INLABS_USER` | — | INLABS login email |
+| `INLABS_PWD` | — | INLABS password |
 
 ## Project Structure
 
 ```
 src/
   backend/
-    api/              # FastAPI routes
-    core/config.py    # Settings (Mongo, ES, paths)
-    data/             # DB connection, models
+    core/config.py          # Settings
+    data/
+      db.py                 # MongoDB connection
+      canonical_laws.json   # 30+ popular law names → formal refs
     ingest/
-      downloader.py   # Downloads ZIPs from in.gov.br
-      dou_processor.py # Parses XML → DouDocument
-      es_indexer.py   # MongoDB → Elasticsearch indexer
+      inlabs_daily.py       # Daily INLABS ingestion
+      sync_dou.py           # Historical Liferay ingestion
+      dou_processor.py      # XML parsing → documents
+      es_indexer.py          # MongoDB → ES sync
+      es_reconcile.py        # ES ↔ Mongo consistency check
+    pdf/
+      template.py           # DOU-style HTML template
+      generator.py          # weasyprint HTML→PDF
     search/
-      es_index_v1.json # ES mapping definition
-    services/         # Business logic
-  frontend/web/       # Vite + React + Tailwind app
+      hybrid.py             # Query classification + ES execution
+      intent.py             # Intent classifier (5 types)
+      query_builders.py     # ES query DSL per intent
+      trending.py           # Trending computation + cache
+      reranker.py           # Neural reranker client (disabled)
+    main.py                 # FastAPI app + endpoints
+  frontend/app/
+    src/
+      pages/
+        HomePage.tsx        # Landing with trending + stats
+        SearchPage.tsx      # Results with intent badges
+        DocumentPage.tsx    # Full document view + PDF button
+      components/
+        ThemeToggle.tsx     # Light/dark mode toggle
+        SearchBar.tsx       # Autocomplete search input
+        ResultCard.tsx      # Search result card
+      lib/api.ts            # API types + fetch functions
 ops/
   bin/
-    mcp_es_server.py  # MCP server for Claude Code
-  data/               # Catalog registry, cursor state
-  setup_elasticsearch.sh
-  run_full_ingest.sh
-    ingest/sync_dou.py # Main ingestion orchestrator
+    mac_daily_ingest.sh     # Mac→server ingest relay
+    run_daily_ingest.sh     # Server-side daily cron
+  container/
+    frontend-prod.sh        # npm build + preview
+    backend-prod.sh         # uvicorn production
+  nginx/prod.conf           # Container nginx config
+docs/
+  search-quality-research.md  # Reranker vs BM25 evaluation
 ```
 
-## Environment Variables
+## Search Quality Research
 
-Defined in `.env`:
+A triangular consensus panel (qwen3-max, kimi-k2.5, claude-sonnet-4.5) evaluated whether to enable neural re-ranking. Verdict: **optimize BM25 first**, defer reranker until infrastructure upgrade (≥32GB RAM). See `docs/search-quality-research.md`.
 
-| Variable | Default | Description |
-|---|---|---|
-| `MONGO_STRING` | `mongodb://mongo:27017/gabi_dou` | MongoDB connection URI inside Docker |
-| `DB_NAME` | `gabi_dou` | MongoDB database name |
-| `ES_URL` | `http://elasticsearch:9200` | Elasticsearch URL inside Docker |
-| `ES_INDEX` | `gabi_documents_v1` | ES index name |
-| `ES_SYNC_CURSOR_PATH` | `/data/gabi_dou/es_sync_cursor.json` | Persistent ES sync cursor inside the backend container |
-| `GABI_CORS_ORIGINS` | `http://localhost:8081,http://127.0.0.1:8081` | Allowed browser origins for the Dockerized frontend |
-| `WORKER_BATCH_SIZE` | `1000` | Batch size used by the background ES sync worker |
-| `WORKER_POLL_INTERVAL_SEC` | `30` | Sleep interval between worker sync passes |
+## Backlog
 
-## Data Flow
-
-1. **Download**: `src.backend.ingest.sync_dou` reads the catalog registry and downloads ZIPs from `in.gov.br/documents`
-2. **Parse**: `dou_processor.py` extracts XMLs from ZIPs, parses into `DouDocument` models
-3. **Store**: Bulk upsert into MongoDB (`documents` collection)
-4. **Archive**: ZIPs copied into `/data/gabi_dou` inside the shared Docker volume, extracted XMLs deleted
-5. **Index**: ES incremental sync runs automatically at end of ingestion
-6. **Search**: MCP server or API queries Elasticsearch with BM25
+Open issues tracked in `.planning/todos/pending/`:
+- INLABS WAF blocks Hetzner IP (Mac relay workaround active)
+- Reranker CPU deployment (insufficient RAM)
+- Disk monitoring (volume at 84%)
+- ES reconciliation optimization
