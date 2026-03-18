@@ -1,6 +1,8 @@
 import logging
 import re
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 
 import httpx
@@ -12,7 +14,7 @@ from src.backend.core.config import settings
 from src.backend.data.db import MongoDB
 from src.backend.search.hybrid import hybrid_search
 from src.backend.search.reranker import rerank
-from src.backend.search.trending import get_cached_trending
+from src.backend.search.trending import FALLBACK_TOPICS, get_cached_trending, update_trending_cache
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +100,85 @@ def _art_type_label(value: str) -> str:
     return " ".join(part.capitalize() for part in label.split())
 
 
+def _normalize_match_text(value: str | None) -> str:
+    if not value:
+        return ""
+    import unicodedata
+
+    normalized = unicodedata.normalize("NFD", value.lower().strip())
+    normalized = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+    return re.sub(r"\s+", " ", normalized)
+
+
+def _days_since(pub_date: str | None) -> int:
+    if not pub_date:
+        return 999
+    try:
+        parsed = datetime.fromisoformat(pub_date.replace("Z", "+00:00"))
+    except ValueError:
+        try:
+            parsed = datetime.fromisoformat(f"{pub_date}T00:00:00+00:00")
+        except ValueError:
+            return 999
+    return max((datetime.now(timezone.utc).date() - parsed.date()).days, 0)
+
+
+def _recent_highlight_score(hit: dict[str, Any]) -> tuple[float, list[str]]:
+    src = hit.get("_source", {})
+    title = src.get("identifica") or ""
+    subtitle = src.get("ementa") or ""
+    organ = src.get("issuing_organ") or ""
+    text = " ".join(part for part in [title, subtitle, organ] if part)
+    norm_text = _normalize_match_text(text)
+    art_type_normalized = _normalize_match_text(src.get("art_type_normalized") or src.get("art_type") or "")
+    section = _section_to_frontend(src.get("section") or src.get("edition_section"))
+    days_old = _days_since(src.get("pub_date"))
+
+    score = max(18 - days_old, 0) * 0.8
+    reasons: list[str] = []
+
+    if days_old <= 3:
+        score += 6
+        reasons.append("muito recente")
+    elif days_old <= 7:
+        score += 3
+
+    if section == "1":
+        score += 4
+        reasons.append("seção 1")
+    elif section == "3":
+        score -= 4
+    elif section == "2":
+        score -= 2
+
+    for act_type, boost in _RECENT_ART_TYPE_BOOSTS.items():
+        if act_type in art_type_normalized:
+            score += boost
+            if len(reasons) < 3:
+                reasons.append(act_type)
+            break
+
+    for term, boost in _RECENT_RELEVANT_TERMS.items():
+        if term in norm_text:
+            score += boost
+            if len(reasons) < 3:
+                reasons.append(term)
+
+    for term, penalty in _RECENT_NOISE_TERMS.items():
+        if term in norm_text:
+            score += penalty
+
+    if any(pattern in _normalize_match_text(organ) for pattern in _RECENT_ORGAN_BOOST_PATTERNS):
+        score += 2.5
+        if len(reasons) < 3:
+            reasons.append("órgão relevante")
+
+    if len(title.split()) <= 4 and "nº" not in _normalize_match_text(title):
+        score -= 2
+
+    return score, reasons[:3]
+
+
 _HIGHLIGHT_SPEC: dict[str, Any] = {
     "pre_tags": [">>>"],
     "post_tags": ["<<<"],
@@ -114,6 +195,87 @@ _SOURCE_FIELDS = [
     "pub_date", "section", "edition_number", "page_number",
     "issuing_organ", "body_plain",
 ]
+
+_LATEST_SOURCE_FIELDS = [
+    "doc_id", "identifica", "ementa", "art_type", "art_type_normalized", "pub_date",
+    "section", "edition_section", "page_number", "issuing_organ",
+]
+
+_RECENT_ART_TYPE_BOOSTS = {
+    "edital": 7.0,
+    "resolucao": 6.0,
+    "instrucao normativa": 6.0,
+    "instrução normativa": 6.0,
+    "decreto": 5.5,
+    "lei": 5.0,
+    "medida provisoria": 5.0,
+    "medida provisória": 5.0,
+    "aviso": 3.0,
+    "portaria": 1.5,
+}
+
+_RECENT_ORGAN_BOOST_PATTERNS = (
+    "presidencia",
+    "presidência",
+    "ministerio",
+    "ministério",
+    "autoridade nacional de protecao de dados",
+    "anpd",
+    "banco central",
+    "anvisa",
+    "cvm",
+    "mec",
+    "saude",
+    "saúde",
+    "fazenda",
+    "tcu",
+)
+
+_RECENT_RELEVANT_TERMS = {
+    "concurso": 6.0,
+    "edital": 5.5,
+    "consulta publica": 6.0,
+    "consulta pública": 6.0,
+    "chamamento publico": 5.5,
+    "chamamento público": 5.5,
+    "regulamenta": 4.5,
+    "altera": 3.5,
+    "aprova": 3.0,
+    "licitacao": 4.5,
+    "licitação": 4.5,
+    "pregao": 4.0,
+    "pregão": 4.0,
+    "credenciamento": 2.0,
+    "anpd": 5.0,
+    "lgpd": 5.0,
+}
+
+_RECENT_NOISE_TERMS = {
+    "nomeacao": -8.0,
+    "nomeação": -8.0,
+    "nomeacoes": -8.0,
+    "nomeações": -8.0,
+    "exoneracao": -8.0,
+    "exoneração": -8.0,
+    "designacao": -7.0,
+    "designação": -7.0,
+    "dispensa": -5.0,
+    "aposentadoria": -6.0,
+    "pensao": -6.0,
+    "pensão": -6.0,
+    "ferias": -7.0,
+    "férias": -7.0,
+    "licenca": -6.0,
+    "licença": -6.0,
+    "substituicao": -6.0,
+    "substituição": -6.0,
+    "portaria de pessoal": -9.0,
+    "servidor": -3.0,
+    "extrato": -6.0,
+    "apostila": -6.0,
+    "cessao": -6.0,
+    "cessão": -6.0,
+}
 
 
 def _hit_to_result(hit: dict) -> dict:
@@ -473,7 +635,96 @@ async def types():
 
 @app.get("/api/trending")
 async def trending():
-    return get_cached_trending(_mongo_db)
+    cached = get_cached_trending(_mongo_db)
+    if cached:
+        return cached
+
+    try:
+        with httpx.Client() as client:
+            topics = update_trending_cache(client, _mongo_db, top_n=8)
+        if topics:
+            return topics
+    except Exception:
+        logger.exception("failed to compute trending topics on cache miss")
+
+    return FALLBACK_TOPICS
+
+
+@app.get("/api/recent-highlights")
+async def recent_highlights(limit: int = Query(8, ge=1, le=20)):
+    payload = {
+        "size": 1200,
+        "track_total_hits": False,
+        "sort": [{"pub_date": {"order": "desc"}}],
+        "_source": _LATEST_SOURCE_FIELDS,
+        "query": {
+            "bool": {
+                "filter": [
+                    {"range": {"pub_date": {"gte": "now-60d/d"}}},
+                ]
+            }
+        },
+    }
+    data = await es_request("POST", f"/{settings.es_target_index}/_search", json=payload)
+    hits = data.get("hits", {}).get("hits", [])
+
+    ranked: list[tuple[float, list[str], dict[str, Any]]] = []
+    for hit in hits:
+        score, reasons = _recent_highlight_score(hit)
+        if score < 3:
+            continue
+        ranked.append((score, reasons, hit))
+
+    ranked.sort(
+        key=lambda item: (
+            item[0],
+            item[2].get("_source", {}).get("pub_date") or "",
+        ),
+        reverse=True,
+    )
+
+    results: list[dict[str, Any]] = []
+    seen_titles: set[str] = set()
+    per_art_type: dict[str, int] = {}
+
+    for score, reasons, hit in ranked:
+        src = hit.get("_source", {})
+        title_key = _normalize_match_text(src.get("identifica"))
+        art_type_key = _normalize_match_text(src.get("art_type_normalized") or src.get("art_type"))
+
+        if title_key in seen_titles:
+            continue
+        if art_type_key and per_art_type.get(art_type_key, 0) >= 3:
+            continue
+
+        item = _hit_to_result(hit)
+        item["relevance_score"] = round(score, 1)
+        item["reasons"] = reasons
+        results.append(item)
+        seen_titles.add(title_key)
+        if art_type_key:
+            per_art_type[art_type_key] = per_art_type.get(art_type_key, 0) + 1
+        if len(results) >= limit:
+            break
+
+    if not results:
+        return await latest_publications(limit)
+
+    return results
+
+
+@app.get("/api/latest-publications")
+async def latest_publications(limit: int = Query(8, ge=1, le=20)):
+    payload = {
+        "size": limit,
+        "track_total_hits": False,
+        "sort": [{"pub_date": {"order": "desc"}}],
+        "_source": _LATEST_SOURCE_FIELDS,
+        "query": {"match_all": {}},
+    }
+    data = await es_request("POST", f"/{settings.es_target_index}/_search", json=payload)
+    hits = data.get("hits", {}).get("hits", [])
+    return [_hit_to_result(hit) for hit in hits]
 
 
 @app.get("/api/top-searches")
@@ -491,6 +742,16 @@ async def search_examples():
         {"query": "pregão eletrônico registro preços", "description": "Pregões SRP"},
         {"query": "aposentadoria servidor público", "description": "Aposentadorias"},
     ]
+
+
+@app.get("/api/suggested-topics")
+async def suggested_topics():
+    import json as _json
+    path = Path(__file__).resolve().parent / "data" / "suggested_topics.json"
+    try:
+        return _json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
 
 
 @app.get("/api/media/{doc_id:path}/{name}")

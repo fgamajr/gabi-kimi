@@ -1,0 +1,62 @@
+[
+  {
+    "label": "Concursos Públicos",
+    "query": "concursos publicos",
+    "intent": "trending",
+    "icon": "clipboard"
+  },
+  {
+    "label": "Nomeações",
+    "query": "nomeação",
+    "intent": "trending",
+    "icon": "user"
+  },
+  {
+    "label": "Exonerações",
+    "query": "exoneração",
+    "intent": "trending",
+    "icon": "user-minus"
+  },
+  {
+    "label": "Licitações",
+    "query": "licitação",
+    "intent": "trending",
+    "icon": "gavel"
+  },
+  {
+    "label": "Portarias",
+    "query": "portaria",
+    "intent": "trending",
+    "icon": "file-text"
+  },
+  {
+    "label": "Decretos",
+    "query": "decreto",
+    "intent": "trending",
+    "icon": "scroll"
+  },
+  {
+    "label": "Aposentadorias",
+    "query": "aposentadoria",
+    "intent": "trending",
+    "icon": "clock"
+  },
+  {
+    "label": "Resoluções",
+    "query": "resolução",
+    "intent": "trending",
+    "icon": "book"
+  },
+  {
+    "label": "LGPD",
+    "query": "LGPD",
+    "intent": "canonical",
+    "icon": "shield"
+  },
+  {
+    "label": "Lei de Licitações",
+    "query": "Lei de Licitações",
+    "intent": "canonical",
+    "icon": "scale"
+  }
+]

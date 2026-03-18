@@ -50,6 +50,22 @@ export interface IntentMetadata {
   topic?: string;
 }
 
+export interface LatestPublication {
+  id: string;
+  title: string;
+  subtitle?: string;
+  pub_date: string;
+  section: string;
+  page?: string;
+  art_type?: string;
+  issuing_organ?: string;
+}
+
+export interface RecentHighlight extends LatestPublication {
+  relevance_score?: number;
+  reasons?: string[];
+}
+
 export interface DocumentMedia {
   name: string;
   status: 'available' | 'missing' | 'error';
@@ -110,6 +126,13 @@ export interface SearchExample {
   description?: string;
 }
 
+export interface SuggestedTopic {
+  label: string;
+  query: string;
+  intent?: string;
+  icon?: string;
+}
+
 export interface AutocompleteResult {
   suggestion: string;
   type?: string;
@@ -162,6 +185,18 @@ export function getTrending(): Promise<TrendingTopic[]> {
   return fetchJSON(`${API_BASE}/trending`);
 }
 
+export function getLatestPublications(limit = 8): Promise<LatestPublication[]> {
+  return fetchJSON(`${API_BASE}/latest-publications?limit=${limit}`);
+}
+
+export function getRecentHighlights(limit = 8): Promise<RecentHighlight[]> {
+  return fetchJSON(`${API_BASE}/recent-highlights?limit=${limit}`);
+}
+
 export function getSearchExamples(): Promise<SearchExample[]> {
   return fetchJSON(`${API_BASE}/search-examples`);
+}
+
+export function getSuggestedTopics(): Promise<SuggestedTopic[]> {
+  return fetchJSON(`${API_BASE}/suggested-topics`);
 }
