@@ -223,30 +223,16 @@ async def search(
     es_from = 0 if use_reranker else offset
 
     try:
-        if use_hybrid:
-            data = await hybrid_search(
-                query=q,
-                filters=filters,
-                size=es_size,
-                source_fields=_SOURCE_FIELDS,
-                highlight_spec=_HIGHLIGHT_SPEC,
-                client=_es,
-            )
-        else:
-            # BM25-only path (current default)
-            from src.backend.search.hybrid import build_bm25_query
-            final_query = build_bm25_query(q, filters)
-
-            payload: dict[str, Any] = {
-                "from": es_from,
-                "size": es_size,
-                "track_total_hits": True,
-                "query": final_query,
-                "sort": [{"_score": {"order": "desc"}}, {"pub_date": {"order": "desc"}}],
-                "_source": _SOURCE_FIELDS,
-                "highlight": _HIGHLIGHT_SPEC,
-            }
-            data = await es_request("POST", f"/{settings.es_target_index}/_search", json=payload)
+        # Both hybrid and BM25-only paths now use hybrid_search which
+        # handles the two-pass cascade for multi-word queries internally
+        data = await hybrid_search(
+            query=q,
+            filters=filters,
+            size=es_size,
+            source_fields=_SOURCE_FIELDS,
+            highlight_spec=_HIGHLIGHT_SPEC,
+            client=_es,
+        )
     except httpx.HTTPStatusError as e:
         logger.error("ES search error: %s", e.response.text[:200])
         return {"results": [], "total": 0, "page": page, "max": max, "query": q, "took_ms": 0}
