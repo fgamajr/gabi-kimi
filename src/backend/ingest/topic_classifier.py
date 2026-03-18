@@ -177,7 +177,7 @@ def _backfill_pending() -> None:
     collection = _get_mongo_collection()
     print("Starting backfill (skipping initial count for speed)...", flush=True)
 
-    batch_size = 500
+    batch_size = 5000
     classified = 0
     batch_num = 0
 
@@ -215,7 +215,6 @@ def _backfill_pending() -> None:
             classified += len(ops)
 
         print(f"  batch {batch_num}: classified {len(ops)} docs (total: {classified:,})", flush=True)
-        time.sleep(1)
 
     print(f"Done. Classified {classified:,} documents.", flush=True)
 
