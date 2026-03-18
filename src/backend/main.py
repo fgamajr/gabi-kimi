@@ -336,7 +336,7 @@ async def document(doc_id: str):
         return Response(status_code=404, content='{"detail":"Document not found"}',
                         media_type="application/json")
 
-    section = _section_to_frontend(src.get("edition_section"))
+    section = _section_to_frontend(src.get("edition_section") or src.get("section"))
 
     return {
         "id": doc_id,
@@ -372,7 +372,7 @@ async def document_pdf(doc_id: str):
     from src.backend.pdf.template import render_pdf_html
     from src.backend.pdf.generator import generate_pdf
 
-    section = _section_to_frontend(src.get("edition_section"))
+    section = _section_to_frontend(src.get("edition_section") or src.get("section"))
     doc_data = {
         "identifica": src.get("identifica"),
         "ementa": src.get("ementa"),
