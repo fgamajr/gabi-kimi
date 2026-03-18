@@ -69,7 +69,8 @@ _SECTION_FE_TO_ES["e"] = "DOE"
 def _section_to_frontend(es_val: str | None) -> str:
     if not es_val:
         return ""
-    return _SECTION_ES_TO_FE.get(es_val, es_val.replace("DO", "").lower() or es_val)
+    upper = es_val.upper()
+    return _SECTION_ES_TO_FE.get(upper, upper.replace("DO", "").lower() or es_val)
 
 
 _SECTION_NAMES = {"1": "Seção 1", "2": "Seção 2", "3": "Seção 3", "e": "Extra"}
