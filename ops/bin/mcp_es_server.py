@@ -1808,6 +1808,13 @@ else:
     mcp = None
 
 
+def get_mcp_sse_app():
+    """Return the MCP SSE ASGI app for mounting inside FastAPI."""
+    if mcp is None:
+        return None
+    return mcp.sse_app()
+
+
 def main() -> int:
     import argparse
 

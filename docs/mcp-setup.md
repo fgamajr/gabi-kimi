@@ -28,30 +28,53 @@ The MCP server needs access to:
 - **Elasticsearch** at `ES_URL` (for analytics tools)
 - **GABI FastAPI backend** at `GABI_API_URL` (for search/suggest/document)
 
-## Quick Start (Remote Access)
+## Quick Start (Remote Access — for collaborators)
 
-If you're a collaborator accessing the shared server (not running ES locally), use this config. Replace `YOUR_TOKEN` with the token you received from the admin.
+Just paste this into your MCP config file. No local setup needed — everything runs on the server.
 
+**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 ```json
 {
   "mcpServers": {
     "gabi-dou": {
-      "command": "python3",
-      "args": ["/path/to/gabi-kimi/ops/bin/mcp_es_server.py"],
-      "env": {
-        "ES_URL": "http://204.168.173.163:9200",
-        "ES_ALIAS": "gabi_documents_v3",
-        "GABI_API_URL": "https://gabidou.top",
-        "GABI_API_TOKEN": "YOUR_TOKEN"
+      "url": "https://gabidou.top/mcp/sse",
+      "headers": {
+        "Authorization": "Bearer YOUR_TOKEN"
       }
     }
   }
 }
 ```
 
-This routes search/suggest/document through the public API (with auth), and analytics tools directly to ES.
+**Cursor** (`~/.cursor/mcp.json`):
+```json
+{
+  "mcpServers": {
+    "gabi-dou": {
+      "url": "https://gabidou.top/mcp/sse",
+      "headers": {
+        "Authorization": "Bearer YOUR_TOKEN"
+      }
+    }
+  }
+}
+```
 
-> **Note:** ES is currently not exposed on the public internet. For analytics tools (facets, timeline, etc.), you need either VPN/SSH tunnel access or to run from a machine with direct access. Search, suggest, and document tools work remotely via the HTTPS API.
+**VS Code** (`~/Library/Application Support/Code/User/mcp.json`):
+```json
+{
+  "servers": {
+    "gabi-dou": {
+      "url": "https://gabidou.top/mcp/sse",
+      "headers": {
+        "Authorization": "Bearer YOUR_TOKEN"
+      }
+    }
+  }
+}
+```
+
+Replace `YOUR_TOKEN` with the token you received from the admin. That's it — 13 search tools are immediately available in your AI assistant.
 
 ## Configuration by Client
 

@@ -90,6 +90,22 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
 app.add_middleware(TokenAuthMiddleware)
 
 # ---------------------------------------------------------------------------
+# MCP SSE endpoint (mounted at /mcp/)
+# ---------------------------------------------------------------------------
+
+try:
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "ops" / "bin"))
+    from mcp_es_server import get_mcp_sse_app
+
+    _mcp_app = get_mcp_sse_app()
+    if _mcp_app:
+        app.mount("/mcp", _mcp_app)
+        logger.info("MCP SSE endpoint mounted at /mcp/")
+except Exception as exc:
+    logger.warning("MCP SSE endpoint not available: %s", exc)
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
