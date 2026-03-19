@@ -105,7 +105,12 @@ def _query_word_count(q: str) -> int:
 
 
 def _is_person_name(query: str) -> bool:
-    """Conservative heuristic: does this query look like a person's name?"""
+    """Detect person name queries using fuzzy heuristics.
+
+    Handles: common/uncommon names, lowercase, capitalized, with particles.
+    Key insight: 2-5 word queries with no digits and no institutional/legal
+    words are almost always person names in DOU context.
+    """
     q = query.strip()
     if not q or '"' in q:
         return False
@@ -124,13 +129,43 @@ def _is_person_name(query: str) -> bool:
     if len(meaningful) < 2:
         return False
 
+    # Strong signal: first word is a known Brazilian first name
     first_is_name = meaningful[0] in _COMMON_FIRST_NAMES
+    if first_is_name:
+        return True
+
+    # Capitalization signal: all words start uppercase (natural name typing)
     all_capitalized = all(
         w[0].isupper() or _normalize_text(w) in _NAME_PARTICLES
         for w in words if w
     )
+    if all_capitalized:
+        return True
 
-    return first_is_name or all_capitalized
+    # Fuzzy signal for lowercase/uncommon names: 2-4 meaningful words,
+    # all short (<=15 chars), no word looks like a legal/institutional term,
+    # and at least one word has >=4 chars (filters out "a b c" junk)
+    if 2 <= len(meaningful) <= 4:
+        all_short = all(len(w) <= 15 for w in meaningful)
+        has_substance = any(len(w) >= 4 for w in meaningful)
+        # Check none of the words are common Portuguese content words
+        _CONTENT_WORDS = frozenset({
+            "federal", "nacional", "municipal", "estadual", "geral", "publica",
+            "resultado", "extrato", "registro", "processo", "sistema", "programa",
+            "servico", "trabalho", "governo", "brasil", "diario", "oficial",
+            "banco", "central", "meio", "ambiente", "saude", "energia",
+            "imposto", "renda", "receita", "valores", "mobiliarios",
+            "comercio", "exterior", "industria", "transporte", "infraestrutura",
+            "justica", "seguranca", "desenvolvimento", "planejamento",
+            "orcamento", "previdencia", "assistencia", "social",
+            "publico", "consulta", "audiencia", "chamada", "pregao",
+            "licitacao", "aditivo", "convenio", "cessao", "vacancia",
+        })
+        no_content = not any(w in _CONTENT_WORDS for w in meaningful)
+        if all_short and has_substance and no_content:
+            return True
+
+    return False
 
 
 _LAW_NAME_PATTERNS = [
