@@ -233,8 +233,8 @@ def _public_interest_functions() -> list[dict[str, Any]]:
         {"filter": {"bool": {"should": [{"term": {"section": "do1"}}, {"term": {"section": "DO1"}}]}}, "weight": 1.6},
         # Art type hierarchy
         {"filter": {"terms": {"art_type_normalized": ["lei", "lei complementar"]}}, "weight": 2.5},
-        {"filter": {"terms": {"art_type_normalized": ["decreto", "decreto-lei", "medida provisoria"]}}, "weight": 2.0},
-        {"filter": {"terms": {"art_type_normalized": ["resolucao"]}}, "weight": 1.5},
+        {"filter": {"terms": {"art_type_normalized": ["decreto", "decreto numerado", "decreto-lei", "medida provisória", "medida provisoria"]}}, "weight": 2.0},
+        {"filter": {"terms": {"art_type_normalized": ["resolução", "resolucao"]}}, "weight": 1.5},
         # Front page docs
         {"filter": {"range": {"page_number": {"lte": 5}}}, "weight": 1.3},
         # Cited docs
@@ -533,8 +533,13 @@ def classify_and_build(
         classify_intent, QueryIntent, IntentResult,
     )
     from src.backend.search.query_builders import (
-        build_exact_name_query, build_topic_query, build_trending_query, build_subject_query,
+        build_exact_name_query, build_topic_query, build_trending_query, build_subject_query, build_phrase_query,
     )
+
+    # Strip user-supplied quotes and treat as phrase search signal
+    is_quoted = q.startswith('"') and q.endswith('"')
+    if is_quoted:
+        q = q.strip('"').strip()
 
     legal_refs = _has_legal_ref(q)
 
@@ -576,6 +581,13 @@ def classify_and_build(
     if topic_profile:
         intent_data["topic"] = topic_profile.get("label")
         intent_data["topic_profile_id"] = topic_profile.get("id")
+
+    # Quoted queries → force phrase search (user explicitly wants exact phrase)
+    if is_quoted and len(q.split()) >= 2:
+        query_body = build_phrase_query(q, filters, legal_refs)
+        intent_data["detected"] = "phrase"
+        intent_data["confidence"] = 1.0
+        return query_body, "phrase", intent_data
 
     # Route to appropriate builder
     if intent == QueryIntent.EXACT_NAME:
@@ -745,7 +757,7 @@ def _build_payload(
         "from": from_,
         "size": size,
         "track_total_hits": True,
-        "timeout": "800ms",
+        "timeout": "2000ms",
         "query": query_body,
         "sort": sort,
         "_source": source_fields,
