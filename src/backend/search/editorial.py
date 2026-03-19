@@ -41,7 +41,7 @@ CATEGORIES: dict[str, dict[str, Any]] = {
                     {"terms": {"section": ["DO1", "do1"]}},
                     {"terms": {"art_type_normalized": [
                         "decreto", "lei", "medida-provisoria", "resolucao",
-                        "instrucao-normativa", "edital",
+                        "instrucao-normativa",
                     ]}},
                 ],
                 "minimum_should_match": 1,
@@ -218,8 +218,8 @@ def _score_candidate(hit: dict[str, Any], category: str, latest_pub_date: str) -
     # Art type boost
     score += _ART_TYPE_BOOSTS.get(art_type, 0)
 
-    # Penalize low-impact art types for destaque
-    if category == "destaque" and art_type in ("aviso", "portaria"):
+    # Penalize low-impact art types for destaque (editais belong in concursos)
+    if category == "destaque" and art_type in ("aviso", "portaria", "edital"):
         score -= 5
 
     # Organ boost (high-impact organs)
