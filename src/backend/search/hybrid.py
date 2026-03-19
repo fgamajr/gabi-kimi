@@ -568,7 +568,7 @@ def classify_and_build(
         classify_intent, QueryIntent, IntentResult,
     )
     from src.backend.search.query_builders import (
-        build_exact_name_query, build_topic_query, build_trending_query, build_subject_query, build_phrase_query,
+        build_exact_name_query, build_topic_query, build_trending_query, build_subject_query,
     )
 
     # Strip user-supplied quotes and treat as phrase search signal
