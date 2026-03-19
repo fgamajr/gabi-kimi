@@ -290,10 +290,10 @@ def _select_best_per_category(
     """Select top-1 document per category, deduplicating across categories."""
     used_doc_ids: set[str] = set()
     results: dict[str, dict[str, Any] | None] = {}
-    # Ranked candidates per category for backfill
     ranked: dict[str, list[tuple[float, dict[str, Any]]]] = {}
+    all_hits: list[dict[str, Any]] = []
 
-    # Score all candidates per category
+    # Fetch and score candidates per category
     for cat in ("destaque", "concursos", "economia", "politica"):
         hits = _fetch_candidates(es_client, cat, latest_pub_date)
         scored = []
@@ -303,9 +303,33 @@ def _select_best_per_category(
                 scored.append((s, hit))
         scored.sort(key=lambda x: x[0], reverse=True)
         ranked[cat] = scored
+        all_hits.extend(hits)
 
-    # Greedy allocation: destaque first, then others
-    for cat in ("destaque", "concursos", "economia", "politica"):
+    # Pick destaque: score ALL candidates with destaque scorer, pick global best
+    seen_ids: set[str] = set()
+    destaque_candidates: list[tuple[float, dict[str, Any]]] = []
+    for hit in all_hits:
+        src = hit.get("_source", {})
+        doc_id = src.get("doc_id") or hit.get("_id", "")
+        if doc_id in seen_ids:
+            continue
+        seen_ids.add(doc_id)
+        s = _score_candidate(hit, "destaque", latest_pub_date)
+        if s > 0:
+            destaque_candidates.append((s, hit))
+    destaque_candidates.sort(key=lambda x: x[0], reverse=True)
+
+    if destaque_candidates:
+        best_hit = destaque_candidates[0][1]
+        src = best_hit.get("_source", {})
+        doc_id = src.get("doc_id") or best_hit.get("_id", "")
+        results["destaque"] = best_hit
+        used_doc_ids.add(doc_id)
+    else:
+        results["destaque"] = None
+
+    # Fill remaining categories from their own ranked lists
+    for cat in ("concursos", "economia", "politica"):
         selected = None
         for score, hit in ranked[cat]:
             src = hit.get("_source", {})
