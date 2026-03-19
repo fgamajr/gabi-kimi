@@ -599,7 +599,11 @@ ES = ElasticClient()
 
 
 class GabiAPIClient:
-    """HTTP client for the FastAPI backend (hybrid search pipeline)."""
+    """Async HTTP client for the FastAPI backend (hybrid search pipeline).
+
+    Uses httpx.AsyncClient to avoid blocking the event loop when the MCP
+    server is mounted inside the same FastAPI process (SSE transport).
+    """
 
     def __init__(self) -> None:
         self.base_url = os.getenv("GABI_API_URL", "http://localhost:8001").rstrip("/")
@@ -607,20 +611,31 @@ class GabiAPIClient:
         headers: dict[str, str] = {}
         if token:
             headers["Authorization"] = f"Bearer {token}"
-        self._client = httpx.Client(timeout=30, headers=headers)
+        self._headers = headers
+        self._timeout = 30
+        # Lazy-init async client (created on first use inside event loop)
+        self._async_client: httpx.AsyncClient | None = None
 
-    def search(self, **params: Any) -> dict[str, Any]:
-        resp = self._client.get(f"{self.base_url}/api/search", params={k: v for k, v in params.items() if v is not None})
+    def _get_async_client(self) -> httpx.AsyncClient:
+        if self._async_client is None:
+            self._async_client = httpx.AsyncClient(timeout=self._timeout, headers=self._headers)
+        return self._async_client
+
+    async def search(self, **params: Any) -> dict[str, Any]:
+        client = self._get_async_client()
+        resp = await client.get(f"{self.base_url}/api/search", params={k: v for k, v in params.items() if v is not None})
         resp.raise_for_status()
         return resp.json()
 
-    def autocomplete(self, q: str, n: int = 10) -> list[Any]:
-        resp = self._client.get(f"{self.base_url}/api/autocomplete", params={"q": q, "n": n})
+    async def autocomplete(self, q: str, n: int = 10) -> list[Any]:
+        client = self._get_async_client()
+        resp = await client.get(f"{self.base_url}/api/autocomplete", params={"q": q, "n": n})
         resp.raise_for_status()
         return resp.json()
 
-    def document(self, doc_id: str) -> dict[str, Any]:
-        resp = self._client.get(f"{self.base_url}/api/document/{doc_id}")
+    async def document(self, doc_id: str) -> dict[str, Any]:
+        client = self._get_async_client()
+        resp = await client.get(f"{self.base_url}/api/document/{doc_id}")
         resp.raise_for_status()
         return resp.json()
 
@@ -1016,7 +1031,7 @@ def _format_reranked_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
 # TOOL 1: es_search — The primary search tool (two-stage, re-ranked)
 # ---------------------------------------------------------------------------
 
-def es_search(
+async def es_search(
     query: str,
     page: int = 1,
     page_size: int = 20,
@@ -1060,7 +1075,7 @@ def es_search(
     page_size = max(1, min(page_size, 100))
 
     try:
-        data = API.search(
+        data = await API.search(
             q=query, page=page, max=page_size,
             date_from=date_from, date_to=date_to,
             section=section, art_type=art_type,
@@ -1086,7 +1101,7 @@ def es_search(
 # TOOL 2: es_suggest — Autocomplete
 # ---------------------------------------------------------------------------
 
-def es_suggest(prefix: str, limit: int = 10) -> dict[str, Any]:
+async def es_suggest(prefix: str, limit: int = 10) -> dict[str, Any]:
     """Autocomplete suggestions via GABI API.
 
     Args:
@@ -1098,7 +1113,7 @@ def es_suggest(prefix: str, limit: int = 10) -> dict[str, Any]:
         return {"prefix": prefix, "suggestions": []}
     limit = max(1, min(limit, 20))
     try:
-        data = API.autocomplete(p, limit)
+        data = await API.autocomplete(p, limit)
     except httpx.HTTPStatusError:
         return {"prefix": prefix, "suggestions": []}
     return {"prefix": prefix, "suggestions": data}
@@ -1163,7 +1178,7 @@ def es_facets(
 # TOOL 4: es_document — Single document fetch
 # ---------------------------------------------------------------------------
 
-def es_document(doc_id: str) -> dict[str, Any]:
+async def es_document(doc_id: str) -> dict[str, Any]:
     """Fetch a single document by its ID via GABI API.
 
     Returns full document with body, metadata, media, and signatures.
@@ -1172,7 +1187,7 @@ def es_document(doc_id: str) -> dict[str, Any]:
       doc_id: the document ID
     """
     try:
-        data = API.document(doc_id)
+        data = await API.document(doc_id)
         return {"found": True, "doc_id": doc_id, "document": data}
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:
