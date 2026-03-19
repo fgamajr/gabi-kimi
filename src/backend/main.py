@@ -375,12 +375,14 @@ def _build_filters(
     if section:
         es_sec = _section_to_es(section)
         if es_sec:
+            # Match both uppercase (DO1) and lowercase (do1) variants
+            variants = [es_sec, es_sec.lower()]
             filters.append(
                 {
                     "bool": {
                         "should": [
-                            {"term": {"section": es_sec}},
-                            {"term": {"edition_section": es_sec}},
+                            {"terms": {"section": variants}},
+                            {"terms": {"edition_section": variants}},
                         ],
                         "minimum_should_match": 1,
                     }
