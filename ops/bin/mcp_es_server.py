@@ -1812,7 +1812,32 @@ def get_mcp_sse_app():
     """Return the MCP SSE ASGI app for mounting inside FastAPI."""
     if mcp is None:
         return None
-    return mcp.sse_app()
+
+    app = mcp.sse_app()
+
+    mcp_auth_token = os.getenv("MCP_AUTH_TOKEN", "").strip()
+    if not mcp_auth_token:
+        return app
+
+    logger.info("MCP SSE: bearer token auth enabled")
+
+    from starlette.responses import JSONResponse as _JSONResp
+
+    class _AuthWrap:
+        def __init__(self, inner):  # type: ignore
+            self.inner = inner
+
+        async def __call__(self, scope, receive, send):  # type: ignore
+            if scope["type"] == "http":
+                headers = dict(scope.get("headers", []))
+                auth = (headers.get(b"authorization") or b"").decode()
+                if not auth.startswith("Bearer ") or auth[7:] != mcp_auth_token:
+                    resp = _JSONResp(status_code=401, content={"detail": "Invalid MCP auth token"})
+                    await resp(scope, receive, send)
+                    return
+            await self.inner(scope, receive, send)
+
+    return _AuthWrap(app)
 
 
 def main() -> int:
