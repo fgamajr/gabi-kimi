@@ -44,6 +44,7 @@ CATEGORIES: dict[str, dict[str, Any]] = {
                         "instrucao-normativa", "edital",
                     ]}},
                 ],
+                "minimum_should_match": 1,
             }
         },
     },
@@ -121,6 +122,10 @@ _ART_TYPE_BOOSTS: dict[str, float] = {
 
 # Category-specific extra boosts
 _CATEGORY_BOOSTS: dict[str, dict[str, float]] = {
+    "destaque": {
+        "presidencia": 10.0, "ministerio": 5.0, "decreto": 6.0,
+        "medida provisoria": 8.0, "lei": 7.0, "regulamenta": 4.0,
+    },
     "concursos": {"concurso": 8.0, "vagas": 5.0, "seleção": 5.0, "selecao": 5.0},
     "economia": {"fiscal": 5.0, "tributario": 5.0, "orcamento": 5.0, "imposto": 4.0},
     "politica": {"regulamenta": 5.0, "altera": 3.0, "aprova": 3.0},
@@ -212,6 +217,15 @@ def _score_candidate(hit: dict[str, Any], category: str, latest_pub_date: str) -
 
     # Art type boost
     score += _ART_TYPE_BOOSTS.get(art_type, 0)
+
+    # Penalize low-impact art types for destaque
+    if category == "destaque" and art_type in ("aviso", "portaria"):
+        score -= 5
+
+    # Organ boost (high-impact organs)
+    organ_norm = _normalize(organ)
+    if any(p in organ_norm for p in ("presidencia", "ministerio", "banco central", "congresso")):
+        score += 4
 
     # Noise penalty
     for noise in _NOISE_TERMS:

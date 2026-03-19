@@ -26,6 +26,24 @@ const CATEGORY_STYLES: Record<string, { icon: React.ReactNode; badgeClass: strin
   },
 };
 
+const ART_TYPE_ICONS: Record<string, React.FC<{ className?: string }>> = {
+  'decreto': Icons.document,
+  'medida provisória': Icons.document,
+  'medida-provisoria': Icons.document,
+  'lei': Icons.book,
+  'edital': Icons.bookmark,
+  'resolução': Icons.scale,
+  'resolucao': Icons.scale,
+};
+
+function getDecoIcon(artType: string): React.FC<{ className?: string }> {
+  const key = artType.toLowerCase().trim();
+  for (const [k, icon] of Object.entries(ART_TYPE_ICONS)) {
+    if (key.includes(k)) return icon;
+  }
+  return Icons.document;
+}
+
 const formatDayMonth = (d: string) => {
   try {
     return new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
@@ -36,28 +54,33 @@ const formatDayMonth = (d: string) => {
 
 const FeaturedCard: React.FC<{ highlight: EditorialHighlight }> = ({ highlight }) => {
   const navigate = useNavigate();
+  const DecoIcon = getDecoIcon(highlight.art_type);
+
   return (
     <div
-      className="group bg-card border border-border rounded-2xl overflow-hidden hover:shadow-lg transition-all duration-300 cursor-pointer"
+      className="group relative bg-card border border-border rounded-2xl overflow-hidden hover:shadow-lg transition-all duration-300 cursor-pointer"
       onClick={() => navigate(`/document/${encodeURIComponent(highlight.doc_id)}`)}
     >
-      <div className="p-8 flex flex-col h-full justify-between">
+      <DecoIcon className="absolute -right-4 -top-4 w-28 h-28 text-primary/[0.06] pointer-events-none" />
+      <div className="relative p-8 flex flex-col h-full justify-between">
         <div>
           <div className="flex items-center gap-3 mb-5">
             <span className="px-2.5 py-1 bg-primary text-white text-[10px] font-bold uppercase tracking-wider rounded">
               {highlight.badge}
             </span>
-            <span className="text-xs font-mono text-text-tertiary">
+            <span className="text-xs font-mono text-text-tertiary flex items-center gap-2">
               <SectionBadge section={highlight.section} />
-              {highlight.edition_number && ` · Edição ${highlight.edition_number}`}
+              {highlight.edition_number && <span>Edição {highlight.edition_number}</span>}
             </span>
           </div>
           <h3 className="text-2xl lg:text-3xl font-black leading-tight group-hover:text-primary transition-colors line-clamp-3">
             {highlight.title}
           </h3>
-          <p className="text-text-secondary text-base leading-relaxed mt-4 line-clamp-3">
-            {highlight.summary}
-          </p>
+          {highlight.summary && (
+            <p className="text-text-secondary text-base leading-relaxed mt-4 line-clamp-3">
+              {highlight.summary}
+            </p>
+          )}
           {highlight.why && (
             <p className="text-sm text-primary/80 mt-3 italic">{highlight.why}</p>
           )}
@@ -118,7 +141,7 @@ const EditorialHighlights: React.FC<Props> = ({ data }) => {
   if (!destaque && sideCards.length === 0) return null;
 
   return (
-    <section className="max-w-6xl mx-auto px-4 py-10">
+    <section className="max-w-6xl mx-auto px-4 pt-10 pb-4">
       <div className="flex justify-between items-end mb-8">
         <div>
           <h2 className="text-2xl font-black tracking-tight">Destaques Editoriais</h2>

@@ -23,6 +23,7 @@ import {
   EllipsisVertical,
   Bookmark,
   ChevronLeft,
+  Scale,
 } from 'lucide-react';
 
 export const Icons = {
@@ -50,4 +51,5 @@ export const Icons = {
   more: EllipsisVertical,
   bookmark: Bookmark,
   chevronLeft: ChevronLeft,
+  scale: Scale,
 };

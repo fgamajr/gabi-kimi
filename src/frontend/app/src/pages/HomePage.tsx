@@ -114,63 +114,113 @@ const HomePage: React.FC = () => {
         </div>
       </section>
 
-      {editorial && Object.keys(editorial.categories).length > 0 && (
-        <EditorialHighlights data={editorial} />
-      )}
+      {editorial && Object.keys(editorial.categories).length > 0 ? (
+        <>
+          <EditorialHighlights data={editorial} />
+          <main className="max-w-6xl mx-auto px-4 pb-10 space-y-10">
+            {trendingTopics.length > 0 && (
+              <section>
+                <h2 className="text-2xl font-black tracking-tight">Em alta</h2>
+                <p className="text-sm text-text-secondary mt-1 mb-4">Tópicos com maior tração nos últimos 7 dias</p>
 
-      <main className="max-w-6xl mx-auto px-4 py-10 grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8">
-        <div className="space-y-10">
-          {trendingTopics.length > 0 && (
-            <section>
-              <h2 className="text-2xl font-black tracking-tight">Em alta</h2>
-              <p className="text-sm text-text-secondary mt-1 mb-4">Tópicos com maior tração nos últimos 7 dias</p>
+                {trendingTopics.length < 3 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {trendingTopics.map((topic) => (
+                      <TrendingCard
+                        key={topic.query}
+                        topic={topic}
+                        onClick={() => navigate(`/search?q=${encodeURIComponent(topic.query)}&intent=trending&is_trending=true`)}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="grid md:grid-cols-3 auto-rows-[minmax(140px,auto)] gap-3">
+                    {trendingTopics.map((topic, idx) => (
+                      <TrendingCard
+                        key={topic.query}
+                        topic={topic}
+                        large={idx === 0}
+                        onClick={() => navigate(`/search?q=${encodeURIComponent(topic.query)}&intent=trending&is_trending=true`)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
 
-              {trendingTopics.length < 3 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {trendingTopics.map((topic) => (
-                    <TrendingCard
-                      key={topic.query}
-                      topic={topic}
-                      onClick={() => navigate(`/search?q=${encodeURIComponent(topic.query)}&intent=trending&is_trending=true`)}
-                    />
+            {examples.length > 0 && (
+              <section>
+                <h3 className="text-lg font-semibold mb-3">Exemplos de busca</h3>
+                <ul className="grid sm:grid-cols-2 md:grid-cols-3 gap-2">
+                  {examples.map((example) => (
+                    <li key={example.query}>
+                      <button
+                        onClick={() => navigate(`/search?q=${encodeURIComponent(example.query)}`)}
+                        className="w-full text-left rounded-xl border border-border bg-card px-4 py-3 hover:border-primary/40 transition-colors focus-ring"
+                      >
+                        <p className="font-semibold">{example.query}</p>
+                        {example.description && <p className="text-sm text-text-secondary mt-1">{example.description}</p>}
+                      </button>
+                    </li>
                   ))}
-                </div>
-              ) : (
-                <div className="grid md:grid-cols-3 auto-rows-[minmax(140px,auto)] gap-3">
-                  {trendingTopics.map((topic, idx) => (
-                    <TrendingCard
-                      key={topic.query}
-                      topic={topic}
-                      large={idx === 0}
-                      onClick={() => navigate(`/search?q=${encodeURIComponent(topic.query)}&intent=trending&is_trending=true`)}
-                    />
+                </ul>
+              </section>
+            )}
+          </main>
+        </>
+      ) : (
+        <main className="max-w-6xl mx-auto px-4 py-10 grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8">
+          <div className="space-y-10">
+            {trendingTopics.length > 0 && (
+              <section>
+                <h2 className="text-2xl font-black tracking-tight">Em alta</h2>
+                <p className="text-sm text-text-secondary mt-1 mb-4">Tópicos com maior tração nos últimos 7 dias</p>
+
+                {trendingTopics.length < 3 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {trendingTopics.map((topic) => (
+                      <TrendingCard
+                        key={topic.query}
+                        topic={topic}
+                        onClick={() => navigate(`/search?q=${encodeURIComponent(topic.query)}&intent=trending&is_trending=true`)}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="grid md:grid-cols-3 auto-rows-[minmax(140px,auto)] gap-3">
+                    {trendingTopics.map((topic, idx) => (
+                      <TrendingCard
+                        key={topic.query}
+                        topic={topic}
+                        large={idx === 0}
+                        onClick={() => navigate(`/search?q=${encodeURIComponent(topic.query)}&intent=trending&is_trending=true`)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
+
+            {examples.length > 0 && (
+              <section>
+                <h3 className="text-lg font-semibold mb-3">Exemplos de busca</h3>
+                <ul className="grid sm:grid-cols-2 gap-2">
+                  {examples.map((example) => (
+                    <li key={example.query}>
+                      <button
+                        onClick={() => navigate(`/search?q=${encodeURIComponent(example.query)}`)}
+                        className="w-full text-left rounded-xl border border-border bg-card px-4 py-3 hover:border-primary/40 transition-colors focus-ring"
+                      >
+                        <p className="font-semibold">{example.query}</p>
+                        {example.description && <p className="text-sm text-text-secondary mt-1">{example.description}</p>}
+                      </button>
+                    </li>
                   ))}
-                </div>
-              )}
-            </section>
-          )}
+                </ul>
+              </section>
+            )}
+          </div>
 
-          {examples.length > 0 && (
-            <section>
-              <h3 className="text-lg font-semibold mb-3">Exemplos de busca</h3>
-              <ul className="grid sm:grid-cols-2 gap-2">
-                {examples.map((example) => (
-                  <li key={example.query}>
-                    <button
-                      onClick={() => navigate(`/search?q=${encodeURIComponent(example.query)}`)}
-                      className="w-full text-left rounded-xl border border-border bg-card px-4 py-3 hover:border-primary/40 transition-colors focus-ring"
-                    >
-                      <p className="font-semibold">{example.query}</p>
-                      {example.description && <p className="text-sm text-text-secondary mt-1">{example.description}</p>}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-        </div>
-
-        {!(editorial && Object.keys(editorial.categories).length > 0) && (
           <aside className="lg:sticky lg:top-24 h-fit">
             <h3 className="text-xs uppercase tracking-[0.2em] text-text-tertiary font-semibold mb-3">Destaques recentes</h3>
             {recentHighlights.length === 0 ? (
@@ -190,8 +240,8 @@ const HomePage: React.FC = () => {
               </div>
             )}
           </aside>
-        )}
-      </main>
+        </main>
+      )}
     </div>
   );
 };
