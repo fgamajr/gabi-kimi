@@ -28,12 +28,38 @@ The MCP server needs access to:
 - **Elasticsearch** at `ES_URL` (for analytics tools)
 - **GABI FastAPI backend** at `GABI_API_URL` (for search/suggest/document)
 
+## Quick Start (Remote Access)
+
+If you're a collaborator accessing the shared server (not running ES locally), use this config. Replace `YOUR_TOKEN` with the token you received from the admin.
+
+```json
+{
+  "mcpServers": {
+    "gabi-dou": {
+      "command": "python3",
+      "args": ["/path/to/gabi-kimi/ops/bin/mcp_es_server.py"],
+      "env": {
+        "ES_URL": "http://204.168.173.163:9200",
+        "ES_ALIAS": "gabi_documents_v3",
+        "GABI_API_URL": "https://gabidou.top",
+        "GABI_API_TOKEN": "YOUR_TOKEN"
+      }
+    }
+  }
+}
+```
+
+This routes search/suggest/document through the public API (with auth), and analytics tools directly to ES.
+
+> **Note:** ES is currently not exposed on the public internet. For analytics tools (facets, timeline, etc.), you need either VPN/SSH tunnel access or to run from a machine with direct access. Search, suggest, and document tools work remotely via the HTTPS API.
+
 ## Configuration by Client
 
 ### Claude Code (CLI)
 
 Already configured if you cloned this repo. The config is at `.claude/projects/-Users-.../settings.json`:
 
+**Local development (you run Docker locally):**
 ```json
 {
   "mcpServers": {
@@ -44,16 +70,41 @@ Already configured if you cloned this repo. The config is at `.claude/projects/-
         "ES_URL": "http://localhost:9200",
         "ES_ALIAS": "gabi_documents",
         "GABI_API_URL": "http://localhost:8001",
-        "GABI_API_TOKEN": "YOUR_TOKEN_HERE"
+        "GABI_API_TOKEN": "YOUR_TOKEN"
       }
     }
   }
 }
 ```
 
-### Claude Desktop
+**Remote access (connecting to shared server):**
+```json
+{
+  "mcpServers": {
+    "gabi-dou": {
+      "command": "python3",
+      "args": ["ops/bin/mcp_es_server.py"],
+      "env": {
+        "ES_URL": "http://204.168.173.163:9200",
+        "ES_ALIAS": "gabi_documents_v3",
+        "GABI_API_URL": "https://gabidou.top",
+        "GABI_API_TOKEN": "YOUR_TOKEN"
+      }
+    }
+  }
+}
+```
 
-Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
+### Claude Desktop / Cursor / VS Code / Windsurf
+
+All use the same JSON structure. Edit the appropriate file:
+
+| Client | Config File |
+|--------|-------------|
+| Claude Desktop | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| Cursor | `~/.cursor/mcp.json` |
+| VS Code | `~/Library/Application Support/Code/User/mcp.json` (key: `"servers"` not `"mcpServers"`) |
+| Windsurf | `~/.windsurf/mcp.json` |
 
 ```json
 {
@@ -62,82 +113,21 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
       "command": "python3",
       "args": ["/absolute/path/to/gabi-kimi/ops/bin/mcp_es_server.py"],
       "env": {
-        "ES_URL": "http://localhost:9200",
-        "ES_ALIAS": "gabi_documents",
-        "GABI_API_URL": "http://localhost:8001",
-        "GABI_API_TOKEN": "YOUR_TOKEN_HERE"
+        "ES_URL": "http://204.168.173.163:9200",
+        "ES_ALIAS": "gabi_documents_v3",
+        "GABI_API_URL": "https://gabidou.top",
+        "GABI_API_TOKEN": "YOUR_TOKEN"
       }
     }
   }
 }
 ```
 
-### Cursor
-
-Edit `~/.cursor/mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "gabi-dou": {
-      "command": "python3",
-      "args": ["/absolute/path/to/gabi-kimi/ops/bin/mcp_es_server.py"],
-      "env": {
-        "ES_URL": "http://localhost:9200",
-        "ES_ALIAS": "gabi_documents",
-        "GABI_API_URL": "http://localhost:8001",
-        "GABI_API_TOKEN": "YOUR_TOKEN_HERE"
-      }
-    }
-  }
-}
-```
-
-### VS Code (GitHub Copilot)
-
-Edit `~/Library/Application Support/Code/User/mcp.json`:
-
-```json
-{
-  "servers": {
-    "gabi-dou": {
-      "command": "python3",
-      "args": ["/absolute/path/to/gabi-kimi/ops/bin/mcp_es_server.py"],
-      "env": {
-        "ES_URL": "http://localhost:9200",
-        "ES_ALIAS": "gabi_documents",
-        "GABI_API_URL": "http://localhost:8001",
-        "GABI_API_TOKEN": "YOUR_TOKEN_HERE"
-      }
-    }
-  }
-}
-```
-
-### Windsurf
-
-Edit `~/.windsurf/mcp.json` (same format as Cursor):
-
-```json
-{
-  "mcpServers": {
-    "gabi-dou": {
-      "command": "python3",
-      "args": ["/absolute/path/to/gabi-kimi/ops/bin/mcp_es_server.py"],
-      "env": {
-        "ES_URL": "http://localhost:9200",
-        "ES_ALIAS": "gabi_documents",
-        "GABI_API_URL": "http://localhost:8001",
-        "GABI_API_TOKEN": "YOUR_TOKEN_HERE"
-      }
-    }
-  }
-}
-```
+> For VS Code, use `"servers"` instead of `"mcpServers"` as the top-level key.
 
 ### Zed
 
-Edit `~/.config/zed/settings.json`, add inside `"context_servers"`:
+Edit `~/.config/zed/settings.json`:
 
 ```json
 {
@@ -153,12 +143,13 @@ Edit `~/.config/zed/settings.json`, add inside `"context_servers"`:
 }
 ```
 
-Note: Zed passes env vars from the shell environment. Export them in your `.zshrc`/`.bashrc`:
+Zed reads env vars from your shell. Add to `~/.zshrc` or `~/.bashrc`:
 
 ```bash
-export ES_URL=http://localhost:9200
-export GABI_API_URL=http://localhost:8001
-export GABI_API_TOKEN=YOUR_TOKEN_HERE
+export ES_URL=http://204.168.173.163:9200
+export ES_ALIAS=gabi_documents_v3
+export GABI_API_URL=https://gabidou.top
+export GABI_API_TOKEN=YOUR_TOKEN
 ```
 
 ### Remote Clients (SSE Transport)
