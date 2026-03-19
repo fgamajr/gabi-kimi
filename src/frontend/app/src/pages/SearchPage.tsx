@@ -301,7 +301,7 @@ const SearchPage: React.FC = () => {
             {!loading && response && response.results.length > 0 && (
               <div className="space-y-4">
                 {response.results.map((r, i) => (
-                  <ResultCard key={r.id} result={r} index={i} />
+                  <ResultCard key={r.id} result={r} index={i} query={query} />
                 ))}
               </div>
             )}

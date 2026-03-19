@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { getDocument } from '@/lib/api';
 import type { DocumentDetail } from '@/lib/api';
 import { DocImage } from '@/components/DocImage';
@@ -21,6 +21,8 @@ import {
 const DocumentPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const highlightQuery = searchParams.get('q') || '';
   const [doc, setDoc] = useState<DocumentDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -46,16 +48,37 @@ const DocumentPage: React.FC = () => {
 
   // Process body: use body_html if available, otherwise convert body_plain to paragraphs
   const processedBody = useMemo(() => {
-    if (doc?.body_html) return doc.body_html;
-    const plain = doc?.body_plain || '';
-    if (!plain) return '';
-    // Split on double newlines for paragraphs, single newlines within
-    return plain
-      .split(/\n{2,}/)
-      .filter(p => p.trim())
-      .map(p => `<p>${p.replace(/\n/g, '<br/>')}</p>`)
-      .join('\n');
-  }, [doc]);
+    let html: string;
+    if (doc?.body_html) {
+      html = doc.body_html;
+    } else {
+      const plain = doc?.body_plain || '';
+      if (!plain) return '';
+      html = plain
+        .split(/\n{2,}/)
+        .filter(p => p.trim())
+        .map(p => `<p>${p.replace(/\n/g, '<br/>')}</p>`)
+        .join('\n');
+    }
+
+    // Highlight search terms if coming from search
+    if (highlightQuery) {
+      const terms = highlightQuery
+        .replace(/["'"]/g, '')
+        .split(/\s+/)
+        .filter(t => t.length >= 3)
+        .map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+      if (terms.length > 0) {
+        const pattern = new RegExp(`(${terms.join('|')})`, 'gi');
+        // Only highlight text nodes (not inside HTML tags)
+        html = html.replace(/>([^<]+)</g, (_, text) =>
+          '>' + text.replace(pattern, '<mark>$1</mark>') + '<'
+        );
+      }
+    }
+
+    return html;
+  }, [doc, highlightQuery]);
 
   // Separate media by position
   const trailingMedia = useMemo(() => {

@@ -7,10 +7,12 @@ import { Icons } from './Icons';
 interface ResultCardProps {
   result: SearchResult;
   index?: number;
+  query?: string;
 }
 
-export const ResultCard: React.FC<ResultCardProps> = ({ result, index = 0 }) => {
+export const ResultCard: React.FC<ResultCardProps> = ({ result, index = 0, query }) => {
   const navigate = useNavigate();
+  const docUrl = `/document/${encodeURIComponent(result.id)}${query ? `?q=${encodeURIComponent(query)}` : ''}`;
 
   const formatDate = (d: string) => {
     try {
@@ -54,8 +56,8 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, index = 0 }) => 
         <h3
           role="link"
           tabIndex={0}
-          onClick={() => navigate(`/document/${encodeURIComponent(result.id)}`)}
-          onKeyDown={(e) => e.key === 'Enter' && navigate(`/document/${encodeURIComponent(result.id)}`)}
+          onClick={() => navigate(docUrl)}
+          onKeyDown={(e) => e.key === 'Enter' && navigate(docUrl)}
           className="text-lg sm:text-xl font-bold text-foreground leading-snug mb-3 group-hover:text-primary transition-colors cursor-pointer"
           dangerouslySetInnerHTML={{ __html: result.highlight || result.title }}
         />
