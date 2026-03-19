@@ -37,9 +37,9 @@ export const Header: React.FC<HeaderProps> = ({ showBack = false, onBack, search
         ) : (
           <Link
             to="/"
-            className="text-lg sm:text-xl font-black tracking-tight uppercase text-foreground hover:text-primary transition-colors"
+            className="text-lg sm:text-xl font-black tracking-tighter text-foreground hover:text-primary transition-colors"
           >
-            GABI DOU
+            Arquivo da República
           </Link>
         )}
 
