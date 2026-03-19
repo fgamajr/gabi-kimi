@@ -40,6 +40,14 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, index = 0 }) => 
               <span className="text-muted-foreground font-mono text-[10px]">PÁGINA {result.page}</span>
             </>
           )}
+          {result.issuing_organ && (
+            <>
+              <span className="w-1 h-1 rounded-full bg-muted-foreground/30" />
+              <span className="px-2 py-0.5 rounded-md bg-primary/8 text-primary text-[10px] font-bold font-mono uppercase truncate max-w-[200px]">
+                {result.issuing_organ}
+              </span>
+            </>
+          )}
         </div>
 
         {/* Title with highlights */}
