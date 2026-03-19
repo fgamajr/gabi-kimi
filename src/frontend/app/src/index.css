@@ -354,6 +354,17 @@
     animation: slideInRight var(--motion-normal) var(--motion-spring) both;
   }
 
+  /* Search result highlights */
+  mark {
+    background-color: hsl(48 96% 78%);
+    border-radius: 0.125rem;
+    padding: 0 0.125rem;
+    color: inherit;
+  }
+  .dark mark {
+    background-color: hsl(48 60% 30%);
+  }
+
   /* Press effect — spring squash */
   .press-effect {
     transition: transform var(--motion-fast) var(--motion-spring);

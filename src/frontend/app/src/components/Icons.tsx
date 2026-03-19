@@ -21,6 +21,8 @@ import {
   Download,
   Printer,
   EllipsisVertical,
+  Bookmark,
+  ChevronLeft,
 } from 'lucide-react';
 
 export const Icons = {
@@ -46,4 +48,6 @@ export const Icons = {
   download: Download,
   printer: Printer,
   more: EllipsisVertical,
+  bookmark: Bookmark,
+  chevronLeft: ChevronLeft,
 };

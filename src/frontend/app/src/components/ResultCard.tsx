@@ -2,6 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { SearchResult } from '@/lib/api';
 import { SectionBadge } from './Badges';
+import { Icons } from './Icons';
 
 interface ResultCardProps {
   result: SearchResult;
@@ -10,59 +11,84 @@ interface ResultCardProps {
 
 export const ResultCard: React.FC<ResultCardProps> = ({ result, index = 0 }) => {
   const navigate = useNavigate();
-  const sectionColorClass =
-    result.section === '1'
-      ? 'border-l-[hsl(var(--do1))]'
-      : result.section === '2'
-        ? 'border-l-[hsl(var(--do2))]'
-        : result.section === '3'
-          ? 'border-l-[hsl(var(--do3))]'
-          : 'border-l-[hsl(var(--do-extra))]';
 
   const formatDate = (d: string) => {
     try {
-      return new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
+      return new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' }).toUpperCase();
     } catch { return d; }
   };
 
   return (
     <article
-      role="link"
-      tabIndex={0}
-      onClick={() => navigate(`/document/${encodeURIComponent(result.id)}`)}
-      onKeyDown={(e) => e.key === 'Enter' && navigate(`/document/${encodeURIComponent(result.id)}`)}
-      className={`group rounded-xl bg-surface-elevated border border-border border-l-4 ${sectionColorClass} p-5 cursor-pointer transition-all hover:border-primary/30 hover:shadow-[var(--shadow-md)] press-effect focus-ring animate-fade-in`}
-      style={{ animationDelay: `${index * 50}ms` }}
+      className="group bg-card rounded-2xl border border-border/30 hover:bg-background transition-all duration-300 animate-fade-in"
+      style={{ animationDelay: `${index * 40}ms` }}
     >
-      {/* Meta row */}
-      <div className="flex items-center gap-2 mb-2 text-xs">
-        {result.section && <SectionBadge section={result.section} />}
-        <span className="text-text-tertiary">{formatDate(result.pub_date)}</span>
-        {result.page && <span className="text-text-tertiary">p. {result.page}</span>}
-        {result.art_type && (
-          <span className="text-text-tertiary hidden sm:inline">• {result.art_type}</span>
-        )}
-      </div>
+      <div className="p-6 sm:p-8">
+        {/* Meta row */}
+        <div className="flex flex-wrap items-center gap-2.5 mb-4">
+          {result.section && <SectionBadge section={result.section} />}
+          {result.art_type && (
+            <span className="px-2 py-0.5 rounded-md bg-destructive/10 text-destructive text-[10px] font-bold font-mono uppercase">
+              {result.art_type}
+            </span>
+          )}
+          <span className="w-1 h-1 rounded-full bg-muted-foreground/30" />
+          <span className="text-muted-foreground font-mono text-[10px]">{formatDate(result.pub_date)}</span>
+          {result.page && (
+            <>
+              <span className="w-1 h-1 rounded-full bg-muted-foreground/30" />
+              <span className="text-muted-foreground font-mono text-[10px]">PÁGINA {result.page}</span>
+            </>
+          )}
+        </div>
 
-      {/* Title */}
-      <h3 className="text-lg font-semibold text-foreground leading-snug mb-1 group-hover:text-primary transition-colors line-clamp-2">
-        {result.title}
-      </h3>
-
-      {/* Snippet */}
-      {(result.snippet || result.highlight) && (
-        <p
-          className="text-sm text-text-secondary leading-relaxed line-clamp-2 mb-2"
-          dangerouslySetInnerHTML={{ __html: result.highlight || result.snippet || '' }}
+        {/* Title with highlights */}
+        <h3
+          role="link"
+          tabIndex={0}
+          onClick={() => navigate(`/document/${encodeURIComponent(result.id)}`)}
+          onKeyDown={(e) => e.key === 'Enter' && navigate(`/document/${encodeURIComponent(result.id)}`)}
+          className="text-lg sm:text-xl font-bold text-foreground leading-snug mb-3 group-hover:text-primary transition-colors cursor-pointer"
+          dangerouslySetInnerHTML={{ __html: result.highlight || result.title }}
         />
-      )}
 
-      {/* Footer */}
-      {result.issuing_organ && (
-        <p className="text-xs text-text-tertiary truncate">
-          {result.issuing_organ}
-        </p>
-      )}
+        {/* Snippet */}
+        {result.snippet && (
+          <p
+            className="text-text-secondary text-sm leading-relaxed mb-6 line-clamp-3"
+            dangerouslySetInnerHTML={{ __html: result.snippet }}
+          />
+        )}
+
+        {/* Footer */}
+        <div className="flex items-center justify-between pt-5 border-t border-border/30">
+          <div className="flex items-center gap-2 min-w-0">
+            <Icons.building className="w-4 h-4 text-primary shrink-0" />
+            <span className="text-xs font-bold tracking-wider text-foreground uppercase truncate">
+              {result.issuing_organ || '—'}
+            </span>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <button
+              className="text-muted-foreground hover:text-primary transition-colors p-1"
+              aria-label="Salvar"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Icons.bookmark className="w-5 h-5" />
+            </button>
+            <a
+              href={`/api/document/${encodeURIComponent(result.id)}/pdf`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/5 hover:bg-primary/10 text-primary rounded-lg text-xs font-bold transition-all"
+            >
+              <Icons.download className="w-4 h-4" />
+              PDF
+            </a>
+          </div>
+        </div>
+      </div>
     </article>
   );
 };

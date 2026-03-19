@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { searchDocuments, getTypes } from '@/lib/api';
 import type { SearchResponse, TypeOption, SearchParams } from '@/lib/api';
 import { Header } from '@/components/Header';
+import { SearchBar } from '@/components/SearchBar';
 import { ResultCard } from '@/components/ResultCard';
 import { FilterChip } from '@/components/Badges';
 import { BottomSheet } from '@/components/BottomSheet';
@@ -12,19 +13,16 @@ import { ThemeToggle } from '@/components/ThemeToggle';
 
 const SECTIONS = [
   { value: '', label: 'Todas' },
-  { value: '1', label: 'Seção 1' },
-  { value: '2', label: 'Seção 2' },
-  { value: '3', label: 'Seção 3' },
+  { value: '1', label: 'S1' },
+  { value: '2', label: 'S2' },
+  { value: '3', label: 'S3' },
   { value: 'e', label: 'Extra' },
 ];
 
-const INTENT_BADGES: Record<string, { label: string; icon: string }> = {
-  exact_name: { label: 'Ato específico', icon: '📄' },
-  canonical_lookup: { label: 'Lei', icon: '📜' },
-  trending_browse: { label: 'Recentes', icon: '📅' },
-  subject_explore: { label: 'Tema', icon: '🔍' },
-  person_name: { label: 'Pessoa', icon: '👤' },
-};
+const DATE_PRESETS = [
+  { label: 'Últimos 30 dias', days: 30 },
+  { label: 'Últimos 6 meses', days: 180 },
+];
 
 const SearchPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -43,7 +41,7 @@ const SearchPage: React.FC = () => {
   const [types, setTypes] = useState<TypeOption[]>([]);
   const [showFilters, setShowFilters] = useState(false);
 
-  // Local filter state for bottom sheet
+  // Local filter state
   const [localSection, setLocalSection] = useState(section);
   const [localArtType, setLocalArtType] = useState(artType);
   const [localDateFrom, setLocalDateFrom] = useState(dateFrom);
@@ -85,9 +83,7 @@ const SearchPage: React.FC = () => {
     setSearchParams(next);
   };
 
-  const handleSearch = (q: string) => {
-    updateParams({ q, page: '1' });
-  };
+  const handleSearch = (q: string) => updateParams({ q, page: '1' });
 
   const applyFilters = () => {
     updateParams({
@@ -109,10 +105,16 @@ const SearchPage: React.FC = () => {
     setShowFilters(false);
   };
 
-  const activeFilterCount = [section, artType, dateFrom, dateTo].filter(Boolean).length;
+  const applyDatePreset = (days: number) => {
+    const to = new Date();
+    const from = new Date();
+    from.setDate(from.getDate() - days);
+    setLocalDateFrom(from.toISOString().slice(0, 10));
+    setLocalDateTo(to.toISOString().slice(0, 10));
+  };
+
   const totalPages = response ? Math.ceil(response.total / (response.max || 20)) : 0;
   const currentMode = isTrending || intent === 'trending' ? 'trending' : 'relevance';
-  const badge = response?.intent ? INTENT_BADGES[response.intent.detected] : null;
 
   return (
     <div className="min-h-full bg-background flex flex-col">
@@ -123,185 +125,218 @@ const SearchPage: React.FC = () => {
         actionsRight={<ThemeToggle />}
       />
 
-      {/* Active filters bar */}
-      <div className="max-w-3xl mx-auto px-4 w-full">
-        <div className="flex items-center gap-2 py-3 overflow-x-auto scrollbar-none">
-          <div className="inline-flex items-center rounded-full bg-secondary p-1 shrink-0">
-            <button
-              onClick={() => updateParams({ intent: '', is_trending: '', page: '1' })}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors min-h-[36px] border
-                ${
-                  currentMode === 'relevance'
-                    ? 'bg-card text-foreground shadow-sm border-border'
-                    : 'text-text-secondary hover:text-foreground border-transparent'
-                }`}
-            >
-              Por relevância
-            </button>
-            <button
-              onClick={() => updateParams({ intent: 'trending', is_trending: 'true', page: '1' })}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors min-h-[36px] border
-                ${
-                  currentMode === 'trending'
-                    ? 'bg-card text-foreground shadow-sm border-border'
-                    : 'text-text-secondary hover:text-foreground border-transparent'
-                }`}
-            >
-              Mais recentes
-            </button>
-          </div>
-
-          <button
-            onClick={() => {
-              setLocalSection(section);
-              setLocalArtType(artType);
-              setLocalDateFrom(dateFrom);
-              setLocalDateTo(dateTo);
-              setShowFilters(true);
-            }}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors press-effect focus-ring min-h-[44px]
-              ${activeFilterCount > 0
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-secondary text-secondary-foreground hover:bg-muted'}`}
-          >
-            <Icons.filter className="w-3.5 h-3.5" />
-            Filtros{activeFilterCount > 0 && ` (${activeFilterCount})`}
-          </button>
-
-          {section && (
-            <FilterChip
-              label={`Seção ${section}`}
-              active
-              onRemove={() => updateParams({ section: '' })}
-            />
-          )}
-          {artType && (
-            <FilterChip
-              label={artType}
-              active
-              onRemove={() => updateParams({ art_type: '' })}
-            />
-          )}
-          {(dateFrom || dateTo) && (
-            <FilterChip
-              label={[dateFrom, dateTo].filter(Boolean).join(' → ')}
-              active
-              onRemove={() => updateParams({ date_from: '', date_to: '' })}
-            />
-          )}
-        </div>
-      </div>
-
-      {/* Results */}
-      <main className="flex-1 max-w-3xl mx-auto px-4 pb-8 w-full">
-        {/* Status */}
-        {response && !loading && (
-          <div className="mb-4 space-y-3 text-sm text-text-secondary">
-            <div className="flex items-center justify-between gap-3">
-              <span>
-                {response.total.toLocaleString('pt-BR')} resultado{response.total !== 1 ? 's' : ''}
-                {response.took_ms != null && <span className="text-text-tertiary"> · {response.took_ms}ms</span>}
-              </span>
-              {totalPages > 1 && (
-                <span className="text-text-tertiary">
-                  Página {page} de {totalPages}
-                </span>
-              )}
-            </div>
-
-            {(badge || response.suggestion) && (
-              <div className="flex flex-wrap items-center gap-2">
-                {badge && (
-                  <span className="inline-flex items-center gap-2 rounded-full bg-secondary px-3 py-1.5 text-xs font-medium text-foreground">
-                    <span>{badge.icon}</span>
-                    <span>{badge.label}</span>
-                    {response.intent?.topic && <span className="text-text-tertiary">· {response.intent.topic}</span>}
-                  </span>
-                )}
-                {response.suggestion && response.suggestion !== query && (
-                  <button
-                    onClick={() => updateParams({ q: response.suggestion || '', page: '1', intent: '', is_trending: '' })}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:border-primary/30 hover:text-primary transition-colors"
-                  >
-                    Você quis dizer: {response.suggestion}
-                  </button>
-                )}
-              </div>
+      <main className="max-w-7xl mx-auto w-full px-4 sm:px-8 pt-8 pb-24">
+        {/* Search title + sort */}
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
+          <div>
+            <h1 className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tight leading-none text-foreground mb-2">
+              "{query}"
+            </h1>
+            {response && !loading && (
+              <p className="text-muted-foreground font-mono text-sm tracking-wider uppercase">
+                {response.total.toLocaleString('pt-BR')} resultados encontrados
+              </p>
             )}
           </div>
-        )}
-
-        {/* Loading */}
-        {loading && (
-          <div className="space-y-3 stagger-children">
-            {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-medium text-muted-foreground">Ordenar por</span>
+            <div className="inline-flex items-center rounded-lg border border-border bg-card overflow-hidden">
+              <button
+                onClick={() => updateParams({ intent: '', is_trending: '', page: '1' })}
+                className={`px-4 py-2 text-sm font-semibold transition-colors ${
+                  currentMode === 'relevance'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Relevância
+              </button>
+              <button
+                onClick={() => updateParams({ intent: 'trending', is_trending: 'true', page: '1' })}
+                className={`px-4 py-2 text-sm font-semibold transition-colors ${
+                  currentMode === 'trending'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Mais recentes
+              </button>
+            </div>
           </div>
-        )}
+        </div>
 
-        {/* Results list */}
-        {!loading && response && response.results.length > 0 && (
-          <div className="space-y-3">
-            {response.results.map((r, i) => (
-              <ResultCard key={r.id} result={r} index={i} />
-            ))}
-          </div>
-        )}
+        <div className="flex gap-10">
+          {/* Sidebar filters — desktop */}
+          <aside className="hidden lg:flex flex-col gap-6 w-72 shrink-0 sticky top-24 h-fit bg-surface-sunken rounded-2xl p-6">
+            <div>
+              <h2 className="text-lg font-bold text-foreground">Filtros de Pesquisa</h2>
+              <p className="text-muted-foreground text-sm">Refine sua busca no acervo</p>
+            </div>
 
-        {/* Empty state */}
-        {!loading && response && response.results.length === 0 && (
-          <div className="text-center py-16 animate-fade-in">
-            <Icons.search className="w-12 h-12 text-text-tertiary mx-auto mb-4" />
-            <p className="text-foreground font-medium">Nenhum resultado encontrado</p>
-            <p className="text-sm text-text-secondary mt-1">Tente ajustar os termos ou filtros da busca</p>
-          </div>
-        )}
+            {/* Date filter */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-primary font-semibold text-sm">
+                <Icons.calendar className="w-4 h-4" />
+                <span>Intervalo de Data</span>
+              </div>
+              <div className="flex flex-col gap-1">
+                {DATE_PRESETS.map((preset) => (
+                  <label key={preset.days} className="flex items-center gap-3 p-2 rounded-lg hover:bg-card cursor-pointer text-sm transition-all">
+                    <input
+                      type="radio"
+                      name="date_preset"
+                      className="text-primary focus:ring-primary rounded-full"
+                      checked={localDateFrom !== '' && Math.round((new Date(localDateTo || Date.now()).getTime() - new Date(localDateFrom).getTime()) / 86400000) === preset.days}
+                      onChange={() => applyDatePreset(preset.days)}
+                    />
+                    <span className="text-foreground">{preset.label}</span>
+                  </label>
+                ))}
+                <label className="flex items-center gap-3 p-2 rounded-lg hover:bg-card cursor-pointer text-sm transition-all">
+                  <input
+                    type="radio"
+                    name="date_preset"
+                    className="text-primary focus:ring-primary rounded-full"
+                    checked={localDateFrom === '' && localDateTo === ''}
+                    onChange={() => { setLocalDateFrom(''); setLocalDateTo(''); }}
+                  />
+                  <span className="text-foreground">Qualquer data</span>
+                </label>
+              </div>
+            </div>
 
-        {/* Pagination */}
-        {!loading && response && totalPages > 1 && (
-          <div className="flex items-center justify-center gap-2 mt-8">
+            {/* Section filter */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-muted-foreground font-semibold text-sm">
+                <Icons.document className="w-4 h-4" />
+                <span>Seção do Diário</span>
+              </div>
+              <div className="grid grid-cols-4 gap-2">
+                {SECTIONS.filter(s => s.value).map((s) => (
+                  <button
+                    key={s.value}
+                    onClick={() => setLocalSection(localSection === s.value ? '' : s.value)}
+                    className={`py-2 rounded-lg text-xs font-bold transition-all ${
+                      localSection === s.value
+                        ? 'bg-card text-primary shadow-sm border border-primary/20'
+                        : 'bg-card/40 text-foreground border border-transparent hover:border-border'
+                    }`}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Art type filter */}
+            {types.length > 0 && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-muted-foreground font-semibold text-sm">
+                  <Icons.filter className="w-4 h-4" />
+                  <span>Tipo de Ato</span>
+                </div>
+                <select
+                  value={localArtType}
+                  onChange={(e) => setLocalArtType(e.target.value)}
+                  className="w-full rounded-lg bg-card border border-border px-3 py-2 text-sm text-foreground focus-ring"
+                >
+                  <option value="">Todos os tipos</option>
+                  {types.map(t => (
+                    <option key={t.value} value={t.value}>{t.label}{t.count ? ` (${t.count})` : ''}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <button
-              disabled={page <= 1}
-              onClick={() => updateParams({ page: String(page - 1) })}
-              className="px-4 py-2 rounded-lg bg-card border border-border text-sm disabled:opacity-30 hover:bg-muted transition-colors press-effect focus-ring min-h-[44px]"
+              onClick={applyFilters}
+              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-bold py-3 rounded-xl shadow-lg shadow-primary/20 transition-all active:scale-95"
             >
-              Anterior
+              Aplicar Filtros
             </button>
-            <span className="text-sm text-text-secondary px-3 min-h-[44px] flex items-center">
-              {page} / {totalPages}
-            </span>
-            <button
-              disabled={page >= totalPages}
-              onClick={() => updateParams({ page: String(page + 1) })}
-              className="px-4 py-2 rounded-lg bg-card border border-border text-sm disabled:opacity-30 hover:bg-muted transition-colors press-effect focus-ring min-h-[44px]"
-            >
-              Próxima
-            </button>
-          </div>
-        )}
+            {(localSection || localArtType || localDateFrom) && (
+              <button
+                onClick={clearFilters}
+                className="w-full text-muted-foreground hover:text-foreground text-sm font-medium transition-colors"
+              >
+                Limpar filtros
+              </button>
+            )}
+          </aside>
+
+          {/* Results */}
+          <section className="flex-1 min-w-0">
+            {/* Mobile filter button */}
+            <div className="lg:hidden mb-4 flex items-center gap-2">
+              <button
+                onClick={() => {
+                  setLocalSection(section);
+                  setLocalArtType(artType);
+                  setLocalDateFrom(dateFrom);
+                  setLocalDateTo(dateTo);
+                  setShowFilters(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-surface-sunken text-sm font-medium press-effect focus-ring"
+              >
+                <Icons.filter className="w-4 h-4" />
+                Filtros
+                {[section, artType, dateFrom].filter(Boolean).length > 0 && (
+                  <span className="bg-primary text-primary-foreground text-xs px-1.5 py-0.5 rounded-full font-bold">
+                    {[section, artType, dateFrom].filter(Boolean).length}
+                  </span>
+                )}
+              </button>
+              {section && <FilterChip label={`Seção ${section}`} active onRemove={() => updateParams({ section: '' })} />}
+              {artType && <FilterChip label={artType} active onRemove={() => updateParams({ art_type: '' })} />}
+            </div>
+
+            {/* Loading */}
+            {loading && (
+              <div className="space-y-4 stagger-children">
+                {Array.from({ length: 5 }).map((_, i) => <SkeletonCard key={i} />)}
+              </div>
+            )}
+
+            {/* Results list */}
+            {!loading && response && response.results.length > 0 && (
+              <div className="space-y-4">
+                {response.results.map((r, i) => (
+                  <ResultCard key={r.id} result={r} index={i} />
+                ))}
+              </div>
+            )}
+
+            {/* Empty state */}
+            {!loading && response && response.results.length === 0 && (
+              <div className="text-center py-16 animate-fade-in">
+                <Icons.search className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                <p className="text-foreground font-medium">Nenhum resultado encontrado</p>
+                <p className="text-sm text-muted-foreground mt-1">Tente ajustar os termos ou filtros da busca</p>
+              </div>
+            )}
+
+            {/* Pagination */}
+            {!loading && response && totalPages > 1 && (
+              <Pagination page={page} totalPages={totalPages} onPageChange={(p) => updateParams({ page: String(p) })} />
+            )}
+          </section>
+        </div>
       </main>
 
-      {/* Filter bottom sheet */}
-      <BottomSheet open={showFilters} onClose={() => setShowFilters(false)} title="Filtros">
+      {/* Mobile filter bottom sheet */}
+      <BottomSheet open={showFilters} onClose={() => setShowFilters(false)} title="Filtros de Pesquisa">
         <div className="space-y-6 mt-4">
-          {/* Section */}
           <div>
-            <label className="text-xs font-semibold uppercase tracking-widest text-text-tertiary mb-2 block">Seção</label>
+            <label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-2 block">Seção</label>
             <div className="flex flex-wrap gap-2">
               {SECTIONS.map(s => (
-                <FilterChip
-                  key={s.value}
-                  label={s.label}
-                  active={localSection === s.value}
-                  onClick={() => setLocalSection(s.value)}
-                />
+                <FilterChip key={s.value} label={s.label} active={localSection === s.value} onClick={() => setLocalSection(s.value)} />
               ))}
             </div>
           </div>
-
-          {/* Type */}
           {types.length > 0 && (
             <div>
-              <label className="text-xs font-semibold uppercase tracking-widest text-text-tertiary mb-2 block">Tipo de ato</label>
+              <label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-2 block">Tipo de ato</label>
               <select
                 value={localArtType}
                 onChange={(e) => setLocalArtType(e.target.value)}
@@ -314,47 +349,74 @@ const SearchPage: React.FC = () => {
               </select>
             </div>
           )}
-
-          {/* Date range */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-semibold uppercase tracking-widest text-text-tertiary mb-2 block">Data início</label>
-              <input
-                type="date"
-                value={localDateFrom}
-                onChange={(e) => setLocalDateFrom(e.target.value)}
-                className="w-full rounded-lg bg-secondary border border-border px-3 py-2.5 text-sm text-foreground focus-ring min-h-[44px]"
-              />
+              <label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-2 block">Data início</label>
+              <input type="date" value={localDateFrom} onChange={(e) => setLocalDateFrom(e.target.value)} className="w-full rounded-lg bg-secondary border border-border px-3 py-2.5 text-sm text-foreground focus-ring min-h-[44px]" />
             </div>
             <div>
-              <label className="text-xs font-semibold uppercase tracking-widest text-text-tertiary mb-2 block">Data fim</label>
-              <input
-                type="date"
-                value={localDateTo}
-                onChange={(e) => setLocalDateTo(e.target.value)}
-                className="w-full rounded-lg bg-secondary border border-border px-3 py-2.5 text-sm text-foreground focus-ring min-h-[44px]"
-              />
+              <label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-2 block">Data fim</label>
+              <input type="date" value={localDateTo} onChange={(e) => setLocalDateTo(e.target.value)} className="w-full rounded-lg bg-secondary border border-border px-3 py-2.5 text-sm text-foreground focus-ring min-h-[44px]" />
             </div>
           </div>
-
-          {/* Actions */}
           <div className="flex gap-3 pt-2">
-            <button
-              onClick={clearFilters}
-              className="flex-1 px-4 py-3 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-muted transition-colors press-effect focus-ring min-h-[44px]"
-            >
-              Limpar
-            </button>
-            <button
-              onClick={applyFilters}
-              className="flex-1 px-4 py-3 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity press-effect focus-ring min-h-[44px]"
-            >
-              Aplicar
-            </button>
+            <button onClick={clearFilters} className="flex-1 px-4 py-3 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-muted transition-colors min-h-[44px]">Limpar</button>
+            <button onClick={applyFilters} className="flex-1 px-4 py-3 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 min-h-[44px]">Aplicar</button>
           </div>
         </div>
       </BottomSheet>
     </div>
+  );
+};
+
+/* Numbered pagination matching the mockup */
+const Pagination: React.FC<{ page: number; totalPages: number; onPageChange: (p: number) => void }> = ({ page, totalPages, onPageChange }) => {
+  const pages: (number | '...')[] = [];
+
+  if (totalPages <= 7) {
+    for (let i = 1; i <= totalPages; i++) pages.push(i);
+  } else {
+    pages.push(1);
+    if (page > 3) pages.push('...');
+    for (let i = Math.max(2, page - 1); i <= Math.min(totalPages - 1, page + 1); i++) pages.push(i);
+    if (page < totalPages - 2) pages.push('...');
+    pages.push(totalPages);
+  }
+
+  return (
+    <nav className="flex justify-center items-center gap-2 pt-10">
+      <button
+        disabled={page <= 1}
+        onClick={() => onPageChange(page - 1)}
+        className="w-10 h-10 flex items-center justify-center rounded-lg border border-border hover:bg-muted transition-colors text-muted-foreground disabled:opacity-30"
+      >
+        <Icons.chevronLeft className="w-5 h-5" />
+      </button>
+      {pages.map((p, i) =>
+        p === '...' ? (
+          <span key={`dots-${i}`} className="px-2 text-muted-foreground">...</span>
+        ) : (
+          <button
+            key={p}
+            onClick={() => onPageChange(p)}
+            className={`w-10 h-10 flex items-center justify-center rounded-lg font-bold text-sm transition-all ${
+              p === page
+                ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20'
+                : 'border border-border hover:bg-muted text-muted-foreground'
+            }`}
+          >
+            {p}
+          </button>
+        )
+      )}
+      <button
+        disabled={page >= totalPages}
+        onClick={() => onPageChange(page + 1)}
+        className="w-10 h-10 flex items-center justify-center rounded-lg border border-border hover:bg-muted transition-colors text-muted-foreground disabled:opacity-30"
+      >
+        <Icons.chevronRight className="w-5 h-5" />
+      </button>
+    </nav>
   );
 };
 
