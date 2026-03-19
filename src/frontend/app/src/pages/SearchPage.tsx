@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { searchDocuments, getTypes } from '@/lib/api';
-import type { SearchResponse, TypeOption, SearchParams } from '@/lib/api';
+import type { SearchResponse, TypeOption, SearchParams, SourceFilter } from '@/lib/api';
 import { Header } from '@/components/Header';
 import { SearchBar } from '@/components/SearchBar';
 import { ResultCard } from '@/components/ResultCard';
@@ -17,6 +17,12 @@ const SECTIONS = [
   { value: '2', label: 'S2' },
   { value: '3', label: 'S3' },
   { value: 'e', label: 'Extra' },
+];
+
+const SOURCES: { value: SourceFilter | ''; label: string }[] = [
+  { value: '', label: 'DOU' },
+  { value: 'tcu', label: 'TCU' },
+  { value: 'all', label: 'Todos' },
 ];
 
 const DATE_PRESETS = [
@@ -35,6 +41,7 @@ const SearchPage: React.FC = () => {
   const dateTo = searchParams.get('date_to') || '';
   const intent = searchParams.get('intent') || '';
   const isTrending = searchParams.get('is_trending') === 'true';
+  const source = (searchParams.get('source') || '') as SourceFilter | '';
 
   const [response, setResponse] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -62,6 +69,7 @@ const SearchPage: React.FC = () => {
       if (dateTo) params.date_to = dateTo;
       if (intent) params.intent = intent;
       if (isTrending) params.is_trending = true;
+      if (source) params.source = source as SourceFilter;
       const data = await searchDocuments(params);
       setResponse(data);
     } catch (e) {
@@ -69,7 +77,7 @@ const SearchPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [query, page, section, artType, dateFrom, dateTo, intent, isTrending]);
+  }, [query, page, section, artType, dateFrom, dateTo, intent, isTrending, source]);
 
   useEffect(() => { doSearch(); }, [doSearch]);
 
@@ -138,29 +146,51 @@ const SearchPage: React.FC = () => {
               </p>
             )}
           </div>
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-medium text-muted-foreground">Ordenar por</span>
-            <div className="inline-flex items-center rounded-lg border border-border bg-card overflow-hidden">
-              <button
-                onClick={() => updateParams({ intent: '', is_trending: '', page: '1' })}
-                className={`px-4 py-2 text-sm font-semibold transition-colors ${
-                  currentMode === 'relevance'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Relevância
-              </button>
-              <button
-                onClick={() => updateParams({ intent: 'trending', is_trending: 'true', page: '1' })}
-                className={`px-4 py-2 text-sm font-semibold transition-colors ${
-                  currentMode === 'trending'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Mais recentes
-              </button>
+          <div className="flex items-center gap-4 flex-wrap">
+            {/* Source toggle */}
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-muted-foreground">Fonte</span>
+              <div className="inline-flex items-center rounded-lg border border-border bg-card overflow-hidden">
+                {SOURCES.map((s) => (
+                  <button
+                    key={s.value}
+                    onClick={() => updateParams({ source: s.value, page: '1' })}
+                    className={`px-3 py-2 text-sm font-semibold transition-colors ${
+                      source === s.value
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {/* Sort toggle */}
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-muted-foreground">Ordenar por</span>
+              <div className="inline-flex items-center rounded-lg border border-border bg-card overflow-hidden">
+                <button
+                  onClick={() => updateParams({ intent: '', is_trending: '', page: '1' })}
+                  className={`px-4 py-2 text-sm font-semibold transition-colors ${
+                    currentMode === 'relevance'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Relevância
+                </button>
+                <button
+                  onClick={() => updateParams({ intent: 'trending', is_trending: 'true', page: '1' })}
+                  className={`px-4 py-2 text-sm font-semibold transition-colors ${
+                    currentMode === 'trending'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Mais recentes
+                </button>
+              </div>
             </div>
           </div>
         </div>

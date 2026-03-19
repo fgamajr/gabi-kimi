@@ -563,12 +563,27 @@ class ElasticClient:
     def __init__(self) -> None:
         self.url = os.getenv("ES_URL", "http://elasticsearch:9200").rstrip("/")
         self.index = (os.getenv("ES_ALIAS") or os.getenv("ES_INDEX") or "gabi_documents").strip()
+        self.tcu_index = os.getenv("TCU_ES_INDEX", "gabi_tcu_acordaos_v1").strip()
         username = (os.getenv("ES_USERNAME") or "").strip() or None
         password = (os.getenv("ES_PASSWORD") or "").strip() or None
         verify_tls = _env_bool("ES_VERIFY_TLS", True)
         timeout_sec = int(os.getenv("ES_TIMEOUT_SEC", "20"))
         auth = (username, password or "") if username else None
         self._client = httpx.Client(timeout=timeout_sec, verify=verify_tls, auth=auth)
+
+    def resolve_index(self, source: str | None = None) -> str:
+        """Resolve index name from source filter.
+
+        source: 'dou' | 'tcu' | 'all' | None
+        - None or 'dou' → DOU index only
+        - 'tcu' → TCU index only
+        - 'all' → both indexes (comma-separated for multi-index search)
+        """
+        if source == "tcu":
+            return self.tcu_index
+        if source == "all":
+            return f"{self.index},{self.tcu_index}"
+        return self.index
 
     def request(self, method: str, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         resp = self._client.request(method=method, url=f"{self.url}{path}", json=payload)
@@ -1028,6 +1043,196 @@ def _format_reranked_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
+# TCU-specific search helpers
+# ---------------------------------------------------------------------------
+
+_TCU_SOURCE_FIELDS = [
+    "doc_id", "titulo", "sumario", "acordao_texto", "tipo", "colegiado",
+    "tipo_processo", "relator", "data_sessao", "numero_acordao", "ano_acordao",
+    "numero_processo", "entidade", "dispositivo_tipo", "dispositivo_resumo",
+    "source_type", "source_url",
+]
+
+_TCU_HIGHLIGHT_SPEC: dict[str, Any] = {
+    "pre_tags": [">>>"],
+    "post_tags": ["<<<"],
+    "max_analyzed_offset": 500000,
+    "fields": {
+        "titulo": {"number_of_fragments": 0},
+        "sumario": {"number_of_fragments": 1, "fragment_size": 280},
+        "acordao_texto": {"number_of_fragments": 2, "fragment_size": 200},
+        "search_all": {"number_of_fragments": 2, "fragment_size": 200},
+    },
+}
+
+
+def _format_tcu_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Format TCU ES hits into result dicts."""
+    results: list[dict[str, Any]] = []
+    for hit in hits:
+        src = hit.get("_source", {})
+        hl = hit.get("highlight", {})
+
+        snippet_parts: list[str] = []
+        for k in ("sumario", "titulo", "acordao_texto", "search_all"):
+            frags = hl.get(k)
+            if frags:
+                snippet_parts.extend(frags)
+                if len(snippet_parts) >= 2:
+                    break
+        snippet = " … ".join(snippet_parts) if snippet_parts else (
+            src.get("sumario") or src.get("acordao_texto") or ""
+        )[:280]
+
+        results.append({
+            "doc_id": src.get("doc_id") or hit.get("_id"),
+            "score": round(float(hit.get("_score") or 0.0), 4),
+            "titulo": src.get("titulo"),
+            "sumario": src.get("sumario"),
+            "tipo": src.get("tipo"),
+            "colegiado": src.get("colegiado"),
+            "tipo_processo": src.get("tipo_processo"),
+            "relator": src.get("relator"),
+            "data_sessao": src.get("data_sessao"),
+            "numero_acordao": src.get("numero_acordao"),
+            "ano_acordao": src.get("ano_acordao"),
+            "numero_processo": src.get("numero_processo"),
+            "entidade": src.get("entidade"),
+            "dispositivo_tipo": src.get("dispositivo_tipo"),
+            "dispositivo_resumo": src.get("dispositivo_resumo"),
+            "source_type": src.get("source_type", "tcu_acordao"),
+            "source_url": src.get("source_url"),
+            "snippet": snippet,
+        })
+    return results
+
+
+def _es_search_direct(
+    *,
+    query: str,
+    page: int = 1,
+    page_size: int = 20,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    source: str | None = None,
+) -> dict[str, Any]:
+    """Direct ES search for TCU (or cross-index) — bypasses API pipeline."""
+    page = max(1, min(page, 500))
+    page_size = max(1, min(page_size, 100))
+    offset = (page - 1) * page_size
+    index = ES.resolve_index(source)
+
+    # Build filters
+    filters: list[dict[str, Any]] = []
+    if date_from or date_to:
+        rng: dict[str, str] = {}
+        if date_from:
+            rng["gte"] = date_from
+        if date_to:
+            rng["lte"] = date_to
+        # TCU uses data_sessao, DOU uses pub_date. For cross-index, use both.
+        if source == "all":
+            filters.append({"bool": {"should": [
+                {"range": {"pub_date": rng}},
+                {"range": {"data_sessao": rng}},
+            ], "minimum_should_match": 1}})
+        elif source == "tcu":
+            filters.append({"range": {"data_sessao": rng}})
+        else:
+            filters.append({"range": {"pub_date": rng}})
+
+    # Build query
+    parsed = _parse_query(query)
+    q = parsed["clean_text"]
+
+    # For TCU, search across TCU-specific fields
+    if source == "tcu":
+        search_fields = [
+            "titulo^5", "sumario^4", "assunto^3",
+            "relator^2", "entidade^2", "acordao_texto",
+            "voto", "relatorio", "search_all",
+        ]
+    else:
+        # Cross-index: use fields that exist in both
+        search_fields = [
+            "titulo^5", "identifica^5", "sumario^4", "ementa^4",
+            "assunto^3", "issuing_organ^2", "relator^2",
+            "acordao_texto", "body_plain", "search_all",
+        ]
+
+    must_clauses: list[dict[str, Any]] = []
+    should_clauses: list[dict[str, Any]] = []
+
+    # Quoted phrases
+    for phrase in parsed["phrases"]:
+        must_clauses.append({
+            "multi_match": {
+                "query": phrase,
+                "type": "phrase",
+                "fields": search_fields,
+                "slop": 1,
+            },
+        })
+
+    # Unquoted text
+    if q and q != "*":
+        must_clauses.append({
+            "simple_query_string": {
+                "query": q,
+                "fields": search_fields,
+                "default_operator": "and",
+            },
+        })
+        # Phrase boost
+        for field in search_fields[:3]:
+            field_name = field.split("^")[0]
+            should_clauses.append(
+                {"match_phrase": {field_name: {"query": q, "boost": 15}}},
+            )
+
+    if not must_clauses:
+        must_clauses.append({"match_all": {}})
+
+    payload: dict[str, Any] = {
+        "from": offset,
+        "size": page_size,
+        "track_total_hits": True,
+        "query": {
+            "bool": {
+                "must": must_clauses,
+                "should": should_clauses,
+                "filter": filters,
+            },
+        },
+        "sort": [{"_score": {"order": "desc"}}],
+        "_source": _TCU_SOURCE_FIELDS + _SOURCE_FIELDS,
+        "highlight": _TCU_HIGHLIGHT_SPEC,
+    }
+
+    data = ES.request("POST", f"/{index}/_search", payload)
+    hits = data.get("hits", {}).get("hits", [])
+    total = int(data.get("hits", {}).get("total", {}).get("value", 0))
+
+    # Format: detect source type per hit
+    results: list[dict[str, Any]] = []
+    for hit in hits:
+        src = hit.get("_source", {})
+        if src.get("source_type") == "tcu_acordao":
+            results.extend(_format_tcu_hits([hit]))
+        else:
+            results.extend(_format_hits([hit]))
+
+    return {
+        "query": query,
+        "source": source,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "results": results,
+    }
+
+
+# ---------------------------------------------------------------------------
 # TOOL 1: es_search — The primary search tool (two-stage, re-ranked)
 # ---------------------------------------------------------------------------
 
@@ -1043,8 +1248,9 @@ async def es_search(
     topic: str | None = None,
     intent: str | None = None,
     is_trending: bool = False,
+    source: str | None = None,
 ) -> dict[str, Any]:
-    """Search DOU documents via GABI's full hybrid search pipeline.
+    """Search DOU and/or TCU documents via GABI's search pipeline.
 
     Uses intent classification (person names, legal references, canonical laws,
     topic profiles), hybrid BM25 + kNN via RRF, quoted phrase detection, and
@@ -1059,7 +1265,7 @@ async def es_search(
       page_size: results per page (1-100)
       date_from: YYYY-MM-DD lower bound
       date_to: YYYY-MM-DD upper bound
-      section: 1 | 2 | 3 | e (DOU section filter)
+      section: 1 | 2 | 3 | e (DOU section filter, ignored for TCU)
       art_type: act type filter (e.g. decreto, portaria, resolução)
       issuing_organ: issuing organ filter
       topic: topic classification filter. Available topics:
@@ -1070,7 +1276,19 @@ async def es_search(
       intent: force intent classification. Options:
               trending | explore | exact_name | canonical | person
       is_trending: if true, prioritize recent documents
+      source: data source filter. Options:
+              dou — DOU documents only (default)
+              tcu — TCU acórdãos only
+              all — search both DOU and TCU
     """
+    # TCU direct search — bypass API pipeline, hit ES directly
+    if source in ("tcu", "all"):
+        return _es_search_direct(
+            query=query, page=page, page_size=page_size,
+            date_from=date_from, date_to=date_to,
+            source=source,
+        )
+
     page = max(1, min(page, 500))
     page_size = max(1, min(page_size, 100))
 
@@ -1131,6 +1349,7 @@ def es_facets(
     art_type: str | None = None,
     issuing_organ: str | None = None,
     size: int = 10,
+    source: str | None = None,
 ) -> dict[str, Any]:
     """Facet aggregations for sections, types, organs, and date histogram.
 
@@ -1142,8 +1361,53 @@ def es_facets(
       art_type: exact act type filter
       issuing_organ: exact issuing organ name filter
       size: number of buckets per facet (1-30)
+      source: dou | tcu | all (default: dou)
     """
     size = max(1, min(size, 30))
+    index = ES.resolve_index(source)
+
+    if source == "tcu":
+        # TCU-specific facets
+        filters: list[dict[str, Any]] = []
+        if date_from or date_to:
+            rng: dict[str, str] = {}
+            if date_from:
+                rng["gte"] = date_from
+            if date_to:
+                rng["lte"] = date_to
+            filters.append({"range": {"data_sessao": rng}})
+
+        payload = {
+            "size": 0,
+            "track_total_hits": True,
+            "query": {"bool": {"must": [_query_clause(query)], "filter": filters}},
+            "aggs": {
+                "colegiados": {"terms": {"field": "colegiado", "size": 10}},
+                "tipos_processo": {"terms": {"field": "tipo_processo", "size": size}},
+                "relatores": {"terms": {"field": "relator.keyword", "size": size}},
+                "dispositivo": {"terms": {"field": "dispositivo_resumo", "size": size}},
+                "temas": {"terms": {"field": "temas_tcu", "size": size}},
+                "by_month": {"date_histogram": {"field": "data_sessao", "calendar_interval": "month"}},
+            },
+        }
+        data = ES.request("POST", f"/{index}/_search", payload)
+        aggs = data.get("aggregations", {})
+        total = int(data.get("hits", {}).get("total", {}).get("value", 0))
+        return {
+            "query": query,
+            "source": "tcu",
+            "total": total,
+            "facets": {
+                "colegiados": _extract_agg_buckets(aggs, "colegiados"),
+                "tipos_processo": _extract_agg_buckets(aggs, "tipos_processo"),
+                "relatores": _extract_agg_buckets(aggs, "relatores"),
+                "dispositivo": _extract_agg_buckets(aggs, "dispositivo"),
+                "temas": _extract_agg_buckets(aggs, "temas"),
+                "by_month": _extract_agg_buckets(aggs, "by_month"),
+            },
+        }
+
+    # Default: DOU facets
     filters = _build_filters(
         date_from=date_from, date_to=date_to,
         section=section, art_type=art_type, issuing_organ=issuing_organ,
@@ -1159,7 +1423,7 @@ def es_facets(
             "by_month": {"date_histogram": {"field": "pub_date", "calendar_interval": "month"}},
         },
     }
-    data = ES.request("POST", f"/{ES.index}/_search", payload)
+    data = ES.request("POST", f"/{index}/_search", payload)
     aggs = data.get("aggregations", {})
     total = int(data.get("hits", {}).get("total", {}).get("value", 0))
     return {
@@ -1178,17 +1442,31 @@ def es_facets(
 # TOOL 4: es_document — Single document fetch
 # ---------------------------------------------------------------------------
 
-async def es_document(doc_id: str) -> dict[str, Any]:
-    """Fetch a single document by its ID via GABI API.
+async def es_document(doc_id: str, source: str | None = None) -> dict[str, Any]:
+    """Fetch a single document by its ID.
 
-    Returns full document with body, metadata, media, and signatures.
+    For TCU documents (doc_id starting with ACORDAO-COMPLETO-), fetches
+    directly from ES. For DOU documents, uses the GABI API.
 
     Args:
       doc_id: the document ID
+      source: dou | tcu (auto-detected from doc_id prefix if omitted)
     """
+    is_tcu = (source == "tcu") or doc_id.startswith("ACORDAO-COMPLETO-")
+
+    if is_tcu:
+        try:
+            data = ES.request("GET", f"/{ES.tcu_index}/_doc/{doc_id}")
+            src = data.get("_source", {})
+            return {"found": True, "doc_id": doc_id, "source_type": "tcu_acordao", "document": src}
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return {"found": False, "doc_id": doc_id}
+            raise
+
     try:
         data = await API.document(doc_id)
-        return {"found": True, "doc_id": doc_id, "document": data}
+        return {"found": True, "doc_id": doc_id, "source_type": "dou", "document": data}
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:
             return {"found": False, "doc_id": doc_id}
@@ -1200,9 +1478,14 @@ async def es_document(doc_id: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def es_health() -> dict[str, Any]:
-    """Cluster and index health summary with storage and performance stats."""
+    """Cluster and index health summary with storage and performance stats for DOU and TCU."""
     health = ES.request("GET", "/_cluster/health")
     count = ES.request("GET", f"/{ES.index}/_count")
+    tcu_count = 0
+    try:
+        tcu_count = int(ES.request("GET", f"/{ES.tcu_index}/_count").get("count", 0))
+    except Exception:
+        pass  # TCU index may not exist yet
     stats: dict[str, Any] = {}
     try:
         idx_stats = ES.request("GET", f"/{ES.index}/_stats/store,docs,search")
@@ -1222,6 +1505,10 @@ def es_health() -> dict[str, Any]:
         "cluster_status": health.get("status"),
         "number_of_nodes": health.get("number_of_nodes"),
         "active_shards": health.get("active_shards"),
+        "dou_index": ES.index,
+        "dou_count": int(count.get("count", 0)),
+        "tcu_index": ES.tcu_index,
+        "tcu_count": tcu_count,
         "index": ES.index,
         "index_count": int(count.get("count", 0)),
         **stats,
@@ -1519,13 +1806,13 @@ def es_cross_reference(
     date_from: str | None = None,
     date_to: str | None = None,
     section: str | None = None,
+    source: str | None = "all",
 ) -> dict[str, Any]:
     """Find all documents that cite or reference a specific law, decree, or act.
 
-    Searches across body text for mentions of a legal reference
-    (e.g., "Lei 13709", "Decreto 9.203"). This builds a citation
-    network without needing graph databases — essential for understanding
-    regulatory impact and legislative reach.
+    Searches across body text in BOTH DOU and TCU for mentions of a legal
+    reference (e.g., "Lei 13709", "Decreto 9.203"). This builds a citation
+    network — essential for understanding regulatory impact and legislative reach.
 
     Args:
       reference: the legal reference to search for (e.g., "Lei 13709", "Decreto 9.203/2017")
@@ -1533,16 +1820,22 @@ def es_cross_reference(
       date_from: YYYY-MM-DD lower bound
       date_to: YYYY-MM-DD upper bound
       section: do1 | do2 | do3
+      source: dou | tcu | all (default: all — searches both DOU and TCU)
     """
     max_results = max(1, min(max_results, 100))
     ref = reference.strip()
     if not ref:
         return {"error": "Provide a legal reference to search for."}
 
+    index = ES.resolve_index(source)
+
     filters = _build_filters(
         date_from=date_from, date_to=date_to,
         section=section, art_type=None, issuing_organ=None,
     )
+
+    # Search across text fields that exist in both DOU and TCU indexes
+    text_fields = ["body_plain", "search_all", "acordao_texto", "voto", "relatorio"]
 
     payload = {
         "from": 0,
@@ -1550,15 +1843,27 @@ def es_cross_reference(
         "track_total_hits": True,
         "query": {
             "bool": {
-                "must": [{"match_phrase": {"body_plain": {"query": ref}}}],
+                "must": [{
+                    "bool": {
+                        "should": [
+                            {"match_phrase": {field: {"query": ref}}}
+                            for field in text_fields
+                        ],
+                        "minimum_should_match": 1,
+                    },
+                }],
                 "filter": filters,
             },
         },
-        "sort": [{"pub_date": {"order": "desc"}}, {"_score": {"order": "desc"}}],
-        "_source": _SOURCE_FIELDS,
+        "sort": [{"_score": {"order": "desc"}}],
+        "_source": _SOURCE_FIELDS + _TCU_SOURCE_FIELDS,
         "highlight": {
             "pre_tags": [">>>"], "post_tags": ["<<<"],
-            "fields": {"body_plain": {"number_of_fragments": 1, "fragment_size": 300}},
+            "fields": {
+                "body_plain": {"number_of_fragments": 1, "fragment_size": 300},
+                "acordao_texto": {"number_of_fragments": 1, "fragment_size": 300},
+                "search_all": {"number_of_fragments": 1, "fragment_size": 300},
+            },
         },
         "aggs": {
             "citing_organs": {"terms": {"field": "issuing_organ.keyword", "size": 10}},
@@ -1566,13 +1871,23 @@ def es_cross_reference(
             "citations_over_time": {"date_histogram": {"field": "pub_date", "calendar_interval": "year", "min_doc_count": 1}},
         },
     }
-    data = ES.request("POST", f"/{ES.index}/_search", payload)
+    data = ES.request("POST", f"/{index}/_search", payload)
     hits = data.get("hits", {}).get("hits", [])
     total = int(data.get("hits", {}).get("total", {}).get("value", 0))
     aggs = data.get("aggregations", {})
 
+    # Format mixed results
+    results: list[dict[str, Any]] = []
+    for hit in hits:
+        src = hit.get("_source", {})
+        if src.get("source_type") == "tcu_acordao":
+            results.extend(_format_tcu_hits([hit]))
+        else:
+            results.extend(_format_hits([hit]))
+
     return {
         "reference": reference,
+        "source": source,
         "total_citations": total,
         "citing_organs": _extract_agg_buckets(aggs, "citing_organs"),
         "citing_types": _extract_agg_buckets(aggs, "citing_types"),
@@ -1580,7 +1895,7 @@ def es_cross_reference(
             {"year": b.get("key_as_string"), "count": b.get("doc_count", 0)}
             for b in aggs.get("citations_over_time", {}).get("buckets", [])
         ],
-        "results": _format_hits(hits),
+        "results": results,
     }
 
 
@@ -1787,23 +2102,28 @@ def es_explain(
 
 if FastMCP is not None:
     mcp = FastMCP(
-        "GABI DOU Search",
+        "gabi-dou",
         instructions=(
-            "Hybrid search server for Brazil's Diário Oficial da União (DOU). "
-            "13 tools over ~16M legal documents (2002-2026). Capabilities:\n"
+            "Hybrid search server for Brazil's Diário Oficial da União (DOU) and "
+            "Tribunal de Contas da União (TCU) jurisprudence. "
+            "13 tools over ~16M DOU legal documents (2002-2026) and ~520K TCU acórdãos (1992-2026). Capabilities:\n"
             "- SEARCH: es_search (hybrid BM25 + kNN via RRF, intent detection, "
             "topic classification, person name detection, quoted phrases, "
-            "canonical law lookup, neural reranking)\n"
+            "canonical law lookup, neural reranking). Use source='tcu' for TCU, "
+            "source='all' for cross-search DOU+TCU.\n"
             "- DISCOVER: es_more_like_this (find similar docs), es_significant_terms "
-            "(theme discovery), es_cross_reference (citation network)\n"
+            "(theme discovery), es_cross_reference (citation network — searches DOU+TCU by default)\n"
             "- ANALYZE: es_timeline (temporal trends), es_trending (recent activity), "
             "es_organ_profile (institutional analysis), es_compare_periods (before/after)\n"
-            "- UTILITY: es_suggest (autocomplete), es_facets (aggregations), "
+            "- UTILITY: es_suggest (autocomplete), es_facets (aggregations — use source='tcu' for "
+            "colegiados, relatores, tipos_processo, dispositivo facets), "
             "es_document (fetch), es_health (status), es_explain (debug ranking)\n\n"
             "Tips: Use Portuguese terms. Use quotes for exact phrases. "
             "Use topic= filter: concurso_selecao, licitacao_compras, regulacao_norma, "
             "pessoal_rh, contrato_convenio, saude, educacao, financeiro, meio_ambiente. "
-            "Legal references (Lei 13709) auto-boost. Combine tools for deep analysis."
+            "Legal references (Lei 13709) auto-boost. Combine tools for deep analysis. "
+            "TCU search: use source='tcu' and filter by colegiado, relator, tipo_processo, "
+            "dispositivo_tipo (irregular, aplicar_multa, imputar_debito, etc.)."
         ),
     )
     mcp.tool()(es_search)

@@ -1,0 +1,217 @@
+{
+  "settings": {
+    "index": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "refresh_interval": "30s"
+    },
+    "analysis": {
+      "filter": {
+        "pt_br_stop": {
+          "type": "stop",
+          "stopwords": "_portuguese_"
+        },
+        "pt_br_stemmer": {
+          "type": "stemmer",
+          "language": "light_portuguese"
+        },
+        "pt_br_synonym": {
+          "type": "synonym",
+          "lenient": true,
+          "synonyms": [
+            "portaria,port",
+            "resolucao,res",
+            "instrucao normativa,in",
+            "decreto,dec",
+            "medida provisoria,mp",
+            "acordao,ac",
+            "tribunal de contas,tcu"
+          ]
+        }
+      },
+      "analyzer": {
+        "pt_br_full": {
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "asciifolding",
+            "pt_br_stop",
+            "pt_br_stemmer",
+            "pt_br_synonym"
+          ]
+        },
+        "pt_br_folded": {
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "asciifolding",
+            "pt_br_stop",
+            "pt_br_stemmer"
+          ]
+        },
+        "keyword_lower": {
+          "tokenizer": "keyword",
+          "filter": ["lowercase", "asciifolding"]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "dynamic": false,
+    "properties": {
+
+      "doc_id":              { "type": "keyword" },
+      "acordao_id":          { "type": "keyword" },
+      "deterministic_hash":  { "type": "keyword" },
+
+      "titulo": {
+        "type": "text",
+        "analyzer": "pt_br_full",
+        "fields": {
+          "keyword": { "type": "keyword", "ignore_above": 512 }
+        }
+      },
+      "numero_acordao":      { "type": "integer" },
+      "ano_acordao":         { "type": "integer" },
+      "tipo":                { "type": "keyword" },
+      "colegiado":           { "type": "keyword" },
+      "tipo_processo":       { "type": "keyword" },
+      "situacao":            { "type": "keyword" },
+      "numero_processo":     { "type": "keyword" },
+      "numero_ata":          { "type": "keyword" },
+
+      "data_sessao": {
+        "type": "date",
+        "format": "strict_date_optional_time||yyyy-MM-dd"
+      },
+
+      "relator": {
+        "type": "text",
+        "analyzer": "pt_br_folded",
+        "fields": {
+          "keyword": { "type": "keyword", "ignore_above": 256 }
+        }
+      },
+      "relator_deliberacao_recorrida": { "type": "keyword" },
+      "ministro_revisor":              { "type": "keyword" },
+      "ministro_voto_vencedor":        { "type": "keyword" },
+      "representante_mp":              { "type": "keyword" },
+      "unidade_tecnica":               { "type": "keyword" },
+
+      "advogados": {
+        "type": "text",
+        "analyzer": "pt_br_folded"
+      },
+      "interessados": {
+        "type": "text",
+        "analyzer": "pt_br_folded"
+      },
+      "entidade": {
+        "type": "text",
+        "analyzer": "pt_br_folded",
+        "fields": {
+          "keyword": { "type": "keyword", "ignore_above": 1024 }
+        }
+      },
+      "entidade_list":       { "type": "keyword" },
+
+      "assunto": {
+        "type": "text",
+        "analyzer": "pt_br_full",
+        "fields": {
+          "keyword": { "type": "keyword", "ignore_above": 512 }
+        }
+      },
+
+      "sumario": {
+        "type": "text",
+        "analyzer": "pt_br_full"
+      },
+      "acordao_texto": {
+        "type": "text",
+        "analyzer": "pt_br_folded"
+      },
+      "relatorio": {
+        "type": "text",
+        "analyzer": "pt_br_folded"
+      },
+      "voto": {
+        "type": "text",
+        "analyzer": "pt_br_folded"
+      },
+      "decisao": {
+        "type": "text",
+        "analyzer": "pt_br_folded"
+      },
+      "declaracao_voto": {
+        "type": "text",
+        "analyzer": "pt_br_folded"
+      },
+      "voto_complementar": {
+        "type": "text",
+        "analyzer": "pt_br_folded"
+      },
+      "voto_revisor": {
+        "type": "text",
+        "analyzer": "pt_br_folded"
+      },
+      "quorum": {
+        "type": "text",
+        "analyzer": "pt_br_folded"
+      },
+      "acordaos_relacionados": { "type": "keyword" },
+      "recursos": {
+        "type": "text",
+        "analyzer": "pt_br_folded"
+      },
+
+      "search_all": {
+        "type": "text",
+        "analyzer": "pt_br_full"
+      },
+
+      "normative_references":  { "type": "keyword" },
+      "reference_count":       { "type": "integer" },
+      "acordaos_citados":      { "type": "keyword" },
+      "acordaos_citados_count": { "type": "integer" },
+
+      "dispositivo_tipo":    { "type": "keyword" },
+      "dispositivo_resumo":  { "type": "keyword" },
+      "valores_monetarios":  { "type": "keyword" },
+      "valor_maximo":        { "type": "float" },
+      "tem_debito":          { "type": "boolean" },
+      "tem_multa":           { "type": "boolean" },
+
+      "temas_tcu":           { "type": "keyword" },
+      "tema_primario":       { "type": "keyword" },
+      "orgaos_citados":      { "type": "keyword" },
+
+      "is_embargo":          { "type": "boolean" },
+      "is_recurso":          { "type": "boolean" },
+      "tipo_recurso":        { "type": "keyword" },
+
+      "num_interessados":    { "type": "integer" },
+      "text_length":         { "type": "integer" },
+      "has_relatorio":       { "type": "boolean" },
+      "has_voto":            { "type": "boolean" },
+      "completeness_score":  { "type": "float" },
+
+      "source_type":         { "type": "keyword" },
+      "source_csv":          { "type": "keyword" },
+      "source_url":          { "type": "keyword", "ignore_above": 2048 },
+      "indexed_at": {
+        "type": "date",
+        "format": "strict_date_optional_time"
+      },
+      "enrichment_version":  { "type": "integer" },
+
+      "embedding": {
+        "type": "dense_vector",
+        "dims": 384,
+        "index": true,
+        "similarity": "cosine"
+      },
+      "embedding_status":    { "type": "keyword" }
+    }
+  }
+}

@@ -4,6 +4,8 @@ const API_BASE = '/api';
 
 // --- Types ---
 
+export type SourceFilter = 'dou' | 'tcu' | 'all';
+
 export interface SearchParams {
   q: string;
   page?: number;
@@ -15,6 +17,7 @@ export interface SearchParams {
   issuing_organ?: string;
   intent?: string;
   is_trending?: boolean;
+  source?: SourceFilter;
 }
 
 export interface SearchResult {
@@ -30,6 +33,12 @@ export interface SearchResult {
   issuing_organ?: string;
   top_organ?: string;
   dou_url?: string;
+  source_type?: 'dou' | 'tcu_acordao';
+  // TCU-specific fields
+  relator?: string;
+  tipo_processo?: string;
+  colegiado?: string;
+  dispositivo_resumo?: string;
 }
 
 export interface SearchResponse {
@@ -79,6 +88,7 @@ export interface DocumentMedia {
 
 export interface DocumentDetail {
   id: string;
+  source_type?: 'dou' | 'tcu_acordao';
   title: string;
   subtitle?: string;
   body_html?: string;
@@ -98,6 +108,22 @@ export interface DocumentDetail {
   assinatura?: string;
   primary_signer?: string;
   signers_all?: string[];
+  // TCU-specific fields
+  relator?: string;
+  colegiado?: string;
+  tipo_processo?: string;
+  numero_processo?: string;
+  numero_acordao?: number;
+  ano_acordao?: number;
+  acordao_id?: string;
+  relatorio?: string;
+  voto?: string;
+  dispositivo_tipo?: string[];
+  dispositivo_resumo?: string;
+  entidade?: string;
+  interessados?: string;
+  assunto?: string;
+  source_url?: string;
 }
 
 export interface StatsResponse {
@@ -183,6 +209,7 @@ export function searchDocuments(params: SearchParams): Promise<SearchResponse> {
   if (params.issuing_organ) sp.set('issuing_organ', params.issuing_organ);
   if (params.intent) sp.set('intent', params.intent);
   if (params.is_trending) sp.set('is_trending', 'true');
+  if (params.source) sp.set('source', params.source);
   return fetchJSON(`${API_BASE}/search?${sp.toString()}`);
 }
 

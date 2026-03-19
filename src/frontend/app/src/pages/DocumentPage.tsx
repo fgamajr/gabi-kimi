@@ -104,7 +104,8 @@ const DocumentPage: React.FC = () => {
     );
   }
 
-  const sectionName = doc.section_name || `Seção ${doc.section}`;
+  const isTcu = doc.source_type === 'tcu_acordao';
+  const sectionName = isTcu ? (doc.colegiado || 'TCU') : (doc.section_name || `Seção ${doc.section}`);
 
   const shareDocument = () => {
     if (navigator.share) {
@@ -176,10 +177,18 @@ const DocumentPage: React.FC = () => {
 
           <header className="mb-8 border-b border-border pb-6">
             <div className="flex flex-wrap items-center gap-2 text-sm mb-4">
-              <SectionBadge section={doc.section} />
+              {isTcu ? (
+                <span className="px-2.5 py-1 rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-400 text-xs font-bold uppercase">
+                  TCU
+                </span>
+              ) : (
+                <SectionBadge section={doc.section} />
+              )}
               <span className="text-text-secondary">{formatDate(doc.pub_date)}</span>
-              {doc.page && <span className="text-text-tertiary">Página {doc.page}</span>}
-              {doc.edition && <span className="text-text-tertiary">Edição {doc.edition}</span>}
+              {!isTcu && doc.page && <span className="text-text-tertiary">Página {doc.page}</span>}
+              {!isTcu && doc.edition && <span className="text-text-tertiary">Edição {doc.edition}</span>}
+              {isTcu && doc.colegiado && <span className="text-text-tertiary">{doc.colegiado}</span>}
+              {isTcu && doc.tipo_processo && <span className="text-text-tertiary">{doc.tipo_processo}</span>}
             </div>
 
             {doc.art_type_name && (
@@ -188,24 +197,48 @@ const DocumentPage: React.FC = () => {
 
             <h1 className="text-2xl md:text-4xl font-serif font-bold leading-tight">{doc.title}</h1>
 
-            {doc.identifica && doc.identifica !== doc.title && (
+            {!isTcu && doc.identifica && doc.identifica !== doc.title && (
               <p className="mt-3 text-base text-text-secondary italic font-serif">{doc.identifica}</p>
             )}
 
-            {doc.ementa && (
+            {doc.subtitle && (
               <blockquote className="mt-5 border-l-2 border-primary/40 pl-4 text-sm text-text-secondary italic leading-relaxed">
-                {doc.ementa}
+                {doc.subtitle}
               </blockquote>
             )}
           </header>
 
+          {/* Document body */}
           <div className="prose-doc" dangerouslySetInnerHTML={{ __html: processedBody }} />
+
+          {/* TCU: Relatório and Voto sections */}
+          {isTcu && doc.relatorio && (
+            <details className="mt-8 border border-border rounded-xl">
+              <summary className="px-6 py-4 cursor-pointer font-bold text-foreground hover:bg-muted/50 rounded-xl transition-colors">
+                Relatório
+              </summary>
+              <div className="px-6 pb-6 prose-doc text-sm whitespace-pre-line">
+                {doc.relatorio}
+              </div>
+            </details>
+          )}
+
+          {isTcu && doc.voto && (
+            <details className="mt-4 border border-border rounded-xl">
+              <summary className="px-6 py-4 cursor-pointer font-bold text-foreground hover:bg-muted/50 rounded-xl transition-colors">
+                Voto
+              </summary>
+              <div className="px-6 pb-6 prose-doc text-sm whitespace-pre-line">
+                {doc.voto}
+              </div>
+            </details>
+          )}
 
           {trailingMedia.map((m, i) => (
             <DocImage key={m.name || i} media={m} docId={doc.id} pubDate={doc.pub_date} section={doc.section} page={doc.page} />
           ))}
 
-          {(doc.assinatura || doc.primary_signer) && (
+          {!isTcu && (doc.assinatura || doc.primary_signer) && (
             <div className="mt-8 pt-6 border-t border-border">
               {doc.signers_all && doc.signers_all.length > 1 ? (
                 doc.signers_all.map((s, i) => (
@@ -237,11 +270,39 @@ const DocumentPage: React.FC = () => {
             <section className="rounded-xl border border-border bg-card p-4">
               <h3 className="text-xs uppercase tracking-[0.2em] text-text-tertiary font-semibold mb-3">Metadados</h3>
               <dl className="space-y-3">
-                {doc.issuing_organ && <MetadataRow label="Órgão emissor" value={doc.issuing_organ} />}
-                {doc.edition && <MetadataRow label="Edição" value={doc.edition} />}
-                {doc.page && <MetadataRow label="Página" value={doc.page} />}
-                <MetadataRow label="Data" value={formatDate(doc.pub_date)} />
-                <MetadataRow label="Seção" value={sectionName} />
+                {isTcu ? (
+                  <>
+                    <MetadataRow label="Fonte" value="Tribunal de Contas da União" />
+                    {doc.relator && <MetadataRow label="Relator" value={doc.relator} />}
+                    {doc.colegiado && <MetadataRow label="Colegiado" value={doc.colegiado} />}
+                    {doc.tipo_processo && <MetadataRow label="Tipo de Processo" value={doc.tipo_processo} />}
+                    {doc.numero_processo && <MetadataRow label="Processo" value={doc.numero_processo} />}
+                    {doc.acordao_id && <MetadataRow label="Acórdão" value={doc.acordao_id} />}
+                    <MetadataRow label="Sessão" value={formatDate(doc.pub_date)} />
+                    {doc.dispositivo_resumo && <MetadataRow label="Dispositivo" value={doc.dispositivo_resumo} />}
+                    {doc.assunto && <MetadataRow label="Assunto" value={doc.assunto} />}
+                    {doc.entidade && <MetadataRow label="Entidade" value={doc.entidade} />}
+                    {doc.source_url && (
+                      <div>
+                        <dt className="text-xs text-text-tertiary mb-1">Link TCU</dt>
+                        <dd>
+                          <a href={doc.source_url} target="_blank" rel="noopener noreferrer"
+                             className="text-sm text-primary hover:underline">
+                            Ver no portal TCU
+                          </a>
+                        </dd>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    {doc.issuing_organ && <MetadataRow label="Órgão emissor" value={doc.issuing_organ} />}
+                    {doc.edition && <MetadataRow label="Edição" value={doc.edition} />}
+                    {doc.page && <MetadataRow label="Página" value={doc.page} />}
+                    <MetadataRow label="Data" value={formatDate(doc.pub_date)} />
+                    <MetadataRow label="Seção" value={sectionName} />
+                  </>
+                )}
               </dl>
             </section>
           </div>

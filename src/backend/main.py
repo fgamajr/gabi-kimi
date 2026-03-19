@@ -418,6 +418,152 @@ def _build_filters(
 
 
 # ---------------------------------------------------------------------------
+# TCU index support
+# ---------------------------------------------------------------------------
+
+_TCU_INDEX = "gabi_tcu_acordaos_v1"
+
+
+def _tcu_hit_to_result(hit: dict) -> dict:
+    src = hit.get("_source", {})
+    hl = hit.get("highlight", {})
+
+    snippet_parts: list[str] = []
+    for k in ("sumario", "titulo", "acordao_texto", "search_all"):
+        frags = hl.get(k)
+        if frags:
+            snippet_parts.extend(frags)
+            if len(snippet_parts) >= 2:
+                break
+    raw_snippet = " … ".join(snippet_parts) if snippet_parts else (
+        src.get("sumario") or src.get("acordao_texto") or ""
+    )[:280]
+
+    return {
+        "id": src.get("doc_id") or hit.get("_id"),
+        "title": src.get("titulo") or "",
+        "subtitle": src.get("sumario") or "",
+        "snippet": re.sub(r">>>|<<<", "", raw_snippet),
+        "highlight": _hl_to_html(raw_snippet) if snippet_parts else None,
+        "pub_date": src.get("data_sessao") or "",
+        "section": src.get("colegiado") or "",
+        "page": None,
+        "art_type": src.get("tipo") or "Acórdão TCU",
+        "issuing_organ": "Tribunal de Contas da União",
+        "top_organ": "Tribunal de Contas da União",
+        "dou_url": None,
+        "source_type": "tcu_acordao",
+        "relator": src.get("relator"),
+        "tipo_processo": src.get("tipo_processo"),
+        "colegiado": src.get("colegiado"),
+        "dispositivo_resumo": src.get("dispositivo_resumo"),
+    }
+
+
+async def _tcu_search(
+    *,
+    q: str,
+    page: int,
+    max_results: int,
+    offset: int,
+    date_from: str | None,
+    date_to: str | None,
+    source: str,
+) -> dict:
+    """Search TCU index directly via ES."""
+    if source == "all":
+        index = f"{settings.es_target_index},{_TCU_INDEX}"
+    else:
+        index = _TCU_INDEX
+
+    filters: list[dict] = []
+    if date_from or date_to:
+        rng: dict[str, str] = {}
+        if date_from:
+            rng["gte"] = date_from
+        if date_to:
+            rng["lte"] = date_to
+        if source == "all":
+            filters.append({"bool": {"should": [
+                {"range": {"pub_date": rng}},
+                {"range": {"data_sessao": rng}},
+            ], "minimum_should_match": 1}})
+        else:
+            filters.append({"range": {"data_sessao": rng}})
+
+    if source == "tcu":
+        fields = [
+            "titulo^5", "sumario^4", "assunto^3",
+            "relator^2", "entidade^2", "acordao_texto", "search_all",
+        ]
+    else:
+        fields = [
+            "titulo^5", "identifica^5", "sumario^4", "ementa^4",
+            "assunto^3", "issuing_organ^2", "relator^2",
+            "acordao_texto", "body_plain", "search_all",
+        ]
+
+    payload = {
+        "from": offset,
+        "size": max_results,
+        "track_total_hits": True,
+        "query": {
+            "bool": {
+                "must": [{
+                    "simple_query_string": {
+                        "query": q,
+                        "fields": fields,
+                        "default_operator": "and",
+                    },
+                }],
+                "filter": filters,
+            },
+        },
+        "highlight": {
+            "pre_tags": [">>>"], "post_tags": ["<<<"],
+            "max_analyzed_offset": 500000,
+            "fields": {
+                "titulo": {"number_of_fragments": 0},
+                "sumario": {"number_of_fragments": 1, "fragment_size": 280},
+                "acordao_texto": {"number_of_fragments": 2, "fragment_size": 200},
+                "identifica": {"number_of_fragments": 0},
+                "ementa": {"number_of_fragments": 1, "fragment_size": 280},
+                "body_plain": {"number_of_fragments": 2, "fragment_size": 200},
+            },
+        },
+        "sort": [{"_score": {"order": "desc"}}],
+    }
+
+    try:
+        data = await es_request("POST", f"/{index}/_search", json=payload)
+    except httpx.HTTPStatusError as e:
+        logger.error("TCU search error: %s", e.response.text[:200])
+        return {"results": [], "total": 0, "page": page, "max": max_results, "query": q, "took_ms": 0}
+
+    hits = data.get("hits", {}).get("hits", [])
+    total = int(data.get("hits", {}).get("total", {}).get("value", 0))
+    took = data.get("took", 0)
+
+    results = []
+    for hit in hits:
+        src = hit.get("_source", {})
+        if src.get("source_type") == "tcu_acordao":
+            results.append(_tcu_hit_to_result(hit))
+        else:
+            results.append(_hit_to_result(hit))
+
+    return {
+        "results": results,
+        "total": total,
+        "page": page,
+        "max": max_results,
+        "query": q,
+        "took_ms": took,
+        "source": source,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
@@ -464,8 +610,15 @@ async def search(
     intent: Optional[str] = None,
     is_trending: bool = False,
     topic: Optional[str] = None,
+    source: Optional[str] = None,
 ):
     offset = (page - 1) * max
+
+    # TCU search: direct ES query to TCU index
+    if source in ("tcu", "all"):
+        return await _tcu_search(q=q, page=page, max_results=max, offset=offset,
+                                 date_from=date_from, date_to=date_to, source=source)
+
     filters = _build_filters(date_from, date_to, section, art_type, issuing_organ, topic)
 
     use_hybrid = settings.VECTOR_SEARCH_ENABLED
@@ -588,8 +741,58 @@ async def _fetch_document_source(doc_id: str) -> dict[str, Any] | None:
         return None
 
 
+async def _fetch_tcu_document_source(doc_id: str) -> dict[str, Any] | None:
+    """Fetch raw ES source for a TCU document."""
+    try:
+        data = await es_request("GET", f"/{_TCU_INDEX}/_doc/{doc_id}")
+        return data.get("_source", {})
+    except httpx.HTTPStatusError:
+        return None
+
+
 @app.get("/api/document/{doc_id}")
 async def document(doc_id: str):
+    # Auto-detect TCU documents by prefix
+    if doc_id.startswith("ACORDAO-COMPLETO-"):
+        src = await _fetch_tcu_document_source(doc_id)
+        if src is None:
+            return Response(status_code=404, content='{"detail":"Document not found"}',
+                            media_type="application/json")
+        return {
+            "id": doc_id,
+            "source_type": "tcu_acordao",
+            "title": src.get("titulo") or "",
+            "subtitle": src.get("sumario") or "",
+            "body_html": None,
+            "body_plain": src.get("acordao_texto") or "",
+            "pub_date": src.get("data_sessao") or "",
+            "section": src.get("colegiado") or "",
+            "section_name": src.get("colegiado"),
+            "page": None,
+            "edition": None,
+            "art_type": src.get("tipo") or "Acórdão TCU",
+            "art_type_name": src.get("tipo"),
+            "issuing_organ": "Tribunal de Contas da União",
+            "dou_url": None,
+            "media": [],
+            # TCU-specific fields
+            "relator": src.get("relator"),
+            "colegiado": src.get("colegiado"),
+            "tipo_processo": src.get("tipo_processo"),
+            "numero_processo": src.get("numero_processo"),
+            "numero_acordao": src.get("numero_acordao"),
+            "ano_acordao": src.get("ano_acordao"),
+            "acordao_id": src.get("acordao_id"),
+            "relatorio": src.get("relatorio") or "",
+            "voto": src.get("voto") or "",
+            "dispositivo_tipo": src.get("dispositivo_tipo"),
+            "dispositivo_resumo": src.get("dispositivo_resumo"),
+            "entidade": src.get("entidade"),
+            "interessados": src.get("interessados"),
+            "assunto": src.get("assunto"),
+            "source_url": src.get("source_url"),
+        }
+
     src = await _fetch_document_source(doc_id)
     if src is None:
         return Response(status_code=404, content='{"detail":"Document not found"}',
@@ -599,6 +802,7 @@ async def document(doc_id: str):
 
     return {
         "id": doc_id,
+        "source_type": "dou",
         "title": src.get("identifica") or "",
         "subtitle": src.get("ementa") or "",
         "body_html": None,
