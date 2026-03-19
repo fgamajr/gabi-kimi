@@ -157,12 +157,19 @@ log "Step 4: Syncing to Elasticsearch..."
 ssh "$SERVER" "docker compose -f $SERVER_COMPOSE exec -T backend python -m src.backend.ingest.es_indexer sync"
 log "ES sync complete"
 
-# ── Step 5: Verify ──
-log "Step 5: Verifying..."
+# ── Step 5: TCU ingest (current year CSV, upsert — idempotent) ──
+log "Step 5: Syncing TCU acórdãos (current year)..."
+CURRENT_YEAR=$(date -u '+%Y')
+ssh "$SERVER" "docker compose -f $SERVER_COMPOSE exec -T backend python -m src.backend.ingest.tcu_ingest --year $CURRENT_YEAR --cache-dir /data/gabi_dou/tcu-csv" || log "TCU ingest failed (non-fatal)"
+log "TCU sync complete"
+
+# ── Step 6: Verify ──
+log "Step 6: Verifying..."
 STATS=$(ssh "$SERVER" "curl -s http://localhost:8001/api/stats")
 TOTAL=$(echo "$STATS" | python3 -c "import sys,json; print(json.loads(sys.stdin.read())['total_documents'])")
 MAX_DATE=$(echo "$STATS" | python3 -c "import sys,json; print(json.loads(sys.stdin.read())['date_range']['max'][:10])")
-log "Total documents: $TOTAL | Latest date: $MAX_DATE"
+TCU_COUNT=$(ssh "$SERVER" "docker exec gabi-kimi-elasticsearch curl -s http://localhost:9200/gabi_tcu_acordaos_v1/_count 2>/dev/null" | python3 -c "import sys,json; print(json.loads(sys.stdin.read()).get('count',0))" 2>/dev/null || echo "?")
+log "DOU: $TOTAL docs (latest: $MAX_DATE) | TCU: $TCU_COUNT acórdãos"
 
 # ── Cleanup ──
 rm -rf "$TMP_DIR"
