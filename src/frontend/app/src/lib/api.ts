@@ -139,6 +139,30 @@ export interface AutocompleteResult {
   type?: string;
 }
 
+export interface EditorialHighlight {
+  doc_id: string;
+  title: string;
+  summary: string;
+  why: string;
+  pub_date: string;
+  section: string;
+  edition_number?: string;
+  issuing_organ: string;
+  art_type: string;
+  badge: string;
+}
+
+export interface EditorialHighlightsResponse {
+  date: string | null;
+  llm_used?: boolean;
+  categories: {
+    destaque?: EditorialHighlight;
+    concursos?: EditorialHighlight;
+    economia?: EditorialHighlight;
+    politica?: EditorialHighlight;
+  };
+}
+
 // --- API Functions ---
 
 async function fetchJSON<T>(url: string): Promise<T> {
@@ -200,4 +224,8 @@ export function getSearchExamples(): Promise<SearchExample[]> {
 
 export function getSuggestedTopics(): Promise<SuggestedTopic[]> {
   return fetchJSON(`${API_BASE}/suggested-topics`);
+}
+
+export function getEditorialHighlights(): Promise<EditorialHighlightsResponse> {
+  return fetchJSON(`${API_BASE}/editorial-highlights`);
 }

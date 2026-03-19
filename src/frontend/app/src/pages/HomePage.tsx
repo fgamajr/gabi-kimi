@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import EditorialHighlights from '@/components/EditorialHighlights';
 import { Header } from '@/components/Header';
 import { Icons } from '@/components/Icons';
 import { SearchBar } from '@/components/SearchBar';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { getRecentHighlights, getSearchExamples, getStats, getSuggestedTopics, getTrending } from '@/lib/api';
-import type { RecentHighlight, SearchExample, StatsResponse, SuggestedTopic, TrendingTopic } from '@/lib/api';
+import { getEditorialHighlights, getRecentHighlights, getSearchExamples, getStats, getSuggestedTopics, getTrending } from '@/lib/api';
+import type { EditorialHighlightsResponse, RecentHighlight, SearchExample, StatsResponse, SuggestedTopic, TrendingTopic } from '@/lib/api';
 
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
@@ -14,15 +15,17 @@ const HomePage: React.FC = () => {
   const [recentHighlights, setRecentHighlights] = useState<RecentHighlight[]>([]);
   const [examples, setExamples] = useState<SearchExample[]>([]);
   const [suggestedTopics, setSuggestedTopics] = useState<SuggestedTopic[]>([]);
+  const [editorial, setEditorial] = useState<EditorialHighlightsResponse | null>(null);
 
   useEffect(() => {
-    Promise.allSettled([getStats(), getTrending(), getSearchExamples(), getRecentHighlights(), getSuggestedTopics()]).then(
-      ([statsRes, trendingRes, examplesRes, recentRes, suggestedRes]) => {
+    Promise.allSettled([getStats(), getTrending(), getSearchExamples(), getRecentHighlights(), getSuggestedTopics(), getEditorialHighlights()]).then(
+      ([statsRes, trendingRes, examplesRes, recentRes, suggestedRes, editorialRes]) => {
         if (statsRes.status === 'fulfilled') setStats(statsRes.value);
         if (trendingRes.status === 'fulfilled') setTrendingTopics((trendingRes.value || []).slice(0, 6));
         if (examplesRes.status === 'fulfilled') setExamples((examplesRes.value || []).slice(0, 6));
         if (recentRes.status === 'fulfilled') setRecentHighlights((recentRes.value || []).slice(0, 8));
         if (suggestedRes.status === 'fulfilled') setSuggestedTopics(suggestedRes.value || []);
+        if (editorialRes.status === 'fulfilled') setEditorial(editorialRes.value);
       },
     );
   }, []);
@@ -111,6 +114,10 @@ const HomePage: React.FC = () => {
         </div>
       </section>
 
+      {editorial && Object.keys(editorial.categories).length > 0 && (
+        <EditorialHighlights data={editorial} />
+      )}
+
       <main className="max-w-6xl mx-auto px-4 py-10 grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8">
         <div className="space-y-10">
           {trendingTopics.length > 0 && (
@@ -163,25 +170,27 @@ const HomePage: React.FC = () => {
           )}
         </div>
 
-        <aside className="lg:sticky lg:top-24 h-fit">
-          <h3 className="text-xs uppercase tracking-[0.2em] text-text-tertiary font-semibold mb-3">Destaques recentes</h3>
-          {recentHighlights.length === 0 ? (
-            <p className="text-sm text-text-secondary">Sem destaques recentes no momento.</p>
-          ) : (
-            <div className="space-y-2">
-              {recentHighlights.slice(0, 6).map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => navigate(`/document/${encodeURIComponent(item.id)}`)}
-                  className="w-full text-left rounded-xl border border-border bg-card px-3 py-3 hover:border-primary/40 transition-colors focus-ring"
-                >
-                  <p className="text-sm font-semibold line-clamp-2">{item.title}</p>
-                  <p className="text-xs text-text-tertiary mt-1">{formatDayMonth(item.pub_date)}</p>
-                </button>
-              ))}
-            </div>
-          )}
-        </aside>
+        {!(editorial && Object.keys(editorial.categories).length > 0) && (
+          <aside className="lg:sticky lg:top-24 h-fit">
+            <h3 className="text-xs uppercase tracking-[0.2em] text-text-tertiary font-semibold mb-3">Destaques recentes</h3>
+            {recentHighlights.length === 0 ? (
+              <p className="text-sm text-text-secondary">Sem destaques recentes no momento.</p>
+            ) : (
+              <div className="space-y-2">
+                {recentHighlights.slice(0, 6).map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => navigate(`/document/${encodeURIComponent(item.id)}`)}
+                    className="w-full text-left rounded-xl border border-border bg-card px-3 py-3 hover:border-primary/40 transition-colors focus-ring"
+                  >
+                    <p className="text-sm font-semibold line-clamp-2">{item.title}</p>
+                    <p className="text-xs text-text-tertiary mt-1">{formatDayMonth(item.pub_date)}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </aside>
+        )}
       </main>
     </div>
   );
