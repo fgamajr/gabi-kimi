@@ -11,6 +11,7 @@ import shutil
 import logging
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
 from pymongo import UpdateOne
