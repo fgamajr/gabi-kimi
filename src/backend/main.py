@@ -9,6 +9,8 @@ import httpx
 from fastapi import FastAPI, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
 
 from src.backend.core.config import settings
 from src.backend.data.db import MongoDB
@@ -59,6 +61,33 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class TokenAuthMiddleware(BaseHTTPMiddleware):
+    """Validate-if-present bearer token auth.
+
+    - No GABI_API_TOKENS configured → all requests pass (dev mode).
+    - Request has no Authorization header → pass through (public frontend).
+    - Request has Authorization: Bearer <token> → validate, 401 if invalid.
+    """
+
+    async def dispatch(self, request: StarletteRequest, call_next):
+        if not settings.api_tokens:
+            return await call_next(request)
+
+        auth_header = request.headers.get("authorization")
+        if auth_header:
+            if not auth_header.startswith("Bearer "):
+                return JSONResponse(status_code=401, content={"detail": "Invalid authorization header"})
+            token = auth_header[7:]
+            if token not in settings.api_tokens:
+                return JSONResponse(status_code=401, content={"detail": "Invalid API token"})
+            request.state.token_label = settings.api_tokens[token]
+
+        return await call_next(request)
+
+
+app.add_middleware(TokenAuthMiddleware)
 
 # ---------------------------------------------------------------------------
 # Helpers

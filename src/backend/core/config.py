@@ -15,6 +15,24 @@ class Settings(BaseSettings):
     ES_ALIAS: Optional[str] = "gabi_documents"
     GABI_CORS_ORIGINS: str = "http://localhost:8081,http://127.0.0.1:8081"
 
+    # Auth
+    GABI_API_TOKENS: str = ""
+
+    @property
+    def api_tokens(self) -> dict[str, str]:
+        """Parse GABI_API_TOKENS='mcp:abc123,cli:xyz' → {token: label}."""
+        tokens: dict[str, str] = {}
+        for entry in self.GABI_API_TOKENS.split(","):
+            entry = entry.strip()
+            if not entry:
+                continue
+            if ":" in entry:
+                label, token = entry.split(":", 1)
+                tokens[token.strip()] = label.strip()
+            else:
+                tokens[entry] = "anonymous"
+        return tokens
+
     # Hybrid search / reranker
     VECTOR_SEARCH_ENABLED: bool = False
     EMBED_SERVER_URL: str = "http://host.docker.internal:8900"
@@ -22,6 +40,8 @@ class Settings(BaseSettings):
     RERANKER_URL: str = "http://host.docker.internal:8902"
     RERANKER_TOP_K: int = 50
     RERANKER_TIMEOUT: float = 5.0
+    RERANKER_MAX_DOCS: int = 50
+    RERANKER_MAX_DOC_CHARS: int = 2200
 
     @property
     def es_target_index(self) -> str:

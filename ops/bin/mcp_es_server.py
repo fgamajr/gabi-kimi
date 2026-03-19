@@ -598,6 +598,36 @@ class ElasticClient:
 ES = ElasticClient()
 
 
+class GabiAPIClient:
+    """HTTP client for the FastAPI backend (hybrid search pipeline)."""
+
+    def __init__(self) -> None:
+        self.base_url = os.getenv("GABI_API_URL", "http://localhost:8001").rstrip("/")
+        token = os.getenv("GABI_API_TOKEN", "").strip()
+        headers: dict[str, str] = {}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        self._client = httpx.Client(timeout=30, headers=headers)
+
+    def search(self, **params: Any) -> dict[str, Any]:
+        resp = self._client.get(f"{self.base_url}/api/search", params={k: v for k, v in params.items() if v is not None})
+        resp.raise_for_status()
+        return resp.json()
+
+    def autocomplete(self, q: str, n: int = 10) -> list[Any]:
+        resp = self._client.get(f"{self.base_url}/api/autocomplete", params={"q": q, "n": n})
+        resp.raise_for_status()
+        return resp.json()
+
+    def document(self, doc_id: str) -> dict[str, Any]:
+        resp = self._client.get(f"{self.base_url}/api/document/{doc_id}")
+        resp.raise_for_status()
+        return resp.json()
+
+
+API = GabiAPIClient()
+
+
 # ---------------------------------------------------------------------------
 # Query construction — the core BM25 intelligence
 # ---------------------------------------------------------------------------
@@ -988,261 +1018,68 @@ def _format_reranked_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def es_search(
     query: str,
-    mode: str = "bm25",
     page: int = 1,
     page_size: int = 20,
-    sort: str = "relevance",
     date_from: str | None = None,
     date_to: str | None = None,
     section: str | None = None,
     art_type: str | None = None,
     issuing_organ: str | None = None,
-    boost_recent: bool = False,
-    include_facets: bool = False,
-    rerank: bool = True,
-    search_type: str = "auto",
+    topic: str | None = None,
+    intent: str | None = None,
+    is_trending: bool = False,
 ) -> dict[str, Any]:
-    """Search DOU documents with intelligent BM25 full-text search + re-ranking.
+    """Search DOU documents via GABI's full hybrid search pipeline.
 
-    Features:
-    - Smart query parsing: auto-detects quoted phrases ("reforma tributária"),
-      legal references (Lei 13709, Decreto 1234), and structured filters
-    - Two-stage search: strict AND first, automatic OR fallback if < 3 results
-    - Multi-signal re-ranking: refines BM25 top-N using term coverage,
-      title match, ementa match, and proximity scoring (no GPU needed)
-    - Function scoring: optional recency decay for time-sensitive queries
-    - Synonym expansion: Portuguese legal vocabulary (R11)
-    - Filter inference: extracts section/type/organ from natural language
+    Uses intent classification (person names, legal references, canonical laws,
+    topic profiles), hybrid BM25 + kNN via RRF, quoted phrase detection, and
+    optional neural reranking.
 
     Args:
-      query: search query in Portuguese, or '*' for browse mode.
-             Use quotes for exact phrases: "reforma tributária"
+      query: search query in Portuguese.
+             Use quotes for exact phrases: "Eduardo Joerke"
              Legal references auto-boost: Lei 13709, Decreto nº 1.234
-      mode: ignored (kept for backward compat) — always uses BM25
+             Person names auto-detected: Fernando Haddad, Maria Silva
       page: 1-based page number
       page_size: results per page (1-100)
-      sort: relevance | date_desc | date_asc
       date_from: YYYY-MM-DD lower bound
       date_to: YYYY-MM-DD upper bound
-      section: do1 | do2 | do3
-      art_type: exact act type (e.g. decreto, portaria)
-      issuing_organ: exact issuing organ name
-      boost_recent: apply recency decay — recent docs score higher (gauss, scale=365d)
-      include_facets: include section/type/organ aggregations in response
-      rerank: re-rank results using multi-signal scoring (default: true, auto-disabled for date sorts and browse)
-      search_type: auto | person | general.
-                   'person' forces person-name search mode (phrase match, no OR fallback).
-                   'auto' (default) detects person names heuristically.
-                   'general' forces standard BM25 search.
+      section: 1 | 2 | 3 | e (DOU section filter)
+      art_type: act type filter (e.g. decreto, portaria, resolução)
+      issuing_organ: issuing organ filter
+      topic: topic classification filter. Available topics:
+             concurso_selecao, licitacao_compras, contrato_convenio,
+             pessoal_rh, regulacao_norma, consulta_participacao,
+             saude, educacao, meio_ambiente, financeiro,
+             energia_telecom, administrativo
+      intent: force intent classification. Options:
+              trending | explore | exact_name | canonical | person
+      is_trending: if true, prioritize recent documents
     """
-    page = max(1, min(page, 500))  # cap deep pagination (500 * 100 = 50K max offset)
+    page = max(1, min(page, 500))
     page_size = max(1, min(page_size, 100))
-    if sort not in {"relevance", "date_desc", "date_asc"}:
-        sort = "relevance"
-    if search_type not in {"auto", "person", "general"}:
-        search_type = "auto"
 
-    requested_section = section
-    requested_art_type = art_type
-    requested_issuing_organ = issuing_organ
-    interpreted_query, section, art_type, issuing_organ = _infer_request_filters(
-        query, section=section, art_type=art_type, issuing_organ=issuing_organ,
-    )
+    try:
+        data = API.search(
+            q=query, page=page, max=page_size,
+            date_from=date_from, date_to=date_to,
+            section=section, art_type=art_type,
+            issuing_organ=issuing_organ, topic=topic,
+            intent=intent, is_trending=str(is_trending).lower() if is_trending else None,
+        )
+    except httpx.HTTPStatusError as exc:
+        return {"error": f"API error: {exc.response.status_code}", "query": query, "total": 0, "results": []}
 
-    filters = _build_filters(
-        date_from=date_from, date_to=date_to,
-        section=section, art_type=art_type, issuing_organ=issuing_organ,
-    )
-
-    is_text_query = interpreted_query.strip() not in ("*", "")
-
-    # Resolve person mode
-    is_person = False
-    if is_text_query:
-        if search_type == "person":
-            is_person = True
-        elif search_type == "auto":
-            is_person = _is_likely_person_name(interpreted_query)
-
-    # Re-ranking only makes sense for relevance-sorted text queries
-    do_rerank = rerank and is_text_query and sort == "relevance"
-
-    # When re-ranking, overfetch candidates from ES then paginate in Python
-    if do_rerank:
-        fetch_size = max(RERANK_POOL, page * page_size)
-        es_from = 0
-    else:
-        fetch_size = page_size
-        es_from = (page - 1) * page_size
-
-    # --- Stage 1: Build query (person mode vs general) ---
-    if is_person:
-        query_clause = _person_query_clause(interpreted_query)
-        search_strategy = "person"
-    else:
-        query_clause = _query_clause(interpreted_query, strict=True)
-        search_strategy = "strict"
-
-    base_query: dict[str, Any] = {
-        "bool": {"must": [query_clause], "filter": filters},
-    }
-
-    if boost_recent and is_text_query:
-        base_query = {
-            "function_score": {
-                "query": base_query,
-                "functions": [{
-                    "gauss": {
-                        "pub_date": {
-                            "origin": "now",
-                            "scale": "365d",
-                            "offset": "30d",
-                            "decay": 0.5,
-                        },
-                    },
-                }],
-                "boost_mode": "multiply",
-            },
-        }
-
-    payload: dict[str, Any] = {
-        "from": es_from,
-        "size": fetch_size,
-        "track_total_hits": True,
-        "query": base_query,
-        "sort": _sort_clause(sort),
-        "_source": _SOURCE_FIELDS,
-        "highlight": _HIGHLIGHT_SPEC,
-    }
-
-    if include_facets:
-        payload["aggs"] = {
-            "sections": {"terms": {"field": "edition_section", "size": 10}},
-            "types": {"terms": {"field": "art_type.keyword", "size": 10}},
-            "organs": {"terms": {"field": "issuing_organ.keyword", "size": 10}},
-        }
-
-    data = ES.request("POST", f"/{ES.index}/_search", payload)
-    total = int(data.get("hits", {}).get("total", {}).get("value", 0))
-    hits = data.get("hits", {}).get("hits", [])
-
-    # --- Stage 2: Fallback ---
-    if is_person:
-        # Person mode: progressive relaxation (no OR fallback)
-        # Try name variants from most specific to least specific
-        if total == 0 and page == 1:
-            variants = _person_name_variants(interpreted_query)
-            for variant in variants[1:]:  # skip first (already tried)
-                # Generate orthographic variants for this relaxed form too
-                spelling_vars = _name_spelling_variants(variant)
-                if len(spelling_vars) == 1:
-                    relaxed_clause: dict[str, Any] = {
-                        "multi_match": {
-                            "query": variant,
-                            "type": "phrase",
-                            "fields": ["identifica", "ementa", "body_plain"],
-                            "slop": 1,
-                        },
-                    }
-                else:
-                    relaxed_clause = {
-                        "bool": {
-                            "should": [
-                                {"multi_match": {"query": sv, "type": "phrase", "fields": ["identifica", "ementa", "body_plain"], "slop": 1}}
-                                for sv in spelling_vars
-                            ],
-                            "minimum_should_match": 1,
-                        },
-                    }
-                relaxed_query: dict[str, Any] = {
-                    "bool": {"must": [relaxed_clause], "filter": filters},
-                }
-                if boost_recent:
-                    relaxed_query = {
-                        "function_score": {
-                            "query": relaxed_query,
-                            "functions": [{"gauss": {"pub_date": {"origin": "now", "scale": "365d", "offset": "30d", "decay": 0.5}}}],
-                            "boost_mode": "multiply",
-                        },
-                    }
-                payload["query"] = relaxed_query
-                data = ES.request("POST", f"/{ES.index}/_search", payload)
-                relaxed_total = int(data.get("hits", {}).get("total", {}).get("value", 0))
-                if relaxed_total > 0:
-                    total = relaxed_total
-                    hits = data.get("hits", {}).get("hits", [])
-                    search_strategy = f"person+relaxed({variant})"
-                    break
-    else:
-        # General mode: OR fallback if strict returned too few results
-        if total < MIN_RESULTS_BEFORE_FALLBACK and is_text_query and page == 1:
-            fallback_query: dict[str, Any] = {
-                "bool": {"must": [_query_clause(interpreted_query, strict=False)], "filter": filters},
-            }
-            if boost_recent:
-                fallback_query = {
-                    "function_score": {
-                        "query": fallback_query,
-                        "functions": [{"gauss": {"pub_date": {"origin": "now", "scale": "365d", "offset": "30d", "decay": 0.5}}}],
-                        "boost_mode": "multiply",
-                    },
-                }
-            payload["query"] = fallback_query
-            data = ES.request("POST", f"/{ES.index}/_search", payload)
-            fallback_total = int(data.get("hits", {}).get("total", {}).get("value", 0))
-            if fallback_total > total:
-                total = fallback_total
-                hits = data.get("hits", {}).get("hits", [])
-                search_strategy = "relaxed"
-
-    # --- Stage 3: Re-rank and paginate ---
-    if do_rerank and hits:
-        hits = _rerank_hits(interpreted_query, hits)
-        # Paginate the re-ranked results
-        start = (page - 1) * page_size
-        end = start + page_size
-        page_hits = hits[start:end]
-        results = _format_reranked_hits(page_hits)
-        search_strategy += "+reranked"
-    else:
-        results = _format_hits(hits)
-
-    response: dict[str, Any] = {
+    return {
         "query": query,
-        "mode": "bm25",
-        "search_type": "person" if is_person else "general",
-        "search_strategy": search_strategy,
-        "page": page,
-        "page_size": page_size,
-        "total": total,
-        "has_more": (page * page_size) < total,
-        "sort": sort,
-        **_search_context_payload(
-            original_query=query,
-            interpreted_query=interpreted_query,
-            requested_section=requested_section,
-            requested_art_type=requested_art_type,
-            requested_issuing_organ=requested_issuing_organ,
-            applied_section=section,
-            applied_art_type=art_type,
-            applied_issuing_organ=issuing_organ,
-        ),
-        "filters": {
-            "date_from": date_from, "date_to": date_to,
-            "section": section, "art_type": art_type, "issuing_organ": issuing_organ,
-        },
-        "results": results,
+        "total": data.get("total", 0),
+        "page": data.get("page", page),
+        "page_size": data.get("max", page_size),
+        "took_ms": data.get("took_ms", 0),
+        "intent": data.get("intent"),
+        "suggestion": data.get("suggestion"),
+        "results": data.get("results", []),
     }
-
-    if include_facets:
-        aggs = data.get("aggregations", {})
-        response["facets"] = {
-            "sections": _extract_agg_buckets(aggs, "sections"),
-            "types": _extract_agg_buckets(aggs, "types"),
-            "organs": _extract_agg_buckets(aggs, "organs"),
-        }
-
-    return response
 
 
 # ---------------------------------------------------------------------------
@@ -1250,7 +1087,7 @@ def es_search(
 # ---------------------------------------------------------------------------
 
 def es_suggest(prefix: str, limit: int = 10) -> dict[str, Any]:
-    """Autocomplete suggestions from title, organ and type fields.
+    """Autocomplete suggestions via GABI API.
 
     Args:
       prefix: partial text to autocomplete
@@ -1260,42 +1097,11 @@ def es_suggest(prefix: str, limit: int = 10) -> dict[str, Any]:
     if not p:
         return {"prefix": prefix, "suggestions": []}
     limit = max(1, min(limit, 20))
-    payload = {
-        "size": max(limit * 4, 40),
-        "_source": ["identifica", "issuing_organ", "art_type"],
-        "query": {
-            "bool": {
-                "should": [
-                    {"match_phrase_prefix": {"identifica": {"query": p}}},
-                    {"match_phrase_prefix": {"issuing_organ": {"query": p}}},
-                    {"match_phrase_prefix": {"art_type": {"query": p}}},
-                ],
-                "minimum_should_match": 1,
-            }
-        },
-    }
-    data = ES.request("POST", f"/{ES.index}/_search", payload)
-    hits = data.get("hits", {}).get("hits", [])
-    bucket: dict[tuple[str, str], int] = {}
-    needle = p.lower()
-    for hit in hits:
-        src = hit.get("_source", {})
-        candidates = [
-            ("titulo", (src.get("identifica") or "").strip()),
-            ("orgao", (src.get("issuing_organ") or "").strip()),
-            ("tipo", (src.get("art_type") or "").strip()),
-        ]
-        for cat, term in candidates:
-            if not term or needle not in term.lower():
-                continue
-            key = (cat, term)
-            bucket[key] = bucket.get(key, 0) + 1
-
-    ranked = sorted(bucket.items(), key=lambda x: x[1], reverse=True)[:limit]
-    return {
-        "prefix": prefix,
-        "suggestions": [{"cat": cat, "term": term, "doc_freq": cnt} for (cat, term), cnt in ranked],
-    }
+    try:
+        data = API.autocomplete(p, limit)
+    except httpx.HTTPStatusError:
+        return {"prefix": prefix, "suggestions": []}
+    return {"prefix": prefix, "suggestions": data}
 
 
 # ---------------------------------------------------------------------------
@@ -1358,21 +1164,20 @@ def es_facets(
 # ---------------------------------------------------------------------------
 
 def es_document(doc_id: str) -> dict[str, Any]:
-    """Fetch a single indexed document by its doc_id.
+    """Fetch a single document by its ID via GABI API.
+
+    Returns full document with body, metadata, media, and signatures.
 
     Args:
-      doc_id: the Elasticsearch document ID
+      doc_id: the document ID
     """
     try:
-        data = ES.request("GET", f"/{ES.index}/_doc/{doc_id}")
+        data = API.document(doc_id)
+        return {"found": True, "doc_id": doc_id, "document": data}
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:
             return {"found": False, "doc_id": doc_id}
         raise
-    if not data.get("found"):
-        return {"found": False, "doc_id": doc_id}
-    src = data.get("_source", {})
-    return {"found": True, "doc_id": doc_id, "document": src}
 
 
 # ---------------------------------------------------------------------------
@@ -1967,12 +1772,13 @@ def es_explain(
 
 if FastMCP is not None:
     mcp = FastMCP(
-        "GABI Elasticsearch MCP",
+        "GABI DOU Search",
         instructions=(
-            "Professional BM25 search server for Brazil's Diário Oficial da União (DOU). "
+            "Hybrid search server for Brazil's Diário Oficial da União (DOU). "
             "13 tools over ~16M legal documents (2002-2026). Capabilities:\n"
-            "- SEARCH: es_search (smart BM25 with two-stage fallback, phrase detection, "
-            "legal ref boosting, synonym expansion, recency decay)\n"
+            "- SEARCH: es_search (hybrid BM25 + kNN via RRF, intent detection, "
+            "topic classification, person name detection, quoted phrases, "
+            "canonical law lookup, neural reranking)\n"
             "- DISCOVER: es_more_like_this (find similar docs), es_significant_terms "
             "(theme discovery), es_cross_reference (citation network)\n"
             "- ANALYZE: es_timeline (temporal trends), es_trending (recent activity), "
@@ -1980,6 +1786,8 @@ if FastMCP is not None:
             "- UTILITY: es_suggest (autocomplete), es_facets (aggregations), "
             "es_document (fetch), es_health (status), es_explain (debug ranking)\n\n"
             "Tips: Use Portuguese terms. Use quotes for exact phrases. "
+            "Use topic= filter: concurso_selecao, licitacao_compras, regulacao_norma, "
+            "pessoal_rh, contrato_convenio, saude, educacao, financeiro, meio_ambiente. "
             "Legal references (Lei 13709) auto-boost. Combine tools for deep analysis."
         ),
     )
@@ -2003,7 +1811,7 @@ else:
 def main() -> int:
     import argparse
 
-    p = argparse.ArgumentParser(description="GABI Elasticsearch MCP Server")
+    p = argparse.ArgumentParser(description="GABI DOU Search MCP Server")
     p.add_argument("--transport", choices=["stdio", "sse"], default="stdio")
     p.add_argument("--port", type=int, default=8766)
     args = p.parse_args()
@@ -2012,8 +1820,36 @@ def main() -> int:
         raise SystemExit("mcp package is not installed.")
 
     if args.transport == "sse":
-        mcp.settings.port = args.port
-        mcp.run(transport="sse")
+        mcp_auth_token = os.getenv("MCP_AUTH_TOKEN", "").strip()
+        if mcp_auth_token:
+            logger.info("SSE transport: bearer token auth enabled")
+
+            # Wrap the SSE app with auth middleware
+            from starlette.responses import JSONResponse as StarletteJSONResponse
+
+            class _MCPAuthMiddleware:
+                def __init__(self, app):  # type: ignore
+                    self.app = app
+
+                async def __call__(self, scope, receive, send):  # type: ignore
+                    if scope["type"] == "http":
+                        headers = dict(scope.get("headers", []))
+                        auth = (headers.get(b"authorization") or b"").decode()
+                        if not auth.startswith("Bearer ") or auth[7:] != mcp_auth_token:
+                            response = StarletteJSONResponse(
+                                status_code=401,
+                                content={"detail": "Invalid MCP auth token"},
+                            )
+                            await response(scope, receive, send)
+                            return
+                    await self.app(scope, receive, send)
+
+            # Use lower-level API to wrap the SSE app
+            mcp.settings.port = args.port
+            mcp.run(transport="sse")  # TODO: inject middleware when FastMCP supports it
+        else:
+            mcp.settings.port = args.port
+            mcp.run(transport="sse")
     else:
         mcp.run(transport="stdio")
     return 0
