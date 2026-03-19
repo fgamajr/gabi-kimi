@@ -215,6 +215,7 @@ def _backfill_pending() -> None:
             classified += len(ops)
 
         print(f"  batch {batch_num}: classified {len(ops)} docs (total: {classified:,})", flush=True)
+        time.sleep(0.5)
 
     print(f"Done. Classified {classified:,} documents.", flush=True)
 
