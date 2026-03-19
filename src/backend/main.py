@@ -86,6 +86,10 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         if not settings.api_tokens:
             return await call_next(request)
 
+        # MCP endpoint handles its own auth via MCP_AUTH_TOKEN
+        if request.url.path.startswith("/mcp"):
+            return await call_next(request)
+
         auth_header = request.headers.get("authorization")
         if auth_header:
             if not auth_header.startswith("Bearer "):
