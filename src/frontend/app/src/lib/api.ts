@@ -28,6 +28,7 @@ export interface SearchResult {
   page?: string;
   art_type?: string;
   issuing_organ?: string;
+  top_organ?: string;
   dou_url?: string;
 }
 

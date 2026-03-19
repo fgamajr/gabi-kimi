@@ -238,7 +238,7 @@ _HIGHLIGHT_SPEC: dict[str, Any] = {
 _SOURCE_FIELDS = [
     "doc_id", "identifica", "ementa", "art_type", "art_category",
     "pub_date", "section", "edition_number", "page_number",
-    "issuing_organ", "body_plain",
+    "issuing_organ", "organization_path", "body_plain",
 ]
 
 _LATEST_SOURCE_FIELDS = [
@@ -339,6 +339,10 @@ def _hit_to_result(hit: dict) -> dict:
         src.get("ementa") or src.get("body_plain") or ""
     )[:280]
 
+    # Top-level organ from organization_path (e.g. "Ministério da Defesa")
+    org_path = src.get("organization_path") or []
+    top_organ = org_path[0] if org_path else None
+
     return {
         "id": src.get("doc_id") or hit.get("_id"),
         "title": src.get("identifica") or "",
@@ -350,6 +354,7 @@ def _hit_to_result(hit: dict) -> dict:
         "page": src.get("page_number"),
         "art_type": src.get("art_type"),
         "issuing_organ": src.get("issuing_organ"),
+        "top_organ": top_organ,
         "dou_url": None,
     }
 
