@@ -2,35 +2,9 @@
 
 Connect your AI coding assistant to GABI's 16M+ DOU document search engine.
 
-## Supported Clients
+## Quick Start (Remote — for collaborators)
 
-| Client | Transport | Config File |
-|--------|-----------|-------------|
-| Claude Code (CLI) | stdio | `~/.claude/projects/.../settings.json` |
-| Claude Desktop | stdio | `~/Library/Application Support/Claude/claude_desktop_config.json` |
-| Cursor | stdio | `~/.cursor/mcp.json` |
-| VS Code (Copilot) | stdio | `~/Library/Application Support/Code/User/mcp.json` |
-| Windsurf | stdio | `~/.windsurf/mcp.json` |
-| Zed | stdio | `~/.config/zed/settings.json` |
-| Remote clients | SSE | HTTP endpoint (see below) |
-
-## Prerequisites
-
-```bash
-# From the repo root
-pip install mcp httpx python-dotenv
-
-# Verify it works
-python3 ops/bin/mcp_es_server.py --help
-```
-
-The MCP server needs access to:
-- **Elasticsearch** at `ES_URL` (for analytics tools)
-- **GABI FastAPI backend** at `GABI_API_URL` (for search/suggest/document)
-
-## Quick Start (Remote Access — for collaborators)
-
-Just paste this into your MCP config file. No local setup needed — everything runs on the server.
+Just paste this into your config file. No local setup needed.
 
 **Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 ```json
@@ -74,15 +48,252 @@ Just paste this into your MCP config file. No local setup needed — everything 
 }
 ```
 
-Replace `YOUR_TOKEN` with the token you received from the admin. That's it — 13 search tools are immediately available in your AI assistant.
+**Windsurf** (`~/.windsurf/mcp.json`) — same as Cursor format.
 
-## Configuration by Client
+Replace `YOUR_TOKEN` with the token you received from the admin. Restart your editor. 13 tools are immediately available.
 
-### Claude Code (CLI)
+---
 
-Already configured if you cloned this repo. The config is at `.claude/projects/-Users-.../settings.json`:
+## Available Tools (13)
 
-**Local development (you run Docker locally):**
+### Search Tools (hybrid pipeline)
+
+| Tool | What it does |
+|------|-------------|
+| `es_search` | Full hybrid search with intent detection, topic filters, person names, quoted phrases |
+| `es_suggest` | Autocomplete suggestions |
+| `es_document` | Fetch a full document by ID (body, metadata, signatures, media) |
+
+### Analytics Tools (Elasticsearch direct)
+
+| Tool | What it does |
+|------|-------------|
+| `es_facets` | Aggregations by section, type, organ, and monthly histogram |
+| `es_more_like_this` | Find similar documents to a given doc |
+| `es_significant_terms` | Discover distinctive terms in a result set |
+| `es_timeline` | Publication volume over time for a query |
+| `es_trending` | Trending topics in the last N days |
+| `es_cross_reference` | Find documents citing a specific law or decree |
+| `es_organ_profile` | Publishing profile for a government organ |
+| `es_compare_periods` | Compare query volumes between two time periods |
+| `es_explain` | Debug why a document scored the way it did |
+| `es_health` | Cluster health, index stats, storage |
+
+---
+
+## Usage Examples
+
+### Searching Documents
+
+Ask your AI assistant in natural language — it will pick the right tool automatically.
+
+**Basic search:**
+```
+"Busque decretos presidenciais de 2025"
+```
+→ `es_search(query="decretos presidenciais", date_from="2025-01-01", date_to="2025-12-31")`
+
+**Search by topic classification:**
+```
+"Encontre editais de concurso público"
+```
+→ `es_search(query="edital concurso", topic="concurso_selecao")`
+
+**Exact phrase (person name):**
+```
+"Busque publicações mencionando Eduardo Joerke"
+```
+→ `es_search(query="Eduardo Joerke")` — auto-detects person name, uses phrase matching
+
+**Quoted phrase search:**
+```
+"Busque exatamente 'reforma tributária' no DOU"
+```
+→ `es_search(query="\"reforma tributária\"")` — forces exact phrase match
+
+**Canonical law lookup:**
+```
+"Encontre a LGPD no Diário Oficial"
+```
+→ `es_search(query="LGPD")` — detects canonical law, returns Lei 13.709/2018 first
+
+**Specific act lookup:**
+```
+"Mostre a Portaria MEC 234/2026"
+```
+→ `es_search(query="portaria MEC 234/2026")` — exact_name intent, structured field matching
+
+**Filter by organ:**
+```
+"Resoluções da ANVISA sobre medicamentos"
+```
+→ `es_search(query="medicamento", art_type="resolução", issuing_organ="ANVISA")`
+
+**Trending topics:**
+```
+"O que está em alta no DOU esta semana?"
+```
+→ `es_search(query="portarias", is_trending=true)` or `es_trending(days=7)`
+
+### Discovering Patterns
+
+**What types of documents does an organ publish?**
+```
+"Perfil de publicações do Ministério da Saúde"
+```
+→ `es_organ_profile(organ="Ministério da Saúde")`
+
+Returns: total docs, breakdown by art_type, monthly volume, top signers.
+
+**Temporal trends:**
+```
+"Como evoluiu o volume de licitações ao longo de 2025?"
+```
+→ `es_timeline(query="licitação", date_from="2025-01-01", date_to="2025-12-31", interval="month")`
+
+Returns: monthly histogram with doc counts.
+
+**Before/after comparison:**
+```
+"Compare publicações sobre meio ambiente entre 2024 e 2025"
+```
+→ `es_compare_periods(query="meio ambiente", period_a_from="2024-01-01", period_a_to="2024-12-31", period_b_from="2025-01-01", period_b_to="2025-12-31")`
+
+Returns: volume delta, top terms, organ changes.
+
+**Trending this week:**
+```
+"Quais tópicos estão em alta nos últimos 7 dias?"
+```
+→ `es_trending(days=7)`
+
+Returns: top art_types and organs by recent volume spike.
+
+### Deep Analysis
+
+**Find documents citing a specific law:**
+```
+"Quais atos citam a Lei 14.133?"
+```
+→ `es_cross_reference(reference="Lei 14133")`
+
+Returns: documents that reference this law in their body text.
+
+**Find similar documents:**
+```
+"Encontre documentos semelhantes a este: abc123def456"
+```
+→ `es_more_like_this(doc_id="abc123def456")`
+
+Returns: documents with similar terms and structure.
+
+**Discover distinctive terms in a set of documents:**
+```
+"Quais termos são mais significativos nos documentos sobre saúde pública?"
+```
+→ `es_significant_terms(query="saúde pública", field="body_plain")`
+
+Returns: terms that are statistically over-represented vs. the full corpus.
+
+**Debug search ranking:**
+```
+"Por que este documento aparece primeiro para 'concurso público'?"
+```
+→ `es_explain(query="concurso público", doc_id="abc123def456")`
+
+Returns: score breakdown showing which fields and signals contributed.
+
+### Reading Documents
+
+**Fetch a full document:**
+```
+"Mostre o conteúdo completo do documento abc123def456"
+```
+→ `es_document(doc_id="abc123def456")`
+
+Returns: title, ementa, body text, issuing organ, signatures, pub date, section, page, media.
+
+**Autocomplete while typing:**
+```
+"Sugira completions para 'portaria min'"
+```
+→ `es_suggest(prefix="portaria min")`
+
+Returns: matching titles, organs, and act types.
+
+### Aggregations and Facets
+
+**Distribution by type and organ:**
+```
+"Qual a distribuição de tipos de ato sobre educação?"
+```
+→ `es_facets(query="educação")`
+
+Returns: section counts, art_type counts, organ counts, monthly histogram.
+
+**Scoped facets:**
+```
+"Facetas para portarias do Ministério da Saúde em 2025"
+```
+→ `es_facets(query="*", art_type="portaria", issuing_organ="Ministério da Saúde", date_from="2025-01-01", date_to="2025-12-31")`
+
+**System health:**
+```
+"Como está o Elasticsearch?"
+```
+→ `es_health()`
+
+Returns: cluster status, index doc count, storage, shard health.
+
+---
+
+## Topic Classification Filter
+
+The `topic` parameter in `es_search` filters by document classification. Available topics:
+
+| Topic ID | Covers |
+|----------|--------|
+| `concurso_selecao` | Concursos, processos seletivos, editais de seleção |
+| `licitacao_compras` | Licitações, pregões, dispensas, chamamentos |
+| `contrato_convenio` | Contratos, aditivos, convênios |
+| `pessoal_rh` | Nomeações, exonerações, aposentadorias, designações |
+| `regulacao_norma` | Leis, decretos, resoluções, instruções normativas |
+| `consulta_participacao` | Consultas públicas, audiências públicas |
+| `saude` | ANVISA, SUS, medicamentos, vigilância sanitária |
+| `educacao` | MEC, universidades, CAPES, avaliação de cursos |
+| `meio_ambiente` | IBAMA, ICMBio, licenciamento ambiental |
+| `financeiro` | BCB, CVM, Receita Federal, tributos, câmbio |
+| `energia_telecom` | ANEEL, ANATEL, ANP, tarifas |
+| `administrativo` | Catch-all: avisos, retificações, extratos genéricos |
+
+Example:
+```
+es_search(query="edital 2025", topic="concurso_selecao")
+```
+Returns only editais classified as concursos — excludes chamadas públicas, licitações, etc.
+
+---
+
+## Authentication
+
+Ask the project admin for a token. Tokens are `label:secret` pairs stored server-side. You receive only the secret part.
+
+- **No token in config** → search still works (public API), but some clients require it
+- **Invalid token** → 401 Unauthorized
+- **Valid token** → full access to all 13 tools
+
+---
+
+## Local Development Setup
+
+Only needed if you run Docker locally (not for remote access).
+
+```bash
+pip install mcp httpx python-dotenv
+python3 ops/bin/mcp_es_server.py --help
+```
+
+**Claude Code** — already configured at `.claude/projects/.../settings.json`:
 ```json
 {
   "mcpServers": {
@@ -100,190 +311,14 @@ Already configured if you cloned this repo. The config is at `.claude/projects/-
 }
 ```
 
-**Remote access (connecting to shared server):**
-```json
-{
-  "mcpServers": {
-    "gabi-dou": {
-      "command": "python3",
-      "args": ["ops/bin/mcp_es_server.py"],
-      "env": {
-        "ES_URL": "http://204.168.173.163:9200",
-        "ES_ALIAS": "gabi_documents_v3",
-        "GABI_API_URL": "https://gabidou.top",
-        "GABI_API_TOKEN": "YOUR_TOKEN"
-      }
-    }
-  }
-}
-```
-
-### Claude Desktop / Cursor / VS Code / Windsurf
-
-All use the same JSON structure. Edit the appropriate file:
-
-| Client | Config File |
-|--------|-------------|
-| Claude Desktop | `~/Library/Application Support/Claude/claude_desktop_config.json` |
-| Cursor | `~/.cursor/mcp.json` |
-| VS Code | `~/Library/Application Support/Code/User/mcp.json` (key: `"servers"` not `"mcpServers"`) |
-| Windsurf | `~/.windsurf/mcp.json` |
-
-```json
-{
-  "mcpServers": {
-    "gabi-dou": {
-      "command": "python3",
-      "args": ["/absolute/path/to/gabi-kimi/ops/bin/mcp_es_server.py"],
-      "env": {
-        "ES_URL": "http://204.168.173.163:9200",
-        "ES_ALIAS": "gabi_documents_v3",
-        "GABI_API_URL": "https://gabidou.top",
-        "GABI_API_TOKEN": "YOUR_TOKEN"
-      }
-    }
-  }
-}
-```
-
-> For VS Code, use `"servers"` instead of `"mcpServers"` as the top-level key.
-
-### Zed
-
-Edit `~/.config/zed/settings.json`:
-
-```json
-{
-  "context_servers": {
-    "gabi-dou": {
-      "command": {
-        "path": "python3",
-        "args": ["/absolute/path/to/gabi-kimi/ops/bin/mcp_es_server.py"]
-      },
-      "settings": {}
-    }
-  }
-}
-```
-
-Zed reads env vars from your shell. Add to `~/.zshrc` or `~/.bashrc`:
-
-```bash
-export ES_URL=http://204.168.173.163:9200
-export ES_ALIAS=gabi_documents_v3
-export GABI_API_URL=https://gabidou.top
-export GABI_API_TOKEN=YOUR_TOKEN
-```
-
-### Remote Clients (SSE Transport)
-
-For clients that can't run local processes, start the MCP server as an HTTP endpoint:
-
-```bash
-python3 ops/bin/mcp_es_server.py --transport sse --port 8766
-```
-
-Connect via `http://YOUR_SERVER:8766/sse`. Set `MCP_AUTH_TOKEN` to require bearer auth from connecting clients.
-
-## Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `ES_URL` | `http://elasticsearch:9200` | Elasticsearch URL |
-| `ES_ALIAS` | `gabi_documents` | ES index/alias name |
-| `GABI_API_URL` | `http://localhost:8001` | FastAPI backend URL |
-| `GABI_API_TOKEN` | _(empty)_ | Bearer token for FastAPI auth |
-| `MCP_AUTH_TOKEN` | _(empty)_ | Bearer token required from SSE clients |
-
-## Authentication
-
-The GABI API uses bearer token auth. To get a token, ask the project admin to add an entry to `GABI_API_TOKENS` in the server's `.env`:
-
-```
-GABI_API_TOKENS=mcp:TOKEN1,yourname:TOKEN2
-```
-
-Each entry is `label:token`. You'll receive your token value to put in `GABI_API_TOKEN`.
-
-**Without a token:** Search, autocomplete, and document fetching still work (the API allows unauthenticated browser requests). But if you send an invalid token, you'll get 401.
-
-## Available Tools (13)
-
-### Search (proxied through hybrid pipeline)
-
-| Tool | Description |
-|------|-------------|
-| `es_search` | Full hybrid search: BM25 + kNN, intent detection, topic classification, person names, quoted phrases, canonical law lookup |
-| `es_suggest` | Autocomplete suggestions |
-| `es_document` | Fetch full document by ID |
-
-### Analytics (direct Elasticsearch)
-
-| Tool | Description |
-|------|-------------|
-| `es_facets` | Section/type/organ aggregations + date histogram |
-| `es_more_like_this` | Find similar documents |
-| `es_significant_terms` | Discover significant terms in a result set |
-| `es_timeline` | Date histogram for temporal analysis |
-| `es_trending` | Top trending topics in recent days |
-| `es_cross_reference` | Find documents citing a legal reference |
-| `es_organ_profile` | Statistics for an issuing organ |
-| `es_compare_periods` | Compare document volumes between two periods |
-| `es_explain` | Debug why a document ranked where it did |
-| `es_health` | Cluster health and index statistics |
-
-## Usage Examples
-
-Once connected, you can ask your AI assistant:
-
-```
-"Search for concursos públicos federais from 2024"
-→ uses es_search with intent detection
-
-"Find documents about LGPD by ANPD"
-→ uses es_search with canonical law lookup
-
-"Show me trending topics in the last 7 days"
-→ uses es_trending
-
-"How many portarias did Ministério da Saúde publish in 2025?"
-→ uses es_facets or es_organ_profile
-
-"Find documents similar to this one: <doc_id>"
-→ uses es_more_like_this
-
-"Compare licitações volume between Jan 2025 and Jan 2026"
-→ uses es_compare_periods
-```
-
-### Topic Filter
-
-Use the `topic` parameter in `es_search` to filter by document classification:
-
-```
-es_search(query="edital", topic="concurso_selecao")
-es_search(query="resolução", topic="saude")
-es_search(query="portaria", topic="regulacao_norma")
-```
-
-Available topics: `concurso_selecao`, `licitacao_compras`, `contrato_convenio`, `pessoal_rh`, `regulacao_norma`, `consulta_participacao`, `saude`, `educacao`, `meio_ambiente`, `financeiro`, `energia_telecom`, `administrativo`.
+---
 
 ## Troubleshooting
 
-**"mcp package is not installed"**
-```bash
-pip install mcp
-```
-
-**Connection refused to ES or API**
-- Check if Docker containers are running: `docker ps`
-- Check ES: `curl http://localhost:9200/_cluster/health`
-- Check API: `curl http://localhost:8001/api/health`
-
-**401 Unauthorized**
-- Your `GABI_API_TOKEN` is invalid or expired
-- Ask the admin for a valid token
-
-**Tools not appearing in your client**
-- Restart the client after changing config
-- Check logs: most clients show MCP connection errors in their developer console
+| Problem | Solution |
+|---------|----------|
+| Tools not appearing | Restart your editor after changing the config |
+| 401 Unauthorized | Token is wrong — ask admin for a new one |
+| Connection timeout | Server may be restarting — wait 30s and retry |
+| `mcp package not installed` | `pip install mcp` (only for local stdio mode) |
+| SSE disconnects | Normal for long idle — client reconnects automatically |
