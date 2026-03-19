@@ -1,0 +1,208 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: gabi-kimi-mongo
+    restart: unless-stopped
+    env_file:
+      - .env
+    command: ["mongod", "--bind_ip_all", "--auth"]
+    volumes:
+      - ${GABI_HOST_DATA_ROOT:-/mnt/HC_Volume_105154890}/mongo_data:/data/db
+    expose:
+      - "27017"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          mongosh --quiet
+          "mongodb://$${MONGO_INITDB_ROOT_USERNAME}:$${MONGO_INITDB_ROOT_PASSWORD}@127.0.0.1:27017/admin?authSource=admin"
+          --eval 'db.runCommand({ ping: 1 }).ok' | grep 1 >/dev/null
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - internal
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.4
+    container_name: gabi-kimi-elasticsearch
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms${ES_JAVA_HEAP:-4g} -Xmx${ES_JAVA_HEAP:-4g}
+      cluster.routing.allocation.disk.threshold_enabled: "false"
+    volumes:
+      - ${GABI_HOST_DATA_ROOT:-/mnt/HC_Volume_105154890}/elastic_data:/usr/share/elasticsearch/data
+    expose:
+      - "9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9200/_cluster/health >/dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 20s
+    networks:
+      - internal
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: gabi-kimi-backend
+    container_name: gabi-kimi-backend
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      BACKEND_INTERNAL_PORT: 8000
+      PYTHONPATH: /opt/app
+      GABI_CORS_ORIGINS: ${GABI_CORS_ORIGINS:-http://localhost,http://127.0.0.1}
+      RERANKER_URL: ${RERANKER_URL:-http://reranker:8902}
+      SPA_DIST_DIR: /shared/dist
+      SITE_URL: ${SITE_URL:-https://gabidou.top}
+    working_dir: /opt/app
+    command: ["sh", "/opt/container-scripts/backend-prod.sh"]
+    volumes:
+      - ${GABI_HOST_DATA_ROOT:-/mnt/HC_Volume_105154890}/dou_data:/data/gabi_dou
+      - frontend_dist:/shared/dist:ro
+    ports:
+      - "8001:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5).read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - edge
+      - internal
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: gabi-kimi-backend
+    container_name: gabi-kimi-worker
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /opt/app
+      RERANKER_URL: ${RERANKER_URL:-http://reranker:8902}
+    working_dir: /opt/app
+    command: ["sh", "/opt/container-scripts/worker-prod.sh"]
+    volumes:
+      - ${GABI_HOST_DATA_ROOT:-/mnt/HC_Volume_105154890}/dou_data:/data/gabi_dou
+    networks:
+      - internal
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    image: gabi-kimi-frontend
+    container_name: gabi-kimi-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      FRONTEND_INTERNAL_PORT: 8080
+      VITE_API_PROXY_TARGET: http://backend:8000
+    working_dir: /opt/frontend
+    command: ["sh", "/opt/container-scripts/frontend-prod.sh"]
+    volumes:
+      - frontend_dist:/opt/frontend/dist
+    ports:
+      - "8081:8080"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 45s
+    networks:
+      - edge
+      - internal
+
+  reranker:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: gabi-kimi-backend
+    container_name: gabi-kimi-reranker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /opt/app
+      RERANKER_BIND_HOST: ${RERANKER_BIND_HOST:-0.0.0.0}
+      RERANKER_PORT: ${RERANKER_PORT:-8902}
+      RERANKER_MODEL: ${RERANKER_MODEL:-ai/qwen3-reranker-vllm:0.6B}
+      RERANKER_UPSTREAM_URL: ${RERANKER_UPSTREAM_URL:-http://host.docker.internal:8080/engines/vllm/rerank}
+      RERANKER_UPSTREAM_TIMEOUT: ${RERANKER_UPSTREAM_TIMEOUT:-1.5}
+      RERANKER_MAX_DOCS: ${RERANKER_MAX_DOCS:-50}
+      RERANKER_MAX_DOC_CHARS: ${RERANKER_MAX_DOC_CHARS:-2200}
+      RERANKER_MAX_CONCURRENCY: ${RERANKER_MAX_CONCURRENCY:-2}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    working_dir: /opt/app
+    command: ["python", "/opt/app/ops/reranker_adapter.py"]
+    ports:
+      - "8902:8902"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8902/health', timeout=5).read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - edge
+      - internal
+    profiles:
+      - reranker
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: gabi-kimi-nginx
+    restart: unless-stopped
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    volumes:
+      - ./ops/nginx/prod.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "80:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/healthz >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - edge
+      - internal
+    profiles:
+      - container-nginx
+
+volumes:
+  frontend_dist:
+
+networks:
+  edge:
+  internal:
+    internal: true

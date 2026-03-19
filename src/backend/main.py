@@ -17,6 +17,16 @@ from src.backend.data.db import MongoDB
 from src.backend.search.hybrid import hybrid_search
 from src.backend.search.reranker import rerank
 from src.backend.search.trending import FALLBACK_TOPICS, get_cached_trending, update_trending_cache
+from src.backend.seo import (
+    build_sitemap_index,
+    build_sitemap_urls,
+    is_template_loaded,
+    load_spa_template,
+    render_document_html,
+    render_fallback_html,
+    render_home_html,
+    render_search_html,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +56,7 @@ async def es_request(method: str, path: str, json: dict | None = None) -> dict:
 async def lifespan(app: FastAPI):
     global _es
     _es = httpx.AsyncClient()
+    load_spa_template()
     logger.info("GABI API started — ES=%s, index=%s", settings.ES_URL, settings.es_target_index)
     yield
     if _es:
@@ -406,8 +417,8 @@ def _build_filters(
 # Endpoints
 # ---------------------------------------------------------------------------
 
-@app.get("/")
-async def root():
+@app.get("/api/root")
+async def api_root():
     return {"message": "GABI DOU API is running"}
 
 
@@ -810,7 +821,154 @@ async def suggested_topics():
         return []
 
 
+@app.get("/api/editorial-highlights")
+async def editorial_highlights():
+    from zoneinfo import ZoneInfo
+    today = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d")
+    doc = _mongo_db["editorial_highlights"].find_one({"_id": "latest"})
+    if not doc:
+        return {"date": today, "categories": {}}
+    doc.pop("_id", None)
+    doc.pop("generated_at", None)
+    return {"date": doc.get("generated_for", today), **doc}
+
+
 @app.get("/api/media/{doc_id:path}/{name}")
 async def media(doc_id: str, name: str):
     return Response(status_code=404, content='{"detail":"Media not available"}',
                     media_type="application/json")
+
+
+# ---------------------------------------------------------------------------
+# SEO: HTML shell routes (dynamic meta tags for crawlers)
+# ---------------------------------------------------------------------------
+
+_sitemap_cache: dict[str, tuple[str, float]] = {}
+_SITEMAP_CACHE_TTL = 86400  # 24h
+
+HTML_MEDIA = "text/html; charset=utf-8"
+
+
+@app.get("/sitemap-index.xml")
+async def sitemap_index():
+    import time
+
+    cache_key = "index"
+    cached = _sitemap_cache.get(cache_key)
+    if cached and (time.time() - cached[1]) < _SITEMAP_CACHE_TTL:
+        return Response(content=cached[0], media_type="application/xml")
+
+    agg_payload = {
+        "size": 0,
+        "aggs": {
+            "min_date": {"min": {"field": "pub_date"}},
+            "max_date": {"max": {"field": "pub_date"}},
+        },
+    }
+    data = await es_request("POST", f"/{settings.es_target_index}/_search", json=agg_payload)
+    aggs = data.get("aggregations", {})
+    min_date = aggs.get("min_date", {}).get("value_as_string", "2002-01-01")
+    max_date = aggs.get("max_date", {}).get("value_as_string", "2026-01-01")
+
+    xml = build_sitemap_index(min_date, max_date)
+    _sitemap_cache[cache_key] = (xml, time.time())
+    return Response(content=xml, media_type="application/xml")
+
+
+@app.get("/sitemap-{year}-{month}.xml")
+async def sitemap_month(year: int, month: int):
+    import time
+
+    cache_key = f"{year}-{month:02d}"
+    cached = _sitemap_cache.get(cache_key)
+    if cached and (time.time() - cached[1]) < _SITEMAP_CACHE_TTL:
+        return Response(content=cached[0], media_type="application/xml")
+
+    # Build date range for this month
+    date_from = f"{year}-{month:02d}-01"
+    if month == 12:
+        date_to = f"{year + 1}-01-01"
+    else:
+        date_to = f"{year}-{month + 1:02d}-01"
+
+    # Scroll through all docs in this month using search_after
+    all_docs: list[tuple[str, str]] = []
+    search_after = None
+
+    while True:
+        payload: dict[str, Any] = {
+            "size": 10000,
+            "track_total_hits": False,
+            "_source": ["doc_id", "pub_date"],
+            "sort": [{"doc_id": "asc"}],
+            "query": {
+                "bool": {
+                    "filter": [
+                        {"range": {"pub_date": {"gte": date_from, "lt": date_to}}},
+                    ]
+                }
+            },
+        }
+        if search_after:
+            payload["search_after"] = search_after
+
+        data = await es_request("POST", f"/{settings.es_target_index}/_search", json=payload)
+        hits = data.get("hits", {}).get("hits", [])
+        if not hits:
+            break
+
+        for hit in hits:
+            src = hit.get("_source", {})
+            doc_id = src.get("doc_id") or hit.get("_id", "")
+            pub_date = src.get("pub_date") or ""
+            all_docs.append((doc_id, pub_date))
+
+        search_after = hits[-1].get("sort")
+        if not search_after or len(hits) < 10000:
+            break
+
+        # Safety: max 50K URLs per sitemap
+        if len(all_docs) >= 50000:
+            break
+
+    xml = build_sitemap_urls(all_docs)
+    _sitemap_cache[cache_key] = (xml, time.time())
+    return Response(content=xml, media_type="application/xml")
+
+
+@app.get("/document/{doc_id}")
+async def document_html(doc_id: str):
+    if not is_template_loaded():
+        return Response(content="Template not loaded", status_code=503)
+
+    src = await _fetch_document_source(doc_id)
+    if src is None:
+        return Response(
+            content=render_fallback_html(),
+            media_type=HTML_MEDIA,
+            status_code=404,
+        )
+    return Response(content=render_document_html(src, doc_id), media_type=HTML_MEDIA)
+
+
+@app.get("/search")
+async def search_html(q: str = Query("", min_length=0)):
+    if not is_template_loaded():
+        return Response(content="Template not loaded", status_code=503)
+    if q.strip():
+        return Response(content=render_search_html(q), media_type=HTML_MEDIA)
+    return Response(content=render_fallback_html(), media_type=HTML_MEDIA)
+
+
+@app.get("/")
+async def home_html():
+    if not is_template_loaded():
+        return Response(content="Template not loaded", status_code=503)
+    return Response(content=render_home_html(), media_type=HTML_MEDIA)
+
+
+@app.get("/{path:path}")
+async def catch_all_html(path: str):
+    if not is_template_loaded():
+        return Response(content="Template not loaded", status_code=503)
+    return Response(content=render_fallback_html(), media_type=HTML_MEDIA)

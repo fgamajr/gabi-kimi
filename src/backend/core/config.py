@@ -43,6 +43,15 @@ class Settings(BaseSettings):
     RERANKER_MAX_DOCS: int = 50
     RERANKER_MAX_DOC_CHARS: int = 2200
 
+    # Editorial highlights
+    ANTHROPIC_API_KEY: str = ""
+    EDITORIAL_LLM_MODEL: str = "claude-sonnet-4-20250514"
+    EDITORIAL_LOOKBACK_DAYS: int = 7
+
+    # SEO
+    SPA_DIST_DIR: str = "/shared/dist"
+    SITE_URL: str = "https://gabidou.top"
+
     @property
     def es_target_index(self) -> str:
         return (self.ES_ALIAS or self.ES_INDEX).strip()
