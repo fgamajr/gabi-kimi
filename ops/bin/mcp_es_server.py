@@ -2215,34 +2215,104 @@ def _get_openai_embedding(text: str) -> list[float] | None:
 # TOOL 14: es_tcu_semantic_search — Semantic kNN search on TCU embeddings
 # ---------------------------------------------------------------------------
 
+_NORMAS_SOURCE_FIELDS = [
+    "doc_id", "titulo", "assunto", "tipo_norma", "numero_norma", "ano_norma",
+    "situacao", "vigente", "data_inicio_vigencia", "data_fim_vigencia",
+    "origem", "unidade_autora", "numero_processo", "tema",
+    "source_type", "link_btcu",
+]
+
+_NORMAS_HIGHLIGHT_SPEC: dict[str, Any] = {
+    "pre_tags": [">>>"],
+    "post_tags": ["<<<"],
+    "max_analyzed_offset": 500000,
+    "fields": {
+        "titulo": {"number_of_fragments": 0},
+        "assunto": {"number_of_fragments": 1, "fragment_size": 280},
+        "texto_norma": {"number_of_fragments": 2, "fragment_size": 200},
+    },
+}
+
+
+def _format_normas_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Format TCU normas ES hits into result dicts."""
+    results: list[dict[str, Any]] = []
+    for hit in hits:
+        src = hit.get("_source", {})
+        hl = hit.get("highlight", {})
+
+        snippet_parts: list[str] = []
+        for k in ("assunto", "titulo", "texto_norma"):
+            frags = hl.get(k)
+            if frags:
+                snippet_parts.extend(frags)
+                if len(snippet_parts) >= 2:
+                    break
+        snippet = " … ".join(snippet_parts) if snippet_parts else (
+            src.get("assunto") or src.get("titulo") or ""
+        )[:280]
+
+        results.append({
+            "doc_id": src.get("doc_id") or hit.get("_id"),
+            "score": round(float(hit.get("_score") or 0.0), 4),
+            "titulo": src.get("titulo"),
+            "assunto": src.get("assunto"),
+            "tipo_norma": src.get("tipo_norma"),
+            "numero_norma": src.get("numero_norma"),
+            "ano_norma": src.get("ano_norma"),
+            "vigente": src.get("vigente"),
+            "situacao": src.get("situacao"),
+            "origem": src.get("origem"),
+            "tema": src.get("tema"),
+            "source_type": src.get("source_type", "tcu_norma"),
+            "link_btcu": src.get("link_btcu"),
+            "snippet": snippet,
+        })
+    return results
+
+
 def es_tcu_semantic_search(
     query: str,
+    source: str = "tcu",
     k: int = 20,
     date_from: str | None = None,
     date_to: str | None = None,
     colegiado: str | None = None,
     tipo_processo: str | None = None,
     dispositivo: str | None = None,
+    vigente: bool | None = None,
+    tipo_norma: str | None = None,
 ) -> dict[str, Any]:
-    """Semantic search on TCU acórdãos using vector embeddings (kNN).
+    """Semantic search on TCU documents using vector embeddings (kNN).
 
     Use this when BM25 keyword search fails — for conceptual queries like
-    "responsabilidade do gestor por omissão" or "superfaturamento em obra pública".
+    "responsabilidade do gestor por omissão" or "plano de saúde servidores".
     Finds semantically similar documents even without exact keyword matches.
 
     Args:
       query: natural language query in Portuguese
+      source: 'tcu' (acórdãos+jurisprudência+boletins), 'normas', or 'all' (both)
       k: number of results (1-50)
-      date_from: YYYY-MM-DD lower bound (sessao date)
+      date_from: YYYY-MM-DD lower bound
       date_to: YYYY-MM-DD upper bound
-      colegiado: Plenário | Primeira Câmara | Segunda Câmara
-      tipo_processo: e.g. REPRESENTAÇÃO, DENÚNCIA, TOMADA DE CONTAS ESPECIAL
-      dispositivo: dispositivo_resumo filter (irregular, aplicar_multa, imputar_debito, etc.)
+      colegiado: Plenário | Primeira Câmara | Segunda Câmara (tcu only)
+      tipo_processo: e.g. REPRESENTAÇÃO, DENÚNCIA (tcu only)
+      dispositivo: dispositivo_resumo filter (tcu only)
+      vigente: filter by vigente status (normas only, default True for normas)
+      tipo_norma: e.g. Portaria, Resolução, Instrução Normativa (normas only)
     """
     k = max(1, min(k, 50))
     query_vector = _get_openai_embedding(query)
     if query_vector is None:
         return {"error": "Embedding service unavailable (OPENAI_API_KEY not set or API error)"}
+
+    # Determine target index
+    if source == "normas":
+        index = ES.normas_index
+    elif source == "all":
+        index = f"{ES.tcu_index},{ES.normas_index}"
+    else:
+        index = ES.tcu_index
 
     filters: list[dict[str, Any]] = []
     if date_from or date_to:
@@ -2251,13 +2321,22 @@ def es_tcu_semantic_search(
             rng["gte"] = date_from
         if date_to:
             rng["lte"] = date_to
-        filters.append({"range": {"data_sessao": rng}})
+        # Use appropriate date field based on source
+        date_field = "data_inicio_vigencia" if source == "normas" else "data_sessao"
+        filters.append({"range": {date_field: rng}})
     if colegiado:
         filters.append({"term": {"colegiado": colegiado}})
     if tipo_processo:
         filters.append({"match": {"tipo_processo": tipo_processo}})
     if dispositivo:
         filters.append({"term": {"dispositivo_resumo": dispositivo}})
+    # Normas-specific filters
+    if vigente is not None:
+        filters.append({"term": {"vigente": vigente}})
+    elif source == "normas":
+        filters.append({"term": {"vigente": True}})  # default: only vigentes
+    if tipo_norma:
+        filters.append({"term": {"tipo_norma": tipo_norma}})
 
     payload: dict[str, Any] = {
         "size": k,
@@ -2267,21 +2346,46 @@ def es_tcu_semantic_search(
             "k": k,
             "num_candidates": min(k * 4, 200),
         },
-        "_source": _TCU_SOURCE_FIELDS,
-        "highlight": _TCU_HIGHLIGHT_SPEC,
     }
+
+    # Source fields and highlight depend on target
+    if source == "normas":
+        payload["_source"] = _NORMAS_SOURCE_FIELDS
+        payload["highlight"] = _NORMAS_HIGHLIGHT_SPEC
+    elif source == "all":
+        payload["_source"] = list(set(_TCU_SOURCE_FIELDS + _NORMAS_SOURCE_FIELDS))
+        payload["highlight"] = _TCU_HIGHLIGHT_SPEC
+    else:
+        payload["_source"] = _TCU_SOURCE_FIELDS
+        payload["highlight"] = _TCU_HIGHLIGHT_SPEC
+
     if filters:
         payload["knn"]["filter"] = {"bool": {"filter": filters}}
 
-    data = ES.request("POST", f"/{ES.tcu_index}/_search", payload)
+    data = ES.request("POST", f"/{index}/_search", payload)
     hits = data.get("hits", {}).get("hits", [])
     total = int(data.get("hits", {}).get("total", {}).get("value", 0))
 
+    # Format hits based on source
+    if source == "normas":
+        results = _format_normas_hits(hits)
+    elif source == "all":
+        # Mixed results — format based on each hit's index
+        results = []
+        for hit in hits:
+            if ES.normas_index in hit.get("_index", ""):
+                results.extend(_format_normas_hits([hit]))
+            else:
+                results.extend(_format_tcu_hits([hit]))
+    else:
+        results = _format_tcu_hits(hits)
+
     return {
         "query": query,
+        "source": source,
         "method": "semantic_knn",
         "total": total,
-        "results": _format_tcu_hits(hits),
+        "results": results,
     }
 
 
@@ -2291,23 +2395,28 @@ def es_tcu_semantic_search(
 
 def es_tcu_similar(
     doc_id: str,
+    source: str = "tcu",
     k: int = 10,
 ) -> dict[str, Any]:
-    """Find TCU acórdãos similar to a given document using vector similarity.
+    """Find TCU documents similar to a given document using vector similarity.
 
     Better than term-based more_like_this — captures semantic similarity
-    even when vocabulary differs. Use to find related rulings, precedents,
+    even when vocabulary differs. Use to find related rulings, normas,
     or jurisprudence on the same topic.
 
     Args:
-      doc_id: TCU document ID (e.g. ACORDAO-COMPLETO-2705853)
+      doc_id: TCU document ID (e.g. ACORDAO-COMPLETO-2705853 or NORMA-21764)
+      source: 'tcu' (search acórdãos), 'normas' (search normas), or 'all' (both)
       k: number of similar documents (1-50)
     """
     k = max(1, min(k, 50))
 
+    # Determine which index the seed doc lives in
+    seed_index = ES.normas_index if doc_id.startswith("NORMA-") else ES.tcu_index
+
     # Fetch the source document's embedding from ES
     try:
-        doc_data = ES.request("GET", f"/{ES.tcu_index}/_source/{doc_id}?_source_includes=embedding,titulo")
+        doc_data = ES.request("GET", f"/{seed_index}/_source/{doc_id}?_source_includes=embedding,titulo")
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:
             return {"error": f"Document {doc_id} not found"}
@@ -2317,6 +2426,15 @@ def es_tcu_similar(
     if not source_embedding:
         return {"error": f"Document {doc_id} has no embedding yet"}
 
+    # Determine search index
+    if source == "normas":
+        search_index = ES.normas_index
+    elif source == "all":
+        search_index = f"{ES.tcu_index},{ES.normas_index}"
+    else:
+        search_index = ES.tcu_index
+
+    is_normas = source == "normas"
     payload: dict[str, Any] = {
         "size": k + 1,  # +1 to exclude self
         "knn": {
@@ -2325,20 +2443,33 @@ def es_tcu_similar(
             "k": k + 1,
             "num_candidates": min((k + 1) * 4, 200),
         },
-        "_source": _TCU_SOURCE_FIELDS,
+        "_source": _NORMAS_SOURCE_FIELDS if is_normas else _TCU_SOURCE_FIELDS,
     }
 
-    data = ES.request("POST", f"/{ES.tcu_index}/_search", payload)
+    data = ES.request("POST", f"/{search_index}/_search", payload)
     hits = data.get("hits", {}).get("hits", [])
 
     # Filter out the seed document
     hits = [h for h in hits if h.get("_id") != doc_id][:k]
 
+    # Format based on source
+    if is_normas:
+        results = _format_normas_hits(hits)
+    elif source == "all":
+        results = []
+        for hit in hits:
+            if ES.normas_index in hit.get("_index", ""):
+                results.extend(_format_normas_hits([hit]))
+            else:
+                results.extend(_format_tcu_hits([hit]))
+    else:
+        results = _format_tcu_hits(hits)
+
     return {
         "seed_doc_id": doc_id,
         "seed_titulo": doc_data.get("titulo"),
         "method": "vector_similarity",
-        "results": _format_tcu_hits(hits),
+        "results": results,
     }
 
 
@@ -2370,8 +2501,8 @@ if FastMCP is not None:
             "Legal references (Lei 13709) auto-boost. Combine tools for deep analysis. "
             "TCU search: use source='tcu' and filter by colegiado, relator, tipo_processo, "
             "dispositivo_tipo (irregular, aplicar_multa, imputar_debito, etc.).\n"
-            "- TCU SEMANTIC: es_tcu_semantic_search (kNN vector search for conceptual queries), "
-            "es_tcu_similar (find similar acórdãos by vector similarity)"
+            "- TCU SEMANTIC: es_tcu_semantic_search (kNN vector search for conceptual queries, source='tcu'/'normas'/'all'), "
+            "es_tcu_similar (find similar docs by vector similarity, source='tcu'/'normas'/'all')"
         ),
     )
     mcp.tool()(es_search)
