@@ -1,6 +1,6 @@
-"""TCU Súmulas, Jurisprudência Selecionada, and Respostas a Consulta processor.
+"""TCU Súmulas, Jurisprudência Selecionada, Respostas a Consulta, and Boletins processor.
 
-Parses 3 CSV files from TCU open data into ES-ready documents for
+Parses 6 CSV files from TCU open data into ES-ready documents for
 the unified gabi_tcu_acordaos_v1 index, with authority_level field.
 
 CSV format: pipe-delimited (|), quoted fields.
@@ -25,6 +25,9 @@ _CHAR_LIMIT = 65_536
 SUMULA_URL = "https://sites.tcu.gov.br/dados-abertos/jurisprudencia/arquivos/sumula/sumula.csv"
 JURISPRUDENCIA_URL = "https://sites.tcu.gov.br/dados-abertos/jurisprudencia/arquivos/jurisprudencia-selecionada/jurisprudencia-selecionada.csv"
 RESPOSTA_URL = "https://sites.tcu.gov.br/dados-abertos/jurisprudencia/arquivos/resposta-consulta/resposta-consulta.csv"
+BOLETIM_JURIS_URL = "https://sites.tcu.gov.br/dados-abertos/jurisprudencia/arquivos/boletim-jurisprudencia/boletim-jurisprudencia.csv"
+BOLETIM_PESSOAL_URL = "https://sites.tcu.gov.br/dados-abertos/jurisprudencia/arquivos/boletim-pessoal/boletim-pessoal.csv"
+BOLETIM_LC_URL = "https://sites.tcu.gov.br/dados-abertos/jurisprudencia/arquivos/boletim-informativo-lc/boletim-informativo-lc.csv"
 
 
 def _normalize(value: str | None) -> str:
@@ -210,6 +213,60 @@ def resposta_consulta_to_es_doc(row: dict[str, str], csv_filename: str) -> dict[
         "embedding_status": "pending",
         "deterministic_hash": _sha256(key, enunciado[:200]),
     }
+
+
+def enunciado_hash(enunciado: str) -> str:
+    """Hash normalized enunciado for deduplication."""
+    normalized = re.sub(r"\s+", " ", _strip_html(enunciado).lower().strip())
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
+
+
+def _boletim_base(row: dict[str, str], csv_filename: str, source_type: str) -> dict[str, Any]:
+    """Shared logic for all 3 boletim types."""
+    now = datetime.now(timezone.utc)
+    key = _normalize(row.get("KEY", ""))
+    titulo = _normalize(row.get("TITULO", ""))
+    enunciado = _strip_html(row.get("ENUNCIADO", ""))
+    excerto = _strip_html(row.get("TEXTOACORDAO", "") or row.get("TEXTOINFO", ""))
+    referencia = _normalize(row.get("REFERENCIA", ""))
+    colegiado = _normalize(row.get("COLEGIADO", ""))
+
+    search_all = _build_search_all(titulo, enunciado, excerto, referencia)
+
+    return {
+        "doc_id": key,
+        "source_type": source_type,
+        "authority_level": 1,
+        "titulo": titulo,
+        "sumario": enunciado[:500],
+        "enunciado": enunciado,
+        "excerto": excerto,
+        "search_all": search_all,
+        "colegiado": colegiado or None,
+        "tipo": "BOLETIM",
+        "data_sessao": None,
+        "source_csv": csv_filename,
+        "indexed_at": now.isoformat(timespec="seconds"),
+        "enrichment_version": _ENRICHMENT_VERSION,
+        "embedding_status": "pending",
+        "deterministic_hash": _sha256(key, enunciado[:200]),
+        "_enunciado_hash": enunciado_hash(enunciado),
+    }
+
+
+def boletim_juris_to_es_doc(row: dict[str, str], csv_filename: str) -> dict[str, Any]:
+    """Convert Boletim de Jurisprudência row to ES doc."""
+    return _boletim_base(row, csv_filename, "tcu_boletim_jurisprudencia")
+
+
+def boletim_pessoal_to_es_doc(row: dict[str, str], csv_filename: str) -> dict[str, Any]:
+    """Convert Boletim de Pessoal row to ES doc."""
+    return _boletim_base(row, csv_filename, "tcu_boletim_pessoal")
+
+
+def boletim_lc_to_es_doc(row: dict[str, str], csv_filename: str) -> dict[str, Any]:
+    """Convert Boletim de Licitações e Contratos row to ES doc."""
+    return _boletim_base(row, csv_filename, "tcu_boletim_lc")
 
 
 def iter_csv_rows(filepath: str):

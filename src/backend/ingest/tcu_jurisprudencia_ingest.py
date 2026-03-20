@@ -26,9 +26,16 @@ import httpx
 import pymongo
 
 from src.backend.ingest.tcu_jurisprudencia_processor import (
+    BOLETIM_JURIS_URL,
+    BOLETIM_LC_URL,
+    BOLETIM_PESSOAL_URL,
     JURISPRUDENCIA_URL,
     RESPOSTA_URL,
     SUMULA_URL,
+    boletim_juris_to_es_doc,
+    boletim_lc_to_es_doc,
+    boletim_pessoal_to_es_doc,
+    enunciado_hash,
     iter_csv_rows,
     jurisprudencia_to_es_doc,
     resposta_consulta_to_es_doc,
@@ -172,16 +179,17 @@ def ingest_csv(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Ingest TCU Súmulas + Jurisprudência + Respostas")
-    parser.add_argument("--all", action="store_true", help="Ingest all 3 CSVs")
+    parser = argparse.ArgumentParser(description="Ingest TCU Súmulas + Jurisprudência + Respostas + Boletins")
+    parser.add_argument("--all", action="store_true", help="Ingest all CSVs")
     parser.add_argument("--sumulas", action="store_true")
     parser.add_argument("--jurisprudencia", action="store_true")
     parser.add_argument("--respostas", action="store_true")
+    parser.add_argument("--boletins", action="store_true", help="Ingest 3 boletins (jurisprudência, pessoal, LC)")
     parser.add_argument("--cache-dir", default=None)
     args = parser.parse_args()
 
-    if not any([args.all, args.sumulas, args.jurisprudencia, args.respostas]):
-        _log("ERROR: specify --all or --sumulas/--jurisprudencia/--respostas")
+    if not any([args.all, args.sumulas, args.jurisprudencia, args.respostas, args.boletins]):
+        _log("ERROR: specify --all or --sumulas/--jurisprudencia/--respostas/--boletins")
         sys.exit(1)
 
     cache_dir = args.cache_dir or tempfile.mkdtemp(prefix="tcu_juris_")
@@ -205,6 +213,10 @@ def main() -> None:
             tasks.append(("Jurisprudência", JURISPRUDENCIA_URL, jurisprudencia_to_es_doc))
         if args.all or args.respostas:
             tasks.append(("Respostas", RESPOSTA_URL, resposta_consulta_to_es_doc))
+        if args.all or args.boletins:
+            tasks.append(("Boletim Jurisprudência", BOLETIM_JURIS_URL, boletim_juris_to_es_doc))
+            tasks.append(("Boletim Pessoal", BOLETIM_PESSOAL_URL, boletim_pessoal_to_es_doc))
+            tasks.append(("Boletim LC", BOLETIM_LC_URL, boletim_lc_to_es_doc))
 
         for label, url, converter in tasks:
             _log(f"--- {label} ---")

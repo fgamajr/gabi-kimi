@@ -162,8 +162,11 @@ log "Step 5: Syncing TCU acórdãos (current year)..."
 CURRENT_YEAR=$(date -u '+%Y')
 ssh "$SERVER" "docker compose -f $SERVER_COMPOSE exec -T backend python -m src.backend.ingest.tcu_ingest --year $CURRENT_YEAR --cache-dir /data/gabi_dou/tcu-csv" || log "TCU acórdãos ingest failed (non-fatal)"
 
-log "Step 5b: Syncing TCU súmulas + jurisprudência selecionada + respostas a consulta..."
+log "Step 5b: Syncing TCU súmulas + jurisprudência + respostas + boletins..."
 ssh "$SERVER" "docker compose -f $SERVER_COMPOSE exec -T backend python -m src.backend.ingest.tcu_jurisprudencia_ingest --all --cache-dir /data/gabi_dou/tcu-csv" || log "TCU jurisprudência ingest failed (non-fatal)"
+
+log "Step 5c: Syncing TCU normas..."
+ssh "$SERVER" "docker compose -f $SERVER_COMPOSE exec -T backend python -m src.backend.ingest.tcu_normas_ingest --ingest --cache-dir /data/gabi_dou/tcu-csv" || log "TCU normas ingest failed (non-fatal)"
 log "TCU sync complete"
 
 # ── Step 6: Verify ──

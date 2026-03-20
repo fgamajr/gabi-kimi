@@ -576,12 +576,15 @@ async def _tcu_search(
 ) -> dict:
     """Two-pass search: BM25 first pass → embedding re-rank.
 
-    Works for source='tcu' (TCU only) and source='all' (cross-search DOU+TCU).
+    Works for source='tcu', 'tcu_normas', and 'all' (cross-search).
     Pass 1: BM25 on target indexes → pool of candidates (unified score scale)
     Pass 2: For docs with embeddings → cosine similarity boost; others keep BM25 score
     """
+    _TCU_NORMAS_INDEX = "gabi_tcu_normas_v1"
     if source == "all":
-        index = f"{settings.es_target_index},{_TCU_INDEX}"
+        index = f"{settings.es_target_index},{_TCU_INDEX},{_TCU_NORMAS_INDEX}"
+    elif source == "tcu_normas":
+        index = _TCU_NORMAS_INDEX
     else:
         index = _TCU_INDEX
 
@@ -609,8 +612,16 @@ async def _tcu_search(
         else:
             filters.append({"range": {"data_sessao": rng}})
 
+    # Default vigente filter for normas
+    if source == "tcu_normas":
+        filters.append({"term": {"vigente": True}})
+
     # --- Fields ---
-    if source == "tcu":
+    if source == "tcu_normas":
+        fields = [
+            "assunto^4", "titulo^3", "tema^3", "texto_norma", "search_all",
+        ]
+    elif source == "tcu":
         fields = [
             "titulo^5", "enunciado^5", "sumario^4", "excerto^3", "assunto^3",
             "relator^2", "entidade^2", "acordao_texto", "search_all", "indexacao",
@@ -776,8 +787,8 @@ async def search(
 ):
     offset = (page - 1) * max
 
-    # TCU search: direct ES query to TCU index
-    if source in ("tcu", "all"):
+    # TCU/normas search: direct ES query
+    if source in ("tcu", "tcu_normas", "all"):
         return await _tcu_search(q=q, page=page, max_results=max, offset=offset,
                                  date_from=date_from, date_to=date_to, source=source)
 

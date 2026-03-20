@@ -564,6 +564,7 @@ class ElasticClient:
         self.url = os.getenv("ES_URL", "http://elasticsearch:9200").rstrip("/")
         self.index = (os.getenv("ES_ALIAS") or os.getenv("ES_INDEX") or "gabi_documents").strip()
         self.tcu_index = os.getenv("TCU_ES_INDEX", "gabi_tcu_acordaos_v1").strip()
+        self.normas_index = os.getenv("TCU_NORMAS_INDEX", "gabi_tcu_normas_v1").strip()
         username = (os.getenv("ES_USERNAME") or "").strip() or None
         password = (os.getenv("ES_PASSWORD") or "").strip() or None
         verify_tls = _env_bool("ES_VERIFY_TLS", True)
@@ -574,15 +575,14 @@ class ElasticClient:
     def resolve_index(self, source: str | None = None) -> str:
         """Resolve index name from source filter.
 
-        source: 'dou' | 'tcu' | 'all' | None
-        - None or 'dou' → DOU index only
-        - 'tcu' → TCU index only
-        - 'all' → both indexes (comma-separated for multi-index search)
+        source: 'dou' | 'tcu' | 'tcu_normas' | 'all' | None
         """
         if source == "tcu":
             return self.tcu_index
+        if source == "tcu_normas":
+            return self.normas_index
         if source == "all":
-            return f"{self.index},{self.tcu_index}"
+            return f"{self.index},{self.tcu_index},{self.normas_index}"
         return self.index
 
     def request(self, method: str, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -1203,6 +1203,10 @@ def _es_search_direct(
         else:
             filters.append({"range": {"pub_date": rng}})
 
+    # Default: only vigente normas (unless searching all or explicitly requesting revogadas)
+    if source == "tcu_normas":
+        filters.append({"term": {"vigente": True}})
+
     # Build query
     parsed = _parse_query(query)
     q = parsed["clean_text"]
@@ -1212,6 +1216,10 @@ def _es_search_direct(
             "titulo^5", "enunciado^5", "sumario^4", "excerto^3", "assunto^3",
             "relator^2", "entidade^2", "acordao_texto",
             "voto", "relatorio", "search_all", "indexacao",
+        ]
+    elif source == "tcu_normas":
+        search_fields = [
+            "assunto^4", "titulo^3", "tema^3", "texto_norma", "search_all",
         ]
     else:
         search_fields = [

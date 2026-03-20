@@ -57,9 +57,14 @@ docker compose -f "${compose_file}" exec -T backend \
   python -m src.backend.ingest.tcu_ingest --year "${CURRENT_YEAR}" \
   --cache-dir /data/gabi_dou/tcu-csv >>"${log_file}" 2>&1 || log "TCU acórdãos sync failed (non-fatal)"
 
-log "TCU sync: súmulas + jurisprudência selecionada + respostas a consulta..."
+log "TCU sync: súmulas + jurisprudência + respostas + boletins..."
 docker compose -f "${compose_file}" exec -T backend \
   python -m src.backend.ingest.tcu_jurisprudencia_ingest --all \
   --cache-dir /data/gabi_dou/tcu-csv >>"${log_file}" 2>&1 || log "TCU jurisprudência sync failed (non-fatal)"
+
+log "TCU sync: normas..."
+docker compose -f "${compose_file}" exec -T backend \
+  python -m src.backend.ingest.tcu_normas_ingest --ingest \
+  --cache-dir /data/gabi_dou/tcu-csv >>"${log_file}" 2>&1 || log "TCU normas sync failed (non-fatal)"
 
 log "All daily ingest completed"
