@@ -425,6 +425,15 @@ def _build_filters(
 _TCU_INDEX = "gabi_tcu_acordaos_v1"
 _OPENAI_EMBED_MODEL = "text-embedding-3-small"
 _OPENAI_EMBED_DIMS = 384
+_RERANK_POOL_SIZE = 100
+_YEAR_RE = re.compile(r'\b(20[12]\d)\b')
+
+_TCU_SOURCE_FIELDS = [
+    "doc_id", "titulo", "sumario", "acordao_texto", "tipo", "colegiado",
+    "tipo_processo", "relator", "data_sessao", "numero_acordao", "ano_acordao",
+    "numero_processo", "entidade", "dispositivo_tipo", "dispositivo_resumo",
+    "source_type", "source_url",
+]
 
 
 async def _get_openai_query_embedding(query: str) -> list[float] | None:
@@ -446,6 +455,45 @@ async def _get_openai_query_embedding(query: str) -> list[float] | None:
     except Exception:
         logger.warning("OpenAI embedding failed, falling back to BM25-only", exc_info=True)
         return None
+
+
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    """Compute cosine similarity between two vectors."""
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = sum(x * x for x in a) ** 0.5
+    norm_b = sum(x * x for x in b) ** 0.5
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+def _embedding_rerank(
+    hits: list[dict],
+    query_vector: list[float],
+    bm25_weight: float = 0.5,
+    embed_weight: float = 0.5,
+) -> list[dict]:
+    """Re-rank BM25 hits using embedding similarity for docs that have vectors."""
+    if not hits:
+        return hits
+    bm25_scores = [float(h.get("_score") or 0) for h in hits]
+    max_bm25 = max(bm25_scores) if bm25_scores else 1.0
+    if max_bm25 == 0:
+        max_bm25 = 1.0
+
+    for hit in hits:
+        bm25_norm = float(hit.get("_score") or 0) / max_bm25
+        embedding = hit.get("_source", {}).get("embedding")
+        if embedding and isinstance(embedding, list):
+            sim = _cosine_similarity(query_vector, embedding)
+            hit["_rerank_score"] = bm25_weight * bm25_norm + embed_weight * sim
+        else:
+            hit["_rerank_score"] = bm25_norm
+        # Strip embedding from source to avoid sending it to client
+        hit.get("_source", {}).pop("embedding", None)
+
+    hits.sort(key=lambda h: h.get("_rerank_score", 0), reverse=True)
+    return hits
 
 
 def _tcu_hit_to_result(hit: dict) -> dict:
@@ -494,12 +542,26 @@ async def _tcu_search(
     date_to: str | None,
     source: str,
 ) -> dict:
-    """Search TCU index directly via ES."""
+    """Two-pass search: BM25 first pass → embedding re-rank.
+
+    Works for source='tcu' (TCU only) and source='all' (cross-search DOU+TCU).
+    Pass 1: BM25 on target indexes → pool of candidates (unified score scale)
+    Pass 2: For docs with embeddings → cosine similarity boost; others keep BM25 score
+    """
     if source == "all":
         index = f"{settings.es_target_index},{_TCU_INDEX}"
     else:
         index = _TCU_INDEX
 
+    # --- Temporal intent: auto-detect year in query ---
+    if not date_from and not date_to:
+        year_match = _YEAR_RE.search(q)
+        if year_match:
+            year = year_match.group(1)
+            date_from = f"{year}-01-01"
+            date_to = f"{year}-12-31"
+
+    # --- Filters ---
     filters: list[dict] = []
     if date_from or date_to:
         rng: dict[str, str] = {}
@@ -515,6 +577,7 @@ async def _tcu_search(
         else:
             filters.append({"range": {"data_sessao": rng}})
 
+    # --- Fields ---
     if source == "tcu":
         fields = [
             "titulo^5", "sumario^4", "assunto^3",
@@ -527,18 +590,41 @@ async def _tcu_search(
             "acordao_texto", "body_plain", "search_all",
         ]
 
-    bm25_query: dict = {
-        "bool": {
-            "must": [{
-                "simple_query_string": {
-                    "query": q,
-                    "fields": fields,
-                    "default_operator": "and",
-                },
-            }],
-            "filter": filters,
-        },
-    }
+    # --- BM25 query (cross-search uses OR + minimum_should_match for better recall) ---
+    if source == "all":
+        bm25_query: dict = {
+            "bool": {
+                "must": [{
+                    "simple_query_string": {
+                        "query": q,
+                        "fields": fields,
+                        "default_operator": "or",
+                        "minimum_should_match": "60%",
+                    },
+                }],
+                "should": [
+                    {"match_phrase": {"identifica": {"query": q, "boost": 20}}},
+                    {"match_phrase": {"titulo": {"query": q, "boost": 20}}},
+                    {"match_phrase": {"search_all": {"query": q, "boost": 10}}},
+                    {"match_phrase": {"ementa": {"query": q, "boost": 15}}},
+                    {"match_phrase": {"sumario": {"query": q, "boost": 15}}},
+                ],
+                "filter": filters,
+            },
+        }
+    else:
+        bm25_query = {
+            "bool": {
+                "must": [{
+                    "simple_query_string": {
+                        "query": q,
+                        "fields": fields,
+                        "default_operator": "and",
+                    },
+                }],
+                "filter": filters,
+            },
+        }
 
     highlight_spec: dict = {
         "pre_tags": [">>>"], "post_tags": ["<<<"],
@@ -553,43 +639,22 @@ async def _tcu_search(
         },
     }
 
-    # Try hybrid search with kNN if embeddings available
+    # --- Pass 1: BM25 retrieval (fetch larger pool for re-ranking) ---
     query_vector = await _get_openai_query_embedding(q)
-    if query_vector is not None and source == "tcu":
-        knn_filter = filters if filters else None
-        payload = {
-            "retriever": {
-                "rrf": {
-                    "retrievers": [
-                        {"standard": {"query": bm25_query}},
-                        {
-                            "knn": {
-                                "field": "embedding",
-                                "query_vector": query_vector,
-                                "k": min(max_results, 50),
-                                "num_candidates": min(max_results * 2, 200),
-                                **({"filter": {"bool": {"filter": knn_filter}}} if knn_filter else {}),
-                            }
-                        },
-                    ],
-                    "rank_window_size": min(max_results * 2, 200),
-                    "rank_constant": 60,
-                }
-            },
-            "from": offset,
-            "size": max_results,
-            "track_total_hits": True,
-            "highlight": highlight_spec,
-        }
-    else:
-        payload = {
-            "from": offset,
-            "size": max_results,
-            "track_total_hits": True,
-            "query": bm25_query,
-            "highlight": highlight_spec,
-            "sort": [{"_score": {"order": "desc"}}],
-        }
+    pool_size = max(max_results * 3, _RERANK_POOL_SIZE) if query_vector else max_results
+    source_fields = _SOURCE_FIELDS + _TCU_SOURCE_FIELDS
+    if query_vector:
+        source_fields = source_fields + ["embedding"]
+
+    payload: dict = {
+        "from": 0 if query_vector else offset,
+        "size": pool_size if query_vector else max_results,
+        "track_total_hits": True,
+        "query": bm25_query,
+        "highlight": highlight_spec,
+        "sort": [{"_score": {"order": "desc"}}],
+        "_source": source_fields,
+    }
 
     try:
         data = await es_request("POST", f"/{index}/_search", json=payload)
@@ -601,8 +666,15 @@ async def _tcu_search(
     total = int(data.get("hits", {}).get("total", {}).get("value", 0))
     took = data.get("took", 0)
 
+    # --- Pass 2: Embedding re-rank ---
+    if query_vector and hits:
+        hits = _embedding_rerank(hits, query_vector)
+        page_hits = hits[offset:offset + max_results]
+    else:
+        page_hits = hits
+
     results = []
-    for hit in hits:
+    for hit in page_hits:
         src = hit.get("_source", {})
         if src.get("source_type") == "tcu_acordao":
             results.append(_tcu_hit_to_result(hit))

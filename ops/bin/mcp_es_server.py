@@ -1107,6 +1107,45 @@ def _format_tcu_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return results
 
 
+_YEAR_RE = re.compile(r'\b(20[12]\d)\b')
+_RERANK_POOL_SIZE = 100
+
+
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = sum(x * x for x in a) ** 0.5
+    norm_b = sum(x * x for x in b) ** 0.5
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+def _embedding_rerank_mcp(
+    hits: list[dict[str, Any]],
+    query_vector: list[float],
+    bm25_weight: float = 0.5,
+    embed_weight: float = 0.5,
+) -> list[dict[str, Any]]:
+    """Re-rank BM25 hits using embedding similarity for docs that have vectors."""
+    if not hits:
+        return hits
+    bm25_scores = [float(h.get("_score") or 0) for h in hits]
+    max_bm25 = max(bm25_scores) if bm25_scores else 1.0
+    if max_bm25 == 0:
+        max_bm25 = 1.0
+    for hit in hits:
+        bm25_norm = float(hit.get("_score") or 0) / max_bm25
+        embedding = hit.get("_source", {}).get("embedding")
+        if embedding and isinstance(embedding, list):
+            sim = _cosine_similarity(query_vector, embedding)
+            hit["_rerank_score"] = bm25_weight * bm25_norm + embed_weight * sim
+        else:
+            hit["_rerank_score"] = bm25_norm
+        hit.get("_source", {}).pop("embedding", None)
+    hits.sort(key=lambda h: h.get("_rerank_score", 0), reverse=True)
+    return hits
+
+
 def _es_search_direct(
     *,
     query: str,
@@ -1116,11 +1155,22 @@ def _es_search_direct(
     date_to: str | None = None,
     source: str | None = None,
 ) -> dict[str, Any]:
-    """Direct ES search for TCU (or cross-index) — bypasses API pipeline."""
+    """Two-pass search: BM25 first → embedding re-rank.
+
+    Works for source='tcu' and source='all' (cross-search DOU+TCU).
+    """
     page = max(1, min(page, 500))
     page_size = max(1, min(page_size, 100))
     offset = (page - 1) * page_size
     index = ES.resolve_index(source)
+
+    # Temporal intent: auto-detect year in query
+    if not date_from and not date_to:
+        year_match = _YEAR_RE.search(query)
+        if year_match:
+            year = year_match.group(1)
+            date_from = f"{year}-01-01"
+            date_to = f"{year}-12-31"
 
     # Build filters
     filters: list[dict[str, Any]] = []
@@ -1130,7 +1180,6 @@ def _es_search_direct(
             rng["gte"] = date_from
         if date_to:
             rng["lte"] = date_to
-        # TCU uses data_sessao, DOU uses pub_date. For cross-index, use both.
         if source == "all":
             filters.append({"bool": {"should": [
                 {"range": {"pub_date": rng}},
@@ -1145,7 +1194,6 @@ def _es_search_direct(
     parsed = _parse_query(query)
     q = parsed["clean_text"]
 
-    # For TCU, search across TCU-specific fields
     if source == "tcu":
         search_fields = [
             "titulo^5", "sumario^4", "assunto^3",
@@ -1153,7 +1201,6 @@ def _es_search_direct(
             "voto", "relatorio", "search_all",
         ]
     else:
-        # Cross-index: use fields that exist in both
         search_fields = [
             "titulo^5", "identifica^5", "sumario^4", "ementa^4",
             "assunto^3", "issuing_organ^2", "relator^2",
@@ -1163,7 +1210,6 @@ def _es_search_direct(
     must_clauses: list[dict[str, Any]] = []
     should_clauses: list[dict[str, Any]] = []
 
-    # Quoted phrases
     for phrase in parsed["phrases"]:
         must_clauses.append({
             "multi_match": {
@@ -1174,17 +1220,26 @@ def _es_search_direct(
             },
         })
 
-    # Unquoted text
     if q and q != "*":
-        must_clauses.append({
-            "simple_query_string": {
-                "query": q,
-                "fields": search_fields,
-                "default_operator": "and",
-            },
-        })
-        # Phrase boost
-        for field in search_fields[:3]:
+        # Cross-search: use OR + minimum_should_match for better recall
+        if source == "all":
+            must_clauses.append({
+                "simple_query_string": {
+                    "query": q,
+                    "fields": search_fields,
+                    "default_operator": "or",
+                    "minimum_should_match": "60%",
+                },
+            })
+        else:
+            must_clauses.append({
+                "simple_query_string": {
+                    "query": q,
+                    "fields": search_fields,
+                    "default_operator": "and",
+                },
+            })
+        for field in search_fields[:4]:
             field_name = field.split("^")[0]
             should_clauses.append(
                 {"match_phrase": {field_name: {"query": q, "boost": 15}}},
@@ -1193,9 +1248,16 @@ def _es_search_direct(
     if not must_clauses:
         must_clauses.append({"match_all": {}})
 
+    # Pass 1: BM25 retrieval (larger pool if re-ranking)
+    query_vector = _get_openai_embedding(query)
+    pool_size = max(page_size * 3, _RERANK_POOL_SIZE) if query_vector else page_size
+    source_fields = _TCU_SOURCE_FIELDS + _SOURCE_FIELDS
+    if query_vector:
+        source_fields = source_fields + ["embedding"]
+
     payload: dict[str, Any] = {
-        "from": offset,
-        "size": page_size,
+        "from": 0 if query_vector else offset,
+        "size": pool_size if query_vector else page_size,
         "track_total_hits": True,
         "query": {
             "bool": {
@@ -1205,7 +1267,7 @@ def _es_search_direct(
             },
         },
         "sort": [{"_score": {"order": "desc"}}],
-        "_source": _TCU_SOURCE_FIELDS + _SOURCE_FIELDS,
+        "_source": source_fields,
         "highlight": _TCU_HIGHLIGHT_SPEC,
     }
 
@@ -1213,7 +1275,12 @@ def _es_search_direct(
     hits = data.get("hits", {}).get("hits", [])
     total = int(data.get("hits", {}).get("total", {}).get("value", 0))
 
-    # Format: detect source type per hit
+    # Pass 2: Embedding re-rank
+    if query_vector and hits:
+        hits = _embedding_rerank_mcp(hits, query_vector)
+        hits = hits[offset:offset + page_size]
+
+    # Format results
     results: list[dict[str, Any]] = []
     for hit in hits:
         src = hit.get("_source", {})
