@@ -131,18 +131,16 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, index = 0, query
             >
               <Icons.bookmark className="w-5 h-5" />
             </button>
-            {!isTcu && (
-              <a
-                href={`/api/document/${encodeURIComponent(result.id)}/pdf`}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/5 hover:bg-primary/10 text-primary rounded-lg text-xs font-bold transition-all"
-              >
-                <Icons.download className="w-4 h-4" />
-                PDF
-              </a>
-            )}
+            <a
+              href={`/api/document/${encodeURIComponent(result.id)}/pdf`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/5 hover:bg-primary/10 text-primary rounded-lg text-xs font-bold transition-all"
+            >
+              <Icons.download className="w-4 h-4" />
+              PDF
+            </a>
           </div>
         </div>
       </div>

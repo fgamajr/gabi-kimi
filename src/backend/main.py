@@ -827,7 +827,13 @@ async def document(doc_id: str):
 
 @app.get("/api/document/{doc_id}/pdf")
 async def document_pdf(doc_id: str):
-    src = await _fetch_document_source(doc_id)
+    is_tcu = doc_id.startswith("ACORDAO-COMPLETO-")
+
+    if is_tcu:
+        src = await _fetch_tcu_document_source(doc_id)
+    else:
+        src = await _fetch_document_source(doc_id)
+
     if src is None:
         return Response(status_code=404, content='{"detail":"Document not found"}',
                         media_type="application/json")
@@ -835,26 +841,53 @@ async def document_pdf(doc_id: str):
     from src.backend.pdf.template import render_pdf_html
     from src.backend.pdf.generator import generate_pdf
 
-    section = _section_to_frontend(src.get("edition_section") or src.get("section"))
-    doc_data = {
-        "identifica": src.get("identifica"),
-        "ementa": src.get("ementa"),
-        "body_plain": src.get("body_plain"),
-        "issuing_organ": src.get("issuing_organ"),
-        "art_type": src.get("art_type"),
-        "pub_date": src.get("pub_date"),
-        "section": section,
-        "page_number": src.get("page_number"),
-        "edition_number": src.get("edition_number"),
-        "primary_signer": src.get("primary_signer"),
-        "signers_all_flat": src.get("signers_all_flat"),
-    }
+    if is_tcu:
+        # Build TCU-specific PDF data
+        body_parts = []
+        if src.get("sumario"):
+            body_parts.append(f"SUMÁRIO\n\n{src['sumario']}")
+        if src.get("acordao_texto"):
+            body_parts.append(f"ACÓRDÃO\n\n{src['acordao_texto']}")
+        if src.get("relatorio"):
+            body_parts.append(f"RELATÓRIO\n\n{src['relatorio']}")
+        if src.get("voto"):
+            body_parts.append(f"VOTO\n\n{src['voto']}")
+
+        doc_data = {
+            "identifica": src.get("titulo"),
+            "ementa": src.get("sumario"),
+            "body_plain": "\n\n".join(body_parts),
+            "issuing_organ": "Tribunal de Contas da União",
+            "art_type": src.get("tipo") or "Acórdão TCU",
+            "pub_date": src.get("data_sessao"),
+            "section": src.get("colegiado"),
+            "page_number": None,
+            "edition_number": None,
+            "primary_signer": src.get("relator"),
+            "signers_all_flat": None,
+        }
+        title_slug = (src.get("titulo") or doc_id)[:60].replace(" ", "_")
+        filename = f"TCU_{title_slug}.pdf"
+    else:
+        section = _section_to_frontend(src.get("edition_section") or src.get("section"))
+        doc_data = {
+            "identifica": src.get("identifica"),
+            "ementa": src.get("ementa"),
+            "body_plain": src.get("body_plain"),
+            "issuing_organ": src.get("issuing_organ"),
+            "art_type": src.get("art_type"),
+            "pub_date": src.get("pub_date"),
+            "section": section,
+            "page_number": src.get("page_number"),
+            "edition_number": src.get("edition_number"),
+            "primary_signer": src.get("primary_signer"),
+            "signers_all_flat": src.get("signers_all_flat"),
+        }
+        title_slug = (src.get("identifica") or doc_id)[:60].replace(" ", "_")
+        filename = f"DOU_{title_slug}.pdf"
 
     html_content = render_pdf_html(doc_data)
     pdf_bytes = generate_pdf(html_content)
-
-    title_slug = (src.get("identifica") or doc_id)[:60].replace(" ", "_")
-    filename = f"DOU_{title_slug}.pdf"
 
     return Response(
         content=pdf_bytes,
