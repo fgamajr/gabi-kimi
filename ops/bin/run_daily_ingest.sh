@@ -67,9 +67,12 @@ docker compose -f "${compose_file}" exec -T backend \
   python -m src.backend.ingest.tcu_normas_ingest --ingest \
   --cache-dir /data/gabi_dou/tcu-csv >>"${log_file}" 2>&1 || log "TCU normas sync failed (non-fatal)"
 
-# ── Embeddings: process any pending docs (new acórdãos/boletins/jurisprudência) ──
-log "TCU embeddings: processing pending docs..."
+# ── Embeddings: process any pending docs ──
+log "TCU embeddings: jurisprudência..."
 docker compose -f "${compose_file}" exec -T backend \
-  python -m src.backend.ingest.tcu_embed sync >>"${log_file}" 2>&1 || log "TCU embeddings failed (non-fatal)"
+  python -m src.backend.ingest.tcu_embed --source tcu sync >>"${log_file}" 2>&1 || log "TCU embeddings failed (non-fatal)"
+log "TCU embeddings: normas..."
+docker compose -f "${compose_file}" exec -T backend \
+  python -m src.backend.ingest.tcu_embed --source normas sync >>"${log_file}" 2>&1 || log "TCU normas embeddings failed (non-fatal)"
 
 log "All daily ingest completed"

@@ -169,7 +169,8 @@ log "Step 5c: Syncing TCU normas..."
 ssh "$SERVER" "docker compose -f $SERVER_COMPOSE exec -T backend python -m src.backend.ingest.tcu_normas_ingest --ingest --cache-dir /data/gabi_dou/tcu-csv" || log "TCU normas ingest failed (non-fatal)"
 
 log "Step 5d: Embedding pending TCU docs..."
-ssh "$SERVER" "docker compose -f $SERVER_COMPOSE exec -T backend python -m src.backend.ingest.tcu_embed sync" || log "TCU embeddings failed (non-fatal)"
+ssh "$SERVER" "docker compose -f $SERVER_COMPOSE exec -T backend python -m src.backend.ingest.tcu_embed --source tcu sync" || log "TCU embeddings failed (non-fatal)"
+ssh "$SERVER" "docker compose -f $SERVER_COMPOSE exec -T backend python -m src.backend.ingest.tcu_embed --source normas sync" || log "TCU normas embeddings failed (non-fatal)"
 log "TCU sync complete"
 
 # ── Step 6: Verify ──

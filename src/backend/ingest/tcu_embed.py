@@ -36,6 +36,13 @@ _MAX_ATTEMPTS = 3
 _MONGO_COLLECTION = "tcu_acordaos"
 _ES_INDEX = "gabi_tcu_acordaos_v1"
 
+# Source configs: (mongo_collection, es_index)
+_SOURCE_CONFIGS = {
+    "tcu": ("tcu_acordaos", "gabi_tcu_acordaos_v1"),
+    "normas": ("tcu_normas", "gabi_tcu_normas_v1"),
+}
+_active_source = "tcu"
+
 
 def _log(msg: str) -> None:
     print(f"[tcu-embed] {msg}", flush=True)
@@ -73,12 +80,14 @@ def _sanitize_text(text: str) -> str:
 
 
 def _build_embedding_text(doc: dict) -> str:
-    """Build text for embedding from TCU document fields."""
-    parts = [
-        doc.get("titulo") or "",
-        doc.get("sumario") or "",
-        doc.get("acordao_texto") or "",
-    ]
+    """Build text for embedding — adapts to source type."""
+    source_type = doc.get("source_type") or ""
+    if source_type == "tcu_norma":
+        parts = [doc.get("titulo") or "", doc.get("assunto") or "", doc.get("texto_norma") or ""]
+    elif source_type in ("tcu_sumula", "tcu_jurisprudencia", "tcu_resposta_consulta") or source_type.startswith("tcu_boletim"):
+        parts = [doc.get("titulo") or "", doc.get("enunciado") or "", doc.get("indexacao") or ""]
+    else:
+        parts = [doc.get("titulo") or "", doc.get("sumario") or "", doc.get("acordao_texto") or ""]
     text = _sanitize_text(" ".join(p for p in parts if p).strip())
     return text[:_CHAR_LIMIT]
 
@@ -173,7 +182,7 @@ def _es_bulk_update_embeddings(
     es_client: httpx.Client,
 ) -> int:
     """Bulk update ES docs with embedding vectors. Returns success count."""
-    index = _es_index()
+    _, index = _get_collection_and_index()
     url = f"{_es_url()}/_bulk"
 
     lines: list[str] = []
@@ -279,11 +288,19 @@ def _process_batch(
     return len(valid_ids) + len(skip_ids)
 
 
+def _get_collection_and_index():
+    """Return (mongo_collection_name, es_index) based on active source."""
+    cfg = _SOURCE_CONFIGS.get(_active_source, _SOURCE_CONFIGS["tcu"])
+    return cfg[0], cfg[1]
+
+
 def run_sync(*, init_pending: bool = False) -> None:
     """Main embedding loop."""
+    col_name, es_idx = _get_collection_and_index()
+    _log(f"source={_active_source} collection={col_name} index={es_idx}")
     api_key = _openai_key()
     mongo_client, db = _mongo_client()
-    collection = db[_MONGO_COLLECTION]
+    collection = db[col_name]
 
     if init_pending:
         result = collection.update_many(
@@ -328,8 +345,10 @@ def run_sync(*, init_pending: bool = False) -> None:
 
 def cmd_stats() -> None:
     """Show embedding progress stats."""
+    col_name, es_idx = _get_collection_and_index()
+    _log(f"stats for source={_active_source} collection={col_name}")
     mongo_client, db = _mongo_client()
-    collection = db[_MONGO_COLLECTION]
+    collection = db[col_name]
 
     pipeline = [
         {"$group": {"_id": "$embedding_status", "count": {"$sum": 1}}},
@@ -350,7 +369,7 @@ def cmd_stats() -> None:
     try:
         es_client = httpx.Client(timeout=10)
         resp = es_client.post(
-            f"{_es_url()}/{_es_index()}/_count",
+            f"{_es_url()}/{es_idx}/_count",
             json={"query": {"exists": {"field": "embedding"}}},
             headers={"Content-Type": "application/json"},
         )
@@ -376,8 +395,9 @@ def cmd_stats() -> None:
 
 def cmd_reset_failed() -> None:
     """Reset failed docs back to pending."""
+    col_name, _ = _get_collection_and_index()
     mongo_client, db = _mongo_client()
-    collection = db[_MONGO_COLLECTION]
+    collection = db[col_name]
     result = collection.update_many(
         {"embedding_status": "failed"},
         {"$set": {"embedding_status": "pending"}},
@@ -387,7 +407,10 @@ def cmd_reset_failed() -> None:
 
 
 def main() -> None:
+    global _active_source
     parser = argparse.ArgumentParser(description="TCU embedding pipeline (OpenAI)")
+    parser.add_argument("--source", choices=["tcu", "normas"], default="tcu",
+                        help="tcu=acórdãos+jurisprudência, normas=normas TCU")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("backfill", help="Init all pending + run full backfill")
@@ -396,6 +419,7 @@ def main() -> None:
     sub.add_parser("reset-failed", help="Reset failed → pending")
 
     args = parser.parse_args()
+    _active_source = args.source
 
     if args.cmd == "backfill":
         run_sync(init_pending=True)
