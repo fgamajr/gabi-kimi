@@ -304,7 +304,7 @@ def _fetch_tcu_candidates(es_client: httpx.Client) -> list[dict[str, Any]]:
         "query": {
             "bool": {
                 "filter": [
-                    {"range": {"data_sessao": {"gte": f"now-{settings.EDITORIAL_LOOKBACK_DAYS}d/d"}}},
+                    {"range": {"data_sessao": {"gte": f"now-{settings.EDITORIAL_LOOKBACK_DAYS * 2}d/d"}}},
                 ],
                 "should": [
                     # Prioritize Plenário, irregular, multa, high-impact
