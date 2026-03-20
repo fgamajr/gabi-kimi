@@ -1,4 +1,4 @@
-"""Daily editorial highlights: curated DOU documents by category."""
+"""Daily editorial highlights: curated DOU + TCU documents by category."""
 
 from __future__ import annotations
 
@@ -26,6 +26,13 @@ _SOURCE_FIELDS = [
     "doc_id", "identifica", "ementa", "art_type", "art_type_normalized",
     "pub_date", "section", "edition_section", "edition_number", "page_number",
     "issuing_organ", "organization_path",
+]
+
+_TCU_INDEX = "gabi_tcu_acordaos_v1"
+_TCU_SOURCE_FIELDS = [
+    "doc_id", "titulo", "sumario", "tipo", "colegiado", "tipo_processo",
+    "relator", "data_sessao", "numero_acordao", "ano_acordao",
+    "entidade", "dispositivo_tipo", "dispositivo_resumo", "source_type",
 ]
 
 # ---------------------------------------------------------------------------
@@ -99,6 +106,10 @@ CATEGORIES: dict[str, dict[str, Any]] = {
                 ],
             }
         },
+    },
+    "tcu_destaque": {
+        "badge": "TCU",
+        "is_tcu": True,
     },
 }
 
@@ -283,6 +294,109 @@ def _fetch_candidates(
     return data.get("hits", {}).get("hits", [])
 
 
+def _fetch_tcu_candidates(es_client: httpx.Client) -> list[dict[str, Any]]:
+    """Fetch recent notable TCU acórdãos for editorial highlights."""
+    body = {
+        "size": 30,
+        "track_total_hits": False,
+        "sort": [{"data_sessao": {"order": "desc"}}],
+        "_source": _TCU_SOURCE_FIELDS,
+        "query": {
+            "bool": {
+                "filter": [
+                    {"range": {"data_sessao": {"gte": f"now-{settings.EDITORIAL_LOOKBACK_DAYS}d/d"}}},
+                ],
+                "should": [
+                    # Prioritize Plenário, irregular, multa, high-impact
+                    {"term": {"colegiado": {"value": "Plenário", "boost": 3}}},
+                    {"term": {"dispositivo_resumo": {"value": "irregular", "boost": 5}}},
+                    {"term": {"dispositivo_resumo": {"value": "aplicar_multa", "boost": 3}}},
+                    {"term": {"dispositivo_resumo": {"value": "imputar_debito", "boost": 4}}},
+                    {"term": {"tipo": {"value": "ACÓRDÃO", "boost": 2}}},
+                ],
+            },
+        },
+    }
+    try:
+        resp = es_client.post(
+            f"{settings.ES_URL}/{_TCU_INDEX}/_search",
+            json=body,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        return resp.json().get("hits", {}).get("hits", [])
+    except Exception:
+        logger.warning("Failed to fetch TCU candidates", exc_info=True)
+        return []
+
+
+def _score_tcu_candidate(hit: dict[str, Any]) -> float:
+    """Score a TCU acórdão for editorial highlight."""
+    src = hit.get("_source", {})
+    score = float(hit.get("_score") or 0)
+
+    # Plenário > Câmaras
+    if src.get("colegiado") == "Plenário":
+        score += 10
+    # ACÓRDÃO completo > RELAÇÃO
+    if src.get("tipo") == "ACÓRDÃO":
+        score += 5
+    # High-impact dispositivos
+    disp = src.get("dispositivo_resumo") or ""
+    if disp == "irregular":
+        score += 8
+    elif disp == "imputar_debito":
+        score += 7
+    elif disp == "aplicar_multa":
+        score += 6
+    elif disp == "inabilitar":
+        score += 9
+    elif disp == "declarar_inidoneidade":
+        score += 10
+    # Interesting process types
+    tipo_proc = (src.get("tipo_processo") or "").lower()
+    if "auditoria" in tipo_proc:
+        score += 4
+    elif "representação" in tipo_proc:
+        score += 3
+    elif "tomada de contas especial" in tipo_proc:
+        score += 5
+
+    return score
+
+
+def _tcu_hit_to_highlight(hit: dict[str, Any]) -> dict[str, Any]:
+    """Convert TCU hit to editorial highlight format."""
+    src = hit.get("_source", {})
+    disp = src.get("dispositivo_resumo") or ""
+    disp_label = {
+        "irregular": "Contas Irregulares",
+        "aplicar_multa": "Multa Aplicada",
+        "imputar_debito": "Débito Imputado",
+        "inabilitar": "Inabilitação",
+        "declarar_inidoneidade": "Inidoneidade",
+        "determinar": "Determinação",
+        "recomendar": "Recomendação",
+    }.get(disp, disp)
+
+    return {
+        "doc_id": src.get("doc_id") or hit.get("_id", ""),
+        "title": src.get("titulo") or "",
+        "summary": (src.get("sumario") or "")[:300],
+        "why": "",
+        "pub_date": src.get("data_sessao") or "",
+        "section": src.get("colegiado") or "",
+        "edition_number": None,
+        "issuing_organ": "Tribunal de Contas da União",
+        "art_type": src.get("tipo") or "Acórdão TCU",
+        "badge": "TCU",
+        "source_type": "tcu_acordao",
+        "relator": src.get("relator"),
+        "tipo_processo": src.get("tipo_processo"),
+        "dispositivo_resumo": disp_label,
+    }
+
+
 def _select_best_per_category(
     es_client: httpx.Client,
     latest_pub_date: str,
@@ -328,7 +442,7 @@ def _select_best_per_category(
     else:
         results["destaque"] = None
 
-    # Fill remaining categories from their own ranked lists
+    # Fill remaining DOU categories from their own ranked lists
     for cat in ("concursos", "economia", "politica"):
         selected = None
         for score, hit in ranked[cat]:
@@ -339,6 +453,14 @@ def _select_best_per_category(
                 used_doc_ids.add(doc_id)
                 break
         results[cat] = selected
+
+    # TCU destaque: fetch and score TCU candidates
+    tcu_hits = _fetch_tcu_candidates(es_client)
+    tcu_scored = [(
+        _score_tcu_candidate(h), h
+    ) for h in tcu_hits]
+    tcu_scored.sort(key=lambda x: x[0], reverse=True)
+    results["tcu_destaque"] = tcu_scored[0][1] if tcu_scored else None
 
     return results
 
@@ -364,17 +486,18 @@ def _hit_to_highlight(hit: dict[str, Any], badge: str) -> dict[str, Any]:
 # LLM enrichment (uses httpx directly, no SDK dependency)
 # ---------------------------------------------------------------------------
 
-_LLM_PROMPT = """Você é um editor de notícias do Diário Oficial da União (DOU).
+_LLM_PROMPT = """Você é um editor de notícias do Diário Oficial da União (DOU) e do Tribunal de Contas da União (TCU).
 Para cada documento abaixo, escreva em português brasileiro:
 1. "summary": resumo jornalístico de 2 frases, claro e factual.
 2. "why": 1 frase explicando por que é relevante para o público.
 
 IMPORTANTE: Não invente informações. Use apenas o que está no texto do documento.
+Para documentos do TCU, destaque o resultado do julgamento (irregular, multa, etc.) e o relator.
 
 {documents}
 
-Responda APENAS em JSON válido:
-{{"destaque": {{"summary": "...", "why": "..."}}, "concursos": {{"summary": "...", "why": "..."}}, "economia": {{"summary": "...", "why": "..."}}, "politica": {{"summary": "...", "why": "..."}}}}"""
+Responda APENAS em JSON válido com as categorias presentes:
+{{"destaque": {{"summary": "...", "why": "..."}}, "concursos": {{"summary": "...", "why": "..."}}, "economia": {{"summary": "...", "why": "..."}}, "politica": {{"summary": "...", "why": "..."}}, "tcu_destaque": {{"summary": "...", "why": "..."}}}}"""
 
 
 def _enrich_with_llm(
@@ -386,28 +509,44 @@ def _enrich_with_llm(
         logger.info("ANTHROPIC_API_KEY not set, skipping LLM enrichment")
         return False
 
-    # Build prompt with body_plain for selected docs
+    # Build prompt with body text for selected docs
     doc_texts = []
     for cat, highlight in categories.items():
         if not highlight:
             continue
-        # Fetch body_plain for this doc
         doc_id = highlight["doc_id"]
+        is_tcu = highlight.get("source_type") == "tcu_acordao"
+        # Fetch body from correct index
         try:
+            idx = _TCU_INDEX if is_tcu else settings.es_target_index
+            body_field = "sumario,acordao_texto" if is_tcu else "body_plain"
             resp = es_client.get(
-                f"{settings.ES_URL}/{settings.es_target_index}/_doc/{doc_id}",
-                params={"_source": "body_plain"},
+                f"{settings.ES_URL}/{idx}/_doc/{doc_id}",
+                params={"_source": body_field},
                 timeout=10,
             )
             resp.raise_for_status()
-            body = resp.json().get("_source", {}).get("body_plain") or ""
+            src = resp.json().get("_source", {})
+            if is_tcu:
+                body = f"{src.get('sumario', '')}\n{src.get('acordao_texto', '')}"
+            else:
+                body = src.get("body_plain") or ""
         except Exception:
             body = ""
+
+        extra = ""
+        if is_tcu:
+            extra = (
+                f"Relator: {highlight.get('relator', '')}\n"
+                f"Processo: {highlight.get('tipo_processo', '')}\n"
+                f"Dispositivo: {highlight.get('dispositivo_resumo', '')}\n"
+            )
 
         doc_texts.append(
             f"--- Categoria: {cat} ---\n"
             f"Título: {highlight['title']}\n"
             f"Ementa: {highlight['summary']}\n"
+            f"{extra}"
             f"Corpo (trecho): {body[:1500]}\n"
             f"Órgão: {highlight['issuing_organ']}\n"
             f"Tipo: {highlight['art_type']}\n"
@@ -473,6 +612,7 @@ def _apply_fallback(categories: dict[str, dict[str, Any] | None]) -> None:
         "concursos": "Oportunidade de concurso público ou seleção.",
         "economia": "Ato relevante na área econômica e fiscal.",
         "politica": "Ato político ou legislativo de destaque.",
+        "tcu_destaque": "Decisão relevante do Tribunal de Contas da União.",
     }
     for cat, highlight in categories.items():
         if not highlight:
@@ -513,6 +653,11 @@ def update_editorial_cache(es_client: httpx.Client, mongo_db: Any) -> dict[str, 
             categories[cat] = _hit_to_highlight(hit, CATEGORIES[cat]["badge"])
         else:
             categories[cat] = None
+
+    # TCU destaque
+    tcu_hit = selected.get("tcu_destaque")
+    if tcu_hit:
+        categories["tcu_destaque"] = _tcu_hit_to_highlight(tcu_hit)
 
     # LLM enrichment (optional)
     llm_used = _enrich_with_llm(categories, es_client)

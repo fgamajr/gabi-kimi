@@ -176,6 +176,10 @@ export interface EditorialHighlight {
   issuing_organ: string;
   art_type: string;
   badge: string;
+  source_type?: 'dou' | 'tcu_acordao';
+  relator?: string;
+  tipo_processo?: string;
+  dispositivo_resumo?: string;
 }
 
 export interface EditorialHighlightsResponse {
@@ -186,6 +190,7 @@ export interface EditorialHighlightsResponse {
     concursos?: EditorialHighlight;
     economia?: EditorialHighlight;
     politica?: EditorialHighlight;
+    tcu_destaque?: EditorialHighlight;
   };
 }
 
