@@ -50,12 +50,16 @@ done < <(collect_year_months)
 
 log "Rolling DOU ingest completed"
 
-# ── TCU sync: re-ingest current year CSV (idempotent upsert) ──
-log "TCU sync: re-ingesting current year..."
+# ── TCU sync: acórdãos (current year) + súmulas/jurisprudência ──
+log "TCU sync: re-ingesting current year acórdãos..."
 CURRENT_YEAR=$(date -u '+%Y')
 docker compose -f "${compose_file}" exec -T backend \
   python -m src.backend.ingest.tcu_ingest --year "${CURRENT_YEAR}" \
-  --cache-dir /data/gabi_dou/tcu-csv >>"${log_file}" 2>&1 || log "TCU sync failed (non-fatal)"
-log "TCU sync completed"
+  --cache-dir /data/gabi_dou/tcu-csv >>"${log_file}" 2>&1 || log "TCU acórdãos sync failed (non-fatal)"
+
+log "TCU sync: súmulas + jurisprudência selecionada + respostas a consulta..."
+docker compose -f "${compose_file}" exec -T backend \
+  python -m src.backend.ingest.tcu_jurisprudencia_ingest --all \
+  --cache-dir /data/gabi_dou/tcu-csv >>"${log_file}" 2>&1 || log "TCU jurisprudência sync failed (non-fatal)"
 
 log "All daily ingest completed"

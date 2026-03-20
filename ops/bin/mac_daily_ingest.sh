@@ -157,10 +157,13 @@ log "Step 4: Syncing to Elasticsearch..."
 ssh "$SERVER" "docker compose -f $SERVER_COMPOSE exec -T backend python -m src.backend.ingest.es_indexer sync"
 log "ES sync complete"
 
-# ── Step 5: TCU ingest (current year CSV, upsert — idempotent) ──
+# ── Step 5: TCU ingest (acórdãos current year + súmulas/jurisprudência) ──
 log "Step 5: Syncing TCU acórdãos (current year)..."
 CURRENT_YEAR=$(date -u '+%Y')
-ssh "$SERVER" "docker compose -f $SERVER_COMPOSE exec -T backend python -m src.backend.ingest.tcu_ingest --year $CURRENT_YEAR --cache-dir /data/gabi_dou/tcu-csv" || log "TCU ingest failed (non-fatal)"
+ssh "$SERVER" "docker compose -f $SERVER_COMPOSE exec -T backend python -m src.backend.ingest.tcu_ingest --year $CURRENT_YEAR --cache-dir /data/gabi_dou/tcu-csv" || log "TCU acórdãos ingest failed (non-fatal)"
+
+log "Step 5b: Syncing TCU súmulas + jurisprudência selecionada + respostas a consulta..."
+ssh "$SERVER" "docker compose -f $SERVER_COMPOSE exec -T backend python -m src.backend.ingest.tcu_jurisprudencia_ingest --all --cache-dir /data/gabi_dou/tcu-csv" || log "TCU jurisprudência ingest failed (non-fatal)"
 log "TCU sync complete"
 
 # ── Step 6: Verify ──
