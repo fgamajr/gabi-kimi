@@ -67,6 +67,11 @@ def _es_index() -> str:
 # Text builder
 # ---------------------------------------------------------------------------
 
+def _sanitize_text(text: str) -> str:
+    """Remove null bytes and other chars that break OpenAI API."""
+    return text.replace("\x00", "").replace("\ufffd", "")
+
+
 def _build_embedding_text(doc: dict) -> str:
     """Build text for embedding from TCU document fields."""
     parts = [
@@ -74,7 +79,7 @@ def _build_embedding_text(doc: dict) -> str:
         doc.get("sumario") or "",
         doc.get("acordao_texto") or "",
     ]
-    text = " ".join(p for p in parts if p).strip()
+    text = _sanitize_text(" ".join(p for p in parts if p).strip())
     return text[:_CHAR_LIMIT]
 
 
@@ -109,6 +114,11 @@ def _call_openai_embeddings(
     if resp.status_code >= 500:
         raise RetryableError(f"OpenAI server error: {resp.status_code}")
 
+    if resp.status_code == 400:
+        error_body = resp.text[:500]
+        _log(f"400 error: {error_body}")
+        raise BadInputError(f"OpenAI 400: {error_body}")
+
     resp.raise_for_status()
     data = resp.json()
 
@@ -127,6 +137,10 @@ def _call_openai_embeddings(
 
 
 class RetryableError(Exception):
+    pass
+
+
+class BadInputError(Exception):
     pass
 
 
@@ -231,10 +245,20 @@ def _process_batch(
 
     # Call OpenAI in sub-batches
     all_vectors: list[list[float]] = []
-    for i in range(0, len(texts), _API_BATCH_SIZE):
-        batch_texts = texts[i:i + _API_BATCH_SIZE]
-        vectors = _call_with_retry(batch_texts, api_key, openai_client)
-        all_vectors.extend(vectors)
+    try:
+        for i in range(0, len(texts), _API_BATCH_SIZE):
+            batch_texts = texts[i:i + _API_BATCH_SIZE]
+            vectors = _call_with_retry(batch_texts, api_key, openai_client)
+            all_vectors.extend(vectors)
+    except (BadInputError, RuntimeError) as exc:
+        # Mark all docs in this batch as failed and continue
+        _log(f"batch failed: {exc}")
+        collection.update_many(
+            {"_id": {"$in": valid_ids}},
+            {"$set": {"embedding_status": "failed", "embedding_error": str(exc)[:200],
+                      "embedding_updated_at": datetime.now(timezone.utc)}},
+        )
+        return len(valid_ids) + len(skip_ids)
 
     # Write to ES
     es_ok = _es_bulk_update_embeddings(valid_ids, all_vectors, es_client)
