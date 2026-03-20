@@ -432,7 +432,8 @@ _TCU_SOURCE_FIELDS = [
     "doc_id", "titulo", "sumario", "acordao_texto", "tipo", "colegiado",
     "tipo_processo", "relator", "data_sessao", "numero_acordao", "ano_acordao",
     "numero_processo", "entidade", "dispositivo_tipo", "dispositivo_resumo",
-    "source_type", "source_url",
+    "source_type", "source_url", "authority_level", "enunciado", "excerto",
+    "area", "tema_tcu_oficial", "vigente", "paradigmatico",
 ]
 
 
@@ -515,32 +516,47 @@ def _embedding_rerank(
 def _tcu_hit_to_result(hit: dict) -> dict:
     src = hit.get("_source", {})
     hl = hit.get("highlight", {})
+    source_type = src.get("source_type") or "tcu_acordao"
 
+    # For súmulas/jurisprudência, prefer enunciado for snippet
     snippet_parts: list[str] = []
-    for k in ("sumario", "titulo", "acordao_texto", "search_all"):
+    snippet_fields = ("enunciado", "sumario", "titulo", "acordao_texto", "search_all")
+    for k in snippet_fields:
         frags = hl.get(k)
         if frags:
             snippet_parts.extend(frags)
             if len(snippet_parts) >= 2:
                 break
     raw_snippet = " … ".join(snippet_parts) if snippet_parts else (
-        src.get("sumario") or src.get("acordao_texto") or ""
+        src.get("enunciado") or src.get("sumario") or src.get("acordao_texto") or ""
     )[:280]
+
+    # Use enunciado as subtitle for súmulas/jurisprudência
+    subtitle = src.get("enunciado") or src.get("sumario") or ""
+
+    # Art type label
+    tipo_label = src.get("tipo") or "Acórdão TCU"
+    if source_type == "tcu_sumula":
+        tipo_label = "Súmula TCU"
+    elif source_type == "tcu_jurisprudencia":
+        tipo_label = "Jurisprudência Selecionada"
+    elif source_type == "tcu_resposta_consulta":
+        tipo_label = "Resposta a Consulta"
 
     return {
         "id": src.get("doc_id") or hit.get("_id"),
         "title": src.get("titulo") or "",
-        "subtitle": src.get("sumario") or "",
+        "subtitle": subtitle[:300],
         "snippet": re.sub(r">>>|<<<", "", raw_snippet),
         "highlight": _hl_to_html(raw_snippet) if snippet_parts else None,
         "pub_date": src.get("data_sessao") or "",
         "section": src.get("colegiado") or "",
         "page": None,
-        "art_type": src.get("tipo") or "Acórdão TCU",
+        "art_type": tipo_label,
         "issuing_organ": "Tribunal de Contas da União",
         "top_organ": "Tribunal de Contas da União",
         "dou_url": None,
-        "source_type": "tcu_acordao",
+        "source_type": source_type,
         "relator": src.get("relator"),
         "tipo_processo": src.get("tipo_processo"),
         "colegiado": src.get("colegiado"),
@@ -647,6 +663,7 @@ async def _tcu_search(
         "max_analyzed_offset": 500000,
         "fields": {
             "titulo": {"number_of_fragments": 0},
+            "enunciado": {"number_of_fragments": 1, "fragment_size": 300},
             "sumario": {"number_of_fragments": 1, "fragment_size": 280},
             "acordao_texto": {"number_of_fragments": 2, "fragment_size": 200},
             "identifica": {"number_of_fragments": 0},
