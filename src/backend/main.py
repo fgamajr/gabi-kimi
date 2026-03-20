@@ -424,7 +424,7 @@ def _build_filters(
 
 _TCU_INDEX = "gabi_tcu_acordaos_v1"
 _OPENAI_EMBED_MODEL = "text-embedding-3-small"
-_OPENAI_EMBED_DIMS = 384
+_OPENAI_EMBED_DIMS = 1536
 _RERANK_POOL_SIZE = 100
 _YEAR_RE = re.compile(r'\b(20[12]\d)\b')
 

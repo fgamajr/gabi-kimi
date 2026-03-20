@@ -1,6 +1,6 @@
 """TCU embedding pipeline — OpenAI text-embedding-3-small → ES + Mongo.
 
-Generates 384-dim embeddings for TCU acórdãos using the OpenAI API.
+Generates 1536-dim embeddings for TCU acórdãos using the OpenAI API.
 Reads from Mongo tcu_acordaos, writes vectors to ES gabi_tcu_acordaos_v1.
 
 Usage:
@@ -28,7 +28,7 @@ import pymongo
 # ---------------------------------------------------------------------------
 
 _MODEL = "text-embedding-3-small"
-_DIMS = 384
+_DIMS = 1536
 _CHAR_LIMIT = 2000          # Max chars per doc for embedding (~500 tokens)
 _BATCH_SIZE = 500            # Docs fetched from Mongo per loop
 _API_BATCH_SIZE = 2048       # Max texts per OpenAI API call
@@ -83,7 +83,7 @@ def _build_embedding_text(doc: dict) -> str:
     """Build text for embedding — adapts to source type."""
     source_type = doc.get("source_type") or ""
     if source_type == "tcu_norma":
-        parts = [doc.get("titulo") or "", doc.get("assunto") or "", doc.get("texto_norma") or ""]
+        parts = [doc.get("titulo") or "", doc.get("assunto") or ""]
     elif source_type in ("tcu_sumula", "tcu_jurisprudencia", "tcu_resposta_consulta") or source_type.startswith("tcu_boletim"):
         parts = [doc.get("titulo") or "", doc.get("enunciado") or "", doc.get("indexacao") or ""]
     else:

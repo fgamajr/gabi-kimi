@@ -2189,7 +2189,7 @@ def es_explain(
 # ---------------------------------------------------------------------------
 
 _OPENAI_EMBED_MODEL = "text-embedding-3-small"
-_OPENAI_EMBED_DIMS = 384
+_OPENAI_EMBED_DIMS = 1536
 
 
 def _get_openai_embedding(text: str) -> list[float] | None:

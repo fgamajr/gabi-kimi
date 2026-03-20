@@ -231,7 +231,7 @@
 
       "embedding": {
         "type": "dense_vector",
-        "dims": 384,
+        "dims": 1536,
         "index": true,
         "similarity": "cosine"
       },
