@@ -217,7 +217,8 @@ def _process_batch(
     docs = list(
         collection.find(
             {"embedding_status": "pending"},
-            {"_id": 1, "titulo": 1, "sumario": 1, "acordao_texto": 1},
+            {"_id": 1, "titulo": 1, "sumario": 1, "acordao_texto": 1,
+             "assunto": 1, "enunciado": 1, "indexacao": 1, "source_type": 1},
         ).limit(_BATCH_SIZE)
     )
     if not docs:
