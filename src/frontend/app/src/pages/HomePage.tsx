@@ -81,7 +81,7 @@ const HomePage: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const sourceLabel = source === 'tcu' ? 'Acórdãos do TCU' : source === 'all' ? 'Toda a Base' : 'Diário Oficial (DOU)';
+  const sourceLabel = source === 'tcu' ? 'Base TCU' : source === 'all' ? 'Toda a Base' : 'Diário Oficial (DOU)';
 
   const formatNumber = (value: number | undefined) => {
     if (value == null) return '—';
@@ -145,7 +145,7 @@ const HomePage: React.FC = () => {
                     className="bg-transparent border-none text-sm font-semibold text-foreground focus:ring-0 cursor-pointer pr-6"
                   >
                     <option value="">Diário Oficial</option>
-                    <option value="tcu">Acórdãos TCU</option>
+                    <option value="tcu">Base TCU</option>
                     <option value="all">Toda a Base</option>
                   </select>
                 </div>
@@ -215,7 +215,7 @@ const HomePage: React.FC = () => {
               </div>
               <div className="space-y-1">
                 <p className="text-3xl font-black text-blue-600 dark:text-blue-400 tracking-tighter">519K+</p>
-                <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground">Acórdãos TCU</p>
+                <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground">Base TCU</p>
               </div>
               <div className="space-y-1">
                 <p className="text-3xl font-black text-foreground tracking-tighter">
