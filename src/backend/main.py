@@ -467,13 +467,21 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
+_AUTHORITY_INTENT_RE = re.compile(
+    r'\b(s[úu]mula|entendimento|orienta[çc][aã]o|regra|norma|tese|jurisprud[eê]ncia|consulta)\b',
+    re.IGNORECASE,
+)
+_AUTHORITY_BOOSTS = [1.0, 1.03, 1.08, 1.15]  # 0=acordao, 1=resposta, 2=juris, 3=sumula
+
+
 def _embedding_rerank(
     hits: list[dict],
     query_vector: list[float],
+    query_text: str = "",
     bm25_weight: float = 0.5,
     embed_weight: float = 0.5,
 ) -> list[dict]:
-    """Re-rank BM25 hits using embedding similarity for docs that have vectors."""
+    """Re-rank BM25 hits using embedding similarity + authority boost."""
     if not hits:
         return hits
     bm25_scores = [float(h.get("_score") or 0) for h in hits]
@@ -481,15 +489,23 @@ def _embedding_rerank(
     if max_bm25 == 0:
         max_bm25 = 1.0
 
+    use_authority = bool(_AUTHORITY_INTENT_RE.search(query_text))
+
     for hit in hits:
         bm25_norm = float(hit.get("_score") or 0) / max_bm25
         embedding = hit.get("_source", {}).get("embedding")
         if embedding and isinstance(embedding, list):
             sim = _cosine_similarity(query_vector, embedding)
-            hit["_rerank_score"] = bm25_weight * bm25_norm + embed_weight * sim
+            combined = bm25_weight * bm25_norm + embed_weight * sim
         else:
-            hit["_rerank_score"] = bm25_norm
-        # Strip embedding from source to avoid sending it to client
+            combined = bm25_norm
+
+        # Phase 3: authority boost (only for normative-intent queries)
+        if use_authority:
+            authority = hit.get("_source", {}).get("authority_level", 0)
+            combined *= _AUTHORITY_BOOSTS[min(authority, 3)]
+
+        hit["_rerank_score"] = combined
         hit.get("_source", {}).pop("embedding", None)
 
     hits.sort(key=lambda h: h.get("_rerank_score", 0), reverse=True)
@@ -580,8 +596,8 @@ async def _tcu_search(
     # --- Fields ---
     if source == "tcu":
         fields = [
-            "titulo^5", "sumario^4", "assunto^3",
-            "relator^2", "entidade^2", "acordao_texto", "search_all",
+            "titulo^5", "enunciado^5", "sumario^4", "excerto^3", "assunto^3",
+            "relator^2", "entidade^2", "acordao_texto", "search_all", "indexacao",
         ]
     else:
         fields = [
@@ -668,7 +684,7 @@ async def _tcu_search(
 
     # --- Pass 2: Embedding re-rank ---
     if query_vector and hits:
-        hits = _embedding_rerank(hits, query_vector)
+        hits = _embedding_rerank(hits, query_vector, query_text=q)
         page_hits = hits[offset:offset + max_results]
     else:
         page_hits = hits

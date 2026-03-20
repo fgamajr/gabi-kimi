@@ -196,6 +196,30 @@
       "has_voto":            { "type": "boolean" },
       "completeness_score":  { "type": "float" },
 
+      "enunciado": {
+        "type": "text",
+        "analyzer": "pt_br_full"
+      },
+      "excerto": {
+        "type": "text",
+        "analyzer": "pt_br_folded"
+      },
+      "authority_level":     { "type": "byte" },
+      "area":                { "type": "keyword" },
+      "tema_tcu_oficial":    { "type": "keyword" },
+      "subtema_tcu":         { "type": "keyword" },
+      "referencia_legal": {
+        "type": "text",
+        "analyzer": "pt_br_folded"
+      },
+      "indexacao": {
+        "type": "text",
+        "analyzer": "pt_br_full"
+      },
+      "vigente":             { "type": "boolean" },
+      "paradigmatico":       { "type": "boolean" },
+      "parent_acordao_key":  { "type": "keyword" },
+
       "source_type":         { "type": "keyword" },
       "source_csv":          { "type": "keyword" },
       "source_url":          { "type": "keyword", "ignore_above": 2048 },

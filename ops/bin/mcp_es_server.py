@@ -1120,27 +1120,40 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
+_AUTHORITY_INTENT_RE = re.compile(
+    r'\b(s[úu]mula|entendimento|orienta[çc][aã]o|regra|norma|tese|jurisprud[eê]ncia|consulta)\b',
+    re.IGNORECASE,
+)
+_AUTHORITY_BOOSTS = [1.0, 1.03, 1.08, 1.15]
+
+
 def _embedding_rerank_mcp(
     hits: list[dict[str, Any]],
     query_vector: list[float],
+    query_text: str = "",
     bm25_weight: float = 0.5,
     embed_weight: float = 0.5,
 ) -> list[dict[str, Any]]:
-    """Re-rank BM25 hits using embedding similarity for docs that have vectors."""
+    """Re-rank BM25 hits using embedding similarity + authority boost."""
     if not hits:
         return hits
     bm25_scores = [float(h.get("_score") or 0) for h in hits]
     max_bm25 = max(bm25_scores) if bm25_scores else 1.0
     if max_bm25 == 0:
         max_bm25 = 1.0
+    use_authority = bool(_AUTHORITY_INTENT_RE.search(query_text))
     for hit in hits:
         bm25_norm = float(hit.get("_score") or 0) / max_bm25
         embedding = hit.get("_source", {}).get("embedding")
         if embedding and isinstance(embedding, list):
             sim = _cosine_similarity(query_vector, embedding)
-            hit["_rerank_score"] = bm25_weight * bm25_norm + embed_weight * sim
+            combined = bm25_weight * bm25_norm + embed_weight * sim
         else:
-            hit["_rerank_score"] = bm25_norm
+            combined = bm25_norm
+        if use_authority:
+            authority = hit.get("_source", {}).get("authority_level", 0)
+            combined *= _AUTHORITY_BOOSTS[min(authority, 3)]
+        hit["_rerank_score"] = combined
         hit.get("_source", {}).pop("embedding", None)
     hits.sort(key=lambda h: h.get("_rerank_score", 0), reverse=True)
     return hits
@@ -1196,9 +1209,9 @@ def _es_search_direct(
 
     if source == "tcu":
         search_fields = [
-            "titulo^5", "sumario^4", "assunto^3",
+            "titulo^5", "enunciado^5", "sumario^4", "excerto^3", "assunto^3",
             "relator^2", "entidade^2", "acordao_texto",
-            "voto", "relatorio", "search_all",
+            "voto", "relatorio", "search_all", "indexacao",
         ]
     else:
         search_fields = [
@@ -1277,7 +1290,7 @@ def _es_search_direct(
 
     # Pass 2: Embedding re-rank
     if query_vector and hits:
-        hits = _embedding_rerank_mcp(hits, query_vector)
+        hits = _embedding_rerank_mcp(hits, query_vector, query_text=query)
         hits = hits[offset:offset + page_size]
 
     # Format results
