@@ -1297,7 +1297,7 @@ def _es_search_direct(
     results: list[dict[str, Any]] = []
     for hit in hits:
         src = hit.get("_source", {})
-        if src.get("source_type") == "tcu_acordao":
+        if (src.get("source_type") or "").startswith("tcu_"):
             results.extend(_format_tcu_hits([hit]))
         else:
             results.extend(_format_hits([hit]))
@@ -1960,7 +1960,7 @@ def es_cross_reference(
     results: list[dict[str, Any]] = []
     for hit in hits:
         src = hit.get("_source", {})
-        if src.get("source_type") == "tcu_acordao":
+        if (src.get("source_type") or "").startswith("tcu_"):
             results.extend(_format_tcu_hits([hit]))
         else:
             results.extend(_format_hits([hit]))

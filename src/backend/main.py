@@ -709,7 +709,7 @@ async def _tcu_search(
     results = []
     for hit in page_hits:
         src = hit.get("_source", {})
-        if src.get("source_type") == "tcu_acordao":
+        if (src.get("source_type") or "").startswith("tcu_"):
             results.append(_tcu_hit_to_result(hit))
         else:
             results.append(_hit_to_result(hit))
