@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -422,6 +423,29 @@ def _build_filters(
 # ---------------------------------------------------------------------------
 
 _TCU_INDEX = "gabi_tcu_acordaos_v1"
+_OPENAI_EMBED_MODEL = "text-embedding-3-small"
+_OPENAI_EMBED_DIMS = 384
+
+
+async def _get_openai_query_embedding(query: str) -> list[float] | None:
+    """Get query embedding via OpenAI API. Returns None if unavailable."""
+    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if not api_key or not settings.VECTOR_SEARCH_ENABLED:
+        return None
+    try:
+        assert _es is not None
+        resp = await _es.post(
+            "https://api.openai.com/v1/embeddings",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={"model": _OPENAI_EMBED_MODEL, "input": [query], "dimensions": _OPENAI_EMBED_DIMS},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data["data"][0]["embedding"]
+    except Exception:
+        logger.warning("OpenAI embedding failed, falling back to BM25-only", exc_info=True)
+        return None
 
 
 def _tcu_hit_to_result(hit: dict) -> dict:
@@ -503,36 +527,69 @@ async def _tcu_search(
             "acordao_texto", "body_plain", "search_all",
         ]
 
-    payload = {
-        "from": offset,
-        "size": max_results,
-        "track_total_hits": True,
-        "query": {
-            "bool": {
-                "must": [{
-                    "simple_query_string": {
-                        "query": q,
-                        "fields": fields,
-                        "default_operator": "and",
-                    },
-                }],
-                "filter": filters,
-            },
+    bm25_query: dict = {
+        "bool": {
+            "must": [{
+                "simple_query_string": {
+                    "query": q,
+                    "fields": fields,
+                    "default_operator": "and",
+                },
+            }],
+            "filter": filters,
         },
-        "highlight": {
-            "pre_tags": [">>>"], "post_tags": ["<<<"],
-            "max_analyzed_offset": 500000,
-            "fields": {
-                "titulo": {"number_of_fragments": 0},
-                "sumario": {"number_of_fragments": 1, "fragment_size": 280},
-                "acordao_texto": {"number_of_fragments": 2, "fragment_size": 200},
-                "identifica": {"number_of_fragments": 0},
-                "ementa": {"number_of_fragments": 1, "fragment_size": 280},
-                "body_plain": {"number_of_fragments": 2, "fragment_size": 200},
-            },
-        },
-        "sort": [{"_score": {"order": "desc"}}],
     }
+
+    highlight_spec: dict = {
+        "pre_tags": [">>>"], "post_tags": ["<<<"],
+        "max_analyzed_offset": 500000,
+        "fields": {
+            "titulo": {"number_of_fragments": 0},
+            "sumario": {"number_of_fragments": 1, "fragment_size": 280},
+            "acordao_texto": {"number_of_fragments": 2, "fragment_size": 200},
+            "identifica": {"number_of_fragments": 0},
+            "ementa": {"number_of_fragments": 1, "fragment_size": 280},
+            "body_plain": {"number_of_fragments": 2, "fragment_size": 200},
+        },
+    }
+
+    # Try hybrid search with kNN if embeddings available
+    query_vector = await _get_openai_query_embedding(q)
+    if query_vector is not None and source == "tcu":
+        knn_filter = filters if filters else None
+        payload = {
+            "retriever": {
+                "rrf": {
+                    "retrievers": [
+                        {"standard": {"query": bm25_query}},
+                        {
+                            "knn": {
+                                "field": "embedding",
+                                "query_vector": query_vector,
+                                "k": min(max_results, 50),
+                                "num_candidates": min(max_results * 2, 200),
+                                **({"filter": {"bool": {"filter": knn_filter}}} if knn_filter else {}),
+                            }
+                        },
+                    ],
+                    "rank_window_size": min(max_results * 2, 200),
+                    "rank_constant": 60,
+                }
+            },
+            "from": offset,
+            "size": max_results,
+            "track_total_hits": True,
+            "highlight": highlight_spec,
+        }
+    else:
+        payload = {
+            "from": offset,
+            "size": max_results,
+            "track_total_hits": True,
+            "query": bm25_query,
+            "highlight": highlight_spec,
+            "sort": [{"_score": {"order": "desc"}}],
+        }
 
     try:
         data = await es_request("POST", f"/{index}/_search", json=payload)

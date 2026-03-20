@@ -7,4 +7,5 @@ mcp
 lxml
 requests
 httpx
+openai
 weasyprint

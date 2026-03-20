@@ -2097,6 +2097,164 @@ def es_explain(
 
 
 # ---------------------------------------------------------------------------
+# OpenAI embedding helper for MCP TCU tools
+# ---------------------------------------------------------------------------
+
+_OPENAI_EMBED_MODEL = "text-embedding-3-small"
+_OPENAI_EMBED_DIMS = 384
+
+
+def _get_openai_embedding(text: str) -> list[float] | None:
+    """Get embedding via OpenAI API. Returns None if unavailable."""
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        return None
+    try:
+        with httpx.Client(timeout=10) as client:
+            resp = client.post(
+                "https://api.openai.com/v1/embeddings",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={"model": _OPENAI_EMBED_MODEL, "input": [text], "dimensions": _OPENAI_EMBED_DIMS},
+            )
+            resp.raise_for_status()
+            return resp.json()["data"][0]["embedding"]
+    except Exception:
+        logger.warning("OpenAI embedding failed", exc_info=True)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# TOOL 14: es_tcu_semantic_search — Semantic kNN search on TCU embeddings
+# ---------------------------------------------------------------------------
+
+def es_tcu_semantic_search(
+    query: str,
+    k: int = 20,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    colegiado: str | None = None,
+    tipo_processo: str | None = None,
+    dispositivo: str | None = None,
+) -> dict[str, Any]:
+    """Semantic search on TCU acórdãos using vector embeddings (kNN).
+
+    Use this when BM25 keyword search fails — for conceptual queries like
+    "responsabilidade do gestor por omissão" or "superfaturamento em obra pública".
+    Finds semantically similar documents even without exact keyword matches.
+
+    Args:
+      query: natural language query in Portuguese
+      k: number of results (1-50)
+      date_from: YYYY-MM-DD lower bound (sessao date)
+      date_to: YYYY-MM-DD upper bound
+      colegiado: Plenário | Primeira Câmara | Segunda Câmara
+      tipo_processo: e.g. REPRESENTAÇÃO, DENÚNCIA, TOMADA DE CONTAS ESPECIAL
+      dispositivo: dispositivo_resumo filter (irregular, aplicar_multa, imputar_debito, etc.)
+    """
+    k = max(1, min(k, 50))
+    query_vector = _get_openai_embedding(query)
+    if query_vector is None:
+        return {"error": "Embedding service unavailable (OPENAI_API_KEY not set or API error)"}
+
+    filters: list[dict[str, Any]] = []
+    if date_from or date_to:
+        rng: dict[str, str] = {}
+        if date_from:
+            rng["gte"] = date_from
+        if date_to:
+            rng["lte"] = date_to
+        filters.append({"range": {"data_sessao": rng}})
+    if colegiado:
+        filters.append({"term": {"colegiado": colegiado}})
+    if tipo_processo:
+        filters.append({"match": {"tipo_processo": tipo_processo}})
+    if dispositivo:
+        filters.append({"term": {"dispositivo_resumo": dispositivo}})
+
+    payload: dict[str, Any] = {
+        "size": k,
+        "knn": {
+            "field": "embedding",
+            "query_vector": query_vector,
+            "k": k,
+            "num_candidates": min(k * 4, 200),
+        },
+        "_source": _TCU_SOURCE_FIELDS,
+        "highlight": _TCU_HIGHLIGHT_SPEC,
+    }
+    if filters:
+        payload["knn"]["filter"] = {"bool": {"filter": filters}}
+
+    data = ES.request("POST", f"/{ES.tcu_index}/_search", payload)
+    hits = data.get("hits", {}).get("hits", [])
+    total = int(data.get("hits", {}).get("total", {}).get("value", 0))
+
+    return {
+        "query": query,
+        "method": "semantic_knn",
+        "total": total,
+        "results": _format_tcu_hits(hits),
+    }
+
+
+# ---------------------------------------------------------------------------
+# TOOL 15: es_tcu_similar — Find similar acórdãos via vector similarity
+# ---------------------------------------------------------------------------
+
+def es_tcu_similar(
+    doc_id: str,
+    k: int = 10,
+) -> dict[str, Any]:
+    """Find TCU acórdãos similar to a given document using vector similarity.
+
+    Better than term-based more_like_this — captures semantic similarity
+    even when vocabulary differs. Use to find related rulings, precedents,
+    or jurisprudence on the same topic.
+
+    Args:
+      doc_id: TCU document ID (e.g. ACORDAO-COMPLETO-2705853)
+      k: number of similar documents (1-50)
+    """
+    k = max(1, min(k, 50))
+
+    # Fetch the source document's embedding from ES
+    try:
+        doc_data = ES.request("GET", f"/{ES.tcu_index}/_source/{doc_id}?_source_includes=embedding,titulo")
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            return {"error": f"Document {doc_id} not found"}
+        raise
+
+    source_embedding = doc_data.get("embedding")
+    if not source_embedding:
+        return {"error": f"Document {doc_id} has no embedding yet"}
+
+    payload: dict[str, Any] = {
+        "size": k + 1,  # +1 to exclude self
+        "knn": {
+            "field": "embedding",
+            "query_vector": source_embedding,
+            "k": k + 1,
+            "num_candidates": min((k + 1) * 4, 200),
+        },
+        "_source": _TCU_SOURCE_FIELDS,
+    }
+
+    data = ES.request("POST", f"/{ES.tcu_index}/_search", payload)
+    hits = data.get("hits", {}).get("hits", [])
+
+    # Filter out the seed document
+    hits = [h for h in hits if h.get("_id") != doc_id][:k]
+
+    return {
+        "seed_doc_id": doc_id,
+        "seed_titulo": doc_data.get("titulo"),
+        "method": "vector_similarity",
+        "results": _format_tcu_hits(hits),
+    }
+
+
+# ---------------------------------------------------------------------------
 # MCP registration
 # ---------------------------------------------------------------------------
 
@@ -2106,7 +2264,7 @@ if FastMCP is not None:
         instructions=(
             "Hybrid search server for Brazil's Diário Oficial da União (DOU) and "
             "Tribunal de Contas da União (TCU) jurisprudence. "
-            "13 tools over ~16M DOU legal documents (2002-2026) and ~520K TCU acórdãos (1992-2026). Capabilities:\n"
+            "15 tools over ~16M DOU legal documents (2002-2026) and ~520K TCU acórdãos (1992-2026). Capabilities:\n"
             "- SEARCH: es_search (hybrid BM25 + kNN via RRF, intent detection, "
             "topic classification, person name detection, quoted phrases, "
             "canonical law lookup, neural reranking). Use source='tcu' for TCU, "
@@ -2123,7 +2281,9 @@ if FastMCP is not None:
             "pessoal_rh, contrato_convenio, saude, educacao, financeiro, meio_ambiente. "
             "Legal references (Lei 13709) auto-boost. Combine tools for deep analysis. "
             "TCU search: use source='tcu' and filter by colegiado, relator, tipo_processo, "
-            "dispositivo_tipo (irregular, aplicar_multa, imputar_debito, etc.)."
+            "dispositivo_tipo (irregular, aplicar_multa, imputar_debito, etc.).\n"
+            "- TCU SEMANTIC: es_tcu_semantic_search (kNN vector search for conceptual queries), "
+            "es_tcu_similar (find similar acórdãos by vector similarity)"
         ),
     )
     mcp.tool()(es_search)
@@ -2139,6 +2299,8 @@ if FastMCP is not None:
     mcp.tool()(es_organ_profile)
     mcp.tool()(es_compare_periods)
     mcp.tool()(es_explain)
+    mcp.tool()(es_tcu_semantic_search)
+    mcp.tool()(es_tcu_similar)
 else:
     mcp = None
 

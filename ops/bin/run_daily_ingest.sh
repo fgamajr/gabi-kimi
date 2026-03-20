@@ -48,4 +48,14 @@ while read -r year_month; do
     python -m src.backend.ingest.sync_dou --year "${year}" --month "${month}" --skip-es-sync >>"${log_file}" 2>&1
 done < <(collect_year_months)
 
-log "Rolling ingest completed"
+log "Rolling DOU ingest completed"
+
+# ── TCU sync: re-ingest current year CSV (idempotent upsert) ──
+log "TCU sync: re-ingesting current year..."
+CURRENT_YEAR=$(date -u '+%Y')
+docker compose -f "${compose_file}" exec -T backend \
+  python -m src.backend.ingest.tcu_ingest --year "${CURRENT_YEAR}" \
+  --cache-dir /data/gabi_dou/tcu-csv >>"${log_file}" 2>&1 || log "TCU sync failed (non-fatal)"
+log "TCU sync completed"
+
+log "All daily ingest completed"
