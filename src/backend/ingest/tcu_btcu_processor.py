@@ -64,7 +64,7 @@ def btcu_chunk_to_es_doc(
 
     # Derived fields from text
     norm_refs = extract_normative_references(texto[:50_000])
-    normative_references = [f"{r.tipo} {r.numero}" for r in norm_refs]
+    normative_references = [f"{r.reference_type} {r.reference_number}" for r in norm_refs]
     acordaos_citados = extract_acordaos_citados(texto[:50_000])
     valores_monetarios, valor_maximo = extract_valores_monetarios(texto[:50_000])
 
