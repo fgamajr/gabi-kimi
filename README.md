@@ -305,6 +305,59 @@ docs/
 
 A triangular consensus panel (qwen3-max, kimi-k2.5, claude-sonnet-4.5) evaluated whether to enable neural re-ranking. Verdict: **optimize BM25 first**, defer reranker until infrastructure upgrade (≥32GB RAM). See `docs/search-quality-research.md`.
 
+## MCP (Model Context Protocol)
+
+GABI exposes 15+ search tools via MCP, allowing AI assistants to query DOU and TCU data programmatically.
+
+Two transports are available:
+
+### SSE (Server-Sent Events) — for Claude Code, Cursor, etc.
+
+```json
+{
+  "mcpServers": {
+    "gabi-dou": {
+      "type": "sse",
+      "url": "https://gabidou.top/mcp/sse",
+      "headers": {
+        "Authorization": "Bearer <MCP_AUTH_TOKEN>"
+      }
+    }
+  }
+}
+```
+
+CLI setup:
+```bash
+claude mcp add --transport sse gabi-dou https://gabidou.top/mcp/sse \
+  --header "Authorization: Bearer <MCP_AUTH_TOKEN>"
+```
+
+### Streamable HTTP — for Codex, newer MCP clients
+
+```json
+{
+  "mcpServers": {
+    "gabi-dou": {
+      "serverUrl": "https://gabidou.top/mcp-http/",
+      "headers": {
+        "Authorization": "Bearer <MCP_AUTH_TOKEN>"
+      }
+    }
+  }
+}
+```
+
+### Available tool groups
+
+| Group | Tools | Description |
+|-------|-------|-------------|
+| Search | `es_search` | Hybrid BM25 + kNN with intent detection (source: dou/tcu/tcu_normas/all) |
+| Discover | `es_more_like_this`, `es_significant_terms`, `es_cross_reference` | Similar docs, themes, citation network |
+| Analyze | `es_timeline`, `es_trending`, `es_organ_profile`, `es_compare_periods` | Temporal trends, institutional analysis |
+| TCU Semantic | `es_tcu_semantic_search`, `es_tcu_similar` | kNN vector search on TCU embeddings (source: tcu/normas/btcu/all) |
+| Utility | `es_suggest`, `es_facets`, `es_document`, `es_health`, `es_explain` | Autocomplete, aggregations, debugging |
+
 ## Backlog
 
 Open issues tracked in `.planning/todos/pending/`:
