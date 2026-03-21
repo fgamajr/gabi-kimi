@@ -154,7 +154,7 @@ def _parse_listing_html(html_text: str) -> list[BtcuEntry]:
 
 def scrape_listing_page(page: int, client: httpx.Client) -> list[BtcuEntry]:
     """Scrape a single listing page."""
-    url = f"{_PORTAL_URL}?page={page}" if page > 1 else _PORTAL_URL
+    url = f"{_PORTAL_URL}?pagina={page}" if page > 1 else _PORTAL_URL
     resp = client.get(url)
     resp.raise_for_status()
     return _parse_listing_html(resp.text)
