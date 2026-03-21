@@ -2559,6 +2559,39 @@ def get_mcp_sse_app():
     return _AuthWrap(app)
 
 
+def get_mcp_streamable_app():
+    """Return the MCP Streamable HTTP ASGI app for mounting inside FastAPI.
+
+    Used by clients that speak the new MCP Streamable HTTP protocol (e.g. Codex).
+    """
+    if mcp is None or not hasattr(mcp, "streamable_http_app"):
+        return None
+
+    app = mcp.streamable_http_app()
+
+    mcp_auth_token = os.getenv("MCP_AUTH_TOKEN", "").strip()
+    if not mcp_auth_token:
+        return app
+
+    from starlette.responses import JSONResponse as _JSONResp
+
+    class _AuthWrap:
+        def __init__(self, inner):  # type: ignore
+            self.inner = inner
+
+        async def __call__(self, scope, receive, send):  # type: ignore
+            if scope["type"] == "http":
+                headers = dict(scope.get("headers", []))
+                auth = (headers.get(b"authorization") or b"").decode()
+                if not auth.startswith("Bearer ") or auth[7:] != mcp_auth_token:
+                    resp = _JSONResp(status_code=401, content={"detail": "Invalid MCP auth token"})
+                    await resp(scope, receive, send)
+                    return
+            await self.inner(scope, receive, send)
+
+    return _AuthWrap(app)
+
+
 def main() -> int:
     import argparse
 

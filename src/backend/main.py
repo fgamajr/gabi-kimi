@@ -112,12 +112,17 @@ app.add_middleware(TokenAuthMiddleware)
 try:
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "ops" / "bin"))
-    from mcp_es_server import get_mcp_sse_app
+    from mcp_es_server import get_mcp_sse_app, get_mcp_streamable_app
 
     _mcp_app = get_mcp_sse_app()
     if _mcp_app:
         app.mount("/mcp", _mcp_app)
         logger.info("MCP SSE endpoint mounted at /mcp/")
+
+    _mcp_http_app = get_mcp_streamable_app()
+    if _mcp_http_app:
+        app.mount("/mcp-http", _mcp_http_app)
+        logger.info("MCP Streamable HTTP endpoint mounted at /mcp-http/")
 except Exception as exc:
     logger.warning("MCP SSE endpoint not available: %s", exc)
 
