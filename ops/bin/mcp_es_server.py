@@ -565,6 +565,7 @@ class ElasticClient:
         self.index = (os.getenv("ES_ALIAS") or os.getenv("ES_INDEX") or "gabi_documents").strip()
         self.tcu_index = os.getenv("TCU_ES_INDEX", "gabi_tcu_acordaos_v1").strip()
         self.normas_index = os.getenv("TCU_NORMAS_INDEX", "gabi_tcu_normas_v1").strip()
+        self.btcu_index = os.getenv("TCU_BTCU_INDEX", "gabi_tcu_btcu_v1").strip()
         username = (os.getenv("ES_USERNAME") or "").strip() or None
         password = (os.getenv("ES_PASSWORD") or "").strip() or None
         verify_tls = _env_bool("ES_VERIFY_TLS", True)
@@ -575,14 +576,16 @@ class ElasticClient:
     def resolve_index(self, source: str | None = None) -> str:
         """Resolve index name from source filter.
 
-        source: 'dou' | 'tcu' | 'tcu_normas' | 'all' | None
+        source: 'dou' | 'tcu' | 'tcu_normas' | 'btcu' | 'all' | None
         """
         if source == "tcu":
             return self.tcu_index
         if source == "tcu_normas":
             return self.normas_index
+        if source == "btcu":
+            return self.btcu_index
         if source == "all":
-            return f"{self.index},{self.tcu_index},{self.normas_index}"
+            return f"{self.index},{self.tcu_index},{self.normas_index},{self.btcu_index}"
         return self.index
 
     def request(self, method: str, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:

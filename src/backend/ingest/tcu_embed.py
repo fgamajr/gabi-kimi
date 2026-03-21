@@ -40,6 +40,7 @@ _ES_INDEX = "gabi_tcu_acordaos_v1"
 _SOURCE_CONFIGS = {
     "tcu": ("tcu_acordaos", "gabi_tcu_acordaos_v1"),
     "normas": ("tcu_normas", "gabi_tcu_normas_v1"),
+    "btcu": ("tcu_btcu", "gabi_tcu_btcu_v1"),
 }
 _active_source = "tcu"
 
@@ -84,6 +85,8 @@ def _build_embedding_text(doc: dict) -> str:
     source_type = doc.get("source_type") or ""
     if source_type == "tcu_norma":
         parts = [doc.get("titulo") or "", doc.get("assunto") or ""]
+    elif source_type == "tcu_btcu":
+        parts = [doc.get("section_title") or "", doc.get("assunto") or "", (doc.get("texto_completo") or "")[:1500]]
     elif source_type in ("tcu_sumula", "tcu_jurisprudencia", "tcu_resposta_consulta") or source_type.startswith("tcu_boletim"):
         parts = [doc.get("titulo") or "", doc.get("enunciado") or "", doc.get("indexacao") or ""]
     else:
@@ -218,7 +221,8 @@ def _process_batch(
         collection.find(
             {"embedding_status": "pending"},
             {"_id": 1, "titulo": 1, "sumario": 1, "acordao_texto": 1,
-             "assunto": 1, "enunciado": 1, "indexacao": 1, "source_type": 1},
+             "assunto": 1, "enunciado": 1, "indexacao": 1, "source_type": 1,
+             "section_title": 1, "texto_completo": 1},
         ).limit(_BATCH_SIZE)
     )
     if not docs:
@@ -410,7 +414,7 @@ def cmd_reset_failed() -> None:
 def main() -> None:
     global _active_source
     parser = argparse.ArgumentParser(description="TCU embedding pipeline (OpenAI)")
-    parser.add_argument("--source", choices=["tcu", "normas"], default="tcu",
+    parser.add_argument("--source", choices=["tcu", "normas", "btcu"], default="tcu",
                         help="tcu=acórdãos+jurisprudência, normas=normas TCU")
     sub = parser.add_subparsers(dest="cmd", required=True)
 

@@ -1,0 +1,94 @@
+{
+  "settings": {
+    "index": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "refresh_interval": "30s"
+    },
+    "analysis": {
+      "filter": {
+        "pt_br_stop": { "type": "stop", "stopwords": "_portuguese_" },
+        "pt_br_stemmer": { "type": "stemmer", "language": "light_portuguese" },
+        "pt_br_synonym": {
+          "type": "synonym",
+          "lenient": true,
+          "synonyms": [
+            "portaria,port", "resolucao,res", "instrucao normativa,in",
+            "decreto,dec", "acordao,ac", "tribunal de contas,tcu",
+            "btcu,boletim tcu,boletim do tribunal de contas"
+          ]
+        }
+      },
+      "analyzer": {
+        "pt_br_full": {
+          "tokenizer": "standard",
+          "filter": ["lowercase", "asciifolding", "pt_br_stop", "pt_br_stemmer", "pt_br_synonym"]
+        },
+        "pt_br_folded": {
+          "tokenizer": "standard",
+          "filter": ["lowercase", "asciifolding", "pt_br_stop", "pt_br_stemmer"]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "dynamic": false,
+    "properties": {
+      "doc_id":              { "type": "keyword" },
+      "parent_btcu_id":      { "type": "keyword" },
+      "chunk_sequence":      { "type": "integer" },
+      "source_type":         { "type": "keyword" },
+
+      "caderno":             { "type": "keyword" },
+      "caderno_tipo":        { "type": "byte" },
+      "edicao_numero":       { "type": "integer" },
+      "edicao_ano":          { "type": "integer" },
+
+      "data_publicacao": {
+        "type": "date",
+        "format": "strict_date_optional_time||yyyy-MM-dd"
+      },
+
+      "assunto": {
+        "type": "text",
+        "analyzer": "pt_br_full"
+      },
+      "section_type":        { "type": "keyword" },
+      "section_title": {
+        "type": "text",
+        "analyzer": "pt_br_full",
+        "fields": { "keyword": { "type": "keyword", "ignore_above": 512 } }
+      },
+      "texto_completo": {
+        "type": "text",
+        "analyzer": "pt_br_folded"
+      },
+      "search_all": {
+        "type": "text",
+        "analyzer": "pt_br_full"
+      },
+
+      "pdf_url":             { "type": "keyword", "ignore_above": 2048 },
+      "num_pages":           { "type": "integer" },
+      "page_range":          { "type": "keyword" },
+
+      "acordaos_citados":    { "type": "keyword" },
+      "normative_references": { "type": "keyword" },
+      "valores_monetarios":  { "type": "keyword" },
+      "valor_maximo":        { "type": "float" },
+
+      "deterministic_hash":  { "type": "keyword" },
+      "indexed_at": {
+        "type": "date",
+        "format": "strict_date_optional_time"
+      },
+      "embedding": {
+        "type": "dense_vector",
+        "dims": 1536,
+        "index": true,
+        "similarity": "cosine"
+      },
+      "embedding_status":    { "type": "keyword" }
+    }
+  }
+}
