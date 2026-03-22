@@ -2214,6 +2214,174 @@ def _get_openai_embedding(text: str) -> list[float] | None:
         return None
 
 
+_BTCU_SOURCE_FIELDS = [
+    "doc_id", "parent_btcu_id", "chunk_sequence", "caderno", "caderno_tipo",
+    "edicao_numero", "edicao_ano", "data_publicacao", "assunto",
+    "section_type", "section_title", "pdf_url", "num_pages", "page_range",
+    "acordaos_citados", "normative_references", "valores_monetarios", "valor_maximo",
+    "source_type",
+]
+
+_BTCU_HIGHLIGHT_SPEC: dict[str, Any] = {
+    "pre_tags": [">>>"],
+    "post_tags": ["<<<"],
+    "max_analyzed_offset": 500000,
+    "fields": {
+        "section_title": {"number_of_fragments": 0},
+        "assunto": {"number_of_fragments": 1, "fragment_size": 280},
+        "texto_completo": {"number_of_fragments": 2, "fragment_size": 200},
+    },
+}
+
+
+def _format_btcu_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Format BTCU ES hits into result dicts."""
+    results: list[dict[str, Any]] = []
+    for hit in hits:
+        src = hit.get("_source", {})
+        hl = hit.get("highlight", {})
+
+        snippet_parts: list[str] = []
+        for k in ("section_title", "assunto", "texto_completo"):
+            frags = hl.get(k)
+            if frags:
+                snippet_parts.extend(frags)
+                if len(snippet_parts) >= 2:
+                    break
+        snippet = " … ".join(snippet_parts) if snippet_parts else (
+            src.get("assunto") or src.get("section_title") or ""
+        )[:280]
+
+        results.append({
+            "doc_id": src.get("doc_id") or hit.get("_id"),
+            "score": round(float(hit.get("_score") or 0.0), 4),
+            "parent_btcu_id": src.get("parent_btcu_id"),
+            "caderno": src.get("caderno"),
+            "edicao_numero": src.get("edicao_numero"),
+            "edicao_ano": src.get("edicao_ano"),
+            "data_publicacao": src.get("data_publicacao"),
+            "assunto": src.get("assunto"),
+            "section_type": src.get("section_type"),
+            "section_title": src.get("section_title"),
+            "pdf_url": src.get("pdf_url"),
+            "page_range": src.get("page_range"),
+            "source_type": src.get("source_type", "tcu_btcu"),
+            "snippet": snippet,
+        })
+    return results
+
+
+# ---------------------------------------------------------------------------
+# TOOL 16: es_btcu_search — BM25 keyword search on BTCU (Boletins do TCU)
+# ---------------------------------------------------------------------------
+
+def es_btcu_search(
+    query: str,
+    caderno: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    section_type: str | None = None,
+    page_size: int = 20,
+    page: int = 1,
+) -> dict[str, Any]:
+    """Search TCU Boletins (BTCU) by keyword. Searches deliberações, portarias,
+    atos administrativos, and other official TCU publications.
+
+    Automatically detects person names and uses phrase matching for better precision.
+
+    Args:
+      query: search terms in Portuguese
+      caderno: filter by type — 'Deliberações', 'Administrativo', 'Controle Externo', 'Especial'
+      date_from: YYYY-MM-DD lower bound (publication date)
+      date_to: YYYY-MM-DD upper bound
+      section_type: filter by section — 'acordao', 'portaria', 'ata', 'despacho', 'resolucao', etc.
+      page_size: results per page (1-50)
+      page: page number (1-based)
+    """
+    page_size = max(1, min(page_size, 50))
+    offset = (max(1, page) - 1) * page_size
+
+    # Detect person names → use match_phrase for precision
+    is_person = _is_likely_person_name(query)
+
+    if is_person:
+        normalized = _normalize_person_query(query)
+        fields = ["texto_completo", "search_all", "section_title"]
+        spelling_variants = _name_spelling_variants(normalized)
+
+        if len(spelling_variants) == 1:
+            bm25_query: dict[str, Any] = {
+                "multi_match": {
+                    "query": normalized,
+                    "type": "phrase",
+                    "fields": fields,
+                    "slop": 1,
+                },
+            }
+        else:
+            variant_clauses = []
+            for variant in spelling_variants:
+                variant_clauses.append({
+                    "multi_match": {
+                        "query": variant,
+                        "type": "phrase",
+                        "fields": fields,
+                        "slop": 1,
+                    },
+                })
+            bm25_query = {"bool": {"should": variant_clauses, "minimum_should_match": 1}}
+    else:
+        bm25_query = {
+            "multi_match": {
+                "query": query,
+                "fields": ["search_all", "section_title^2", "assunto^2", "texto_completo"],
+                "type": "best_fields",
+            },
+        }
+
+    # Wrap in bool with filters
+    filters: list[dict[str, Any]] = []
+    if caderno:
+        filters.append({"term": {"caderno": caderno}})
+    if section_type:
+        filters.append({"term": {"section_type": section_type}})
+    if date_from or date_to:
+        rng: dict[str, str] = {}
+        if date_from:
+            rng["gte"] = date_from
+        if date_to:
+            rng["lte"] = date_to
+        filters.append({"range": {"data_publicacao": rng}})
+
+    if filters:
+        full_query = {"bool": {"must": [bm25_query], "filter": filters}}
+    else:
+        full_query = bm25_query
+
+    payload: dict[str, Any] = {
+        "from": offset,
+        "size": page_size,
+        "track_total_hits": True,
+        "query": full_query,
+        "_source": _BTCU_SOURCE_FIELDS,
+        "highlight": _BTCU_HIGHLIGHT_SPEC,
+        "sort": [{"_score": {"order": "desc"}}],
+    }
+
+    data = ES.request("POST", f"/{ES.btcu_index}/_search", payload)
+    hits = data.get("hits", {}).get("hits", [])
+    total = int(data.get("hits", {}).get("total", {}).get("value", 0))
+
+    return {
+        "query": query,
+        "intent": "person" if is_person else "keyword",
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "results": _format_btcu_hits(hits),
+    }
+
+
 # ---------------------------------------------------------------------------
 # TOOL 14: es_tcu_semantic_search — Semantic kNN search on TCU embeddings
 # ---------------------------------------------------------------------------
@@ -2312,8 +2480,10 @@ def es_tcu_semantic_search(
     # Determine target index
     if source == "normas":
         index = ES.normas_index
+    elif source == "btcu":
+        index = ES.btcu_index
     elif source == "all":
-        index = f"{ES.tcu_index},{ES.normas_index}"
+        index = f"{ES.tcu_index},{ES.normas_index},{ES.btcu_index}"
     else:
         index = ES.tcu_index
 
@@ -2325,7 +2495,7 @@ def es_tcu_semantic_search(
         if date_to:
             rng["lte"] = date_to
         # Use appropriate date field based on source
-        date_field = "data_inicio_vigencia" if source == "normas" else "data_sessao"
+        date_field = "data_inicio_vigencia" if source == "normas" else "data_publicacao" if source == "btcu" else "data_sessao"
         filters.append({"range": {date_field: rng}})
     if colegiado:
         filters.append({"term": {"colegiado": colegiado}})
@@ -2355,8 +2525,11 @@ def es_tcu_semantic_search(
     if source == "normas":
         payload["_source"] = _NORMAS_SOURCE_FIELDS
         payload["highlight"] = _NORMAS_HIGHLIGHT_SPEC
+    elif source == "btcu":
+        payload["_source"] = _BTCU_SOURCE_FIELDS
+        payload["highlight"] = _BTCU_HIGHLIGHT_SPEC
     elif source == "all":
-        payload["_source"] = list(set(_TCU_SOURCE_FIELDS + _NORMAS_SOURCE_FIELDS))
+        payload["_source"] = list(set(_TCU_SOURCE_FIELDS + _NORMAS_SOURCE_FIELDS + _BTCU_SOURCE_FIELDS))
         payload["highlight"] = _TCU_HIGHLIGHT_SPEC
     else:
         payload["_source"] = _TCU_SOURCE_FIELDS
@@ -2372,12 +2545,17 @@ def es_tcu_semantic_search(
     # Format hits based on source
     if source == "normas":
         results = _format_normas_hits(hits)
+    elif source == "btcu":
+        results = _format_btcu_hits(hits)
     elif source == "all":
         # Mixed results — format based on each hit's index
         results = []
         for hit in hits:
-            if ES.normas_index in hit.get("_index", ""):
+            idx = hit.get("_index", "")
+            if ES.normas_index in idx:
                 results.extend(_format_normas_hits([hit]))
+            elif ES.btcu_index in idx:
+                results.extend(_format_btcu_hits([hit]))
             else:
                 results.extend(_format_tcu_hits([hit]))
     else:
@@ -2415,7 +2593,12 @@ def es_tcu_similar(
     k = max(1, min(k, 50))
 
     # Determine which index the seed doc lives in
-    seed_index = ES.normas_index if doc_id.startswith("NORMA-") else ES.tcu_index
+    if doc_id.startswith("NORMA-"):
+        seed_index = ES.normas_index
+    elif doc_id.startswith("BTCU-"):
+        seed_index = ES.btcu_index
+    else:
+        seed_index = ES.tcu_index
 
     # Fetch the source document's embedding from ES
     try:
@@ -2432,12 +2615,15 @@ def es_tcu_similar(
     # Determine search index
     if source == "normas":
         search_index = ES.normas_index
+    elif source == "btcu":
+        search_index = ES.btcu_index
     elif source == "all":
-        search_index = f"{ES.tcu_index},{ES.normas_index}"
+        search_index = f"{ES.tcu_index},{ES.normas_index},{ES.btcu_index}"
     else:
         search_index = ES.tcu_index
 
     is_normas = source == "normas"
+    is_btcu = source == "btcu"
     payload: dict[str, Any] = {
         "size": k + 1,  # +1 to exclude self
         "knn": {
@@ -2446,7 +2632,7 @@ def es_tcu_similar(
             "k": k + 1,
             "num_candidates": min((k + 1) * 4, 200),
         },
-        "_source": _NORMAS_SOURCE_FIELDS if is_normas else _TCU_SOURCE_FIELDS,
+        "_source": _NORMAS_SOURCE_FIELDS if is_normas else _BTCU_SOURCE_FIELDS if is_btcu else _TCU_SOURCE_FIELDS,
     }
 
     data = ES.request("POST", f"/{search_index}/_search", payload)
@@ -2458,11 +2644,16 @@ def es_tcu_similar(
     # Format based on source
     if is_normas:
         results = _format_normas_hits(hits)
+    elif is_btcu:
+        results = _format_btcu_hits(hits)
     elif source == "all":
         results = []
         for hit in hits:
-            if ES.normas_index in hit.get("_index", ""):
+            idx = hit.get("_index", "")
+            if ES.normas_index in idx:
                 results.extend(_format_normas_hits([hit]))
+            elif ES.btcu_index in idx:
+                results.extend(_format_btcu_hits([hit]))
             else:
                 results.extend(_format_tcu_hits([hit]))
     else:
@@ -2521,6 +2712,7 @@ if FastMCP is not None:
     mcp.tool()(es_organ_profile)
     mcp.tool()(es_compare_periods)
     mcp.tool()(es_explain)
+    mcp.tool()(es_btcu_search)
     mcp.tool()(es_tcu_semantic_search)
     mcp.tool()(es_tcu_similar)
 else:
