@@ -67,12 +67,21 @@ docker compose -f "${compose_file}" exec -T backend \
   python -m src.backend.ingest.tcu_normas_ingest --ingest \
   --cache-dir /data/gabi_dou/tcu-csv >>"${log_file}" 2>&1 || log "TCU normas sync failed (non-fatal)"
 
+# ── BTCU sync: scrape recent boletins ──
+log "TCU sync: BTCU (boletins PDF)..."
+docker compose -f "${compose_file}" exec -T backend \
+  python -m src.backend.ingest.tcu_btcu_ingest --ingest --recent \
+  --cache-dir /data/gabi_dou/tcu-btcu-pdf >>"${log_file}" 2>&1 || log "TCU BTCU sync failed (non-fatal)"
+
 # ── Embeddings: process any pending docs ──
-log "TCU embeddings: jurisprudência..."
+log "TCU embeddings: acórdãos..."
 docker compose -f "${compose_file}" exec -T backend \
   python -m src.backend.ingest.tcu_embed --source tcu sync >>"${log_file}" 2>&1 || log "TCU embeddings failed (non-fatal)"
 log "TCU embeddings: normas..."
 docker compose -f "${compose_file}" exec -T backend \
   python -m src.backend.ingest.tcu_embed --source normas sync >>"${log_file}" 2>&1 || log "TCU normas embeddings failed (non-fatal)"
+log "TCU embeddings: btcu..."
+docker compose -f "${compose_file}" exec -T backend \
+  python -m src.backend.ingest.tcu_embed --source btcu sync >>"${log_file}" 2>&1 || log "TCU BTCU embeddings failed (non-fatal)"
 
 log "All daily ingest completed"
