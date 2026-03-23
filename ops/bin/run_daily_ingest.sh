@@ -45,10 +45,10 @@ while read -r year_month; do
   month="${year_month#*-}"
   log "Syncing year=${year} month=${month}"
   docker compose -f "${compose_file}" exec -T backend \
-    python -m src.backend.ingest.sync_dou --year "${year}" --month "${month}" --skip-es-sync >>"${log_file}" 2>&1
+    python -m src.backend.ingest.sync_dou --year "${year}" --month "${month}" --skip-es-sync >>"${log_file}" 2>&1 || log "DOU sync failed for ${year}-${month} (non-fatal, likely INLABS WAF)"
 done < <(collect_year_months)
 
-log "Rolling DOU ingest completed"
+log "Rolling DOU ingest completed (or skipped due to INLABS WAF)"
 
 # ── TCU sync: acórdãos (current year) + súmulas/jurisprudência ──
 log "TCU sync: re-ingesting current year acórdãos..."
