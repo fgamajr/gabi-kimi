@@ -35,6 +35,12 @@ _TCU_SOURCE_FIELDS = [
     "entidade", "dispositivo_tipo", "dispositivo_resumo", "source_type",
 ]
 
+_NORMAS_INDEX = "gabi_tcu_normas_v1"
+_NORMAS_SOURCE_FIELDS = [
+    "doc_id", "titulo", "assunto", "tipo_norma", "numero_norma", "ano_norma",
+    "situacao", "vigente", "data_inicio_vigencia", "origem", "source_type",
+]
+
 # ---------------------------------------------------------------------------
 # Category definitions
 # ---------------------------------------------------------------------------
@@ -397,6 +403,75 @@ def _tcu_hit_to_highlight(hit: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _fetch_normas_candidates(es_client: httpx.Client) -> list[dict[str, Any]]:
+    """Fetch recent TCU normas (portarias, resoluções, INs) for editorial highlights."""
+    body = {
+        "size": 20,
+        "track_total_hits": False,
+        "sort": [{"data_inicio_vigencia": {"order": "desc"}}],
+        "_source": _NORMAS_SOURCE_FIELDS,
+        "query": {
+            "bool": {
+                "filter": [
+                    {"term": {"vigente": True}},
+                    {"range": {"data_inicio_vigencia": {"gte": f"now-{settings.EDITORIAL_LOOKBACK_DAYS * 2}d/d"}}},
+                ],
+                "should": [
+                    {"term": {"tipo_norma": {"value": "Resolução", "boost": 5}}},
+                    {"term": {"tipo_norma": {"value": "Instrução Normativa", "boost": 4}}},
+                    {"term": {"tipo_norma": {"value": "Decisão Normativa", "boost": 4}}},
+                    {"term": {"tipo_norma": {"value": "Portaria", "boost": 1}}},
+                ],
+            },
+        },
+    }
+    try:
+        resp = es_client.post(
+            f"{settings.ES_URL}/{_NORMAS_INDEX}/_search",
+            json=body,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        return resp.json().get("hits", {}).get("hits", [])
+    except Exception:
+        logger.warning("Failed to fetch normas candidates", exc_info=True)
+        return []
+
+
+def _score_normas_candidate(hit: dict[str, Any]) -> float:
+    """Score a TCU norma for editorial highlight."""
+    src = hit.get("_source", {})
+    score = float(hit.get("_score") or 0)
+    tipo = (src.get("tipo_norma") or "").lower()
+    if "resolução" in tipo or "resolucao" in tipo:
+        score += 8
+    elif "instrução normativa" in tipo or "instrucao normativa" in tipo:
+        score += 7
+    elif "decisão normativa" in tipo or "decisao normativa" in tipo:
+        score += 7
+    elif "portaria" in tipo:
+        score += 2
+    return score
+
+
+def _norma_hit_to_highlight(hit: dict[str, Any]) -> dict[str, Any]:
+    """Convert norma hit to editorial highlight format."""
+    src = hit.get("_source", {})
+    return {
+        "doc_id": src.get("doc_id") or hit.get("_id", ""),
+        "title": src.get("titulo") or "",
+        "summary": (src.get("assunto") or "")[:300],
+        "why": "",
+        "pub_date": src.get("data_inicio_vigencia") or "",
+        "section": src.get("tipo_norma") or "",
+        "edition_number": None,
+        "issuing_organ": "Tribunal de Contas da União",
+        "art_type": src.get("tipo_norma") or "Norma TCU",
+        "badge": "NORMA TCU",
+        "source_type": "tcu_norma",
+    }
+
+
 def _select_best_per_category(
     es_client: httpx.Client,
     latest_pub_date: str,
@@ -461,6 +536,14 @@ def _select_best_per_category(
     ) for h in tcu_hits]
     tcu_scored.sort(key=lambda x: x[0], reverse=True)
     results["tcu_destaque"] = tcu_scored[0][1] if tcu_scored else None
+
+    # Normas destaque: fetch and score TCU normas
+    normas_hits = _fetch_normas_candidates(es_client)
+    normas_scored = [(
+        _score_normas_candidate(h), h
+    ) for h in normas_hits]
+    normas_scored.sort(key=lambda x: x[0], reverse=True)
+    results["normas_destaque"] = normas_scored[0][1] if normas_scored else None
 
     return results
 
@@ -613,6 +696,7 @@ def _apply_fallback(categories: dict[str, dict[str, Any] | None]) -> None:
         "economia": "Ato relevante na área econômica e fiscal.",
         "politica": "Ato político ou legislativo de destaque.",
         "tcu_destaque": "Decisão relevante do Tribunal de Contas da União.",
+        "normas_destaque": "Norma recente do TCU com impacto na administração pública.",
     }
     for cat, highlight in categories.items():
         if not highlight:
@@ -658,6 +742,11 @@ def update_editorial_cache(es_client: httpx.Client, mongo_db: Any) -> dict[str, 
     tcu_hit = selected.get("tcu_destaque")
     if tcu_hit:
         categories["tcu_destaque"] = _tcu_hit_to_highlight(tcu_hit)
+
+    # Normas destaque
+    normas_hit = selected.get("normas_destaque")
+    if normas_hit:
+        categories["normas_destaque"] = _norma_hit_to_highlight(normas_hit)
 
     # LLM enrichment (optional)
     llm_used = _enrich_with_llm(categories, es_client)

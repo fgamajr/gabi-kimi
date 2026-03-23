@@ -191,6 +191,7 @@ export interface EditorialHighlightsResponse {
     economia?: EditorialHighlight;
     politica?: EditorialHighlight;
     tcu_destaque?: EditorialHighlight;
+    normas_destaque?: EditorialHighlight;
   };
 }
 

@@ -29,6 +29,11 @@ const CATEGORY_STYLES: Record<string, { icon: React.ReactNode; badgeClass: strin
     badgeClass: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
     labelColor: 'text-amber-600 dark:text-amber-400',
   },
+  normas_destaque: {
+    icon: <Icons.book className="w-5 h-5" />,
+    badgeClass: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+    labelColor: 'text-purple-600 dark:text-purple-400',
+  },
 };
 
 const ART_TYPE_ICONS: Record<string, React.FC<{ className?: string }>> = {
