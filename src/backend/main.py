@@ -428,6 +428,7 @@ def _build_filters(
 # ---------------------------------------------------------------------------
 
 _TCU_INDEX = "gabi_tcu_acordaos_v1"
+_TCU_NORMAS_INDEX = "gabi_tcu_normas_v1"
 _OPENAI_EMBED_MODEL = "text-embedding-3-small"
 _OPENAI_EMBED_DIMS = 1536
 _RERANK_POOL_SIZE = 100
@@ -928,8 +929,51 @@ async def _fetch_tcu_document_source(doc_id: str) -> dict[str, Any] | None:
         return None
 
 
+async def _fetch_norma_document_source(doc_id: str) -> dict[str, Any] | None:
+    """Fetch raw ES source for a TCU norma."""
+    try:
+        data = await es_request("GET", f"/{_TCU_NORMAS_INDEX}/_doc/{doc_id}")
+        return data.get("_source", {})
+    except httpx.HTTPStatusError:
+        return None
+
+
 @app.get("/api/document/{doc_id}")
 async def document(doc_id: str):
+    # Auto-detect TCU normas by prefix
+    if doc_id.startswith("NORMA-"):
+        src = await _fetch_norma_document_source(doc_id)
+        if src is None:
+            return Response(status_code=404, content='{"detail":"Document not found"}',
+                            media_type="application/json")
+        return {
+            "id": doc_id,
+            "source_type": "tcu_norma",
+            "title": src.get("titulo") or "",
+            "subtitle": src.get("assunto") or "",
+            "body_html": None,
+            "body_plain": src.get("texto_norma") or "",
+            "pub_date": src.get("data_inicio_vigencia") or "",
+            "section": src.get("tipo_norma") or "",
+            "section_name": src.get("tipo_norma"),
+            "page": None,
+            "edition": None,
+            "art_type": src.get("tipo_norma") or "Norma TCU",
+            "art_type_name": src.get("tipo_norma"),
+            "issuing_organ": "Tribunal de Contas da União",
+            "dou_url": src.get("link_btcu"),
+            "media": [],
+            # Norma-specific fields
+            "tipo_norma": src.get("tipo_norma"),
+            "numero_norma": src.get("numero_norma"),
+            "ano_norma": src.get("ano_norma"),
+            "situacao": src.get("situacao"),
+            "vigente": src.get("vigente"),
+            "origem": src.get("origem"),
+            "tema": src.get("tema"),
+            "assunto": src.get("assunto"),
+        }
+
     # Auto-detect TCU documents by prefix
     if doc_id.startswith("ACORDAO-COMPLETO-"):
         src = await _fetch_tcu_document_source(doc_id)
