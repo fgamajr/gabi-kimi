@@ -17,7 +17,11 @@ from src.backend.core.config import settings
 from src.backend.data.db import MongoDB
 from src.backend.search.hybrid import hybrid_search
 from src.backend.search.reranker import rerank
-from src.backend.search.trending import FALLBACK_TOPICS, get_cached_trending, update_trending_cache
+from src.backend.search.trending import (
+    FALLBACK_TOPICS,
+    get_cached_trending,
+    update_trending_cache,
+)
 from src.backend.seo import (
     build_sitemap_index,
     build_sitemap_urls,
@@ -53,13 +57,21 @@ async def es_request(method: str, path: str, json: dict | None = None) -> dict:
 # Lifespan
 # ---------------------------------------------------------------------------
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _es
     _es = httpx.AsyncClient()
     load_spa_template()
-    logger.info("GABI API started — ES=%s, index=%s", settings.ES_URL, settings.es_target_index)
-    yield
+    logger.info(
+        "GABI API started — ES=%s, index=%s", settings.ES_URL, settings.es_target_index
+    )
+    if _mcp_http_session_mgr is not None:
+        async with _mcp_http_session_mgr.run():
+            logger.info("MCP Streamable HTTP session manager started")
+            yield
+    else:
+        yield
     if _es:
         await _es.aclose()
 
@@ -94,10 +106,14 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         auth_header = request.headers.get("authorization")
         if auth_header:
             if not auth_header.startswith("Bearer "):
-                return JSONResponse(status_code=401, content={"detail": "Invalid authorization header"})
+                return JSONResponse(
+                    status_code=401, content={"detail": "Invalid authorization header"}
+                )
             token = auth_header[7:]
             if token not in settings.api_tokens:
-                return JSONResponse(status_code=401, content={"detail": "Invalid API token"})
+                return JSONResponse(
+                    status_code=401, content={"detail": "Invalid API token"}
+                )
             request.state.token_label = settings.api_tokens[token]
 
         return await call_next(request)
@@ -109,9 +125,14 @@ app.add_middleware(TokenAuthMiddleware)
 # MCP SSE endpoint (mounted at /mcp/)
 # ---------------------------------------------------------------------------
 
+_mcp_http_session_mgr = None
+
 try:
     import sys
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "ops" / "bin"))
+
+    sys.path.insert(
+        0, str(Path(__file__).resolve().parent.parent.parent / "ops" / "bin")
+    )
     from mcp_es_server import get_mcp_sse_app, get_mcp_streamable_app
 
     _mcp_app = get_mcp_sse_app()
@@ -119,8 +140,9 @@ try:
         app.mount("/mcp", _mcp_app)
         logger.info("MCP SSE endpoint mounted at /mcp/")
 
-    _mcp_http_app = get_mcp_streamable_app()
-    if _mcp_http_app:
+    _mcp_http_result = get_mcp_streamable_app()
+    if _mcp_http_result:
+        _mcp_http_app, _mcp_http_session_mgr = _mcp_http_result
         app.mount("/mcp-http", _mcp_http_app)
         logger.info("MCP Streamable HTTP endpoint mounted at /mcp-http/")
 except Exception as exc:
@@ -154,10 +176,13 @@ def _section_to_es(fe_val: str) -> str | None:
 def _hl_to_html(text: str) -> str:
     """Convert ES highlight markers >>>…<<< to <mark>…</mark>, escaping other HTML."""
     import html
+
     # Temporarily replace our markers, escape everything, then restore markers
     text = text.replace(">>>", "\x00MARK_OPEN\x00").replace("<<<", "\x00MARK_CLOSE\x00")
     text = html.escape(text)
-    text = text.replace("\x00MARK_OPEN\x00", "<mark>").replace("\x00MARK_CLOSE\x00", "</mark>")
+    text = text.replace("\x00MARK_OPEN\x00", "<mark>").replace(
+        "\x00MARK_CLOSE\x00", "</mark>"
+    )
     return text
 
 
@@ -196,7 +221,9 @@ def _recent_highlight_score(hit: dict[str, Any]) -> tuple[float, list[str]]:
     organ = src.get("issuing_organ") or ""
     text = " ".join(part for part in [title, subtitle, organ] if part)
     norm_text = _normalize_match_text(text)
-    art_type_normalized = _normalize_match_text(src.get("art_type_normalized") or src.get("art_type") or "")
+    art_type_normalized = _normalize_match_text(
+        src.get("art_type_normalized") or src.get("art_type") or ""
+    )
     section = _section_to_frontend(src.get("section") or src.get("edition_section"))
     days_old = _days_since(src.get("pub_date"))
 
@@ -234,7 +261,10 @@ def _recent_highlight_score(hit: dict[str, Any]) -> tuple[float, list[str]]:
         if term in norm_text:
             score += penalty
 
-    if any(pattern in _normalize_match_text(organ) for pattern in _RECENT_ORGAN_BOOST_PATTERNS):
+    if any(
+        pattern in _normalize_match_text(organ)
+        for pattern in _RECENT_ORGAN_BOOST_PATTERNS
+    ):
         score += 2.5
         if len(reasons) < 3:
             reasons.append("órgão relevante")
@@ -257,14 +287,31 @@ _HIGHLIGHT_SPEC: dict[str, Any] = {
 }
 
 _SOURCE_FIELDS = [
-    "doc_id", "identifica", "ementa", "art_type", "art_category",
-    "pub_date", "section", "edition_number", "page_number",
-    "issuing_organ", "organization_path", "body_plain",
+    "doc_id",
+    "identifica",
+    "ementa",
+    "art_type",
+    "art_category",
+    "pub_date",
+    "section",
+    "edition_number",
+    "page_number",
+    "issuing_organ",
+    "organization_path",
+    "body_plain",
 ]
 
 _LATEST_SOURCE_FIELDS = [
-    "doc_id", "identifica", "ementa", "art_type", "art_type_normalized", "pub_date",
-    "section", "edition_section", "page_number", "issuing_organ",
+    "doc_id",
+    "identifica",
+    "ementa",
+    "art_type",
+    "art_type_normalized",
+    "pub_date",
+    "section",
+    "edition_section",
+    "page_number",
+    "issuing_organ",
 ]
 
 _RECENT_ART_TYPE_BOOSTS = {
@@ -356,9 +403,11 @@ def _hit_to_result(hit: dict) -> dict:
             snippet_parts.extend(frags)
             if len(snippet_parts) >= 2:
                 break
-    raw_snippet = " … ".join(snippet_parts) if snippet_parts else (
-        src.get("ementa") or src.get("body_plain") or ""
-    )[:280]
+    raw_snippet = (
+        " … ".join(snippet_parts)
+        if snippet_parts
+        else (src.get("ementa") or src.get("body_plain") or "")[:280]
+    )
 
     # Top-level organ from organization_path (e.g. "Ministério da Defesa")
     org_path = src.get("organization_path") or []
@@ -432,14 +481,33 @@ _TCU_NORMAS_INDEX = "gabi_tcu_normas_v1"
 _OPENAI_EMBED_MODEL = "text-embedding-3-small"
 _OPENAI_EMBED_DIMS = 1536
 _RERANK_POOL_SIZE = 100
-_YEAR_RE = re.compile(r'\b(20[12]\d)\b')
+_YEAR_RE = re.compile(r"\b(20[12]\d)\b")
 
 _TCU_SOURCE_FIELDS = [
-    "doc_id", "titulo", "sumario", "acordao_texto", "tipo", "colegiado",
-    "tipo_processo", "relator", "data_sessao", "numero_acordao", "ano_acordao",
-    "numero_processo", "entidade", "dispositivo_tipo", "dispositivo_resumo",
-    "source_type", "source_url", "authority_level", "enunciado", "excerto",
-    "area", "tema_tcu_oficial", "vigente", "paradigmatico",
+    "doc_id",
+    "titulo",
+    "sumario",
+    "acordao_texto",
+    "tipo",
+    "colegiado",
+    "tipo_processo",
+    "relator",
+    "data_sessao",
+    "numero_acordao",
+    "ano_acordao",
+    "numero_processo",
+    "entidade",
+    "dispositivo_tipo",
+    "dispositivo_resumo",
+    "source_type",
+    "source_url",
+    "authority_level",
+    "enunciado",
+    "excerto",
+    "area",
+    "tema_tcu_oficial",
+    "vigente",
+    "paradigmatico",
 ]
 
 
@@ -453,14 +521,20 @@ async def _get_openai_query_embedding(query: str) -> list[float] | None:
         resp = await _es.post(
             "https://api.openai.com/v1/embeddings",
             headers={"Authorization": f"Bearer {api_key}"},
-            json={"model": _OPENAI_EMBED_MODEL, "input": [query], "dimensions": _OPENAI_EMBED_DIMS},
+            json={
+                "model": _OPENAI_EMBED_MODEL,
+                "input": [query],
+                "dimensions": _OPENAI_EMBED_DIMS,
+            },
             timeout=10,
         )
         resp.raise_for_status()
         data = resp.json()
         return data["data"][0]["embedding"]
     except Exception:
-        logger.warning("OpenAI embedding failed, falling back to BM25-only", exc_info=True)
+        logger.warning(
+            "OpenAI embedding failed, falling back to BM25-only", exc_info=True
+        )
         return None
 
 
@@ -475,7 +549,7 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
 
 
 _AUTHORITY_INTENT_RE = re.compile(
-    r'\b(s[úu]mula|entendimento|orienta[çc][aã]o|regra|norma|tese|jurisprud[eê]ncia|consulta)\b',
+    r"\b(s[úu]mula|entendimento|orienta[çc][aã]o|regra|norma|tese|jurisprud[eê]ncia|consulta)\b",
     re.IGNORECASE,
 )
 _AUTHORITY_BOOSTS = [1.0, 1.03, 1.08, 1.15]  # 0=acordao, 1=resposta, 2=juris, 3=sumula
@@ -533,9 +607,13 @@ def _tcu_hit_to_result(hit: dict) -> dict:
             snippet_parts.extend(frags)
             if len(snippet_parts) >= 2:
                 break
-    raw_snippet = " … ".join(snippet_parts) if snippet_parts else (
-        src.get("enunciado") or src.get("sumario") or src.get("acordao_texto") or ""
-    )[:280]
+    raw_snippet = (
+        " … ".join(snippet_parts)
+        if snippet_parts
+        else (
+            src.get("enunciado") or src.get("sumario") or src.get("acordao_texto") or ""
+        )[:280]
+    )
 
     # Use enunciado as subtitle for súmulas/jurisprudência
     subtitle = src.get("enunciado") or src.get("sumario") or ""
@@ -611,10 +689,17 @@ async def _tcu_search(
         if date_to:
             rng["lte"] = date_to
         if source == "all":
-            filters.append({"bool": {"should": [
-                {"range": {"pub_date": rng}},
-                {"range": {"data_sessao": rng}},
-            ], "minimum_should_match": 1}})
+            filters.append(
+                {
+                    "bool": {
+                        "should": [
+                            {"range": {"pub_date": rng}},
+                            {"range": {"data_sessao": rng}},
+                        ],
+                        "minimum_should_match": 1,
+                    }
+                }
+            )
         else:
             filters.append({"range": {"data_sessao": rng}})
 
@@ -625,32 +710,53 @@ async def _tcu_search(
     # --- Fields ---
     if source == "tcu_normas":
         fields = [
-            "assunto^4", "titulo^3", "tema^3", "texto_norma", "search_all",
+            "assunto^4",
+            "titulo^3",
+            "tema^3",
+            "texto_norma",
+            "search_all",
         ]
     elif source == "tcu":
         fields = [
-            "titulo^5", "enunciado^5", "sumario^4", "excerto^3", "assunto^3",
-            "relator^2", "entidade^2", "acordao_texto", "search_all", "indexacao",
+            "titulo^5",
+            "enunciado^5",
+            "sumario^4",
+            "excerto^3",
+            "assunto^3",
+            "relator^2",
+            "entidade^2",
+            "acordao_texto",
+            "search_all",
+            "indexacao",
         ]
     else:
         fields = [
-            "titulo^5", "identifica^5", "sumario^4", "ementa^4",
-            "assunto^3", "issuing_organ^2", "relator^2",
-            "acordao_texto", "body_plain", "search_all",
+            "titulo^5",
+            "identifica^5",
+            "sumario^4",
+            "ementa^4",
+            "assunto^3",
+            "issuing_organ^2",
+            "relator^2",
+            "acordao_texto",
+            "body_plain",
+            "search_all",
         ]
 
     # --- BM25 query (cross-search uses OR + minimum_should_match for better recall) ---
     if source == "all":
         bm25_query: dict = {
             "bool": {
-                "must": [{
-                    "simple_query_string": {
-                        "query": q,
-                        "fields": fields,
-                        "default_operator": "or",
-                        "minimum_should_match": "60%",
-                    },
-                }],
+                "must": [
+                    {
+                        "simple_query_string": {
+                            "query": q,
+                            "fields": fields,
+                            "default_operator": "or",
+                            "minimum_should_match": "60%",
+                        },
+                    }
+                ],
                 "should": [
                     {"match_phrase": {"identifica": {"query": q, "boost": 20}}},
                     {"match_phrase": {"titulo": {"query": q, "boost": 20}}},
@@ -664,19 +770,22 @@ async def _tcu_search(
     else:
         bm25_query = {
             "bool": {
-                "must": [{
-                    "simple_query_string": {
-                        "query": q,
-                        "fields": fields,
-                        "default_operator": "and",
-                    },
-                }],
+                "must": [
+                    {
+                        "simple_query_string": {
+                            "query": q,
+                            "fields": fields,
+                            "default_operator": "and",
+                        },
+                    }
+                ],
                 "filter": filters,
             },
         }
 
     highlight_spec: dict = {
-        "pre_tags": [">>>"], "post_tags": ["<<<"],
+        "pre_tags": [">>>"],
+        "post_tags": ["<<<"],
         "max_analyzed_offset": 500000,
         "fields": {
             "titulo": {"number_of_fragments": 0},
@@ -710,7 +819,14 @@ async def _tcu_search(
         data = await es_request("POST", f"/{index}/_search", json=payload)
     except httpx.HTTPStatusError as e:
         logger.error("TCU search error: %s", e.response.text[:200])
-        return {"results": [], "total": 0, "page": page, "max": max_results, "query": q, "took_ms": 0}
+        return {
+            "results": [],
+            "total": 0,
+            "page": page,
+            "max": max_results,
+            "query": q,
+            "took_ms": 0,
+        }
 
     hits = data.get("hits", {}).get("hits", [])
     total = int(data.get("hits", {}).get("total", {}).get("value", 0))
@@ -719,7 +835,7 @@ async def _tcu_search(
     # --- Pass 2: Embedding re-rank ---
     if query_vector and hits:
         hits = _embedding_rerank(hits, query_vector, query_text=q)
-        page_hits = hits[offset:offset + max_results]
+        page_hits = hits[offset : offset + max_results]
     else:
         page_hits = hits
 
@@ -745,6 +861,7 @@ async def _tcu_search(
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
 
 @app.get("/api/root")
 async def api_root():
@@ -795,10 +912,19 @@ async def search(
 
     # TCU/normas search: direct ES query
     if source in ("tcu", "tcu_normas", "all"):
-        return await _tcu_search(q=q, page=page, max_results=max, offset=offset,
-                                 date_from=date_from, date_to=date_to, source=source)
+        return await _tcu_search(
+            q=q,
+            page=page,
+            max_results=max,
+            offset=offset,
+            date_from=date_from,
+            date_to=date_to,
+            source=source,
+        )
 
-    filters = _build_filters(date_from, date_to, section, art_type, issuing_organ, topic)
+    filters = _build_filters(
+        date_from, date_to, section, art_type, issuing_organ, topic
+    )
 
     use_hybrid = settings.VECTOR_SEARCH_ENABLED
     use_reranker = settings.RERANKER_ENABLED
@@ -821,7 +947,14 @@ async def search(
         )
     except httpx.HTTPStatusError as e:
         logger.error("ES search error: %s", e.response.text[:200])
-        return {"results": [], "total": 0, "page": page, "max": max, "query": q, "took_ms": 0}
+        return {
+            "results": [],
+            "total": 0,
+            "page": page,
+            "max": max,
+            "query": q,
+            "took_ms": 0,
+        }
 
     hits = data.get("hits", {}).get("hits", [])
     total = int(data.get("hits", {}).get("total", {}).get("value", 0))
@@ -878,9 +1011,13 @@ async def autocomplete(
     }
 
     try:
-        data = await es_request("POST", f"/{settings.es_target_index}/_search", json=payload)
+        data = await es_request(
+            "POST", f"/{settings.es_target_index}/_search", json=payload
+        )
     except httpx.HTTPStatusError as e:
-        logger.warning("ES autocomplete error for query %r: %s", p, e.response.text[:300])
+        logger.warning(
+            "ES autocomplete error for query %r: %s", p, e.response.text[:300]
+        )
         return []
 
     hits = data.get("hits", {}).get("hits", [])
@@ -944,8 +1081,11 @@ async def document(doc_id: str):
     if doc_id.startswith("NORMA-"):
         src = await _fetch_norma_document_source(doc_id)
         if src is None:
-            return Response(status_code=404, content='{"detail":"Document not found"}',
-                            media_type="application/json")
+            return Response(
+                status_code=404,
+                content='{"detail":"Document not found"}',
+                media_type="application/json",
+            )
         return {
             "id": doc_id,
             "source_type": "tcu_norma",
@@ -978,8 +1118,11 @@ async def document(doc_id: str):
     if doc_id.startswith("ACORDAO-COMPLETO-"):
         src = await _fetch_tcu_document_source(doc_id)
         if src is None:
-            return Response(status_code=404, content='{"detail":"Document not found"}',
-                            media_type="application/json")
+            return Response(
+                status_code=404,
+                content='{"detail":"Document not found"}',
+                media_type="application/json",
+            )
         return {
             "id": doc_id,
             "source_type": "tcu_acordao",
@@ -1017,8 +1160,11 @@ async def document(doc_id: str):
 
     src = await _fetch_document_source(doc_id)
     if src is None:
-        return Response(status_code=404, content='{"detail":"Document not found"}',
-                        media_type="application/json")
+        return Response(
+            status_code=404,
+            content='{"detail":"Document not found"}',
+            media_type="application/json",
+        )
 
     section = _section_to_frontend(src.get("edition_section") or src.get("section"))
 
@@ -1057,8 +1203,11 @@ async def document_pdf(doc_id: str):
         src = await _fetch_document_source(doc_id)
 
     if src is None:
-        return Response(status_code=404, content='{"detail":"Document not found"}',
-                        media_type="application/json")
+        return Response(
+            status_code=404,
+            content='{"detail":"Document not found"}',
+            media_type="application/json",
+        )
 
     from src.backend.pdf.template import render_pdf_html
     from src.backend.pdf.generator import generate_pdf
@@ -1131,7 +1280,9 @@ async def stats():
             "sections": {"terms": {"field": "section", "size": 10}},
         },
     }
-    agg_data = await es_request("POST", f"/{settings.es_target_index}/_search", json=agg_payload)
+    agg_data = await es_request(
+        "POST", f"/{settings.es_target_index}/_search", json=agg_payload
+    )
     aggs = agg_data.get("aggregations", {})
 
     min_date = aggs.get("min_date", {}).get("value_as_string", "")
@@ -1141,7 +1292,10 @@ async def stats():
     return {
         "total_documents": total,
         "total_sections": sections_count,
-        "date_range": {"min": min_date[:10] if min_date else "", "max": max_date[:10] if max_date else ""},
+        "date_range": {
+            "min": min_date[:10] if min_date else "",
+            "max": max_date[:10] if max_date else "",
+        },
         "last_updated": max_date[:10] if max_date else None,
     }
 
@@ -1154,7 +1308,9 @@ async def types():
             "types": {"terms": {"field": "art_type_normalized", "size": 200}},
         },
     }
-    data = await es_request("POST", f"/{settings.es_target_index}/_search", json=payload)
+    data = await es_request(
+        "POST", f"/{settings.es_target_index}/_search", json=payload
+    )
     buckets = data.get("aggregations", {}).get("types", {}).get("buckets", [])
 
     return [
@@ -1195,7 +1351,9 @@ async def recent_highlights(limit: int = Query(8, ge=1, le=20)):
             }
         },
     }
-    data = await es_request("POST", f"/{settings.es_target_index}/_search", json=payload)
+    data = await es_request(
+        "POST", f"/{settings.es_target_index}/_search", json=payload
+    )
     hits = data.get("hits", {}).get("hits", [])
 
     ranked: list[tuple[float, list[str], dict[str, Any]]] = []
@@ -1220,7 +1378,9 @@ async def recent_highlights(limit: int = Query(8, ge=1, le=20)):
     for score, reasons, hit in ranked:
         src = hit.get("_source", {})
         title_key = _normalize_match_text(src.get("identifica"))
-        art_type_key = _normalize_match_text(src.get("art_type_normalized") or src.get("art_type"))
+        art_type_key = _normalize_match_text(
+            src.get("art_type_normalized") or src.get("art_type")
+        )
 
         if title_key in seen_titles:
             continue
@@ -1252,7 +1412,9 @@ async def latest_publications(limit: int = Query(8, ge=1, le=20)):
         "_source": _LATEST_SOURCE_FIELDS,
         "query": {"match_all": {}},
     }
-    data = await es_request("POST", f"/{settings.es_target_index}/_search", json=payload)
+    data = await es_request(
+        "POST", f"/{settings.es_target_index}/_search", json=payload
+    )
     hits = data.get("hits", {}).get("hits", [])
     return [_hit_to_result(hit) for hit in hits]
 
@@ -1267,7 +1429,10 @@ async def search_examples():
     return [
         {"query": "Lei 14133 licitações", "description": "Nova Lei de Licitações"},
         {"query": "concurso público federal 2024", "description": "Concursos abertos"},
-        {"query": '"Lei Geral de Proteção de Dados"', "description": "LGPD — busca exata"},
+        {
+            "query": '"Lei Geral de Proteção de Dados"',
+            "description": "LGPD — busca exata",
+        },
         {"query": "nomeação cargo comissionado", "description": "Nomeações DAS/FCPE"},
         {"query": "pregão eletrônico registro preços", "description": "Pregões SRP"},
         {"query": "aposentadoria servidor público", "description": "Aposentadorias"},
@@ -1277,6 +1442,7 @@ async def search_examples():
 @app.get("/api/suggested-topics")
 async def suggested_topics():
     import json as _json
+
     path = Path(__file__).resolve().parent / "data" / "suggested_topics.json"
     try:
         return _json.loads(path.read_text(encoding="utf-8"))
@@ -1287,6 +1453,7 @@ async def suggested_topics():
 @app.get("/api/editorial-highlights")
 async def editorial_highlights():
     from zoneinfo import ZoneInfo
+
     today = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d")
     doc = _mongo_db["editorial_highlights"].find_one({"_id": "latest"})
     if not doc:
@@ -1298,8 +1465,11 @@ async def editorial_highlights():
 
 @app.get("/api/media/{doc_id:path}/{name}")
 async def media(doc_id: str, name: str):
-    return Response(status_code=404, content='{"detail":"Media not available"}',
-                    media_type="application/json")
+    return Response(
+        status_code=404,
+        content='{"detail":"Media not available"}',
+        media_type="application/json",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1328,7 +1498,9 @@ async def sitemap_index():
             "max_date": {"max": {"field": "pub_date"}},
         },
     }
-    data = await es_request("POST", f"/{settings.es_target_index}/_search", json=agg_payload)
+    data = await es_request(
+        "POST", f"/{settings.es_target_index}/_search", json=agg_payload
+    )
     aggs = data.get("aggregations", {})
     min_date = aggs.get("min_date", {}).get("value_as_string", "2002-01-01")
     max_date = aggs.get("max_date", {}).get("value_as_string", "2026-01-01")
@@ -1375,7 +1547,9 @@ async def sitemap_month(year: int, month: int):
         if search_after:
             payload["search_after"] = search_after
 
-        data = await es_request("POST", f"/{settings.es_target_index}/_search", json=payload)
+        data = await es_request(
+            "POST", f"/{settings.es_target_index}/_search", json=payload
+        )
         hits = data.get("hits", {}).get("hits", [])
         if not hits:
             break

@@ -39,6 +39,7 @@ load_dotenv()
 # Configuration
 # ---------------------------------------------------------------------------
 
+
 def _env_bool(name: str, default: bool) -> bool:
     raw = os.getenv(name)
     if raw is None:
@@ -51,11 +52,11 @@ MIN_RESULTS_BEFORE_FALLBACK = int(os.getenv("MIN_RESULTS_BEFORE_FALLBACK", "3"))
 RERANK_POOL = int(os.getenv("RERANK_POOL", "60"))
 
 # Re-ranker signal weights (must sum to 1.0)
-_W_BM25 = 0.40       # ES BM25 score (normalized)
-_W_COVERAGE = 0.12    # Query term coverage across all fields
-_W_TITLE = 0.20       # Query term match in identifica (title)
-_W_EMENTA = 0.10      # Query term match in ementa (summary)
-_W_PROXIMITY = 0.18   # How close query terms appear to each other
+_W_BM25 = 0.40  # ES BM25 score (normalized)
+_W_COVERAGE = 0.12  # Query term coverage across all fields
+_W_TITLE = 0.20  # Query term match in identifica (title)
+_W_EMENTA = 0.10  # Query term match in ementa (summary)
+_W_PROXIMITY = 0.18  # How close query terms appear to each other
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +67,10 @@ _SECTION_PATTERN = re.compile(r"\bdo([123](?:e)?)\b", re.IGNORECASE)
 
 _ART_TYPE_PATTERNS = [
     (re.compile(r"\baviso(?:s)?\s+de\s+licitac[aã]o\b", re.IGNORECASE), "aviso"),
-    (re.compile(r"\bpreg[aã]o(?:es)?\s+eletr[oô]nico(?:s)?\b", re.IGNORECASE), "pregão"),
+    (
+        re.compile(r"\bpreg[aã]o(?:es)?\s+eletr[oô]nico(?:s)?\b", re.IGNORECASE),
+        "pregão",
+    ),
     (re.compile(r"\bpreg[aã]o(?:es)?\b", re.IGNORECASE), "pregão"),
     (re.compile(r"\bportaria(?:s)?\b", re.IGNORECASE), "portaria"),
     (re.compile(r"\bdecreto(?:s)?\b", re.IGNORECASE), "decreto"),
@@ -77,18 +81,45 @@ _ART_TYPE_PATTERNS = [
 ]
 
 _ORGAN_PATTERNS = [
-    (re.compile(r"\bminist[eé]rio\s+da\s+sa[uú]de\b", re.IGNORECASE), "Ministério da Saúde"),
-    (re.compile(r"\bminist[eé]rio\s+da\s+justi[cç]a\b", re.IGNORECASE), "Ministério da Justiça"),
-    (re.compile(r"\bminist[eé]rio\s+da\s+fazenda\b", re.IGNORECASE), "Ministério da Fazenda"),
-    (re.compile(r"\bminist[eé]rio\s+da\s+educa[cç][aã]o\b", re.IGNORECASE), "Ministério da Educação"),
-    (re.compile(r"\bminist[eé]rio\s+da\s+defesa\b", re.IGNORECASE), "Ministério da Defesa"),
     (
-        re.compile(r"\bminist[eé]rio\s+da\s+agricultura(?:,\s*pecu[aá]ria\s+e\s+abastecimento)?\b", re.IGNORECASE),
+        re.compile(r"\bminist[eé]rio\s+da\s+sa[uú]de\b", re.IGNORECASE),
+        "Ministério da Saúde",
+    ),
+    (
+        re.compile(r"\bminist[eé]rio\s+da\s+justi[cç]a\b", re.IGNORECASE),
+        "Ministério da Justiça",
+    ),
+    (
+        re.compile(r"\bminist[eé]rio\s+da\s+fazenda\b", re.IGNORECASE),
+        "Ministério da Fazenda",
+    ),
+    (
+        re.compile(r"\bminist[eé]rio\s+da\s+educa[cç][aã]o\b", re.IGNORECASE),
+        "Ministério da Educação",
+    ),
+    (
+        re.compile(r"\bminist[eé]rio\s+da\s+defesa\b", re.IGNORECASE),
+        "Ministério da Defesa",
+    ),
+    (
+        re.compile(
+            r"\bminist[eé]rio\s+da\s+agricultura(?:,\s*pecu[aá]ria\s+e\s+abastecimento)?\b",
+            re.IGNORECASE,
+        ),
         "Ministério da Agricultura, Pecuária e Abastecimento",
     ),
-    (re.compile(r"\bminist[eé]rio\s+das\s+comunica[cç][oõ]es\b", re.IGNORECASE), "Ministério das Comunicações"),
-    (re.compile(r"\bminist[eé]rio\s+de\s+minas\s+e\s+energia\b", re.IGNORECASE), "Ministério de Minas e Energia"),
-    (re.compile(r"\bpresid[eê]ncia\s+da\s+rep[uú]blica\b", re.IGNORECASE), "Presidência da República"),
+    (
+        re.compile(r"\bminist[eé]rio\s+das\s+comunica[cç][oõ]es\b", re.IGNORECASE),
+        "Ministério das Comunicações",
+    ),
+    (
+        re.compile(r"\bminist[eé]rio\s+de\s+minas\s+e\s+energia\b", re.IGNORECASE),
+        "Ministério de Minas e Energia",
+    ),
+    (
+        re.compile(r"\bpresid[eê]ncia\s+da\s+rep[uú]blica\b", re.IGNORECASE),
+        "Presidência da República",
+    ),
     (re.compile(r"\bpoder\s+judici[aá]rio\b", re.IGNORECASE), "Poder Judiciário"),
 ]
 
@@ -110,7 +141,11 @@ _LEGAL_SYNONYMS: dict[str, list[str]] = {
     "pregão eletrônico": ["licitação eletrônica", "pregão"],
     "contratação direta": ["inexigibilidade", "dispensa de licitação"],
     # Social programs
-    "bolsa família": ["programa bolsa família", "auxílio brasil", "transferência de renda"],
+    "bolsa família": [
+        "programa bolsa família",
+        "auxílio brasil",
+        "transferência de renda",
+    ],
     "auxílio emergencial": ["benefício emergencial", "auxílio covid"],
     # Legislation
     "medida provisória": ["MP", "medida provisória conversão"],
@@ -125,7 +160,11 @@ _LEGAL_SYNONYMS: dict[str, list[str]] = {
     "exoneração": ["dispensa", "vacância"],
     "cessão": ["requisição", "movimentação de pessoal"],
     # Policy domains
-    "segurança alimentar": ["combate à fome", "programa alimentar", "soberania alimentar"],
+    "segurança alimentar": [
+        "combate à fome",
+        "programa alimentar",
+        "soberania alimentar",
+    ],
     "meio ambiente": ["ambiental", "licenciamento ambiental", "proteção ambiental"],
     "energia": ["setor elétrico", "energia elétrica"],
 }
@@ -190,39 +229,158 @@ _QUOTED_PHRASE_PATTERN = re.compile(r'"([^"]+)"')
 # ---------------------------------------------------------------------------
 
 # Common Brazilian suffixes (case-insensitive matching via _normalize_text)
-_NAME_SUFFIXES = {"junior", "júnior", "jr", "filho", "filha", "neto", "neta", "sobrinho", "sobrinha", "segundo", "terceiro"}
+_NAME_SUFFIXES = {
+    "junior",
+    "júnior",
+    "jr",
+    "filho",
+    "filha",
+    "neto",
+    "neta",
+    "sobrinho",
+    "sobrinha",
+    "segundo",
+    "terceiro",
+}
 
 # Particles that can appear between name parts (kept but optional in matching)
 _NAME_PARTICLES = {"de", "da", "do", "dos", "das", "e"}
 
 # Common first names (top ~60 Brazilian) for heuristic detection
 _COMMON_FIRST_NAMES = {
-    "fernando", "carlos", "jose", "joão", "joao", "antonio", "antônio", "francisco", "pedro",
-    "paulo", "lucas", "marcos", "marcelo", "rafael", "rodrigo", "andre", "andré", "felipe",
-    "gabriel", "daniel", "eduardo", "bruno", "gustavo", "ricardo", "roberto", "alexandre",
-    "luiz", "luis", "henrique", "diego", "thiago", "tiago", "leandro", "fabio", "fábio",
-    "sergio", "sérgio", "jorge", "renato", "claudio", "cláudio", "márcio", "marcio",
-    "maria", "ana", "patricia", "patrícia", "fernanda", "juliana", "adriana", "luciana",
-    "sandra", "marcia", "márcia", "cristina", "aline", "camila", "bruna", "carla",
-    "vanessa", "leticia", "letícia", "priscila", "amanda", "larissa", "raquel", "simone",
-    "denise", "claudia", "cláudia", "eliane", "rosana", "sonia", "sônia", "regina",
+    "fernando",
+    "carlos",
+    "jose",
+    "joão",
+    "joao",
+    "antonio",
+    "antônio",
+    "francisco",
+    "pedro",
+    "paulo",
+    "lucas",
+    "marcos",
+    "marcelo",
+    "rafael",
+    "rodrigo",
+    "andre",
+    "andré",
+    "felipe",
+    "gabriel",
+    "daniel",
+    "eduardo",
+    "bruno",
+    "gustavo",
+    "ricardo",
+    "roberto",
+    "alexandre",
+    "luiz",
+    "luis",
+    "henrique",
+    "diego",
+    "thiago",
+    "tiago",
+    "leandro",
+    "fabio",
+    "fábio",
+    "sergio",
+    "sérgio",
+    "jorge",
+    "renato",
+    "claudio",
+    "cláudio",
+    "márcio",
+    "marcio",
+    "maria",
+    "ana",
+    "patricia",
+    "patrícia",
+    "fernanda",
+    "juliana",
+    "adriana",
+    "luciana",
+    "sandra",
+    "marcia",
+    "márcia",
+    "cristina",
+    "aline",
+    "camila",
+    "bruna",
+    "carla",
+    "vanessa",
+    "leticia",
+    "letícia",
+    "priscila",
+    "amanda",
+    "larissa",
+    "raquel",
+    "simone",
+    "denise",
+    "claudia",
+    "cláudia",
+    "eliane",
+    "rosana",
+    "sonia",
+    "sônia",
+    "regina",
 }
 
 # Words that disqualify person name detection (legal/institutional terms)
 _NON_NAME_WORDS = {
-    "lei", "decreto", "portaria", "edital", "resolução", "resolucao", "despacho",
-    "instrução", "instrucao", "normativa", "ministerio", "ministério", "secretaria",
-    "tribunal", "conselho", "comissão", "comissao", "fundação", "fundacao", "instituto",
-    "universidade", "empresa", "sociedade", "ltda", "eireli", "cnpj", "cpf",
-    "contrato", "licitação", "licitacao", "pregão", "pregao", "aviso", "extrato",
-    "reforma", "tributária", "tributaria", "fiscal", "saúde", "saude", "educação",
-    "educacao", "defesa", "agricultura", "artigo", "parágrafo", "paragrafo",
+    "lei",
+    "decreto",
+    "portaria",
+    "edital",
+    "resolução",
+    "resolucao",
+    "despacho",
+    "instrução",
+    "instrucao",
+    "normativa",
+    "ministerio",
+    "ministério",
+    "secretaria",
+    "tribunal",
+    "conselho",
+    "comissão",
+    "comissao",
+    "fundação",
+    "fundacao",
+    "instituto",
+    "universidade",
+    "empresa",
+    "sociedade",
+    "ltda",
+    "eireli",
+    "cnpj",
+    "cpf",
+    "contrato",
+    "licitação",
+    "licitacao",
+    "pregão",
+    "pregao",
+    "aviso",
+    "extrato",
+    "reforma",
+    "tributária",
+    "tributaria",
+    "fiscal",
+    "saúde",
+    "saude",
+    "educação",
+    "educacao",
+    "defesa",
+    "agricultura",
+    "artigo",
+    "parágrafo",
+    "paragrafo",
 }
 
 
 def _normalize_text_simple(text: str) -> str:
     """Lowercase and strip accents for matching."""
     import unicodedata
+
     nfkd = unicodedata.normalize("NFKD", text.lower())
     return "".join(c for c in nfkd if not unicodedata.combining(c))
 
@@ -266,7 +424,8 @@ def _is_likely_person_name(query: str) -> bool:
     # Allow particles to be lowercase
     all_capitalized = all(
         w[0].isupper() or _normalize_text_simple(w) in _NAME_PARTICLES
-        for w in words if w
+        for w in words
+        if w
     )
 
     # Must have at least one signal
@@ -338,7 +497,7 @@ def _name_spelling_variants(normalized_name: str) -> list[str]:
     for i, word in enumerate(words):
         for variant in _word_ortho_variants(word):
             if variant != word:
-                new_name = words[:i] + [variant] + words[i + 1:]
+                new_name = words[:i] + [variant] + words[i + 1 :]
                 results.add(" ".join(new_name))
     return list(results)
 
@@ -407,14 +566,16 @@ def _person_query_clause(query: str) -> dict[str, Any]:
         # OR across all spelling variants — any one matching is enough
         variant_clauses = []
         for variant in spelling_variants:
-            variant_clauses.append({
-                "multi_match": {
-                    "query": variant,
-                    "type": "phrase",
-                    "fields": fields,
-                    "slop": 1,
-                },
-            })
+            variant_clauses.append(
+                {
+                    "multi_match": {
+                        "query": variant,
+                        "type": "phrase",
+                        "fields": fields,
+                        "slop": 1,
+                    },
+                }
+            )
         must_clause = {
             "bool": {
                 "should": variant_clauses,
@@ -435,7 +596,11 @@ def _person_query_clause(query: str) -> dict[str, Any]:
     original_form = " ".join(original_words)
     if original_form != normalized:
         should_clauses.append(
-            {"match_phrase": {"identifica": {"query": original_form, "slop": 0, "boost": 60}}},
+            {
+                "match_phrase": {
+                    "identifica": {"query": original_form, "slop": 0, "boost": 60}
+                }
+            },
         )
 
     return {
@@ -455,7 +620,13 @@ def _parse_query(raw: str) -> dict[str, Any]:
       clean_text: remaining query text with quotes/refs removed
       original: the raw input
     """
-    q = raw.replace("\u201c", '"').replace("\u201d", '"').replace("\u2018", "'").replace("\u2019", "'").strip()
+    q = (
+        raw.replace("\u201c", '"')
+        .replace("\u201d", '"')
+        .replace("\u2018", "'")
+        .replace("\u2019", "'")
+        .strip()
+    )
 
     # Guard: cap query length to prevent abuse (preserves semantic integrity)
     if len(q) > 1000:
@@ -488,7 +659,13 @@ def _parse_query(raw: str) -> dict[str, Any]:
 
 
 def _query_text(query: str) -> str:
-    return query.replace("\u201c", '"').replace("\u201d", '"').replace("\u2018", "'").replace("\u2019", "'").strip()
+    return (
+        query.replace("\u201c", '"')
+        .replace("\u201d", '"')
+        .replace("\u2018", "'")
+        .replace("\u2019", "'")
+        .strip()
+    )
 
 
 def _infer_request_filters(
@@ -559,10 +736,13 @@ def _search_context_payload(
 # Elasticsearch client
 # ---------------------------------------------------------------------------
 
+
 class ElasticClient:
     def __init__(self) -> None:
         self.url = os.getenv("ES_URL", "http://elasticsearch:9200").rstrip("/")
-        self.index = (os.getenv("ES_ALIAS") or os.getenv("ES_INDEX") or "gabi_documents").strip()
+        self.index = (
+            os.getenv("ES_ALIAS") or os.getenv("ES_INDEX") or "gabi_documents"
+        ).strip()
         self.tcu_index = os.getenv("TCU_ES_INDEX", "gabi_tcu_acordaos_v1").strip()
         self.normas_index = os.getenv("TCU_NORMAS_INDEX", "gabi_tcu_normas_v1").strip()
         self.btcu_index = os.getenv("TCU_BTCU_INDEX", "gabi_tcu_btcu_v1").strip()
@@ -585,21 +765,32 @@ class ElasticClient:
         if source == "btcu":
             return self.btcu_index
         if source == "all":
-            return f"{self.index},{self.tcu_index},{self.normas_index},{self.btcu_index}"
+            return (
+                f"{self.index},{self.tcu_index},{self.normas_index},{self.btcu_index}"
+            )
         return self.index
 
-    def request(self, method: str, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        resp = self._client.request(method=method, url=f"{self.url}{path}", json=payload)
+    def request(
+        self, method: str, path: str, payload: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        resp = self._client.request(
+            method=method, url=f"{self.url}{path}", json=payload
+        )
         resp.raise_for_status()
         data = resp.json()
         if not isinstance(data, dict):
             raise RuntimeError("Invalid Elasticsearch response")
         return data
 
-    def msearch(self, searches: list[tuple[dict[str, Any], dict[str, Any]]]) -> list[dict[str, Any]]:
+    def msearch(
+        self, searches: list[tuple[dict[str, Any], dict[str, Any]]]
+    ) -> list[dict[str, Any]]:
         """Execute multiple searches in a single roundtrip via _msearch API."""
         import json
-        ndjson = "\n".join(json.dumps(line) for pair in searches for line in pair) + "\n"
+
+        ndjson = (
+            "\n".join(json.dumps(line) for pair in searches for line in pair) + "\n"
+        )
         resp = self._client.request(
             method="POST",
             url=f"{self.url}/{self.index}/_msearch",
@@ -636,18 +827,25 @@ class GabiAPIClient:
 
     def _get_async_client(self) -> httpx.AsyncClient:
         if self._async_client is None:
-            self._async_client = httpx.AsyncClient(timeout=self._timeout, headers=self._headers)
+            self._async_client = httpx.AsyncClient(
+                timeout=self._timeout, headers=self._headers
+            )
         return self._async_client
 
     async def search(self, **params: Any) -> dict[str, Any]:
         client = self._get_async_client()
-        resp = await client.get(f"{self.base_url}/api/search", params={k: v for k, v in params.items() if v is not None})
+        resp = await client.get(
+            f"{self.base_url}/api/search",
+            params={k: v for k, v in params.items() if v is not None},
+        )
         resp.raise_for_status()
         return resp.json()
 
     async def autocomplete(self, q: str, n: int = 10) -> list[Any]:
         client = self._get_async_client()
-        resp = await client.get(f"{self.base_url}/api/autocomplete", params={"q": q, "n": n})
+        resp = await client.get(
+            f"{self.base_url}/api/autocomplete", params={"q": q, "n": n}
+        )
         resp.raise_for_status()
         return resp.json()
 
@@ -664,6 +862,7 @@ API = GabiAPIClient()
 # ---------------------------------------------------------------------------
 # Query construction — the core BM25 intelligence
 # ---------------------------------------------------------------------------
+
 
 def _build_filters(
     *,
@@ -717,63 +916,83 @@ def _query_clause(query: str, *, strict: bool = True) -> dict[str, Any]:
     # "Fernando Lima Gama Júnior" → only docs with that phrase (or "Fernando de Lima Gama Junior")
     # pt_folded analyzer handles accent folding (Júnior = Junior)
     for phrase in phrases:
-        must_clauses.append({
-            "multi_match": {
-                "query": phrase,
-                "type": "phrase",
-                "fields": ["identifica", "ementa", "body_plain"],
-                "slop": 1,
-            },
-        })
+        must_clauses.append(
+            {
+                "multi_match": {
+                    "query": phrase,
+                    "type": "phrase",
+                    "fields": ["identifica", "ementa", "body_plain"],
+                    "slop": 1,
+                },
+            }
+        )
         # Boost exact (slop=0) matches above slop=1 matches
-        should_clauses.extend([
-            {"match_phrase": {"identifica": {"query": phrase, "boost": 50}}},
-            {"match_phrase": {"ementa": {"query": phrase, "boost": 40}}},
-        ])
+        should_clauses.extend(
+            [
+                {"match_phrase": {"identifica": {"query": phrase, "boost": 50}}},
+                {"match_phrase": {"ementa": {"query": phrase, "boost": 40}}},
+            ]
+        )
 
     # --- Unquoted text: flexible BM25 ---
     if q and q != "*":
-        must_clauses.append({
-            "simple_query_string": {
-                "query": q,
-                "fields": [
-                    "identifica^5",
-                    "ementa^4",
-                    "issuing_organ^2",
-                    "art_type^2",
-                    "art_category",
-                    "body_plain",
-                ],
-                "default_operator": default_op,
-                "fuzzy_max_expansions": 20,
-            },
-        })
+        must_clauses.append(
+            {
+                "simple_query_string": {
+                    "query": q,
+                    "fields": [
+                        "identifica^5",
+                        "ementa^4",
+                        "issuing_organ^2",
+                        "art_type^2",
+                        "art_category",
+                        "body_plain",
+                    ],
+                    "default_operator": default_op,
+                    "fuzzy_max_expansions": 20,
+                },
+            }
+        )
 
         # Exact phrase boost for unquoted text (soft signal)
-        should_clauses.extend([
-            {"match_phrase": {"identifica": {"query": q, "boost": 20}}},
-            {"match_phrase": {"ementa": {"query": q, "boost": 15}}},
-            {"match_phrase": {"body_plain": {"query": q, "boost": 5}}},
-        ])
+        should_clauses.extend(
+            [
+                {"match_phrase": {"identifica": {"query": q, "boost": 20}}},
+                {"match_phrase": {"ementa": {"query": q, "boost": 15}}},
+                {"match_phrase": {"body_plain": {"query": q, "boost": 5}}},
+            ]
+        )
 
         # Proximity boost for multi-word unquoted queries (3+ words)
         # Without this, "Fernando Lima Gama Junior" (unquoted) gives equal
         # score to docs with all 4 names scattered vs. together as one person.
         word_count = len(q.split())
         if word_count >= 3:
-            should_clauses.extend([
-                {"match_phrase": {"identifica": {"query": q, "slop": 2, "boost": 40}}},
-                {"match_phrase": {"ementa": {"query": q, "slop": 2, "boost": 30}}},
-                {"match_phrase": {"body_plain": {"query": q, "slop": 3, "boost": 15}}},
-            ])
+            should_clauses.extend(
+                [
+                    {
+                        "match_phrase": {
+                            "identifica": {"query": q, "slop": 2, "boost": 40}
+                        }
+                    },
+                    {"match_phrase": {"ementa": {"query": q, "slop": 2, "boost": 30}}},
+                    {
+                        "match_phrase": {
+                            "body_plain": {"query": q, "slop": 3, "boost": 15}
+                        }
+                    },
+                ]
+            )
 
         # Legal reference pinning — "Lei 13709" boosts identifica exact match
         for ref in parsed["legal_refs"]:
             ref_text = f"{ref['type']} {ref['number']}"
-            should_clauses.extend([
-                {"match_phrase": {"identifica": {"query": ref_text, "boost": 100}}},
-                {"match_phrase": {"ementa": {"query": ref_text, "boost": 60}}},
-            ])
+            should_clauses.extend(
+                [
+                    {"match_phrase": {"identifica": {"query": ref_text, "boost": 100}}},
+                    {"match_phrase": {"ementa": {"query": ref_text, "boost": 60}}},
+                ]
+            )
 
         # Article/paragraph reference boosting — "art. 5º" in body
         for art_ref in parsed.get("art_refs", []):
@@ -784,14 +1003,16 @@ def _query_clause(query: str, *, strict: bool = True) -> dict[str, Any]:
         # R11 synonym expansion
         if SYNONYM_EXPANSION:
             for syn in _expand_synonyms(q):
-                should_clauses.append({
-                    "simple_query_string": {
-                        "query": syn,
-                        "fields": ["identifica^2", "ementa^2", "body_plain"],
-                        "default_operator": "and",
-                        "boost": 1.5,
-                    },
-                })
+                should_clauses.append(
+                    {
+                        "simple_query_string": {
+                            "query": syn,
+                            "fields": ["identifica^2", "ementa^2", "body_plain"],
+                            "default_operator": "and",
+                            "boost": 1.5,
+                        },
+                    }
+                )
 
     if not must_clauses:
         return {"match_all": {}}
@@ -817,8 +1038,15 @@ def _sort_clause(sort: str) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 _SOURCE_FIELDS = [
-    "doc_id", "identifica", "ementa", "art_type", "art_category",
-    "pub_date", "edition_section", "issuing_organ", "body_plain",
+    "doc_id",
+    "identifica",
+    "ementa",
+    "art_type",
+    "art_category",
+    "pub_date",
+    "edition_section",
+    "issuing_organ",
+    "body_plain",
 ]
 
 _HIGHLIGHT_SPEC: dict[str, Any] = {
@@ -848,24 +1076,33 @@ def _format_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 snippet_parts.extend(frags)
                 if len(snippet_parts) >= 2:
                     break
-        snippet = " … ".join(snippet_parts) if snippet_parts else (src.get("ementa") or src.get("body_plain") or "")[:280]
+        snippet = (
+            " … ".join(snippet_parts)
+            if snippet_parts
+            else (src.get("ementa") or src.get("body_plain") or "")[:280]
+        )
 
-        results.append({
-            "doc_id": src.get("doc_id") or hit.get("_id"),
-            "score": round(float(hit.get("_score") or 0.0), 4),
-            "identifica": src.get("identifica"),
-            "ementa": src.get("ementa"),
-            "art_type": src.get("art_type"),
-            "pub_date": src.get("pub_date"),
-            "edition_section": src.get("edition_section"),
-            "issuing_organ": src.get("issuing_organ"),
-            "snippet": snippet,
-        })
+        results.append(
+            {
+                "doc_id": src.get("doc_id") or hit.get("_id"),
+                "score": round(float(hit.get("_score") or 0.0), 4),
+                "identifica": src.get("identifica"),
+                "ementa": src.get("ementa"),
+                "art_type": src.get("art_type"),
+                "pub_date": src.get("pub_date"),
+                "edition_section": src.get("edition_section"),
+                "issuing_organ": src.get("issuing_organ"),
+                "snippet": snippet,
+            }
+        )
     return results
 
 
 def _extract_agg_buckets(aggs: dict[str, Any], name: str) -> list[dict[str, Any]]:
-    return [{"key": x.get("key"), "count": x.get("doc_count", 0)} for x in aggs.get(name, {}).get("buckets", [])]
+    return [
+        {"key": x.get("key"), "count": x.get("doc_count", 0)}
+        for x in aggs.get(name, {}).get("buckets", [])
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -883,9 +1120,11 @@ def _extract_agg_buckets(aggs: dict[str, Any], name: str) -> list[dict[str, Any]
 #   5. Proximity (min span containing 2+ terms)  — 18%
 # ---------------------------------------------------------------------------
 
+
 def _normalize_text(text: str) -> str:
     """Lowercase and strip accents for matching (mirrors pt_folded analyzer)."""
     import unicodedata
+
     nfkd = unicodedata.normalize("NFKD", text.lower())
     return "".join(c for c in nfkd if not unicodedata.combining(c))
 
@@ -893,9 +1132,38 @@ def _normalize_text(text: str) -> str:
 def _tokenize_query(query: str) -> list[str]:
     """Split query into searchable terms, filtering stopwords and short tokens."""
     _PT_STOPWORDS = {
-        "a", "o", "e", "de", "do", "da", "dos", "das", "em", "no", "na", "nos",
-        "nas", "um", "uma", "uns", "umas", "por", "para", "com", "sem", "sob",
-        "que", "se", "ao", "aos", "ou", "os", "as", "es", "lo", "la",
+        "a",
+        "o",
+        "e",
+        "de",
+        "do",
+        "da",
+        "dos",
+        "das",
+        "em",
+        "no",
+        "na",
+        "nos",
+        "nas",
+        "um",
+        "uma",
+        "uns",
+        "umas",
+        "por",
+        "para",
+        "com",
+        "sem",
+        "sob",
+        "que",
+        "se",
+        "ao",
+        "aos",
+        "ou",
+        "os",
+        "as",
+        "es",
+        "lo",
+        "la",
     }
     words = _normalize_text(query).split()
     return [w for w in words if len(w) > 1 and w not in _PT_STOPWORDS]
@@ -1024,11 +1292,17 @@ def _format_reranked_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 snippet_parts.extend(frags)
                 if len(snippet_parts) >= 2:
                     break
-        snippet = " … ".join(snippet_parts) if snippet_parts else (src.get("ementa") or src.get("body_plain") or "")[:280]
+        snippet = (
+            " … ".join(snippet_parts)
+            if snippet_parts
+            else (src.get("ementa") or src.get("body_plain") or "")[:280]
+        )
 
         entry: dict[str, Any] = {
             "doc_id": src.get("doc_id") or hit.get("_id"),
-            "score": hit.get("_rerank_score", round(float(hit.get("_score") or 0.0), 4)),
+            "score": hit.get(
+                "_rerank_score", round(float(hit.get("_score") or 0.0), 4)
+            ),
             "score_bm25": round(float(hit.get("_score") or 0.0), 4),
             "identifica": src.get("identifica"),
             "ementa": src.get("ementa"),
@@ -1050,10 +1324,23 @@ def _format_reranked_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 _TCU_SOURCE_FIELDS = [
-    "doc_id", "titulo", "sumario", "acordao_texto", "tipo", "colegiado",
-    "tipo_processo", "relator", "data_sessao", "numero_acordao", "ano_acordao",
-    "numero_processo", "entidade", "dispositivo_tipo", "dispositivo_resumo",
-    "source_type", "source_url",
+    "doc_id",
+    "titulo",
+    "sumario",
+    "acordao_texto",
+    "tipo",
+    "colegiado",
+    "tipo_processo",
+    "relator",
+    "data_sessao",
+    "numero_acordao",
+    "ano_acordao",
+    "numero_processo",
+    "entidade",
+    "dispositivo_tipo",
+    "dispositivo_resumo",
+    "source_type",
+    "source_url",
 ]
 
 _TCU_HIGHLIGHT_SPEC: dict[str, Any] = {
@@ -1083,34 +1370,38 @@ def _format_tcu_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 snippet_parts.extend(frags)
                 if len(snippet_parts) >= 2:
                     break
-        snippet = " … ".join(snippet_parts) if snippet_parts else (
-            src.get("sumario") or src.get("acordao_texto") or ""
-        )[:280]
+        snippet = (
+            " … ".join(snippet_parts)
+            if snippet_parts
+            else (src.get("sumario") or src.get("acordao_texto") or "")[:280]
+        )
 
-        results.append({
-            "doc_id": src.get("doc_id") or hit.get("_id"),
-            "score": round(float(hit.get("_score") or 0.0), 4),
-            "titulo": src.get("titulo"),
-            "sumario": src.get("sumario"),
-            "tipo": src.get("tipo"),
-            "colegiado": src.get("colegiado"),
-            "tipo_processo": src.get("tipo_processo"),
-            "relator": src.get("relator"),
-            "data_sessao": src.get("data_sessao"),
-            "numero_acordao": src.get("numero_acordao"),
-            "ano_acordao": src.get("ano_acordao"),
-            "numero_processo": src.get("numero_processo"),
-            "entidade": src.get("entidade"),
-            "dispositivo_tipo": src.get("dispositivo_tipo"),
-            "dispositivo_resumo": src.get("dispositivo_resumo"),
-            "source_type": src.get("source_type", "tcu_acordao"),
-            "source_url": src.get("source_url"),
-            "snippet": snippet,
-        })
+        results.append(
+            {
+                "doc_id": src.get("doc_id") or hit.get("_id"),
+                "score": round(float(hit.get("_score") or 0.0), 4),
+                "titulo": src.get("titulo"),
+                "sumario": src.get("sumario"),
+                "tipo": src.get("tipo"),
+                "colegiado": src.get("colegiado"),
+                "tipo_processo": src.get("tipo_processo"),
+                "relator": src.get("relator"),
+                "data_sessao": src.get("data_sessao"),
+                "numero_acordao": src.get("numero_acordao"),
+                "ano_acordao": src.get("ano_acordao"),
+                "numero_processo": src.get("numero_processo"),
+                "entidade": src.get("entidade"),
+                "dispositivo_tipo": src.get("dispositivo_tipo"),
+                "dispositivo_resumo": src.get("dispositivo_resumo"),
+                "source_type": src.get("source_type", "tcu_acordao"),
+                "source_url": src.get("source_url"),
+                "snippet": snippet,
+            }
+        )
     return results
 
 
-_YEAR_RE = re.compile(r'\b(20[12]\d)\b')
+_YEAR_RE = re.compile(r"\b(20[12]\d)\b")
 _RERANK_POOL_SIZE = 100
 
 
@@ -1124,7 +1415,7 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
 
 
 _AUTHORITY_INTENT_RE = re.compile(
-    r'\b(s[úu]mula|entendimento|orienta[çc][aã]o|regra|norma|tese|jurisprud[eê]ncia|consulta)\b',
+    r"\b(s[úu]mula|entendimento|orienta[çc][aã]o|regra|norma|tese|jurisprud[eê]ncia|consulta)\b",
     re.IGNORECASE,
 )
 _AUTHORITY_BOOSTS = [1.0, 1.03, 1.08, 1.15]
@@ -1197,10 +1488,17 @@ def _es_search_direct(
         if date_to:
             rng["lte"] = date_to
         if source == "all":
-            filters.append({"bool": {"should": [
-                {"range": {"pub_date": rng}},
-                {"range": {"data_sessao": rng}},
-            ], "minimum_should_match": 1}})
+            filters.append(
+                {
+                    "bool": {
+                        "should": [
+                            {"range": {"pub_date": rng}},
+                            {"range": {"data_sessao": rng}},
+                        ],
+                        "minimum_should_match": 1,
+                    }
+                }
+            )
         elif source == "tcu":
             filters.append({"range": {"data_sessao": rng}})
         else:
@@ -1216,53 +1514,79 @@ def _es_search_direct(
 
     if source == "tcu":
         search_fields = [
-            "titulo^5", "enunciado^5", "sumario^4", "excerto^3", "assunto^3",
-            "relator^2", "entidade^2", "acordao_texto",
-            "voto", "relatorio", "search_all", "indexacao",
+            "titulo^5",
+            "enunciado^5",
+            "sumario^4",
+            "excerto^3",
+            "assunto^3",
+            "relator^2",
+            "entidade^2",
+            "acordao_texto",
+            "voto",
+            "relatorio",
+            "search_all",
+            "indexacao",
         ]
     elif source == "tcu_normas":
         search_fields = [
-            "assunto^4", "titulo^3", "tema^3", "texto_norma", "search_all",
+            "assunto^4",
+            "titulo^3",
+            "tema^3",
+            "texto_norma",
+            "search_all",
         ]
     else:
         search_fields = [
-            "titulo^5", "identifica^5", "sumario^4", "ementa^4",
-            "assunto^3", "issuing_organ^2", "relator^2",
-            "acordao_texto", "body_plain", "search_all",
+            "titulo^5",
+            "identifica^5",
+            "sumario^4",
+            "ementa^4",
+            "assunto^3",
+            "issuing_organ^2",
+            "relator^2",
+            "acordao_texto",
+            "body_plain",
+            "search_all",
         ]
 
     must_clauses: list[dict[str, Any]] = []
     should_clauses: list[dict[str, Any]] = []
 
     for phrase in parsed["phrases"]:
-        must_clauses.append({
-            "multi_match": {
-                "query": phrase,
-                "type": "phrase",
-                "fields": search_fields,
-                "slop": 1,
-            },
-        })
+        must_clauses.append(
+            {
+                "multi_match": {
+                    "query": phrase,
+                    "type": "phrase",
+                    "fields": search_fields,
+                    "slop": 1,
+                },
+            }
+        )
 
     if q and q != "*":
         # Cross-search: use OR + minimum_should_match for better recall
         if source == "all":
-            must_clauses.append({
-                "simple_query_string": {
-                    "query": q,
-                    "fields": search_fields,
-                    "default_operator": "or",
-                    "minimum_should_match": "60%",
-                },
-            })
+            must_clauses.append(
+                {
+                    "simple_query_string": {
+                        "query": q,
+                        "fields": search_fields,
+                        "default_operator": "or",
+                        "minimum_should_match": "60%",
+                    },
+                }
+            )
         else:
-            must_clauses.append({
-                "simple_query_string": {
-                    "query": q,
-                    "fields": search_fields,
-                    "default_operator": "and",
-                },
-            })
+            must_clauses.append(
+                {
+                    "simple_query_string": {
+                        "query": q,
+                        "fields": search_fields,
+                        "default_operator": "and",
+                    },
+                }
+            )
         for field in search_fields[:4]:
             field_name = field.split("^")[0]
             should_clauses.append(
@@ -1302,7 +1626,7 @@ def _es_search_direct(
     # Pass 2: Embedding re-rank
     if query_vector and hits:
         hits = _embedding_rerank_mcp(hits, query_vector, query_text=query)
-        hits = hits[offset:offset + page_size]
+        hits = hits[offset : offset + page_size]
 
     # Format results
     results: list[dict[str, Any]] = []
@@ -1326,6 +1650,7 @@ def _es_search_direct(
 # ---------------------------------------------------------------------------
 # TOOL 1: es_search — The primary search tool (two-stage, re-ranked)
 # ---------------------------------------------------------------------------
+
 
 async def es_search(
     query: str,
@@ -1375,8 +1700,11 @@ async def es_search(
     # TCU direct search — bypass API pipeline, hit ES directly
     if source in ("tcu", "all"):
         return _es_search_direct(
-            query=query, page=page, page_size=page_size,
-            date_from=date_from, date_to=date_to,
+            query=query,
+            page=page,
+            page_size=page_size,
+            date_from=date_from,
+            date_to=date_to,
             source=source,
         )
 
@@ -1385,14 +1713,25 @@ async def es_search(
 
     try:
         data = await API.search(
-            q=query, page=page, max=page_size,
-            date_from=date_from, date_to=date_to,
-            section=section, art_type=art_type,
-            issuing_organ=issuing_organ, topic=topic,
-            intent=intent, is_trending=str(is_trending).lower() if is_trending else None,
+            q=query,
+            page=page,
+            max=page_size,
+            date_from=date_from,
+            date_to=date_to,
+            section=section,
+            art_type=art_type,
+            issuing_organ=issuing_organ,
+            topic=topic,
+            intent=intent,
+            is_trending=str(is_trending).lower() if is_trending else None,
         )
     except httpx.HTTPStatusError as exc:
-        return {"error": f"API error: {exc.response.status_code}", "query": query, "total": 0, "results": []}
+        return {
+            "error": f"API error: {exc.response.status_code}",
+            "query": query,
+            "total": 0,
+            "results": [],
+        }
 
     return {
         "query": query,
@@ -1409,6 +1748,7 @@ async def es_search(
 # ---------------------------------------------------------------------------
 # TOOL 2: es_suggest — Autocomplete
 # ---------------------------------------------------------------------------
+
 
 async def es_suggest(prefix: str, limit: int = 10) -> dict[str, Any]:
     """Autocomplete suggestions via GABI API.
@@ -1431,6 +1771,7 @@ async def es_suggest(prefix: str, limit: int = 10) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # TOOL 3: es_facets — Aggregation analytics
 # ---------------------------------------------------------------------------
+
 
 def es_facets(
     query: str = "*",
@@ -1478,7 +1819,12 @@ def es_facets(
                 "relatores": {"terms": {"field": "relator.keyword", "size": size}},
                 "dispositivo": {"terms": {"field": "dispositivo_resumo", "size": size}},
                 "temas": {"terms": {"field": "temas_tcu", "size": size}},
-                "by_month": {"date_histogram": {"field": "data_sessao", "calendar_interval": "month"}},
+                "by_month": {
+                    "date_histogram": {
+                        "field": "data_sessao",
+                        "calendar_interval": "month",
+                    }
+                },
             },
         }
         data = ES.request("POST", f"/{index}/_search", payload)
@@ -1500,8 +1846,11 @@ def es_facets(
 
     # Default: DOU facets
     filters = _build_filters(
-        date_from=date_from, date_to=date_to,
-        section=section, art_type=art_type, issuing_organ=issuing_organ,
+        date_from=date_from,
+        date_to=date_to,
+        section=section,
+        art_type=art_type,
+        issuing_organ=issuing_organ,
     )
     payload = {
         "size": 0,
@@ -1511,7 +1860,9 @@ def es_facets(
             "sections": {"terms": {"field": "edition_section", "size": 10}},
             "types": {"terms": {"field": "art_type.keyword", "size": size}},
             "organs": {"terms": {"field": "issuing_organ.keyword", "size": size}},
-            "by_month": {"date_histogram": {"field": "pub_date", "calendar_interval": "month"}},
+            "by_month": {
+                "date_histogram": {"field": "pub_date", "calendar_interval": "month"}
+            },
         },
     }
     data = ES.request("POST", f"/{index}/_search", payload)
@@ -1533,6 +1884,7 @@ def es_facets(
 # TOOL 4: es_document — Single document fetch
 # ---------------------------------------------------------------------------
 
+
 async def es_document(doc_id: str, source: str | None = None) -> dict[str, Any]:
     """Fetch a single document by its ID.
 
@@ -1549,7 +1901,12 @@ async def es_document(doc_id: str, source: str | None = None) -> dict[str, Any]:
         try:
             data = ES.request("GET", f"/{ES.tcu_index}/_doc/{doc_id}")
             src = data.get("_source", {})
-            return {"found": True, "doc_id": doc_id, "source_type": "tcu_acordao", "document": src}
+            return {
+                "found": True,
+                "doc_id": doc_id,
+                "source_type": "tcu_acordao",
+                "document": src,
+            }
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 404:
                 return {"found": False, "doc_id": doc_id}
@@ -1568,6 +1925,7 @@ async def es_document(doc_id: str, source: str | None = None) -> dict[str, Any]:
 # TOOL 5: es_health — Cluster diagnostics
 # ---------------------------------------------------------------------------
 
+
 def es_health() -> dict[str, Any]:
     """Cluster and index health summary with storage and performance stats for DOU and TCU."""
     health = ES.request("GET", "/_cluster/health")
@@ -1583,9 +1941,13 @@ def es_health() -> dict[str, Any]:
         primaries = idx_stats.get("_all", {}).get("primaries", {})
         stats = {
             "store_size_bytes": primaries.get("store", {}).get("size_in_bytes", 0),
-            "store_size_human": _human_bytes(primaries.get("store", {}).get("size_in_bytes", 0)),
+            "store_size_human": _human_bytes(
+                primaries.get("store", {}).get("size_in_bytes", 0)
+            ),
             "search_query_total": primaries.get("search", {}).get("query_total", 0),
-            "search_query_time_ms": primaries.get("search", {}).get("query_time_in_millis", 0),
+            "search_query_time_ms": primaries.get("search", {}).get(
+                "query_time_in_millis", 0
+            ),
         }
     except Exception:
         pass
@@ -1618,6 +1980,7 @@ def _human_bytes(n: int) -> str:
 # TOOL 6: es_more_like_this — Semantic similarity without vectors
 # ---------------------------------------------------------------------------
 
+
 def es_more_like_this(
     doc_id: str,
     max_results: int = 10,
@@ -1640,8 +2003,11 @@ def es_more_like_this(
     """
     max_results = max(1, min(max_results, 50))
     filters = _build_filters(
-        date_from=date_from, date_to=date_to,
-        section=section, art_type=None, issuing_organ=None,
+        date_from=date_from,
+        date_to=date_to,
+        section=section,
+        art_type=None,
+        issuing_organ=None,
     )
     filters.append({"bool": {"must_not": [{"term": {"_id": doc_id}}]}})
 
@@ -1651,16 +2017,18 @@ def es_more_like_this(
         "highlight": _HIGHLIGHT_SPEC,
         "query": {
             "bool": {
-                "must": [{
-                    "more_like_this": {
-                        "fields": ["identifica", "ementa", "body_plain"],
-                        "like": [{"_index": ES.index, "_id": doc_id}],
-                        "min_term_freq": 1,
-                        "min_doc_freq": 2,
-                        "max_query_terms": 25,
-                        "minimum_should_match": "30%",
-                    },
-                }],
+                "must": [
+                    {
+                        "more_like_this": {
+                            "fields": ["identifica", "ementa", "body_plain"],
+                            "like": [{"_index": ES.index, "_id": doc_id}],
+                            "min_term_freq": 1,
+                            "min_doc_freq": 2,
+                            "max_query_terms": 25,
+                            "minimum_should_match": "30%",
+                        },
+                    }
+                ],
                 "filter": filters,
             },
         },
@@ -1678,6 +2046,7 @@ def es_more_like_this(
 # ---------------------------------------------------------------------------
 # TOOL 7: es_significant_terms — Theme & concept discovery
 # ---------------------------------------------------------------------------
+
 
 def es_significant_terms(
     query: str,
@@ -1715,8 +2084,11 @@ def es_significant_terms(
         return {"error": "Provide a non-wildcard query or at least one filter."}
 
     filters = _build_filters(
-        date_from=date_from, date_to=date_to,
-        section=section, art_type=art_type, issuing_organ=issuing_organ,
+        date_from=date_from,
+        date_to=date_to,
+        section=section,
+        art_type=art_type,
+        issuing_organ=issuing_organ,
     )
 
     keyword_fields = {"edition_section", "art_type.keyword", "issuing_organ.keyword"}
@@ -1724,20 +2096,37 @@ def es_significant_terms(
 
     if field in keyword_fields or field.endswith(".keyword"):
         agg_field = field if field.endswith(".keyword") else f"{field}.keyword"
-        inner_agg: dict[str, Any] = {"significant_terms": {"field": agg_field, "size": size}}
+        inner_agg: dict[str, Any] = {
+            "significant_terms": {"field": agg_field, "size": size}
+        }
     elif field in text_fields:
-        inner_agg = {"significant_text": {"field": field, "size": size, "filter_duplicate_text": True}}
+        inner_agg = {
+            "significant_text": {
+                "field": field,
+                "size": size,
+                "filter_duplicate_text": True,
+            }
+        }
     else:
-        return {"error": f"Unsupported field: {field}. Use: {', '.join(sorted(text_fields | keyword_fields))}"}
+        return {
+            "error": f"Unsupported field: {field}. Use: {', '.join(sorted(text_fields | keyword_fields))}"
+        }
 
     # Wrap in sampler to avoid scanning millions of docs for text aggregations
     payload = {
         "size": 0,
         "query": {"bool": {"must": [_query_clause(q)], "filter": filters}},
-        "aggs": {"sampled": {"sampler": {"shard_size": 5000}, "aggs": {"sig": inner_agg}}},
+        "aggs": {
+            "sampled": {"sampler": {"shard_size": 5000}, "aggs": {"sig": inner_agg}}
+        },
     }
     data = ES.request("POST", f"/{ES.index}/_search", payload)
-    buckets = data.get("aggregations", {}).get("sampled", {}).get("sig", {}).get("buckets", [])
+    buckets = (
+        data.get("aggregations", {})
+        .get("sampled", {})
+        .get("sig", {})
+        .get("buckets", [])
+    )
     return {
         "query": query,
         "field": field,
@@ -1756,6 +2145,7 @@ def es_significant_terms(
 # ---------------------------------------------------------------------------
 # TOOL 8: es_timeline — Temporal distribution analysis
 # ---------------------------------------------------------------------------
+
 
 def es_timeline(
     query: str = "*",
@@ -1786,8 +2176,11 @@ def es_timeline(
         interval = "month"
 
     filters = _build_filters(
-        date_from=date_from, date_to=date_to,
-        section=section, art_type=art_type, issuing_organ=issuing_organ,
+        date_from=date_from,
+        date_to=date_to,
+        section=section,
+        art_type=art_type,
+        issuing_organ=issuing_organ,
     )
     payload = {
         "size": 0,
@@ -1795,7 +2188,11 @@ def es_timeline(
         "query": {"bool": {"must": [_query_clause(query)], "filter": filters}},
         "aggs": {
             "timeline": {
-                "date_histogram": {"field": "pub_date", "calendar_interval": interval, "min_doc_count": 1},
+                "date_histogram": {
+                    "field": "pub_date",
+                    "calendar_interval": interval,
+                    "min_doc_count": 1,
+                },
             },
             "date_range": {
                 "stats": {"field": "pub_date"},
@@ -1818,7 +2215,12 @@ def es_timeline(
         "periods": len(buckets),
         "first_date": date_stats.get("min_as_string"),
         "last_date": date_stats.get("max_as_string"),
-        "peak_period": {"date": peak.get("key_as_string"), "count": peak.get("doc_count")} if peak else None,
+        "peak_period": {
+            "date": peak.get("key_as_string"),
+            "count": peak.get("doc_count"),
+        }
+        if peak
+        else None,
         "timeline": [
             {"date": b.get("key_as_string"), "count": b.get("doc_count", 0)}
             for b in buckets
@@ -1829,6 +2231,7 @@ def es_timeline(
 # ---------------------------------------------------------------------------
 # TOOL 9: es_trending — Recent publication activity
 # ---------------------------------------------------------------------------
+
 
 def es_trending(
     days: int = 7,
@@ -1851,8 +2254,11 @@ def es_trending(
     days = max(1, min(days, 90))
     size = max(1, min(size, 30))
     filters = _build_filters(
-        date_from=f"now-{days}d/d", date_to=None,
-        section=section, art_type=None, issuing_organ=None,
+        date_from=f"now-{days}d/d",
+        date_to=None,
+        section=section,
+        art_type=None,
+        issuing_organ=None,
     )
     payload = {
         "size": 0,
@@ -1862,8 +2268,25 @@ def es_trending(
             "top_organs": {"terms": {"field": "issuing_organ.keyword", "size": size}},
             "top_types": {"terms": {"field": "art_type.keyword", "size": size}},
             "top_sections": {"terms": {"field": "edition_section", "size": 5}},
-            "daily_volume": {"date_histogram": {"field": "pub_date", "calendar_interval": "day", "min_doc_count": 1}},
-            "hot_terms_sampled": {"sampler": {"shard_size": 5000}, "aggs": {"hot_terms": {"significant_text": {"field": "identifica", "size": size, "filter_duplicate_text": True}}}},
+            "daily_volume": {
+                "date_histogram": {
+                    "field": "pub_date",
+                    "calendar_interval": "day",
+                    "min_doc_count": 1,
+                }
+            },
+            "hot_terms_sampled": {
+                "sampler": {"shard_size": 5000},
+                "aggs": {
+                    "hot_terms": {
+                        "significant_text": {
+                            "field": "identifica",
+                            "size": size,
+                            "filter_duplicate_text": True,
+                        }
+                    }
+                },
+            },
         },
     }
     data = ES.request("POST", f"/{ES.index}/_search", payload)
@@ -1881,8 +2304,14 @@ def es_trending(
             for b in aggs.get("daily_volume", {}).get("buckets", [])
         ],
         "trending_terms": [
-            {"term": b.get("key"), "doc_count": b.get("doc_count", 0), "score": round(float(b.get("score", 0.0)), 4)}
-            for b in aggs.get("hot_terms_sampled", {}).get("hot_terms", {}).get("buckets", [])
+            {
+                "term": b.get("key"),
+                "doc_count": b.get("doc_count", 0),
+                "score": round(float(b.get("score", 0.0)), 4),
+            }
+            for b in aggs.get("hot_terms_sampled", {})
+            .get("hot_terms", {})
+            .get("buckets", [])
         ],
     }
 
@@ -1890,6 +2319,7 @@ def es_trending(
 # ---------------------------------------------------------------------------
 # TOOL 10: es_cross_reference — Legal citation network
 # ---------------------------------------------------------------------------
+
 
 def es_cross_reference(
     reference: str,
@@ -1921,8 +2351,11 @@ def es_cross_reference(
     index = ES.resolve_index(source)
 
     filters = _build_filters(
-        date_from=date_from, date_to=date_to,
-        section=section, art_type=None, issuing_organ=None,
+        date_from=date_from,
+        date_to=date_to,
+        section=section,
+        art_type=None,
+        issuing_organ=None,
     )
 
     # Search across text fields that exist in both DOU and TCU indexes
@@ -1934,22 +2367,25 @@ def es_cross_reference(
         "track_total_hits": True,
         "query": {
             "bool": {
-                "must": [{
-                    "bool": {
-                        "should": [
-                            {"match_phrase": {field: {"query": ref}}}
-                            for field in text_fields
-                        ],
-                        "minimum_should_match": 1,
-                    },
-                }],
+                "must": [
+                    {
+                        "bool": {
+                            "should": [
+                                {"match_phrase": {field: {"query": ref}}}
+                                for field in text_fields
+                            ],
+                            "minimum_should_match": 1,
+                        },
+                    }
+                ],
                 "filter": filters,
             },
         },
         "sort": [{"_score": {"order": "desc"}}],
         "_source": _SOURCE_FIELDS + _TCU_SOURCE_FIELDS,
         "highlight": {
-            "pre_tags": [">>>"], "post_tags": ["<<<"],
+            "pre_tags": [">>>"],
+            "post_tags": ["<<<"],
             "fields": {
                 "body_plain": {"number_of_fragments": 1, "fragment_size": 300},
                 "acordao_texto": {"number_of_fragments": 1, "fragment_size": 300},
@@ -1959,7 +2395,13 @@ def es_cross_reference(
         "aggs": {
             "citing_organs": {"terms": {"field": "issuing_organ.keyword", "size": 10}},
             "citing_types": {"terms": {"field": "art_type.keyword", "size": 10}},
-            "citations_over_time": {"date_histogram": {"field": "pub_date", "calendar_interval": "year", "min_doc_count": 1}},
+            "citations_over_time": {
+                "date_histogram": {
+                    "field": "pub_date",
+                    "calendar_interval": "year",
+                    "min_doc_count": 1,
+                }
+            },
         },
     }
     data = ES.request("POST", f"/{index}/_search", payload)
@@ -1994,6 +2436,7 @@ def es_cross_reference(
 # TOOL 11: es_organ_profile — Publishing profile analysis
 # ---------------------------------------------------------------------------
 
+
 def es_organ_profile(
     organ: str,
     date_from: str | None = None,
@@ -2015,8 +2458,11 @@ def es_organ_profile(
         return {"error": "Provide an organ name."}
 
     filters = _build_filters(
-        date_from=date_from, date_to=date_to,
-        section=None, art_type=None, issuing_organ=organ,
+        date_from=date_from,
+        date_to=date_to,
+        section=None,
+        art_type=None,
+        issuing_organ=organ,
     )
 
     payload = {
@@ -2026,9 +2472,32 @@ def es_organ_profile(
         "aggs": {
             "act_types": {"terms": {"field": "art_type.keyword", "size": 20}},
             "sections": {"terms": {"field": "edition_section", "size": 5}},
-            "monthly_volume": {"date_histogram": {"field": "pub_date", "calendar_interval": "month", "min_doc_count": 1}},
-            "yearly_volume": {"date_histogram": {"field": "pub_date", "calendar_interval": "year", "min_doc_count": 1}},
-            "key_topics_sampled": {"sampler": {"shard_size": 5000}, "aggs": {"key_topics": {"significant_text": {"field": "identifica", "size": 15, "filter_duplicate_text": True}}}},
+            "monthly_volume": {
+                "date_histogram": {
+                    "field": "pub_date",
+                    "calendar_interval": "month",
+                    "min_doc_count": 1,
+                }
+            },
+            "yearly_volume": {
+                "date_histogram": {
+                    "field": "pub_date",
+                    "calendar_interval": "year",
+                    "min_doc_count": 1,
+                }
+            },
+            "key_topics_sampled": {
+                "sampler": {"shard_size": 5000},
+                "aggs": {
+                    "key_topics": {
+                        "significant_text": {
+                            "field": "identifica",
+                            "size": 15,
+                            "filter_duplicate_text": True,
+                        }
+                    }
+                },
+            },
             "date_range": {"stats": {"field": "pub_date"}},
         },
     }
@@ -2045,12 +2514,23 @@ def es_organ_profile(
         "total_publications": total,
         "first_publication": date_stats.get("min_as_string"),
         "latest_publication": date_stats.get("max_as_string"),
-        "peak_year": {"year": peak_year.get("key_as_string"), "count": peak_year.get("doc_count")} if peak_year else None,
+        "peak_year": {
+            "year": peak_year.get("key_as_string"),
+            "count": peak_year.get("doc_count"),
+        }
+        if peak_year
+        else None,
         "act_types": _extract_agg_buckets(aggs, "act_types"),
         "sections": _extract_agg_buckets(aggs, "sections"),
         "key_topics": [
-            {"term": b.get("key"), "doc_count": b.get("doc_count", 0), "score": round(float(b.get("score", 0.0)), 4)}
-            for b in aggs.get("key_topics_sampled", {}).get("key_topics", {}).get("buckets", [])
+            {
+                "term": b.get("key"),
+                "doc_count": b.get("doc_count", 0),
+                "score": round(float(b.get("score", 0.0)), 4),
+            }
+            for b in aggs.get("key_topics_sampled", {})
+            .get("key_topics", {})
+            .get("buckets", [])
         ],
         "yearly_volume": [
             {"year": b.get("key_as_string"), "count": b.get("doc_count", 0)}
@@ -2062,6 +2542,7 @@ def es_organ_profile(
 # ---------------------------------------------------------------------------
 # TOOL 12: es_compare_periods — Temporal comparative analysis
 # ---------------------------------------------------------------------------
+
 
 def es_compare_periods(
     query: str = "*",
@@ -2086,12 +2567,17 @@ def es_compare_periods(
       section: do1 | do2 | do3
     """
     if not all([period_a_from, period_a_to, period_b_from, period_b_to]):
-        return {"error": "All four period dates are required (period_a_from/to, period_b_from/to)."}
+        return {
+            "error": "All four period dates are required (period_a_from/to, period_b_from/to)."
+        }
 
     def _period_payload(d_from: str, d_to: str) -> dict[str, Any]:
         filters = _build_filters(
-            date_from=d_from, date_to=d_to,
-            section=section, art_type=None, issuing_organ=None,
+            date_from=d_from,
+            date_to=d_to,
+            section=section,
+            art_type=None,
+            issuing_organ=None,
         )
         return {
             "size": 0,
@@ -2100,16 +2586,31 @@ def es_compare_periods(
             "aggs": {
                 "types": {"terms": {"field": "art_type.keyword", "size": 15}},
                 "organs": {"terms": {"field": "issuing_organ.keyword", "size": 15}},
-                "sig_sampled": {"sampler": {"shard_size": 5000}, "aggs": {"sig_terms": {"significant_text": {"field": "identifica", "size": 10, "filter_duplicate_text": True}}}},
+                "sig_sampled": {
+                    "sampler": {"shard_size": 5000},
+                    "aggs": {
+                        "sig_terms": {
+                            "significant_text": {
+                                "field": "identifica",
+                                "size": 10,
+                                "filter_duplicate_text": True,
+                            }
+                        }
+                    },
+                },
             },
         }
 
-    responses = ES.msearch([
-        ({}, _period_payload(period_a_from, period_a_to)),
-        ({}, _period_payload(period_b_from, period_b_to)),
-    ])
+    responses = ES.msearch(
+        [
+            ({}, _period_payload(period_a_from, period_a_to)),
+            ({}, _period_payload(period_b_from, period_b_to)),
+        ]
+    )
 
-    def _extract_period(resp: dict[str, Any], label: str, d_from: str, d_to: str) -> dict[str, Any]:
+    def _extract_period(
+        resp: dict[str, Any], label: str, d_from: str, d_to: str
+    ) -> dict[str, Any]:
         aggs = resp.get("aggregations", {})
         total = int(resp.get("hits", {}).get("total", {}).get("value", 0))
         return {
@@ -2120,13 +2621,26 @@ def es_compare_periods(
             "types": _extract_agg_buckets(aggs, "types"),
             "organs": _extract_agg_buckets(aggs, "organs"),
             "distinctive_terms": [
-                {"term": b.get("key"), "doc_count": b.get("doc_count", 0), "score": round(float(b.get("score", 0.0)), 4)}
-                for b in aggs.get("sig_sampled", {}).get("sig_terms", {}).get("buckets", [])
+                {
+                    "term": b.get("key"),
+                    "doc_count": b.get("doc_count", 0),
+                    "score": round(float(b.get("score", 0.0)), 4),
+                }
+                for b in aggs.get("sig_sampled", {})
+                .get("sig_terms", {})
+                .get("buckets", [])
             ],
         }
 
-    period_a_data = _extract_period(responses[0] if responses else {}, "period_a", period_a_from, period_a_to)
-    period_b_data = _extract_period(responses[1] if len(responses) > 1 else {}, "period_b", period_b_from, period_b_to)
+    period_a_data = _extract_period(
+        responses[0] if responses else {}, "period_a", period_a_from, period_a_to
+    )
+    period_b_data = _extract_period(
+        responses[1] if len(responses) > 1 else {},
+        "period_b",
+        period_b_from,
+        period_b_to,
+    )
 
     # Compute delta
     total_a = period_a_data["total"]
@@ -2138,13 +2652,18 @@ def es_compare_periods(
         "period_a": period_a_data,
         "period_b": period_b_data,
         "volume_change_pct": change_pct,
-        "volume_direction": "increase" if change_pct > 0 else "decrease" if change_pct < 0 else "stable",
+        "volume_direction": "increase"
+        if change_pct > 0
+        else "decrease"
+        if change_pct < 0
+        else "stable",
     }
 
 
 # ---------------------------------------------------------------------------
 # TOOL 13: es_explain — Search quality debugging
 # ---------------------------------------------------------------------------
+
 
 def es_explain(
     query: str,
@@ -2161,7 +2680,10 @@ def es_explain(
     """
     q = _query_text(query)
     interpreted_query, section, art_type, issuing_organ = _infer_request_filters(
-        q, section=None, art_type=None, issuing_organ=None,
+        q,
+        section=None,
+        art_type=None,
+        issuing_organ=None,
     )
     payload = {"query": _query_clause(interpreted_query)}
 
@@ -2175,7 +2697,9 @@ def es_explain(
         }
         details = exp.get("details", [])
         if details and depth < 3:
-            result["details"] = [_simplify_explanation(d, depth + 1) for d in details[:8]]
+            result["details"] = [
+                _simplify_explanation(d, depth + 1) for d in details[:8]
+            ]
         return result
 
     return {
@@ -2205,7 +2729,11 @@ def _get_openai_embedding(text: str) -> list[float] | None:
             resp = client.post(
                 "https://api.openai.com/v1/embeddings",
                 headers={"Authorization": f"Bearer {api_key}"},
-                json={"model": _OPENAI_EMBED_MODEL, "input": [text], "dimensions": _OPENAI_EMBED_DIMS},
+                json={
+                    "model": _OPENAI_EMBED_MODEL,
+                    "input": [text],
+                    "dimensions": _OPENAI_EMBED_DIMS,
+                },
             )
             resp.raise_for_status()
             return resp.json()["data"][0]["embedding"]
@@ -2215,10 +2743,24 @@ def _get_openai_embedding(text: str) -> list[float] | None:
 
 
 _BTCU_SOURCE_FIELDS = [
-    "doc_id", "parent_btcu_id", "chunk_sequence", "caderno", "caderno_tipo",
-    "edicao_numero", "edicao_ano", "data_publicacao", "assunto",
-    "section_type", "section_title", "pdf_url", "num_pages", "page_range",
-    "acordaos_citados", "normative_references", "valores_monetarios", "valor_maximo",
+    "doc_id",
+    "parent_btcu_id",
+    "chunk_sequence",
+    "caderno",
+    "caderno_tipo",
+    "edicao_numero",
+    "edicao_ano",
+    "data_publicacao",
+    "assunto",
+    "section_type",
+    "section_title",
+    "pdf_url",
+    "num_pages",
+    "page_range",
+    "acordaos_citados",
+    "normative_references",
+    "valores_monetarios",
+    "valor_maximo",
     "source_type",
 ]
 
@@ -2248,32 +2790,37 @@ def _format_btcu_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 snippet_parts.extend(frags)
                 if len(snippet_parts) >= 2:
                     break
-        snippet = " … ".join(snippet_parts) if snippet_parts else (
-            src.get("assunto") or src.get("section_title") or ""
-        )[:280]
+        snippet = (
+            " … ".join(snippet_parts)
+            if snippet_parts
+            else (src.get("assunto") or src.get("section_title") or "")[:280]
+        )
 
-        results.append({
-            "doc_id": src.get("doc_id") or hit.get("_id"),
-            "score": round(float(hit.get("_score") or 0.0), 4),
-            "parent_btcu_id": src.get("parent_btcu_id"),
-            "caderno": src.get("caderno"),
-            "edicao_numero": src.get("edicao_numero"),
-            "edicao_ano": src.get("edicao_ano"),
-            "data_publicacao": src.get("data_publicacao"),
-            "assunto": src.get("assunto"),
-            "section_type": src.get("section_type"),
-            "section_title": src.get("section_title"),
-            "pdf_url": src.get("pdf_url"),
-            "page_range": src.get("page_range"),
-            "source_type": src.get("source_type", "tcu_btcu"),
-            "snippet": snippet,
-        })
+        results.append(
+            {
+                "doc_id": src.get("doc_id") or hit.get("_id"),
+                "score": round(float(hit.get("_score") or 0.0), 4),
+                "parent_btcu_id": src.get("parent_btcu_id"),
+                "caderno": src.get("caderno"),
+                "edicao_numero": src.get("edicao_numero"),
+                "edicao_ano": src.get("edicao_ano"),
+                "data_publicacao": src.get("data_publicacao"),
+                "assunto": src.get("assunto"),
+                "section_type": src.get("section_type"),
+                "section_title": src.get("section_title"),
+                "pdf_url": src.get("pdf_url"),
+                "page_range": src.get("page_range"),
+                "source_type": src.get("source_type", "tcu_btcu"),
+                "snippet": snippet,
+            }
+        )
     return results
 
 
 # ---------------------------------------------------------------------------
 # TOOL 16: es_btcu_search — BM25 keyword search on BTCU (Boletins do TCU)
 # ---------------------------------------------------------------------------
+
 
 def es_btcu_search(
     query: str,
@@ -2321,20 +2868,29 @@ def es_btcu_search(
         else:
             variant_clauses = []
             for variant in spelling_variants:
-                variant_clauses.append({
-                    "multi_match": {
-                        "query": variant,
-                        "type": "phrase",
-                        "fields": fields,
-                        "slop": 1,
-                    },
-                })
-            bm25_query = {"bool": {"should": variant_clauses, "minimum_should_match": 1}}
+                variant_clauses.append(
+                    {
+                        "multi_match": {
+                            "query": variant,
+                            "type": "phrase",
+                            "fields": fields,
+                            "slop": 1,
+                        },
+                    }
+                )
+            bm25_query = {
+                "bool": {"should": variant_clauses, "minimum_should_match": 1}
+            }
     else:
         bm25_query = {
             "multi_match": {
                 "query": query,
-                "fields": ["search_all", "section_title^2", "assunto^2", "texto_completo"],
+                "fields": [
+                    "search_all",
+                    "section_title^2",
+                    "assunto^2",
+                    "texto_completo",
+                ],
                 "type": "best_fields",
             },
         }
@@ -2387,10 +2943,22 @@ def es_btcu_search(
 # ---------------------------------------------------------------------------
 
 _NORMAS_SOURCE_FIELDS = [
-    "doc_id", "titulo", "assunto", "tipo_norma", "numero_norma", "ano_norma",
-    "situacao", "vigente", "data_inicio_vigencia", "data_fim_vigencia",
-    "origem", "unidade_autora", "numero_processo", "tema",
-    "source_type", "link_btcu",
+    "doc_id",
+    "titulo",
+    "assunto",
+    "tipo_norma",
+    "numero_norma",
+    "ano_norma",
+    "situacao",
+    "vigente",
+    "data_inicio_vigencia",
+    "data_fim_vigencia",
+    "origem",
+    "unidade_autora",
+    "numero_processo",
+    "tema",
+    "source_type",
+    "link_btcu",
 ]
 
 _NORMAS_HIGHLIGHT_SPEC: dict[str, Any] = {
@@ -2419,26 +2987,30 @@ def _format_normas_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 snippet_parts.extend(frags)
                 if len(snippet_parts) >= 2:
                     break
-        snippet = " … ".join(snippet_parts) if snippet_parts else (
-            src.get("assunto") or src.get("titulo") or ""
-        )[:280]
+        snippet = (
+            " … ".join(snippet_parts)
+            if snippet_parts
+            else (src.get("assunto") or src.get("titulo") or "")[:280]
+        )
 
-        results.append({
-            "doc_id": src.get("doc_id") or hit.get("_id"),
-            "score": round(float(hit.get("_score") or 0.0), 4),
-            "titulo": src.get("titulo"),
-            "assunto": src.get("assunto"),
-            "tipo_norma": src.get("tipo_norma"),
-            "numero_norma": src.get("numero_norma"),
-            "ano_norma": src.get("ano_norma"),
-            "vigente": src.get("vigente"),
-            "situacao": src.get("situacao"),
-            "origem": src.get("origem"),
-            "tema": src.get("tema"),
-            "source_type": src.get("source_type", "tcu_norma"),
-            "link_btcu": src.get("link_btcu"),
-            "snippet": snippet,
-        })
+        results.append(
+            {
+                "doc_id": src.get("doc_id") or hit.get("_id"),
+                "score": round(float(hit.get("_score") or 0.0), 4),
+                "titulo": src.get("titulo"),
+                "assunto": src.get("assunto"),
+                "tipo_norma": src.get("tipo_norma"),
+                "numero_norma": src.get("numero_norma"),
+                "ano_norma": src.get("ano_norma"),
+                "vigente": src.get("vigente"),
+                "situacao": src.get("situacao"),
+                "origem": src.get("origem"),
+                "tema": src.get("tema"),
+                "source_type": src.get("source_type", "tcu_norma"),
+                "link_btcu": src.get("link_btcu"),
+                "snippet": snippet,
+            }
+        )
     return results
 
 
@@ -2475,7 +3047,9 @@ def es_tcu_semantic_search(
     k = max(1, min(k, 50))
     query_vector = _get_openai_embedding(query)
     if query_vector is None:
-        return {"error": "Embedding service unavailable (OPENAI_API_KEY not set or API error)"}
+        return {
+            "error": "Embedding service unavailable (OPENAI_API_KEY not set or API error)"
+        }
 
     # Determine target index
     if source == "normas":
@@ -2495,7 +3069,13 @@ def es_tcu_semantic_search(
         if date_to:
             rng["lte"] = date_to
         # Use appropriate date field based on source
-        date_field = "data_inicio_vigencia" if source == "normas" else "data_publicacao" if source == "btcu" else "data_sessao"
+        date_field = (
+            "data_inicio_vigencia"
+            if source == "normas"
+            else "data_publicacao"
+            if source == "btcu"
+            else "data_sessao"
+        )
         filters.append({"range": {date_field: rng}})
     if colegiado:
         filters.append({"term": {"colegiado": colegiado}})
@@ -2529,7 +3109,9 @@ def es_tcu_semantic_search(
         payload["_source"] = _BTCU_SOURCE_FIELDS
         payload["highlight"] = _BTCU_HIGHLIGHT_SPEC
     elif source == "all":
-        payload["_source"] = list(set(_TCU_SOURCE_FIELDS + _NORMAS_SOURCE_FIELDS + _BTCU_SOURCE_FIELDS))
+        payload["_source"] = list(
+            set(_TCU_SOURCE_FIELDS + _NORMAS_SOURCE_FIELDS + _BTCU_SOURCE_FIELDS)
+        )
         payload["highlight"] = _TCU_HIGHLIGHT_SPEC
     else:
         payload["_source"] = _TCU_SOURCE_FIELDS
@@ -2574,6 +3156,7 @@ def es_tcu_semantic_search(
 # TOOL 15: es_tcu_similar — Find similar acórdãos via vector similarity
 # ---------------------------------------------------------------------------
 
+
 def es_tcu_similar(
     doc_id: str,
     source: str = "tcu",
@@ -2602,7 +3185,9 @@ def es_tcu_similar(
 
     # Fetch the source document's embedding from ES
     try:
-        doc_data = ES.request("GET", f"/{seed_index}/_source/{doc_id}?_source_includes=embedding,titulo")
+        doc_data = ES.request(
+            "GET", f"/{seed_index}/_source/{doc_id}?_source_includes=embedding,titulo"
+        )
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:
             return {"error": f"Document {doc_id} not found"}
@@ -2632,7 +3217,11 @@ def es_tcu_similar(
             "k": k + 1,
             "num_candidates": min((k + 1) * 4, 200),
         },
-        "_source": _NORMAS_SOURCE_FIELDS if is_normas else _BTCU_SOURCE_FIELDS if is_btcu else _TCU_SOURCE_FIELDS,
+        "_source": _NORMAS_SOURCE_FIELDS
+        if is_normas
+        else _BTCU_SOURCE_FIELDS
+        if is_btcu
+        else _TCU_SOURCE_FIELDS,
     }
 
     data = ES.request("POST", f"/{search_index}/_search", payload)
@@ -2743,7 +3332,9 @@ def get_mcp_sse_app():
                 headers = dict(scope.get("headers", []))
                 auth = (headers.get(b"authorization") or b"").decode()
                 if not auth.startswith("Bearer ") or auth[7:] != mcp_auth_token:
-                    resp = _JSONResp(status_code=401, content={"detail": "Invalid MCP auth token"})
+                    resp = _JSONResp(
+                        status_code=401, content={"detail": "Invalid MCP auth token"}
+                    )
                     await resp(scope, receive, send)
                     return
             await self.inner(scope, receive, send)
@@ -2752,18 +3343,28 @@ def get_mcp_sse_app():
 
 
 def get_mcp_streamable_app():
-    """Return the MCP Streamable HTTP ASGI app for mounting inside FastAPI.
+    """Return (asgi_app, session_manager) for mounting inside FastAPI.
+
+    The session_manager must be started via its async context manager in the
+    host app's lifespan::
+
+        async with session_manager.run():
+            yield
 
     Used by clients that speak the new MCP Streamable HTTP protocol (e.g. Codex).
+    Returns None if FastMCP lacks streamable HTTP support.
     """
     if mcp is None or not hasattr(mcp, "streamable_http_app"):
         return None
 
     app = mcp.streamable_http_app()
 
+    # Grab the session manager so the caller can run its lifespan
+    session_manager = mcp._session_manager
+
     mcp_auth_token = os.getenv("MCP_AUTH_TOKEN", "").strip()
     if not mcp_auth_token:
-        return app
+        return app, session_manager
 
     from starlette.responses import JSONResponse as _JSONResp
 
@@ -2776,12 +3377,14 @@ def get_mcp_streamable_app():
                 headers = dict(scope.get("headers", []))
                 auth = (headers.get(b"authorization") or b"").decode()
                 if not auth.startswith("Bearer ") or auth[7:] != mcp_auth_token:
-                    resp = _JSONResp(status_code=401, content={"detail": "Invalid MCP auth token"})
+                    resp = _JSONResp(
+                        status_code=401, content={"detail": "Invalid MCP auth token"}
+                    )
                     await resp(scope, receive, send)
                     return
             await self.inner(scope, receive, send)
 
-    return _AuthWrap(app)
+    return _AuthWrap(app), session_manager
 
 
 def main() -> int:
