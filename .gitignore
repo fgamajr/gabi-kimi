@@ -97,3 +97,11 @@ models/
 !src/backend/data/models/*.py
 .qwen/
 nohup.out
+
+# Scratch / temp files
+GEMINI.md
+plan.md
+plan2.md
+c.html
+id_ed25519*
+.playwright-mcp/

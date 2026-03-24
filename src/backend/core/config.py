@@ -58,10 +58,15 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins(self) -> list[str]:
-        return [origin.strip() for origin in self.GABI_CORS_ORIGINS.split(",") if origin.strip()]
-    
+        return [
+            origin.strip()
+            for origin in self.GABI_CORS_ORIGINS.split(",")
+            if origin.strip()
+        ]
+
     class Config:
         env_file = ".env"
         extra = "ignore"
+
 
 settings = Settings()
