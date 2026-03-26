@@ -84,4 +84,7 @@ log "TCU embeddings: btcu..."
 docker compose -f "${compose_file}" exec -T backend \
   python -m src.backend.ingest.tcu_embed --source btcu sync >>"${log_file}" 2>&1 || log "TCU BTCU embeddings failed (non-fatal)"
 
+log "Refreshing homepage caches (trending + editorial)..."
+"${script_dir}/update_homepage_cache.sh" >>"${log_file}" 2>&1 || log "Homepage cache refresh failed (non-fatal)"
+
 log "All daily ingest completed"

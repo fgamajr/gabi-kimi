@@ -89,9 +89,17 @@ The normalizer handles imperfect input:
 - "Lei Maria da Penha" → Lei 11.340/2006
 - "Lei de Licitações" → Lei 14.133/2021 + Lei 8.666/1993
 
-### Dynamic Trending
+### Homepage Cache Refresh
 
-`GET /api/trending` returns curated topics with publication counts. Updated by cron at 06:30 UTC. Homepage shows "Em alta no DOU" chips with trend indicators.
+`GET /api/trending` returns curated topics with publication counts, and `GET /api/editorial-highlights` serves the homepage editorial board from cache.
+
+The homepage cache is refreshed in two ways:
+- as part of the daily ingest pipeline after sync/embedding completes
+- by a backup cron around `09:00 America/Sao_Paulo` via `ops/bin/update_homepage_cache.sh`
+
+Homepage sections that depend on this refresh:
+- trending chips ("Em alta no DOU")
+- editorial highlights / news board
 
 ## API Endpoints
 
@@ -194,6 +202,7 @@ docker compose exec backend python -m src.backend.ingest.es_indexer stats
 |----------|------|
 | 06:00 UTC | Daily INLABS ingest (`run_daily_ingest.sh`) |
 | 07:00 UTC | ES reconciliation (`reconcile_es.sh`) |
+| 09:00 America/Sao_Paulo | Homepage cache refresh (`update_homepage_cache.sh`) |
 | 08:00 UTC | Temp file cleanup (`/tmp/gabi_*`) |
 
 ## ES Index
@@ -293,6 +302,7 @@ ops/
   bin/
     mac_daily_ingest.sh     # Mac→server ingest relay
     run_daily_ingest.sh     # Server-side daily cron
+    update_homepage_cache.sh # Refresh homepage trending + editorial cache
   container/
     frontend-prod.sh        # npm build + preview
     backend-prod.sh         # uvicorn production
