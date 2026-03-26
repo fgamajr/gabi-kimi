@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request as StarletteRequest
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from src.backend.core.config import settings
 from src.backend.data.db import MongoDB
@@ -76,16 +77,38 @@ async def lifespan(app: FastAPI):
         await _es.aclose()
 
 
-app = FastAPI(title="GABI DOU API", lifespan=lifespan)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+app = FastAPI(
+    title="GABI DOU API",
+    lifespan=lifespan,
+    docs_url="/docs" if settings.GABI_EXPOSE_API_DOCS else None,
+    openapi_url="/openapi.json" if settings.GABI_EXPOSE_API_DOCS else None,
+    redoc_url=None,
 )
 
+if settings.allowed_hosts:
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: StarletteRequest, call_next):
+        response = await call_next(request)
+
+        if not settings.GABI_ENABLE_SECURITY_HEADERS:
+            return response
+
+        response.headers.setdefault("Content-Security-Policy", settings.GABI_CSP)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", settings.GABI_FRAME_OPTIONS)
+        response.headers.setdefault("Referrer-Policy", settings.GABI_REFERRER_POLICY)
+        response.headers.setdefault("Permissions-Policy", settings.GABI_PERMISSIONS_POLICY)
+        response.headers.setdefault("Cross-Origin-Opener-Policy", settings.GABI_COOP)
+        response.headers.setdefault("Cross-Origin-Resource-Policy", settings.GABI_CORP)
+
+        hsts_value = settings.hsts_header
+        if hsts_value and request.url.scheme == "https":
+            response.headers.setdefault("Strict-Transport-Security", hsts_value)
+
+        return response
 
 class TokenAuthMiddleware(BaseHTTPMiddleware):
     """Validate-if-present bearer token auth.
@@ -120,6 +143,14 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(TokenAuthMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=settings.GABI_CORS_ALLOW_CREDENTIALS,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ---------------------------------------------------------------------------
 # MCP SSE endpoint (mounted at /mcp/)
@@ -869,11 +900,17 @@ async def api_root():
 
 
 @app.get("/api/health")
-async def health():
+async def health(request: StarletteRequest):
+    expose_details = settings.GABI_PUBLIC_HEALTH_DETAILS or bool(
+        getattr(request.state, "token_label", None)
+    )
+
     try:
         cluster = await es_request("GET", "/_cluster/health")
     except Exception as exc:
         logger.warning("health check failed to reach ES: %s", exc)
+        if not expose_details:
+            return JSONResponse(status_code=503, content={"status": "degraded"})
         return JSONResponse(
             status_code=503,
             content={
@@ -883,6 +920,9 @@ async def health():
                 "reranker_enabled": settings.RERANKER_ENABLED,
             },
         )
+
+    if not expose_details:
+        return {"status": "ok"}
 
     return {
         "status": "ok",
@@ -926,7 +966,6 @@ async def search(
         date_from, date_to, section, art_type, issuing_organ, topic
     )
 
-    use_hybrid = settings.VECTOR_SEARCH_ENABLED
     use_reranker = settings.RERANKER_ENABLED
 
     # When reranking, fetch more candidates from ES for the reranker to sort

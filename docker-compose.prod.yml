@@ -63,7 +63,11 @@ services:
     environment:
       BACKEND_INTERNAL_PORT: 8000
       PYTHONPATH: /opt/app
-      GABI_CORS_ORIGINS: ${GABI_CORS_ORIGINS:-http://localhost,http://127.0.0.1}
+      GABI_ALLOWED_HOSTS: ${GABI_ALLOWED_HOSTS:-gabidou.top,www.gabidou.top,localhost,127.0.0.1,backend}
+      GABI_CORS_ORIGINS: ${GABI_CORS_ORIGINS:-https://gabidou.top,https://www.gabidou.top}
+      GABI_CORS_ALLOW_CREDENTIALS: ${GABI_CORS_ALLOW_CREDENTIALS:-false}
+      GABI_EXPOSE_API_DOCS: ${GABI_EXPOSE_API_DOCS:-false}
+      GABI_PUBLIC_HEALTH_DETAILS: ${GABI_PUBLIC_HEALTH_DETAILS:-false}
       RERANKER_URL: ${RERANKER_URL:-http://reranker:8902}
       SPA_DIST_DIR: /shared/dist
       SITE_URL: ${SITE_URL:-https://gabidou.top}

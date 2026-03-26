@@ -13,7 +13,35 @@ class Settings(BaseSettings):
     ES_URL: str = "http://elasticsearch:9200"
     ES_INDEX: str = "gabi_documents_v3"
     ES_ALIAS: Optional[str] = "gabi_documents"
+    GABI_ALLOWED_HOSTS: str = "frontend,backend,localhost,127.0.0.1"
     GABI_CORS_ORIGINS: str = "http://localhost:8081,http://127.0.0.1:8081"
+    GABI_CORS_ALLOW_CREDENTIALS: bool = False
+    GABI_EXPOSE_API_DOCS: bool = True
+    GABI_PUBLIC_HEALTH_DETAILS: bool = False
+    GABI_ENABLE_SECURITY_HEADERS: bool = True
+    GABI_HSTS_MAX_AGE: int = 31536000
+    GABI_HSTS_INCLUDE_SUBDOMAINS: bool = True
+    GABI_HSTS_PRELOAD: bool = False
+    GABI_FRAME_OPTIONS: str = "DENY"
+    GABI_REFERRER_POLICY: str = "strict-origin-when-cross-origin"
+    GABI_PERMISSIONS_POLICY: str = (
+        "accelerometer=(), autoplay=(), camera=(), display-capture=(), geolocation=(), "
+        "gyroscope=(), magnetometer=(), microphone=(), payment=(), publickey-credentials-get=(), usb=()"
+    )
+    GABI_COOP: str = "same-origin"
+    GABI_CORP: str = "same-origin"
+    GABI_CSP: str = (
+        "default-src 'self'; "
+        "base-uri 'self'; "
+        "object-src 'none'; "
+        "frame-ancestors 'none'; "
+        "img-src 'self' data: https:; "
+        "style-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "connect-src 'self'; "
+        "form-action 'self'; "
+        "upgrade-insecure-requests"
+    )
 
     # Auth
     GABI_API_TOKENS: str = ""
@@ -63,6 +91,26 @@ class Settings(BaseSettings):
             for origin in self.GABI_CORS_ORIGINS.split(",")
             if origin.strip()
         ]
+
+    @property
+    def allowed_hosts(self) -> list[str]:
+        return [
+            host.strip()
+            for host in self.GABI_ALLOWED_HOSTS.split(",")
+            if host.strip()
+        ]
+
+    @property
+    def hsts_header(self) -> str | None:
+        if self.GABI_HSTS_MAX_AGE <= 0:
+            return None
+
+        parts = [f"max-age={self.GABI_HSTS_MAX_AGE}"]
+        if self.GABI_HSTS_INCLUDE_SUBDOMAINS:
+            parts.append("includeSubDomains")
+        if self.GABI_HSTS_PRELOAD:
+            parts.append("preload")
+        return "; ".join(parts)
 
     class Config:
         env_file = ".env"
