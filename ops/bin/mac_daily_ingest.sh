@@ -25,6 +25,21 @@ TMP_DIR="/tmp/gabi_daily_ingest"
 REMOTE_TMP="/tmp/gabi_daily_zips"
 FORCE=false
 
+# SSH options: keepalive every 30s (prevents NAT/firewall dropping long docker sessions),
+# ControlMaster reuses one TCP connection across all ssh/scp calls in this script.
+SSH_CTRL_DIR="/tmp/gabi_ssh_ctl"
+SSH_CTRL="$SSH_CTRL_DIR/%r@%h:%p"
+mkdir -p "$SSH_CTRL_DIR"
+SSH_OPTS="-o ControlMaster=auto -o ControlPath=$SSH_CTRL -o ControlPersist=120 \
+          -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
+          -o ConnectTimeout=15 -o BatchMode=yes"
+
+# Open the master connection once up front
+ssh $SSH_OPTS "$SERVER" true 2>/dev/null || true
+
+ssh()  { command ssh  $SSH_OPTS "$@"; }
+scp()  { command scp  -o "ControlPath=$SSH_CTRL" -o "ServerAliveInterval=30" -o "ServerAliveCountMax=10" "$@"; }
+
 # ── Parse args ──
 MODE="--days"
 MODE_VAL="3"
@@ -138,7 +153,7 @@ log "Transfer complete"
 # ── Step 3: Copy into container and process ──
 log "Step 3: Processing ZIPs on server (Mongo ingest)..."
 ssh "$SERVER" "
-docker cp $REMOTE_TMP gabi-kimi-backend:/tmp/daily_zips
+docker cp "$REMOTE_TMP/." gabi-kimi-backend:/tmp/daily_zips/
 
 # Build zip-path args
 zips=\$(find $REMOTE_TMP -name '*.zip' | sort)

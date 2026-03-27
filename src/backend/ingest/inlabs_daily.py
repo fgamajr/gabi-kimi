@@ -90,7 +90,9 @@ def _build_headers() -> dict[str, str]:
 def _resolve_credentials() -> tuple[str | None, str | None, str | None]:
     _load_env_files()
     user = (os.getenv("INLABS_USER") or "").strip() or None
-    password = (os.getenv("INLABS_PWD") or os.getenv("INLABS_PASSWORD") or "").strip() or None
+    password = (
+        os.getenv("INLABS_PWD") or os.getenv("INLABS_PASSWORD") or ""
+    ).strip() or None
     cookie = (os.getenv("GABI_INLABS_COOKIE") or "").strip() or None
     return user, password, cookie
 
@@ -111,12 +113,20 @@ class InlabsClient:
         adapter = HTTPAdapter(pool_connections=8, pool_maxsize=8, max_retries=retry)
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
+        # Route INLABS requests through a residential proxy to bypass WAF datacenter IP blocking.
+        # Set INLABS_PROXY=http://user:pass@host:port in .env to enable.
+        proxy_url = (os.getenv("INLABS_PROXY") or "").strip() or None
+        if proxy_url:
+            self.session.proxies = {"http": proxy_url, "https": proxy_url}
+            logger.info("INLABS proxy configured")
 
     def _request(self, method: str, url: str, **kwargs) -> requests.Response:
         headers = kwargs.pop("headers", {})
         merged_headers = _build_headers()
         merged_headers.update(headers)
-        response = self.session.request(method, url, headers=merged_headers, timeout=(10, 180), **kwargs)
+        response = self.session.request(
+            method, url, headers=merged_headers, timeout=(10, 180), **kwargs
+        )
         time.sleep(_REQUEST_DELAY_SEC)
         return response
 
@@ -137,7 +147,9 @@ class InlabsClient:
                 "email": self.user,
                 "password": self.password,
             }
-            response = self._request("POST", _LOGIN_URL, data=payload, allow_redirects=True)
+            response = self._request(
+                "POST", _LOGIN_URL, data=payload, allow_redirects=True
+            )
             response.raise_for_status()
             if "Request Rejected" in response.text:
                 raise RuntimeError("INLABS rejected the login request")
@@ -149,7 +161,9 @@ class InlabsClient:
                 return
 
         if self.cookie:
-            test_response = self._request("GET", _DATE_URL_TEMPLATE.format(date=_today_utc().isoformat()))
+            test_response = self._request(
+                "GET", _DATE_URL_TEMPLATE.format(date=_today_utc().isoformat())
+            )
             test_response.raise_for_status()
             if "Minha Conta" in test_response.text or "Olá " in test_response.text:
                 logger.info("Authenticated with INLABS using pre-existing cookie")
@@ -158,7 +172,9 @@ class InlabsClient:
         raise RuntimeError("INLABS authentication failed")
 
     def fetch_day_index(self, target_date: date) -> str:
-        response = self._request("GET", _DATE_URL_TEMPLATE.format(date=target_date.isoformat()))
+        response = self._request(
+            "GET", _DATE_URL_TEMPLATE.format(date=target_date.isoformat())
+        )
         response.raise_for_status()
         if "Request Rejected" in response.text:
             raise RuntimeError("INLABS rejected the request")
@@ -181,7 +197,9 @@ class InlabsClient:
             links.append((filename, absolute_url))
         return links
 
-    def download_day_zips(self, target_date: date, download_dir: Path | None = None) -> list[Path]:
+    def download_day_zips(
+        self, target_date: date, download_dir: Path | None = None
+    ) -> list[Path]:
         zip_links = self.list_day_zip_links(target_date)
         if not zip_links:
             logger.warning("No INLABS ZIPs found for %s", target_date.isoformat())
@@ -197,7 +215,9 @@ class InlabsClient:
             logger.info("Downloading INLABS ZIP %s", url)
             response = self._request("GET", url, stream=True)
             response.raise_for_status()
-            if "application/octet-stream" not in response.headers.get("Content-Type", ""):
+            if "application/octet-stream" not in response.headers.get(
+                "Content-Type", ""
+            ):
                 body = response.text[:200]
                 raise RuntimeError(f"Unexpected response for {filename}: {body}")
             with destination.open("wb") as handle:
@@ -222,7 +242,9 @@ def process_daily_zips(zip_paths: list[Path]) -> int:
     return total_docs
 
 
-def ingest_single_day(target_date: date, download_dir: Path | None = None) -> dict[str, int]:
+def ingest_single_day(
+    target_date: date, download_dir: Path | None = None
+) -> dict[str, int]:
     MongoDB.connect()
     collection = MongoDB.get_db()[os.getenv("MONGO_COLLECTION", "documents")]
     start = datetime(target_date.year, target_date.month, target_date.day)
@@ -244,14 +266,24 @@ def ingest_single_day(target_date: date, download_dir: Path | None = None) -> di
     }
 
 
-def ingest_month_to_date(year: int, month: int, *, end_date: date | None = None) -> dict[str, int]:
+def ingest_month_to_date(
+    year: int, month: int, *, end_date: date | None = None
+) -> dict[str, int]:
     MongoDB.connect()
     today = end_date or _today_utc()
     if year != today.year or month != today.month:
-        raise ValueError("INLABS month-to-date ingest only supports the current UTC month")
+        raise ValueError(
+            "INLABS month-to-date ingest only supports the current UTC month"
+        )
 
     start = date(year, month, 1)
-    totals = {"days_ok": 0, "days_failed": 0, "zip_count": 0, "processed_docs": 0, "inserted_delta": 0}
+    totals = {
+        "days_ok": 0,
+        "days_failed": 0,
+        "zip_count": 0,
+        "processed_docs": 0,
+        "inserted_delta": 0,
+    }
     client = InlabsClient()
     client.login()
 
@@ -266,16 +298,22 @@ def ingest_month_to_date(year: int, month: int, *, end_date: date | None = None)
             collection = MongoDB.get_db()[os.getenv("MONGO_COLLECTION", "documents")]
             start_dt = datetime(current_date.year, current_date.month, current_date.day)
             end_dt = start_dt + timedelta(days=1)
-            before_count = collection.count_documents({"pub_date": {"$gte": start_dt, "$lt": end_dt}})
+            before_count = collection.count_documents(
+                {"pub_date": {"$gte": start_dt, "$lt": end_dt}}
+            )
             processed_docs = process_daily_zips(zip_paths)
-            after_count = collection.count_documents({"pub_date": {"$gte": start_dt, "$lt": end_dt}})
+            after_count = collection.count_documents(
+                {"pub_date": {"$gte": start_dt, "$lt": end_dt}}
+            )
 
             totals["days_ok"] += 1
             totals["zip_count"] += len(zip_paths)
             totals["processed_docs"] += processed_docs
             totals["inserted_delta"] += max(0, after_count - before_count)
         except Exception as exc:
-            logger.warning("INLABS ingest failed for %s: %s", current_date.isoformat(), exc)
+            logger.warning(
+                "INLABS ingest failed for %s: %s", current_date.isoformat(), exc
+            )
             totals["days_failed"] += 1
 
     return totals
@@ -290,18 +328,34 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--date", type=str, help="Single day to ingest (YYYY-MM-DD)")
     parser.add_argument("--year", type=int, help="Year for month-to-date ingest")
     parser.add_argument("--month", type=int, help="Month for month-to-date ingest")
-    parser.add_argument("--zip-path", action="append", help="Process one or more already-downloaded ZIP paths")
-    parser.add_argument("--keep-temp", action="store_true", help="Keep downloaded ZIPs under the temp root")
+    parser.add_argument(
+        "--zip-path",
+        action="append",
+        help="Process one or more already-downloaded ZIP paths",
+    )
+    parser.add_argument(
+        "--keep-temp",
+        action="store_true",
+        help="Keep downloaded ZIPs under the temp root",
+    )
     return parser
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+    )
     args = build_parser().parse_args()
 
     if args.zip_path:
-        processed_docs = process_daily_zips([Path(path).expanduser() for path in args.zip_path])
-        logger.info("INLABS zip-path processing complete processed_docs=%s zip_count=%s", processed_docs, len(args.zip_path))
+        processed_docs = process_daily_zips(
+            [Path(path).expanduser() for path in args.zip_path]
+        )
+        logger.info(
+            "INLABS zip-path processing complete processed_docs=%s zip_count=%s",
+            processed_docs,
+            len(args.zip_path),
+        )
     elif args.date:
         target_date = date.fromisoformat(args.date)
         result = ingest_single_day(target_date)

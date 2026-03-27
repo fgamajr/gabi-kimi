@@ -50,7 +50,7 @@ docker compose exec frontend sh -c "cd /workspace/src/frontend/app && npm run li
 
 ## Key Gotchas
 
-- **INLABS WAF blocks Hetzner IP** — daily ingest runs from Mac, SCPs to server
+- **INLABS WAF blocks Hetzner datacenter IP** — solved via `INLABS_PROXY` (residential proxy in `.env`); Mac relay (`mac_daily_ingest.sh`) kept as fallback only
 - **Vector search + reranker disabled by default** — BM25-only in production
 - **Worker service** runs a continuous ES sync loop (30s polling); don't confuse with backend
 - **MCP server** is a separate process at `ops/bin/mcp_es_server.py`, not part of the FastAPI app

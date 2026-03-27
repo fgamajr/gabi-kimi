@@ -13,7 +13,7 @@
 
 ```
 INLABS (in.gov.br)
-    ↓  inlabs_daily.py (Mac relay or server cron)
+    ↓  inlabs_daily.py (server cron via residential proxy)
 MongoDB 7 (16M documents)
     ↓  es_indexer.py (cursor-based sync)
 Elasticsearch 8.15 (BM25 + function_score ranking)
@@ -160,28 +160,24 @@ done
 
 ### Daily ingest (from INLABS)
 
-**From the server** (if INLABS WAF allows):
+The server cron handles daily ingestion fully autonomously via a residential proxy that bypasses the INLABS WAF.
+
+**From the server** (primary path, runs via cron at 06:00 UTC):
 ```bash
-# Cron at 06:00 UTC
 docker compose exec backend python -m src.backend.ingest.inlabs_daily --year 2026 --month 3
 ```
 
-**From Mac** (INLABS WAF blocks Hetzner IP):
+Requires `INLABS_PROXY=http://user:pass@host:port` in `.env` — set to a residential proxy (e.g. Webshare.io) so the INLABS WAF does not block the Hetzner datacenter IP.
+
+**From Mac** (fallback / manual backfill only):
 ```bash
-# Shortcut in repo root
-./ingest.sh              # Last 3 days (skips existing)
-./ingest.sh --days 7     # Last week
-./ingest.sh --date 2026-03-19  # Specific day
-./ingest.sh --force      # Skip existence check
+ops/bin/mac_daily_ingest.sh              # Last 3 days (skips existing)
+ops/bin/mac_daily_ingest.sh --days 7     # Last week
+ops/bin/mac_daily_ingest.sh --date 2026-03-19  # Specific day
+ops/bin/mac_daily_ingest.sh --force      # Skip existence check
 ```
 
-The Mac script (`ops/bin/mac_daily_ingest.sh`):
-1. Checks ES for which days have docs (skips existing)
-2. Downloads ZIPs from INLABS (Mac not blocked by WAF)
-3. SCPs ZIPs to server
-4. Processes in backend container (MongoDB upsert with deduplication)
-5. Runs ES incremental sync
-6. Verifies final counts
+The Mac script downloads from INLABS (bypasses WAF via residential IP), SCPs ZIPs to the server, runs Mongo ingest + ES sync, and verifies counts. Use it for gap recovery or if the proxy is down.
 
 ### ES Indexer
 
@@ -261,6 +257,7 @@ docker compose up -d --build
 | `RERANKER_ENABLED` | `false` | Enable neural reranker |
 | `INLABS_USER` | — | INLABS login email |
 | `INLABS_PWD` | — | INLABS password |
+| `INLABS_PROXY` | — | Residential proxy URL (`http://user:pass@host:port`) to bypass INLABS WAF on Hetzner |
 
 ## Project Structure
 
@@ -371,7 +368,6 @@ claude mcp add --transport sse gabi-dou https://gabidou.top/mcp/sse \
 ## Backlog
 
 Open issues tracked in `.planning/todos/pending/`:
-- INLABS WAF blocks Hetzner IP (Mac relay workaround active)
 - Reranker CPU deployment (insufficient RAM)
 - Disk monitoring (volume at 84%)
 - ES reconciliation optimization
