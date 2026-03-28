@@ -129,6 +129,7 @@ export interface DocumentDetail {
 export interface StatsResponse {
   total_documents: number;
   total_sections: number;
+  tcu_documents: number;
   date_range: { min: string; max: string };
   last_updated?: string;
   [key: string]: unknown;

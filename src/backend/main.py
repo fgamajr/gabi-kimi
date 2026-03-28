@@ -100,7 +100,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", settings.GABI_FRAME_OPTIONS)
         response.headers.setdefault("Referrer-Policy", settings.GABI_REFERRER_POLICY)
-        response.headers.setdefault("Permissions-Policy", settings.GABI_PERMISSIONS_POLICY)
+        response.headers.setdefault(
+            "Permissions-Policy", settings.GABI_PERMISSIONS_POLICY
+        )
         response.headers.setdefault("Cross-Origin-Opener-Policy", settings.GABI_COOP)
         response.headers.setdefault("Cross-Origin-Resource-Policy", settings.GABI_CORP)
 
@@ -109,6 +111,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             response.headers.setdefault("Strict-Transport-Security", hsts_value)
 
         return response
+
 
 class TokenAuthMiddleware(BaseHTTPMiddleware):
     """Validate-if-present bearer token auth.
@@ -1328,9 +1331,13 @@ async def stats():
     max_date = aggs.get("max_date", {}).get("value_as_string", "")
     sections_count = len(aggs.get("sections", {}).get("buckets", []))
 
+    tcu_count_data = await es_request("GET", "/gabi_tcu_acordaos_v1/_count")
+    tcu_total = tcu_count_data.get("count", 0)
+
     return {
         "total_documents": total,
         "total_sections": sections_count,
+        "tcu_documents": tcu_total,
         "date_range": {
             "min": min_date[:10] if min_date else "",
             "max": max_date[:10] if max_date else "",

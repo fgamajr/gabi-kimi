@@ -214,7 +214,7 @@ const HomePage: React.FC = () => {
                 <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground">Documentos DOU</p>
               </div>
               <div className="space-y-1">
-                <p className="text-3xl font-black text-blue-600 dark:text-blue-400 tracking-tighter">519K+</p>
+                <p className="text-3xl font-black text-blue-600 dark:text-blue-400 tracking-tighter">{formatNumber(stats?.tcu_documents)}</p>
                 <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground">Base TCU</p>
               </div>
               <div className="space-y-1">
