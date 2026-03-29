@@ -28,14 +28,14 @@ _SOURCE_FIELDS = [
     "issuing_organ", "organization_path",
 ]
 
-_TCU_INDEX = "gabi_tcu_acordaos_v1"
+_TCU_INDEX = settings.TCU_ES_INDEX
 _TCU_SOURCE_FIELDS = [
     "doc_id", "titulo", "sumario", "tipo", "colegiado", "tipo_processo",
     "relator", "data_sessao", "numero_acordao", "ano_acordao",
     "entidade", "dispositivo_tipo", "dispositivo_resumo", "source_type",
 ]
 
-_NORMAS_INDEX = "gabi_tcu_normas_v1"
+_NORMAS_INDEX = settings.TCU_NORMAS_INDEX
 _NORMAS_SOURCE_FIELDS = [
     "doc_id", "titulo", "assunto", "tipo_norma", "numero_norma", "ano_norma",
     "situacao", "vigente", "data_inicio_vigencia", "origem", "source_type",

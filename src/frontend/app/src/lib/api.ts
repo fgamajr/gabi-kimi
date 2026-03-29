@@ -198,8 +198,8 @@ export interface EditorialHighlightsResponse {
 
 // --- API Functions ---
 
-async function fetchJSON<T>(url: string): Promise<T> {
-  const res = await fetch(url);
+async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, init);
   if (!res.ok) throw new Error(`API error: ${res.status}`);
   return res.json();
 }
@@ -233,7 +233,7 @@ export function getMediaUrl(docId: string, mediaName: string): string {
 }
 
 export function getStats(): Promise<StatsResponse> {
-  return fetchJSON(`${API_BASE}/stats`);
+  return fetchJSON(`${API_BASE}/stats`, { cache: 'no-store' });
 }
 
 export function getTypes(): Promise<TypeOption[]> {

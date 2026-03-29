@@ -63,6 +63,11 @@ services:
     environment:
       BACKEND_INTERNAL_PORT: 8000
       PYTHONPATH: /opt/app
+      MONGO_STRING: ${MONGO_STRING}
+      DB_NAME: ${DB_NAME:-gabi_dou}
+      ES_URL: ${ES_URL:-http://elasticsearch:9200}
+      ES_INDEX: ${ES_INDEX:-gabi_documents_v3}
+      ES_ALIAS: ${ES_ALIAS:-gabi_documents}
       GABI_ALLOWED_HOSTS: ${GABI_ALLOWED_HOSTS:-gabidou.top,www.gabidou.top,localhost,127.0.0.1,backend}
       GABI_CORS_ORIGINS: ${GABI_CORS_ORIGINS:-https://gabidou.top,https://www.gabidou.top}
       GABI_CORS_ALLOW_CREDENTIALS: ${GABI_CORS_ALLOW_CREDENTIALS:-false}
@@ -79,7 +84,7 @@ services:
     ports:
       - "8001:8000"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5).read()"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/live', timeout=5).read()"]
       interval: 15s
       timeout: 5s
       retries: 10
@@ -104,6 +109,11 @@ services:
       - .env
     environment:
       PYTHONPATH: /opt/app
+      MONGO_STRING: ${MONGO_STRING}
+      DB_NAME: ${DB_NAME:-gabi_dou}
+      ES_URL: ${ES_URL:-http://elasticsearch:9200}
+      ES_INDEX: ${ES_INDEX:-gabi_documents_v3}
+      ES_ALIAS: ${ES_ALIAS:-gabi_documents}
       RERANKER_URL: ${RERANKER_URL:-http://reranker:8902}
     working_dir: /opt/app
     command: ["sh", "/opt/container-scripts/worker-prod.sh"]

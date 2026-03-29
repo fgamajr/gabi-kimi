@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import argparse
+import io
 import logging
 import os
 import random
 import shutil
 import time
+import zipfile
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable
-from urllib.parse import urljoin
+from urllib.parse import parse_qs, urljoin, urlparse
 
 import requests
 from dotenv import load_dotenv
@@ -130,7 +132,7 @@ class InlabsClient:
         time.sleep(_REQUEST_DELAY_SEC)
         return response
 
-    def login(self) -> None:
+    def _login_once(self) -> None:
         if not ((self.user and self.password) or self.cookie):
             raise RuntimeError("INLABS credentials are not configured")
 
@@ -171,6 +173,20 @@ class InlabsClient:
 
         raise RuntimeError("INLABS authentication failed")
 
+    def login(self) -> None:
+        last_error: Exception | None = None
+        for attempt in range(1, 4):
+            try:
+                self._login_once()
+                return
+            except Exception as exc:
+                last_error = exc
+                logger.warning("INLABS login attempt %s/3 failed: %s", attempt, exc)
+                if attempt < 3:
+                    time.sleep(attempt * 2)
+        assert last_error is not None
+        raise last_error
+
     def fetch_day_index(self, target_date: date) -> str:
         response = self._request(
             "GET", _DATE_URL_TEMPLATE.format(date=target_date.isoformat())
@@ -188,14 +204,21 @@ class InlabsClient:
         links: list[tuple[str, str]] = []
         for anchor in root.xpath("//a[@href]"):
             href = anchor.get("href") or ""
-            filename = " ".join(anchor.itertext()).strip()
+            absolute_url = urljoin(_INLABS_BASE_URL, href.replace("&amp;", "&"))
+            query = parse_qs(urlparse(absolute_url).query)
+            filename = (query.get("dl") or [None])[0] or " ".join(anchor.itertext()).strip()
             if not filename.lower().endswith(".zip"):
                 continue
             if target_date.isoformat() not in filename:
                 continue
-            absolute_url = urljoin(_INLABS_BASE_URL, href.replace("&amp;", "&"))
             links.append((filename, absolute_url))
         return links
+
+    def _inspect_zip_entries(self, zip_bytes: bytes) -> tuple[int, list[str]]:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
+            names = archive.namelist()
+        xml_entries = [name for name in names if name.lower().endswith(".xml")]
+        return len(xml_entries), names[:10]
 
     def download_day_zips(
         self, target_date: date, download_dir: Path | None = None
@@ -224,6 +247,25 @@ class InlabsClient:
                 for chunk in response.iter_content(chunk_size=1024 * 1024):
                     if chunk:
                         handle.write(chunk)
+            zip_bytes = destination.read_bytes()
+            try:
+                xml_count, sample_entries = self._inspect_zip_entries(zip_bytes)
+            except zipfile.BadZipFile as exc:
+                logger.warning(
+                    "Skipping invalid INLABS archive %s: %s",
+                    filename,
+                    exc,
+                )
+                destination.unlink(missing_ok=True)
+                continue
+            if xml_count == 0:
+                logger.warning(
+                    "Skipping INLABS archive without XML entries %s sample_entries=%s",
+                    filename,
+                    sample_entries,
+                )
+                destination.unlink(missing_ok=True)
+                continue
             saved_paths.append(destination)
         return saved_paths
 
@@ -243,26 +285,33 @@ def process_daily_zips(zip_paths: list[Path]) -> int:
 
 
 def ingest_single_day(
-    target_date: date, download_dir: Path | None = None
+    target_date: date, download_dir: Path | None = None, *, skip_counts: bool = False
 ) -> dict[str, int]:
     MongoDB.connect()
     collection = MongoDB.get_db()[os.getenv("MONGO_COLLECTION", "documents")]
     start = datetime(target_date.year, target_date.month, target_date.day)
     end = start + timedelta(days=1)
-    before_count = collection.count_documents({"pub_date": {"$gte": start, "$lt": end}})
+    before_count = -1
+    after_count = -1
+    if not skip_counts:
+        before_count = collection.count_documents({"pub_date": {"$gte": start, "$lt": end}})
 
     client = InlabsClient()
     client.login()
     zip_paths = client.download_day_zips(target_date, download_dir=download_dir)
     processed_docs = process_daily_zips(zip_paths)
 
-    after_count = collection.count_documents({"pub_date": {"$gte": start, "$lt": end}})
+    if not skip_counts:
+        after_count = collection.count_documents({"pub_date": {"$gte": start, "$lt": end}})
+        inserted_delta = max(0, after_count - before_count)
+    else:
+        inserted_delta = processed_docs
     return {
         "zip_count": len(zip_paths),
         "processed_docs": processed_docs,
         "mongo_before": before_count,
         "mongo_after": after_count,
-        "inserted_delta": max(0, after_count - before_count),
+        "inserted_delta": inserted_delta,
     }
 
 
@@ -338,6 +387,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Keep downloaded ZIPs under the temp root",
     )
+    parser.add_argument(
+        "--skip-counts",
+        action="store_true",
+        help="Skip Mongo before/after date counts for faster daily ingest",
+    )
     return parser
 
 
@@ -358,7 +412,7 @@ def main() -> None:
         )
     elif args.date:
         target_date = date.fromisoformat(args.date)
-        result = ingest_single_day(target_date)
+        result = ingest_single_day(target_date, skip_counts=args.skip_counts)
         logger.info(
             "INLABS day complete date=%s zip_count=%s processed_docs=%s inserted_delta=%s mongo_before=%s mongo_after=%s",
             args.date,

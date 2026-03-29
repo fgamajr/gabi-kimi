@@ -5,6 +5,8 @@
 ## Live System
 
 - **15.8M+ documents** indexed from the Diário Oficial da União
+- **520K+ TCU acórdãos** (1992–2026) with semantic search and facets by colegiado/relator
+- **TCU Publicações Institucionais**: relatórios de auditoria, sumários executivos, cartilhas, manuais — scraped from portal.tcu.gov.br
 - **Intent-based search**: queries automatically classified as exact name, canonical law, person name, trending, or thematic exploration
 - **PDF generation**: DOU-style A4 PDFs with coat of arms, two-column layout, serif typography
 - **Light/dark mode** with system preference detection
@@ -363,7 +365,22 @@ claude mcp add --transport sse gabi-dou https://gabidou.top/mcp/sse \
 | Discover | `es_more_like_this`, `es_significant_terms`, `es_cross_reference` | Similar docs, themes, citation network |
 | Analyze | `es_timeline`, `es_trending`, `es_organ_profile`, `es_compare_periods` | Temporal trends, institutional analysis |
 | TCU Semantic | `es_tcu_semantic_search`, `es_tcu_similar` | kNN vector search on TCU embeddings (source: tcu/normas/btcu/all) |
+| TCU Publicações | `es_publicacoes_search` | Full-text search on TCU institutional publications (relatórios, cartilhas, sumários) |
 | Utility | `es_suggest`, `es_facets`, `es_document`, `es_health`, `es_explain` | Autocomplete, aggregations, debugging |
+
+### Traditional stdio server
+
+Run the MCP server directly in stdio mode:
+
+```bash
+./ops/bin/run_mcp_server.sh
+```
+
+Run the standalone SSE server on a custom port:
+
+```bash
+./ops/bin/run_mcp_server.sh --transport sse --port 8766
+```
 
 ## Backlog
 

@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     ES_URL: str = "http://elasticsearch:9200"
     ES_INDEX: str = "gabi_documents_v3"
     ES_ALIAS: Optional[str] = "gabi_documents"
+    TCU_ES_INDEX: str = "gabi_tcu_acordaos_v1"
+    TCU_NORMAS_INDEX: str = "gabi_tcu_normas_v1"
+    TCU_PUBLICACOES_INDEX: str = "gabi_tcu_publicacoes_v1"
     GABI_ALLOWED_HOSTS: str = "frontend,backend,localhost,127.0.0.1"
     GABI_CORS_ORIGINS: str = "http://localhost:8081,http://127.0.0.1:8081"
     GABI_CORS_ALLOW_CREDENTIALS: bool = False
@@ -95,9 +98,7 @@ class Settings(BaseSettings):
     @property
     def allowed_hosts(self) -> list[str]:
         return [
-            host.strip()
-            for host in self.GABI_ALLOWED_HOSTS.split(",")
-            if host.strip()
+            host.strip() for host in self.GABI_ALLOWED_HOSTS.split(",") if host.strip()
         ]
 
     @property

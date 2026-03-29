@@ -746,6 +746,9 @@ class ElasticClient:
         self.tcu_index = os.getenv("TCU_ES_INDEX", "gabi_tcu_acordaos_v1").strip()
         self.normas_index = os.getenv("TCU_NORMAS_INDEX", "gabi_tcu_normas_v1").strip()
         self.btcu_index = os.getenv("TCU_BTCU_INDEX", "gabi_tcu_btcu_v1").strip()
+        self.publicacoes_index = os.getenv(
+            "TCU_PUBLICACOES_INDEX", "gabi_tcu_publicacoes_v1"
+        ).strip()
         username = (os.getenv("ES_USERNAME") or "").strip() or None
         password = (os.getenv("ES_PASSWORD") or "").strip() or None
         verify_tls = _env_bool("ES_VERIFY_TLS", True)
@@ -764,10 +767,10 @@ class ElasticClient:
             return self.normas_index
         if source == "btcu":
             return self.btcu_index
+        if source == "publicacoes":
+            return self.publicacoes_index
         if source == "all":
-            return (
-                f"{self.index},{self.tcu_index},{self.normas_index},{self.btcu_index}"
-            )
+            return f"{self.index},{self.tcu_index},{self.normas_index},{self.btcu_index},{self.publicacoes_index}"
         return self.index
 
     def request(
@@ -2939,6 +2942,126 @@ def es_btcu_search(
 
 
 # ---------------------------------------------------------------------------
+# TOOL: es_publicacoes_search — Search TCU Publicações Institucionais
+# ---------------------------------------------------------------------------
+
+_PUBLICACOES_SOURCE_FIELDS = [
+    "doc_id",
+    "slug",
+    "title",
+    "pub_type",
+    "pub_date",
+    "description",
+    "pdf_urls",
+    "source_url",
+    "page_count",
+    "source_type",
+]
+
+_PUBLICACOES_HIGHLIGHT_SPEC: dict[str, Any] = {
+    "pre_tags": [">>>"],
+    "post_tags": ["<<<"],
+    "max_analyzed_offset": 500000,
+    "fields": {
+        "title": {"number_of_fragments": 0},
+        "description": {"number_of_fragments": 1, "fragment_size": 300},
+        "body_plain": {"number_of_fragments": 2, "fragment_size": 200},
+    },
+}
+
+
+def _format_publicacoes_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for hit in hits:
+        src = hit.get("_source", {})
+        hl = hit.get("highlight", {})
+        results.append(
+            {
+                "doc_id": src.get("doc_id"),
+                "title": src.get("title"),
+                "pub_type": src.get("pub_type"),
+                "pub_date": src.get("pub_date"),
+                "description": hl.get("description", [src.get("description", "")])[0],
+                "excerpt": hl.get("body_plain", [""])[0],
+                "pdf_urls": src.get("pdf_urls", []),
+                "source_url": src.get("source_url"),
+                "page_count": src.get("page_count"),
+                "score": round(hit.get("_score", 0), 4),
+            }
+        )
+    return results
+
+
+def es_publicacoes_search(
+    query: str,
+    pub_type: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    page: int = 1,
+    page_size: int = 10,
+) -> dict[str, Any]:
+    """Search TCU Publicações Institucionais (relatórios de auditoria, sumários executivos, cartilhas, etc.).
+
+    Args:
+        query:     Full-text search in Portuguese.
+        pub_type:  Filter by type slug, e.g. "sumarios-executivos",
+                   "relatorio-de-fiscalizacao", "cartilha-manual-ou-tutorial".
+        date_from: Start date filter (YYYY-MM-DD).
+        date_to:   End date filter (YYYY-MM-DD).
+        page:      Page number (1-indexed).
+        page_size: Results per page (max 50).
+    """
+    page = max(1, min(page, 500))
+    page_size = max(1, min(page_size, 50))
+    offset = (page - 1) * page_size
+
+    bm25_query: dict[str, Any] = {
+        "multi_match": {
+            "query": query,
+            "fields": ["search_all", "title^3", "description^2", "body_plain"],
+            "type": "best_fields",
+        }
+    }
+
+    filters: list[dict[str, Any]] = []
+    if pub_type:
+        filters.append({"term": {"pub_type": pub_type}})
+    if date_from or date_to:
+        rng: dict[str, str] = {}
+        if date_from:
+            rng["gte"] = date_from
+        if date_to:
+            rng["lte"] = date_to
+        filters.append({"range": {"pub_date": rng}})
+
+    full_query = (
+        {"bool": {"must": [bm25_query], "filter": filters}} if filters else bm25_query
+    )
+
+    payload: dict[str, Any] = {
+        "from": offset,
+        "size": page_size,
+        "track_total_hits": True,
+        "query": full_query,
+        "_source": _PUBLICACOES_SOURCE_FIELDS,
+        "highlight": _PUBLICACOES_HIGHLIGHT_SPEC,
+        "sort": [{"_score": {"order": "desc"}}],
+    }
+
+    data = ES.request("POST", f"/{ES.publicacoes_index}/_search", payload)
+    hits = data.get("hits", {}).get("hits", [])
+    total = int(data.get("hits", {}).get("total", {}).get("value", 0))
+
+    return {
+        "query": query,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "results": _format_publicacoes_hits(hits),
+    }
+
+
+# ---------------------------------------------------------------------------
 # TOOL 14: es_tcu_semantic_search — Semantic kNN search on TCU embeddings
 # ---------------------------------------------------------------------------
 
@@ -3302,6 +3425,7 @@ if FastMCP is not None:
     mcp.tool()(es_compare_periods)
     mcp.tool()(es_explain)
     mcp.tool()(es_btcu_search)
+    mcp.tool()(es_publicacoes_search)
     mcp.tool()(es_tcu_semantic_search)
     mcp.tool()(es_tcu_similar)
 else:
@@ -3357,10 +3481,37 @@ def get_mcp_streamable_app():
     if mcp is None or not hasattr(mcp, "streamable_http_app"):
         return None
 
-    app = mcp.streamable_http_app()
+    inner_app = mcp.streamable_http_app()
 
     # Grab the session manager so the caller can run its lifespan
     session_manager = mcp._session_manager
+
+    class _RootAliasWrap:
+        """Make a mounted streamable app accept both `/` and `/mcp`.
+
+        FastMCP's streamable HTTP app currently exposes its handler at `/mcp`.
+        When mounted inside another ASGI app, that yields a public path like
+        `/mcp-http/mcp`. We normalize `/mcp-http/` to the internal `/mcp`
+        route so clients can use the documented root endpoint.
+        """
+
+        def __init__(self, app):  # type: ignore
+            self.app = app
+
+        async def __call__(self, scope, receive, send):  # type: ignore
+            path = scope.get("path", "")
+            if scope["type"] == "http" and path in {
+                "",
+                "/",
+                "/mcp-http",
+                "/mcp-http/",
+            }:
+                scope = dict(scope)
+                scope["path"] = "/mcp"
+                scope["raw_path"] = b"/mcp"
+            await self.app(scope, receive, send)
+
+    app = _RootAliasWrap(inner_app)
 
     mcp_auth_token = os.getenv("MCP_AUTH_TOKEN", "").strip()
     if not mcp_auth_token:

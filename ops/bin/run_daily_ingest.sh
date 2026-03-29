@@ -15,24 +15,16 @@ log() {
   printf '[%s] %s\n' "$(date -u '+%Y-%m-%d %H:%M:%S')" "$*" | tee -a "${log_file}"
 }
 
-collect_year_months() {
+collect_dates() {
   python3 - "${rolling_window_days}" <<'PY'
 from datetime import datetime, timedelta, timezone
 import sys
 
 window_days = int(sys.argv[1])
 today = datetime.now(timezone.utc).date()
-months: list[tuple[int, int]] = []
-seen: set[tuple[int, int]] = set()
 for offset in range(window_days):
     current = today - timedelta(days=offset)
-    key = (current.year, current.month)
-    if key not in seen:
-        months.append(key)
-        seen.add(key)
-
-for year, month in sorted(months):
-    print(f"{year}-{month:02d}")
+    print(current.isoformat())
 PY
 }
 
@@ -40,15 +32,13 @@ log "Starting rolling ingest window (${rolling_window_days} days)"
 cd "${repo_root}"
 docker compose -f "${compose_file}" up -d mongo elasticsearch backend >>"${log_file}" 2>&1
 
-while read -r year_month; do
-  year="${year_month%-*}"
-  month="${year_month#*-}"
-  log "Syncing year=${year} month=${month}"
+while read -r target_date; do
+  log "INLABS daily sync date=${target_date}"
   docker compose -f "${compose_file}" exec -T backend \
-    python -m src.backend.ingest.sync_dou --year "${year}" --month "${month}" --skip-es-sync >>"${log_file}" 2>&1 || log "DOU sync failed for ${year}-${month} (non-fatal, likely INLABS WAF)"
-done < <(collect_year_months)
+    python -m src.backend.ingest.inlabs_daily --date "${target_date}" --skip-counts >>"${log_file}" 2>&1 || log "DOU sync failed for ${target_date} (non-fatal)"
+done < <(collect_dates)
 
-log "Rolling DOU ingest completed (or skipped due to INLABS WAF)"
+log "Rolling DOU ingest completed"
 
 # ── TCU sync: acórdãos (current year) + súmulas/jurisprudência ──
 log "TCU sync: re-ingesting current year acórdãos..."
@@ -73,6 +63,11 @@ docker compose -f "${compose_file}" exec -T backend \
   python -m src.backend.ingest.tcu_btcu_ingest --ingest --recent \
   --cache-dir /data/gabi_dou/tcu-btcu-pdf >>"${log_file}" 2>&1 || log "TCU BTCU sync failed (non-fatal)"
 
+# ── TCU Publicações Institucionais: relatórios, cartilhas, sumários ──
+log "TCU sync: publicações institucionais (relatórios, cartilhas, sumários)..."
+docker compose -f "${compose_file}" exec -T backend \
+  python -m src.backend.ingest.tcu_publicacoes_ingest --ingest --recent >>"${log_file}" 2>&1 || log "TCU publicações sync failed (non-fatal)"
+
 # ── Embeddings: process any pending docs ──
 log "TCU embeddings: acórdãos..."
 docker compose -f "${compose_file}" exec -T backend \
@@ -83,6 +78,10 @@ docker compose -f "${compose_file}" exec -T backend \
 log "TCU embeddings: btcu..."
 docker compose -f "${compose_file}" exec -T backend \
   python -m src.backend.ingest.tcu_embed --source btcu sync >>"${log_file}" 2>&1 || log "TCU BTCU embeddings failed (non-fatal)"
+
+log "Syncing Elasticsearch from Mongo before homepage refresh..."
+docker compose -f "${compose_file}" exec -T backend \
+  python -m src.backend.ingest.es_indexer sync >>"${log_file}" 2>&1 || log "ES sync failed before homepage refresh (non-fatal)"
 
 log "Refreshing homepage caches (trending + editorial)..."
 "${script_dir}/update_homepage_cache.sh" >>"${log_file}" 2>&1 || log "Homepage cache refresh failed (non-fatal)"

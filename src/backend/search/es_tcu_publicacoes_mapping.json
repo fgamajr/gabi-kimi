@@ -1,0 +1,83 @@
+{
+  "settings": {
+    "index": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "refresh_interval": "30s"
+    },
+    "analysis": {
+      "filter": {
+        "pt_br_stop": { "type": "stop", "stopwords": "_portuguese_" },
+        "pt_br_stemmer": { "type": "stemmer", "language": "light_portuguese" },
+        "pt_br_synonym": {
+          "type": "synonym",
+          "lenient": true,
+          "synonyms": [
+            "portaria,port", "resolucao,res", "instrucao normativa,in",
+            "decreto,dec", "acordao,ac", "tribunal de contas,tcu",
+            "relatorio,rel", "sumario executivo,sumex", "fiscalizacao,fisc"
+          ]
+        }
+      },
+      "analyzer": {
+        "pt_br_full": {
+          "tokenizer": "standard",
+          "filter": ["lowercase", "asciifolding", "pt_br_stop", "pt_br_stemmer", "pt_br_synonym"]
+        },
+        "pt_br_folded": {
+          "tokenizer": "standard",
+          "filter": ["lowercase", "asciifolding", "pt_br_stop", "pt_br_stemmer"]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "dynamic": false,
+    "properties": {
+      "doc_id":        { "type": "keyword" },
+      "slug":          { "type": "keyword" },
+      "source_type":   { "type": "keyword" },
+
+      "title": {
+        "type": "text",
+        "analyzer": "pt_br_full",
+        "fields": { "keyword": { "type": "keyword", "ignore_above": 512 } }
+      },
+      "description": {
+        "type": "text",
+        "analyzer": "pt_br_full"
+      },
+      "body_plain": {
+        "type": "text",
+        "analyzer": "pt_br_folded"
+      },
+      "search_all": {
+        "type": "text",
+        "analyzer": "pt_br_full"
+      },
+
+      "pub_type":    { "type": "keyword" },
+      "pub_date": {
+        "type": "date",
+        "format": "strict_date_optional_time||yyyy-MM-dd"
+      },
+
+      "pdf_urls":    { "type": "keyword" },
+      "source_url":  { "type": "keyword", "index": false },
+      "page_count":  { "type": "integer" },
+
+      "indexed_at": {
+        "type": "date",
+        "format": "strict_date_optional_time"
+      },
+      "deterministic_hash": { "type": "keyword" },
+      "embedding_status":   { "type": "keyword" },
+      "embedding": {
+        "type": "dense_vector",
+        "dims": 1536,
+        "index": true,
+        "similarity": "cosine"
+      }
+    }
+  }
+}

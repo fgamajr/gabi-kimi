@@ -10,7 +10,7 @@ import httpx
 from fastapi import FastAPI, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.datastructures import Headers, MutableHeaders
 from starlette.requests import Request as StarletteRequest
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -89,31 +89,38 @@ if settings.allowed_hosts:
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
 
 
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: StarletteRequest, call_next):
-        response = await call_next(request)
+class SecurityHeadersMiddleware:
+    def __init__(self, app):
+        self.app = app
 
-        if not settings.GABI_ENABLE_SECURITY_HEADERS:
-            return response
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or not settings.GABI_ENABLE_SECURITY_HEADERS:
+            await self.app(scope, receive, send)
+            return
 
-        response.headers.setdefault("Content-Security-Policy", settings.GABI_CSP)
-        response.headers.setdefault("X-Content-Type-Options", "nosniff")
-        response.headers.setdefault("X-Frame-Options", settings.GABI_FRAME_OPTIONS)
-        response.headers.setdefault("Referrer-Policy", settings.GABI_REFERRER_POLICY)
-        response.headers.setdefault(
-            "Permissions-Policy", settings.GABI_PERMISSIONS_POLICY
-        )
-        response.headers.setdefault("Cross-Origin-Opener-Policy", settings.GABI_COOP)
-        response.headers.setdefault("Cross-Origin-Resource-Policy", settings.GABI_CORP)
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers.setdefault("Content-Security-Policy", settings.GABI_CSP)
+                headers.setdefault("X-Content-Type-Options", "nosniff")
+                headers.setdefault("X-Frame-Options", settings.GABI_FRAME_OPTIONS)
+                headers.setdefault("Referrer-Policy", settings.GABI_REFERRER_POLICY)
+                headers.setdefault(
+                    "Permissions-Policy", settings.GABI_PERMISSIONS_POLICY
+                )
+                headers.setdefault("Cross-Origin-Opener-Policy", settings.GABI_COOP)
+                headers.setdefault("Cross-Origin-Resource-Policy", settings.GABI_CORP)
 
-        hsts_value = settings.hsts_header
-        if hsts_value and request.url.scheme == "https":
-            response.headers.setdefault("Strict-Transport-Security", hsts_value)
+                hsts_value = settings.hsts_header
+                if hsts_value and scope.get("scheme") == "https":
+                    headers.setdefault("Strict-Transport-Security", hsts_value)
 
-        return response
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
 
 
-class TokenAuthMiddleware(BaseHTTPMiddleware):
+class TokenAuthMiddleware:
     """Validate-if-present bearer token auth.
 
     - No GABI_API_TOKENS configured → all requests pass (dev mode).
@@ -121,28 +128,41 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
     - Request has Authorization: Bearer <token> → validate, 401 if invalid.
     """
 
-    async def dispatch(self, request: StarletteRequest, call_next):
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
         if not settings.api_tokens:
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
         # MCP endpoint handles its own auth via MCP_AUTH_TOKEN
-        if request.url.path.startswith("/mcp"):
-            return await call_next(request)
+        if scope.get("path", "").startswith("/mcp"):
+            await self.app(scope, receive, send)
+            return
 
-        auth_header = request.headers.get("authorization")
+        auth_header = Headers(scope=scope).get("authorization")
         if auth_header:
             if not auth_header.startswith("Bearer "):
-                return JSONResponse(
+                response = JSONResponse(
                     status_code=401, content={"detail": "Invalid authorization header"}
                 )
+                await response(scope, receive, send)
+                return
             token = auth_header[7:]
             if token not in settings.api_tokens:
-                return JSONResponse(
+                response = JSONResponse(
                     status_code=401, content={"detail": "Invalid API token"}
                 )
-            request.state.token_label = settings.api_tokens[token]
+                await response(scope, receive, send)
+                return
+            scope.setdefault("state", {})["token_label"] = settings.api_tokens[token]
 
-        return await call_next(request)
+        await self.app(scope, receive, send)
 
 
 app.add_middleware(TokenAuthMiddleware)
@@ -510,8 +530,8 @@ def _build_filters(
 # TCU index support
 # ---------------------------------------------------------------------------
 
-_TCU_INDEX = "gabi_tcu_acordaos_v1"
-_TCU_NORMAS_INDEX = "gabi_tcu_normas_v1"
+_TCU_INDEX = settings.TCU_ES_INDEX
+_TCU_NORMAS_INDEX = settings.TCU_NORMAS_INDEX
 _OPENAI_EMBED_MODEL = "text-embedding-3-small"
 _OPENAI_EMBED_DIMS = 1536
 _RERANK_POOL_SIZE = 100
@@ -570,6 +590,18 @@ async def _get_openai_query_embedding(query: str) -> list[float] | None:
             "OpenAI embedding failed, falling back to BM25-only", exc_info=True
         )
         return None
+
+
+async def _safe_es_count(index_name: str) -> int:
+    """Return 0 when an optional index is absent instead of failing the API."""
+    try:
+        count_data = await es_request("GET", f"/{index_name}/_count")
+        return int(count_data.get("count", 0))
+    except httpx.HTTPStatusError as exc:
+        if exc.response is not None and exc.response.status_code == 404:
+            logger.warning("Optional ES index missing for count: %s", index_name)
+            return 0
+        raise
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -698,7 +730,6 @@ async def _tcu_search(
     Pass 1: BM25 on target indexes → pool of candidates (unified score scale)
     Pass 2: For docs with embeddings → cosine similarity boost; others keep BM25 score
     """
-    _TCU_NORMAS_INDEX = "gabi_tcu_normas_v1"
     if source == "all":
         index = f"{settings.es_target_index},{_TCU_INDEX},{_TCU_NORMAS_INDEX}"
     elif source == "tcu_normas":
@@ -900,6 +931,16 @@ async def _tcu_search(
 @app.get("/api/root")
 async def api_root():
     return {"message": "GABI DOU API is running"}
+
+
+@app.get("/api/live")
+async def live():
+    """Liveness probe for container healthchecks.
+
+    This endpoint intentionally does not depend on Elasticsearch so transient
+    search outages do not cause the API container to flap as unhealthy.
+    """
+    return {"status": "live"}
 
 
 @app.get("/api/health")
@@ -1331,19 +1372,21 @@ async def stats():
     max_date = aggs.get("max_date", {}).get("value_as_string", "")
     sections_count = len(aggs.get("sections", {}).get("buckets", []))
 
-    tcu_count_data = await es_request("GET", "/gabi_tcu_acordaos_v1/_count")
-    tcu_total = tcu_count_data.get("count", 0)
+    tcu_total = await _safe_es_count(settings.TCU_ES_INDEX)
 
-    return {
-        "total_documents": total,
-        "total_sections": sections_count,
-        "tcu_documents": tcu_total,
-        "date_range": {
-            "min": min_date[:10] if min_date else "",
-            "max": max_date[:10] if max_date else "",
+    return JSONResponse(
+        content={
+            "total_documents": total,
+            "total_sections": sections_count,
+            "tcu_documents": tcu_total,
+            "date_range": {
+                "min": min_date[:10] if min_date else "",
+                "max": max_date[:10] if max_date else "",
+            },
+            "last_updated": max_date[:10] if max_date else None,
         },
-        "last_updated": max_date[:10] if max_date else None,
-    }
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
 
 
 @app.get("/api/types")
