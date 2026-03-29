@@ -2,7 +2,7 @@
 
 Two-phase scraping:
   Phase 1: Paginate https://portal.tcu.gov.br/publicacoes-institucionais/todas
-           with delta=100 (3 requests for ~242 publications). Extracts title,
+           (~20 per page, stop when no new slugs). Extracts title,
            description, slug, pub_type from SSR HTML (Liferay CMS — no JS needed).
   Phase 2: For each publication not yet fully scraped, visit its detail page to
            extract pub_date (DD/MM/YYYY) and direct PDF download URLs.
@@ -23,7 +23,6 @@ from lxml import html
 
 _BASE_URL = "https://portal.tcu.gov.br"
 _LISTING_URL = f"{_BASE_URL}/publicacoes-institucionais/todas"
-_DELTA = 100  # items per page; portal supports up to 100
 _DELAY_SEC = 0.5  # polite rate limit between requests
 _USER_AGENT = "GABI-DOU/1.0 (legal search; +https://gabidou.top)"
 
@@ -172,8 +171,8 @@ def _scrape_listing_pages(client: httpx.Client) -> list[PublicacaoEntry]:
 
     page = 1
     while True:
-        params = {"pagina": str(page), "delta": str(_DELTA)}
-        _log(f"listing page {page} (delta={_DELTA})…")
+        params = {"pagina": str(page)}
+        _log(f"listing page {page}…")
         try:
             resp = client.get(_LISTING_URL, params=params)
             resp.raise_for_status()
@@ -197,8 +196,8 @@ def _scrape_listing_pages(client: httpx.Client) -> list[PublicacaoEntry]:
             f"  page {page}: {len(entries)} found, {new} new (total {len(all_entries)})"
         )
 
-        if len(entries) < _DELTA:
-            _log("  partial page — reached end of listing")
+        if new == 0:
+            _log("  no new entries — reached end of listing")
             break
 
         page += 1
