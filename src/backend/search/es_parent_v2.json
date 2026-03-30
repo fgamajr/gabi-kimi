@@ -1,0 +1,212 @@
+{
+  "settings": {
+    "index": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "refresh_interval": "30s"
+    },
+    "analysis": {
+      "filter": {
+        "pt_br_stop": {
+          "type": "stop",
+          "stopwords": "_portuguese_"
+        },
+        "pt_br_stemmer": {
+          "type": "stemmer",
+          "language": "light_portuguese"
+        },
+        "pt_br_synonym": {
+          "type": "synonym",
+          "lenient": true,
+          "synonyms": [
+            "portaria,port",
+            "resolucao,res",
+            "instrucao normativa,in",
+            "decreto,dec",
+            "medida provisoria,mp"
+          ]
+        }
+      },
+      "analyzer": {
+        "pt_br_full": {
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "asciifolding",
+            "pt_br_stop",
+            "pt_br_stemmer",
+            "pt_br_synonym"
+          ]
+        },
+        "pt_br_folded": {
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "asciifolding",
+            "pt_br_stop",
+            "pt_br_stemmer"
+          ]
+        },
+        "keyword_lower": {
+          "tokenizer": "keyword",
+          "filter": ["lowercase", "asciifolding"]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "dynamic": false,
+    "properties": {
+      "doc_id": { "type": "keyword" },
+      "logical_doc_id": { "type": "keyword" },
+      "deterministic_hash": { "type": "keyword" },
+      "schema_version": { "type": "keyword" },
+      "pipeline_fingerprint": { "type": "keyword" },
+      "signal_version": { "type": "keyword" },
+      "entity_dictionary_version": { "type": "keyword" },
+      "entity_resolution_version": { "type": "keyword" },
+      "chunk_index_version": { "type": "keyword" },
+      "chunk_enabled_flag": { "type": "boolean" },
+      "freshness_version": { "type": "keyword" },
+      "embedding_version": { "type": "keyword" },
+      "legal_update_version": { "type": "keyword" },
+      "indexed_at": {
+        "type": "date",
+        "format": "strict_date_optional_time"
+      },
+      "updated_at": {
+        "type": "date",
+        "format": "strict_date_optional_time"
+      },
+      "identifica": {
+        "type": "text",
+        "analyzer": "pt_br_full",
+        "fields": {
+          "keyword": { "type": "keyword", "ignore_above": 1024 }
+        }
+      },
+      "normalized_title": { "type": "keyword", "ignore_above": 1024 },
+      "ementa": {
+        "type": "text",
+        "analyzer": "pt_br_full"
+      },
+      "body_plain": {
+        "type": "text",
+        "analyzer": "pt_br_folded"
+      },
+      "search_all": {
+        "type": "text",
+        "analyzer": "pt_br_full"
+      },
+      "art_type": { "type": "keyword" },
+      "art_type_normalized": { "type": "keyword" },
+      "art_category": {
+        "type": "text",
+        "analyzer": "keyword_lower",
+        "fields": {
+          "keyword": { "type": "keyword", "ignore_above": 512 }
+        }
+      },
+      "art_class_hierarchy": { "type": "keyword" },
+      "issuing_organ": {
+        "type": "text",
+        "analyzer": "pt_br_folded",
+        "fields": {
+          "keyword": { "type": "keyword", "ignore_above": 1024 }
+        }
+      },
+      "organization_path": {
+        "type": "keyword",
+        "ignore_above": 1024
+      },
+      "affected_entities_normalized": {
+        "type": "keyword",
+        "ignore_above": 256
+      },
+      "section": { "type": "keyword" },
+      "edition_number": { "type": "keyword" },
+      "edition_id": { "type": "keyword" },
+      "edition_date": {
+        "type": "date",
+        "format": "strict_date_optional_time||yyyy-MM-dd"
+      },
+      "edition_type": { "type": "keyword" },
+      "is_extra_edition": { "type": "boolean" },
+      "page_number": { "type": "keyword" },
+      "pub_date": {
+        "type": "date",
+        "format": "strict_date_optional_time||yyyy-MM-dd"
+      },
+      "document_number": { "type": "keyword", "ignore_above": 256 },
+      "document_year": { "type": "integer" },
+      "primary_signer": { "type": "keyword", "ignore_above": 512 },
+      "primary_signer_normalized": { "type": "keyword", "ignore_above": 512 },
+      "signers_all_flat": { "type": "keyword", "ignore_above": 512 },
+      "signer_roles_flat": { "type": "keyword", "ignore_above": 512 },
+      "has_multiple_signers": { "type": "boolean" },
+      "signature_count": { "type": "integer" },
+      "references_flat": { "type": "keyword", "ignore_above": 512 },
+      "reference_types": { "type": "keyword" },
+      "reference_count": { "type": "integer" },
+      "procedure_refs_flat": { "type": "keyword", "ignore_above": 512 },
+      "relation_action_types": { "type": "keyword" },
+      "relation_target_keys": { "type": "keyword", "ignore_above": 512 },
+      "is_tombstone": { "type": "boolean" },
+      "is_retification": { "type": "boolean" },
+      "is_revocation": { "type": "boolean" },
+      "is_multipart": { "type": "boolean" },
+      "multipart_seq": { "type": "integer" },
+      "part_count": { "type": "integer" },
+      "split_segment_index": { "type": "integer" },
+      "was_blob_split": { "type": "boolean" },
+      "was_page_fragment_merged": { "type": "boolean" },
+      "reconstruction_status": { "type": "keyword" },
+      "reconstruction_confidence": { "type": "float" },
+      "parse_quality_score": { "type": "float" },
+      "reconstruction_trust_score": { "type": "float" },
+      "authority_score": { "type": "float" },
+      "entity_density": { "type": "float" },
+      "legal_reference_density": { "type": "float" },
+      "legal_action_score": { "type": "float" },
+      "text_language": { "type": "keyword" },
+      "source_url": { "type": "keyword", "ignore_above": 2048 },
+      "source_zip": { "type": "keyword" },
+      "topics": { "type": "keyword" },
+      "topic_primary": { "type": "keyword" },
+      "embedding": {
+        "type": "dense_vector",
+        "dims": 384,
+        "index": true,
+        "similarity": "cosine"
+      },
+      "embedding_status": { "type": "keyword" },
+      "embedding_model": { "type": "keyword" },
+      "raw_chunk_candidate_count": { "type": "integer" },
+      "retained_chunk_count": { "type": "integer" },
+      "pruned_chunk_count": { "type": "integer" },
+      "pruning_reason": { "type": "keyword" },
+      "pruning_audit_version": { "type": "keyword" },
+      "freshness_score": { "type": "float" },
+      "time_decay_precomputed": { "type": "float" },
+      "days_since_pub": { "type": "integer" },
+      "freshness_bucket": { "type": "keyword" },
+      "freshness_last_updated_at": {
+        "type": "date",
+        "format": "strict_date_optional_time"
+      },
+      "freshness_ttl_sec": { "type": "integer" },
+      "freshness_is_stale": { "type": "boolean" },
+      "rerank_text": {
+        "type": "text",
+        "analyzer": "pt_br_full"
+      },
+      "lead_passage": {
+        "type": "text",
+        "analyzer": "pt_br_folded"
+      },
+      "citation_anchors": { "type": "keyword", "ignore_above": 512 },
+      "article_anchors": { "type": "keyword", "ignore_above": 128 },
+      "rerank_feature_version": { "type": "keyword" }
+    }
+  }
+}
