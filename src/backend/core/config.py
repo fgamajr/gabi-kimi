@@ -107,9 +107,15 @@ class Settings(BaseSettings):
 
     @property
     def allowed_hosts(self) -> list[str]:
-        return [
+        from urllib.parse import urlparse
+
+        hosts = [
             host.strip() for host in self.GABI_ALLOWED_HOSTS.split(",") if host.strip()
         ]
+        site_hostname = urlparse(self.SITE_URL).hostname
+        if site_hostname and site_hostname not in hosts:
+            hosts.append(site_hostname)
+        return hosts
 
     @property
     def hsts_header(self) -> str | None:
