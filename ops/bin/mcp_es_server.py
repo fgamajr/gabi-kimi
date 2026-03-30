@@ -2956,6 +2956,7 @@ _PUBLICACOES_SOURCE_FIELDS = [
     "source_url",
     "page_count",
     "source_type",
+    "embedding",
 ]
 
 _PUBLICACOES_HIGHLIGHT_SPEC: dict[str, Any] = {
@@ -3015,6 +3016,9 @@ def es_publicacoes_search(
     page_size = max(1, min(page_size, 50))
     offset = (page - 1) * page_size
 
+    query_vector = _get_openai_embedding(query)
+    pool_size = max(page_size * 3, _RERANK_POOL_SIZE) if query_vector else page_size
+
     bm25_query: dict[str, Any] = {
         "multi_match": {
             "query": query,
@@ -3039,8 +3043,8 @@ def es_publicacoes_search(
     )
 
     payload: dict[str, Any] = {
-        "from": offset,
-        "size": page_size,
+        "from": 0 if query_vector else offset,
+        "size": pool_size,
         "track_total_hits": True,
         "query": full_query,
         "_source": _PUBLICACOES_SOURCE_FIELDS,
@@ -3051,6 +3055,10 @@ def es_publicacoes_search(
     data = ES.request("POST", f"/{ES.publicacoes_index}/_search", payload)
     hits = data.get("hits", {}).get("hits", [])
     total = int(data.get("hits", {}).get("total", {}).get("value", 0))
+
+    if query_vector and hits:
+        hits = _embedding_rerank_mcp(hits, query_vector, query_text=query)
+        hits = hits[offset : offset + page_size]
 
     return {
         "query": query,

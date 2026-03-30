@@ -78,6 +78,9 @@ docker compose -f "${compose_file}" exec -T backend \
 log "TCU embeddings: btcu..."
 docker compose -f "${compose_file}" exec -T backend \
   python -m src.backend.ingest.tcu_embed --source btcu sync >>"${log_file}" 2>&1 || log "TCU BTCU embeddings failed (non-fatal)"
+log "TCU embeddings: publicações..."
+docker compose -f "${compose_file}" exec -T backend \
+  python -m src.backend.ingest.tcu_embed --source publicacoes sync >>"${log_file}" 2>&1 || log "TCU publicações embeddings failed (non-fatal)"
 
 log "Syncing Elasticsearch from Mongo before homepage refresh..."
 docker compose -f "${compose_file}" exec -T backend \

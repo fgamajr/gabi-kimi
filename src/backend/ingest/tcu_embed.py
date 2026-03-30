@@ -15,10 +15,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 import time
 from datetime import datetime, timezone
-from typing import Any
 
 import httpx
 import pymongo
@@ -29,9 +27,9 @@ import pymongo
 
 _MODEL = "text-embedding-3-small"
 _DIMS = 1536
-_CHAR_LIMIT = 2000          # Max chars per doc for embedding (~500 tokens)
-_BATCH_SIZE = 500            # Docs fetched from Mongo per loop
-_API_BATCH_SIZE = 2048       # Max texts per OpenAI API call
+_CHAR_LIMIT = 2000  # Max chars per doc for embedding (~500 tokens)
+_BATCH_SIZE = 500  # Docs fetched from Mongo per loop
+_API_BATCH_SIZE = 2048  # Max texts per OpenAI API call
 _MAX_ATTEMPTS = 3
 _MONGO_COLLECTION = "tcu_acordaos"
 _ES_INDEX = "gabi_tcu_acordaos_v1"
@@ -41,6 +39,7 @@ _SOURCE_CONFIGS = {
     "tcu": ("tcu_acordaos", "gabi_tcu_acordaos_v1"),
     "normas": ("tcu_normas", "gabi_tcu_normas_v1"),
     "btcu": ("tcu_btcu", "gabi_tcu_btcu_v1"),
+    "publicacoes": ("tcu_publicacoes", "gabi_tcu_publicacoes_v1"),
 }
 _active_source = "tcu"
 
@@ -75,6 +74,7 @@ def _es_index() -> str:
 # Text builder
 # ---------------------------------------------------------------------------
 
+
 def _sanitize_text(text: str) -> str:
     """Remove null bytes and other chars that break OpenAI API."""
     return text.replace("\x00", "").replace("\ufffd", "")
@@ -86,11 +86,33 @@ def _build_embedding_text(doc: dict) -> str:
     if source_type == "tcu_norma":
         parts = [doc.get("titulo") or "", doc.get("assunto") or ""]
     elif source_type == "tcu_btcu":
-        parts = [doc.get("section_title") or "", doc.get("assunto") or "", (doc.get("texto_completo") or "")[:1500]]
-    elif source_type in ("tcu_sumula", "tcu_jurisprudencia", "tcu_resposta_consulta") or source_type.startswith("tcu_boletim"):
-        parts = [doc.get("titulo") or "", doc.get("enunciado") or "", doc.get("indexacao") or ""]
+        parts = [
+            doc.get("section_title") or "",
+            doc.get("assunto") or "",
+            (doc.get("texto_completo") or "")[:1500],
+        ]
+    elif source_type in (
+        "tcu_sumula",
+        "tcu_jurisprudencia",
+        "tcu_resposta_consulta",
+    ) or source_type.startswith("tcu_boletim"):
+        parts = [
+            doc.get("titulo") or "",
+            doc.get("enunciado") or "",
+            doc.get("indexacao") or "",
+        ]
+    elif source_type == "tcu_publicacoes":
+        parts = [
+            doc.get("title") or "",
+            doc.get("description") or "",
+            (doc.get("body_plain") or "")[:1500],
+        ]
     else:
-        parts = [doc.get("titulo") or "", doc.get("sumario") or "", doc.get("acordao_texto") or ""]
+        parts = [
+            doc.get("titulo") or "",
+            doc.get("sumario") or "",
+            doc.get("acordao_texto") or "",
+        ]
     text = _sanitize_text(" ".join(p for p in parts if p).strip())
     return text[:_CHAR_LIMIT]
 
@@ -98,6 +120,7 @@ def _build_embedding_text(doc: dict) -> str:
 # ---------------------------------------------------------------------------
 # OpenAI API
 # ---------------------------------------------------------------------------
+
 
 def _call_openai_embeddings(
     texts: list[str],
@@ -168,8 +191,10 @@ def _call_with_retry(
             return _call_openai_embeddings(texts, api_key, client)
         except RetryableError as exc:
             if attempt == max_retries:
-                raise RuntimeError(f"Failed after {max_retries} retries: {exc}") from exc
-            wait = 2 ** attempt
+                raise RuntimeError(
+                    f"Failed after {max_retries} retries: {exc}"
+                ) from exc
+            wait = 2**attempt
             _log(f"retry {attempt}/{max_retries}, waiting {wait}s: {exc}")
             time.sleep(wait)
     raise RuntimeError("unreachable")
@@ -178,6 +203,7 @@ def _call_with_retry(
 # ---------------------------------------------------------------------------
 # ES bulk update (partial doc — only embedding fields)
 # ---------------------------------------------------------------------------
+
 
 def _es_bulk_update_embeddings(
     doc_ids: list[str],
@@ -190,14 +216,28 @@ def _es_bulk_update_embeddings(
 
     lines: list[str] = []
     for doc_id, vec in zip(doc_ids, vectors):
-        lines.append(json.dumps({"update": {"_index": index, "_id": doc_id}}, ensure_ascii=False))
-        lines.append(json.dumps({"doc": {
-            "embedding": vec,
-            "embedding_status": "done",
-        }}, ensure_ascii=False))
+        lines.append(
+            json.dumps({"update": {"_index": index, "_id": doc_id}}, ensure_ascii=False)
+        )
+        lines.append(
+            json.dumps(
+                {
+                    "doc": {
+                        "embedding": vec,
+                        "embedding_status": "done",
+                    }
+                },
+                ensure_ascii=False,
+            )
+        )
     body = "\n".join(lines) + "\n"
 
-    resp = es_client.post(url, data=body.encode("utf-8"), headers={"Content-Type": "application/x-ndjson"}, timeout=60)
+    resp = es_client.post(
+        url,
+        data=body.encode("utf-8"),
+        headers={"Content-Type": "application/x-ndjson"},
+        timeout=60,
+    )
     resp.raise_for_status()
     data = resp.json()
     items = data.get("items", [])
@@ -208,6 +248,7 @@ def _es_bulk_update_embeddings(
 # ---------------------------------------------------------------------------
 # Core pipeline
 # ---------------------------------------------------------------------------
+
 
 def _process_batch(
     collection,
@@ -220,9 +261,22 @@ def _process_batch(
     docs = list(
         collection.find(
             {"embedding_status": "pending"},
-            {"_id": 1, "titulo": 1, "sumario": 1, "acordao_texto": 1,
-             "assunto": 1, "enunciado": 1, "indexacao": 1, "source_type": 1,
-             "section_title": 1, "texto_completo": 1},
+            {
+                "_id": 1,
+                "titulo": 1,
+                "sumario": 1,
+                "acordao_texto": 1,
+                "assunto": 1,
+                "enunciado": 1,
+                "indexacao": 1,
+                "source_type": 1,
+                "section_title": 1,
+                "texto_completo": 1,
+                # publicacoes fields
+                "title": 1,
+                "description": 1,
+                "body_plain": 1,
+            },
         ).limit(_BATCH_SIZE)
     )
     if not docs:
@@ -232,7 +286,12 @@ def _process_batch(
     doc_ids = [str(d["_id"]) for d in docs]
     collection.update_many(
         {"_id": {"$in": [d["_id"] for d in docs]}},
-        {"$set": {"embedding_status": "processing", "embedding_queued_at": datetime.now(timezone.utc)}},
+        {
+            "$set": {
+                "embedding_status": "processing",
+                "embedding_queued_at": datetime.now(timezone.utc),
+            }
+        },
     )
 
     # Build texts
@@ -251,7 +310,12 @@ def _process_batch(
     if skip_ids:
         collection.update_many(
             {"_id": {"$in": skip_ids}},
-            {"$set": {"embedding_status": "skipped", "embedding_updated_at": datetime.now(timezone.utc)}},
+            {
+                "$set": {
+                    "embedding_status": "skipped",
+                    "embedding_updated_at": datetime.now(timezone.utc),
+                }
+            },
         )
 
     if not texts:
@@ -261,7 +325,7 @@ def _process_batch(
     all_vectors: list[list[float]] = []
     try:
         for i in range(0, len(texts), _API_BATCH_SIZE):
-            batch_texts = texts[i:i + _API_BATCH_SIZE]
+            batch_texts = texts[i : i + _API_BATCH_SIZE]
             vectors = _call_with_retry(batch_texts, api_key, openai_client)
             all_vectors.extend(vectors)
     except (BadInputError, RuntimeError) as exc:
@@ -269,8 +333,13 @@ def _process_batch(
         _log(f"batch failed: {exc}")
         collection.update_many(
             {"_id": {"$in": valid_ids}},
-            {"$set": {"embedding_status": "failed", "embedding_error": str(exc)[:200],
-                      "embedding_updated_at": datetime.now(timezone.utc)}},
+            {
+                "$set": {
+                    "embedding_status": "failed",
+                    "embedding_error": str(exc)[:200],
+                    "embedding_updated_at": datetime.now(timezone.utc),
+                }
+            },
         )
         return len(valid_ids) + len(skip_ids)
 
@@ -282,11 +351,13 @@ def _process_batch(
     for doc_id in valid_ids:
         collection.update_one(
             {"_id": doc_id},
-            {"$set": {
-                "embedding_status": "done",
-                "embedding_model": _MODEL,
-                "embedding_updated_at": now,
-            }},
+            {
+                "$set": {
+                    "embedding_status": "done",
+                    "embedding_model": _MODEL,
+                    "embedding_updated_at": now,
+                }
+            },
         )
 
     _log(f"batch: embedded={len(valid_ids)} skipped={len(skip_ids)} es_ok={es_ok}")
@@ -385,17 +456,22 @@ def cmd_stats() -> None:
 
     mongo_client.close()
 
-    print(json.dumps({
-        "total": total,
-        "done": done,
-        "pending": pending,
-        "processing": processing,
-        "failed": failed,
-        "skipped": skipped,
-        "no_status": no_status,
-        "pct_done": round(pct, 1),
-        "es_with_embedding": es_with_emb,
-    }, indent=2))
+    print(
+        json.dumps(
+            {
+                "total": total,
+                "done": done,
+                "pending": pending,
+                "processing": processing,
+                "failed": failed,
+                "skipped": skipped,
+                "no_status": no_status,
+                "pct_done": round(pct, 1),
+                "es_with_embedding": es_with_emb,
+            },
+            indent=2,
+        )
+    )
 
 
 def cmd_reset_failed() -> None:
@@ -414,8 +490,12 @@ def cmd_reset_failed() -> None:
 def main() -> None:
     global _active_source
     parser = argparse.ArgumentParser(description="TCU embedding pipeline (OpenAI)")
-    parser.add_argument("--source", choices=["tcu", "normas", "btcu"], default="tcu",
-                        help="tcu=acórdãos+jurisprudência, normas=normas TCU")
+    parser.add_argument(
+        "--source",
+        choices=["tcu", "normas", "btcu", "publicacoes"],
+        default="tcu",
+        help="tcu=acórdãos+jurisprudência, normas=normas TCU, publicacoes=publicações institucionais",
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("backfill", help="Init all pending + run full backfill")
