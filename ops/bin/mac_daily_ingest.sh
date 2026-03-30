@@ -19,7 +19,7 @@ cd "$REPO_ROOT"
 
 # ── Config ──
 SERVER="root@204.168.173.163"
-SERVER_COMPOSE="/home/gabi/gabi-kimi/docker-compose.yml"
+SERVER_COMPOSE="/home/gabi/gabi-kimi/docker-compose.prod.yml"
 VENV="$REPO_ROOT/.venv-ingest/bin/python"
 TMP_DIR="/tmp/gabi_daily_ingest"
 REMOTE_TMP="/tmp/gabi_daily_zips"
@@ -199,6 +199,14 @@ TOTAL=$(echo "$STATS" | python3 -c "import sys,json; print(json.loads(sys.stdin.
 MAX_DATE=$(echo "$STATS" | python3 -c "import sys,json; print(json.loads(sys.stdin.read())['date_range']['max'][:10])")
 TCU_COUNT=$(ssh "$SERVER" "docker exec gabi-kimi-elasticsearch curl -s http://localhost:9200/gabi_tcu_acordaos_v1/_count 2>/dev/null" | python3 -c "import sys,json; print(json.loads(sys.stdin.read()).get('count',0))" 2>/dev/null || echo "?")
 log "DOU: $TOTAL docs (latest: $MAX_DATE) | TCU: $TCU_COUNT acórdãos"
+
+# ── Step 7: Update homepage cache (trending + editorial) ──
+log "Step 7: Updating homepage cache..."
+ssh "$SERVER" "
+  docker compose -f $SERVER_COMPOSE exec -T backend python -m src.backend.search.trending --update
+  docker compose -f $SERVER_COMPOSE exec -T backend python -m src.backend.search.editorial --update
+" || log "Homepage cache update failed (non-fatal)"
+log "Homepage cache updated"
 
 # ── Cleanup ──
 rm -rf "$TMP_DIR"
