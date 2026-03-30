@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     ES_URL: str = "http://elasticsearch:9200"
     ES_INDEX: str = "gabi_documents_v3"
     ES_ALIAS: Optional[str] = "gabi_documents"
+    ES_CHUNKS_INDEX: str = "gabi_document_chunks_v1"
     TCU_ES_INDEX: str = "gabi_tcu_acordaos_v1"
     TCU_NORMAS_INDEX: str = "gabi_tcu_normas_v1"
     TCU_PUBLICACOES_INDEX: str = "gabi_tcu_publicacoes_v1"
@@ -68,13 +69,22 @@ class Settings(BaseSettings):
     VECTOR_SEARCH_ENABLED: bool = False
     EMBED_SERVER_URL: str = "http://host.docker.internal:8900"
     RERANKER_ENABLED: bool = False
+    RERANKER_PROVIDER: str = "http"
     RERANKER_URL: str = "http://host.docker.internal:8902"
+    RERANKER_COHERE_URL: str = "https://api.cohere.com/v2/rerank"
+    RERANKER_COHERE_MODEL: str = "rerank-v3.5"
     RERANKER_TOP_K: int = 50
     RERANKER_TIMEOUT: float = 5.0
     RERANKER_MAX_DOCS: int = 50
     RERANKER_MAX_DOC_CHARS: int = 2200
+    QUERY_REWRITE_ENABLED: bool = True
+    QUERY_REWRITE_MODEL: str = ""
+    QUERY_REWRITE_TIMEOUT: float = 12.0
+    QUERY_REWRITE_VARIANTS: int = 3
+    RETRIEVAL_AUDIT_LOG_PATH: str = "/data/gabi_dou/audit/retrieval.jsonl"
 
     # Editorial highlights
+    COHERE_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
     EDITORIAL_LLM_MODEL: str = "claude-sonnet-4-20250514"
     EDITORIAL_LOOKBACK_DAYS: int = 7

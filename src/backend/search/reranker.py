@@ -1,4 +1,4 @@
-"""Async reranker client — calls the host-native reranker server.
+"""Async reranker client — calls the configured reranker provider.
 
 Extracts identifica + ementa from ES hits, sends to reranker, maps scores
 back to original hits. Falls back to original order on any error.
@@ -16,6 +16,10 @@ from src.backend.core.config import settings
 logger = logging.getLogger(__name__)
 
 
+def _reranker_provider() -> str:
+    return settings.RERANKER_PROVIDER.strip().lower() or "http"
+
+
 def _rerank_endpoint() -> str:
     base = settings.RERANKER_URL.rstrip("/")
     if base.endswith("/v1/rerank"):
@@ -26,15 +30,75 @@ def _rerank_endpoint() -> str:
 def _build_rerank_text(hit: dict[str, Any]) -> str:
     src = hit.get("_source", {})
     parts: list[str] = []
-    if src.get("identifica"):
-        parts.append(str(src["identifica"]))
-    if src.get("ementa"):
-        parts.append(str(src["ementa"]))
-    if not parts and src.get("body_plain"):
-        parts.append(str(src["body_plain"]))
+    for field in ("identifica", "titulo", "assunto"):
+        if src.get(field):
+            parts.append(str(src[field]))
+    for field in ("ementa", "sumario", "dispositivo_resumo"):
+        if src.get(field):
+            parts.append(str(src[field]))
+    if not parts:
+        for field in (
+            "rerank_text",
+            "text",
+            "body_plain",
+            "acordao_texto",
+            "texto_norma",
+            "search_all",
+        ):
+            if src.get(field):
+                parts.append(str(src[field]))
+                break
 
     text = " ".join(parts) if parts else str(hit.get("_id", ""))
     return " ".join(text.split())[: settings.RERANKER_MAX_DOC_CHARS]
+
+
+async def _post_rerank_request(
+    *,
+    query: str,
+    documents: list[str],
+    top_k: int,
+    client: httpx.AsyncClient | None,
+) -> dict[str, Any]:
+    provider = _reranker_provider()
+    http = client or httpx.AsyncClient()
+
+    try:
+        if provider == "cohere":
+            api_key = settings.COHERE_API_KEY.strip()
+            if not api_key:
+                raise RuntimeError("COHERE_API_KEY not configured")
+
+            resp = await http.post(
+                settings.RERANKER_COHERE_URL,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "content-type": "application/json",
+                    "X-Client-Name": "gabi-kimi",
+                },
+                json={
+                    "model": settings.RERANKER_COHERE_MODEL,
+                    "query": query,
+                    "documents": documents,
+                    "top_n": top_k,
+                },
+                timeout=settings.RERANKER_TIMEOUT,
+            )
+        else:
+            resp = await http.post(
+                _rerank_endpoint(),
+                json={
+                    "query": query,
+                    "documents": documents,
+                    "top_n": top_k,
+                },
+                timeout=settings.RERANKER_TIMEOUT,
+            )
+        resp.raise_for_status()
+        return resp.json()
+    finally:
+        if client is None:
+            await http.aclose()
 
 
 async def rerank(
@@ -65,23 +129,12 @@ async def rerank(
     documents = [_build_rerank_text(hit) for hit in limited_hits]
 
     try:
-        http = client or httpx.AsyncClient()
-        try:
-            resp = await http.post(
-                _rerank_endpoint(),
-                json={
-                    "query": query,
-                    "documents": documents,
-                    "top_n": top_k,
-                },
-                timeout=settings.RERANKER_TIMEOUT,
-            )
-            resp.raise_for_status()
-        finally:
-            if client is None:
-                await http.aclose()
-
-        data = resp.json()
+        data = await _post_rerank_request(
+            query=query,
+            documents=documents,
+            top_k=top_k,
+            client=client,
+        )
         results = data.get("results", [])
 
         # Map reranker scores back to original hits
@@ -102,7 +155,8 @@ async def rerank(
         reranked.extend(deduped_hits[len(limited_hits) :])
 
         logger.info(
-            "rerank ok: %d → %d hits, elapsed=%sms",
+            "rerank ok provider=%s: %d → %d hits, elapsed=%sms",
+            _reranker_provider(),
             len(limited_hits),
             len(reranked),
             data.get("elapsed_ms", "?"),

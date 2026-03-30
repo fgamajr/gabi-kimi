@@ -1,0 +1,106 @@
+{
+  "settings": {
+    "index": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "refresh_interval": "30s"
+    },
+    "analysis": {
+      "filter": {
+        "pt_br_stop": {
+          "type": "stop",
+          "stopwords": "_portuguese_"
+        },
+        "pt_br_stemmer": {
+          "type": "stemmer",
+          "language": "light_portuguese"
+        },
+        "pt_br_synonym": {
+          "type": "synonym",
+          "lenient": true,
+          "synonyms": [
+            "portaria,port",
+            "resolucao,res",
+            "instrucao normativa,in",
+            "decreto,dec",
+            "medida provisoria,mp"
+          ]
+        }
+      },
+      "analyzer": {
+        "pt_br_full": {
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "asciifolding",
+            "pt_br_stop",
+            "pt_br_stemmer",
+            "pt_br_synonym"
+          ]
+        },
+        "pt_br_folded": {
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "asciifolding",
+            "pt_br_stop",
+            "pt_br_stemmer"
+          ]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "dynamic": false,
+    "properties": {
+      "chunk_id": { "type": "keyword" },
+      "doc_id": { "type": "keyword" },
+      "parent_doc_id": { "type": "keyword" },
+      "logical_doc_id": { "type": "keyword" },
+      "chunk_seq": { "type": "integer" },
+      "chunk_type": { "type": "keyword" },
+      "char_start": { "type": "integer" },
+      "char_end": { "type": "integer" },
+      "text": { "type": "text", "analyzer": "pt_br_folded" },
+      "rerank_text": { "type": "text", "analyzer": "pt_br_full" },
+      "identifica": {
+        "type": "text",
+        "analyzer": "pt_br_full",
+        "fields": {
+          "keyword": { "type": "keyword", "ignore_above": 1024 }
+        }
+      },
+      "ementa": { "type": "text", "analyzer": "pt_br_full" },
+      "art_type": { "type": "keyword" },
+      "issuing_organ": {
+        "type": "text",
+        "analyzer": "pt_br_folded",
+        "fields": {
+          "keyword": { "type": "keyword", "ignore_above": 1024 }
+        }
+      },
+      "pub_date": {
+        "type": "date",
+        "format": "strict_date_optional_time||yyyy-MM-dd"
+      },
+      "section": { "type": "keyword" },
+      "edition_number": { "type": "keyword" },
+      "source_url": { "type": "keyword", "ignore_above": 2048 },
+      "source_type": { "type": "keyword" },
+      "authority_score": { "type": "float" },
+      "reconstruction_trust_score": { "type": "float" },
+      "chunk_quality_score": { "type": "float" },
+      "chunk_importance_score": { "type": "float" },
+      "chunk_entity_density": { "type": "float" },
+      "chunk_legal_density": { "type": "float" },
+      "chunk_reference_count": { "type": "integer" },
+      "chunk_manifest_hash": { "type": "keyword" },
+      "chunk_feature_hash": { "type": "keyword" },
+      "chunker_version": { "type": "keyword" },
+      "pipeline_fingerprint": { "type": "keyword" },
+      "embedding_status": { "type": "keyword" },
+      "embedding_version": { "type": "keyword" },
+      "vector_id": { "type": "keyword" }
+    }
+  }
+}

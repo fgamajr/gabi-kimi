@@ -16,6 +16,10 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
+from datetime import UTC, datetime
+import hashlib
+import json
 import logging
 import os
 import re
@@ -23,6 +27,11 @@ from typing import Any
 
 import httpx
 from dotenv import load_dotenv
+import pymongo
+
+from ops.audit_log import append_retrieval_audit
+from src.backend.core.config import settings
+from src.backend.search.reranker import rerank as neural_rerank
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +59,19 @@ def _env_bool(name: str, default: bool) -> bool:
 SYNONYM_EXPANSION = _env_bool("SYNONYM_EXPANSION", True)
 MIN_RESULTS_BEFORE_FALLBACK = int(os.getenv("MIN_RESULTS_BEFORE_FALLBACK", "3"))
 RERANK_POOL = int(os.getenv("RERANK_POOL", "60"))
+QUERY_REWRITE_ENABLED = _env_bool(
+    "QUERY_REWRITE_ENABLED", settings.QUERY_REWRITE_ENABLED
+)
+QUERY_REWRITE_TIMEOUT = float(
+    os.getenv("QUERY_REWRITE_TIMEOUT", str(settings.QUERY_REWRITE_TIMEOUT))
+)
+QUERY_REWRITE_VARIANTS = int(
+    os.getenv("QUERY_REWRITE_VARIANTS", str(settings.QUERY_REWRITE_VARIANTS))
+)
+QUERY_REWRITE_MODEL = (
+    os.getenv("QUERY_REWRITE_MODEL") or settings.QUERY_REWRITE_MODEL
+).strip()
+QUERY_REWRITE_POOL_SIZE = int(os.getenv("QUERY_REWRITE_POOL_SIZE", "40"))
 
 # Re-ranker signal weights (must sum to 1.0)
 _W_BM25 = 0.40  # ES BM25 score (normalized)
@@ -222,6 +244,51 @@ _ART_PARAGRAPH_PATTERN = re.compile(
 
 # Quoted phrase extraction
 _QUOTED_PHRASE_PATTERN = re.compile(r'"([^"]+)"')
+
+_CANONICAL_LEGAL_REFERENCES: dict[tuple[str, str], str] = {
+    ("lei", "8069"): "Lei nº 8.069/1990",
+    ("lei", "8112"): "Lei nº 8.112/1990",
+    ("lei", "8666"): "Lei nº 8.666/1993",
+    ("lei", "9784"): "Lei nº 9.784/1999",
+    ("lei", "11416"): "Lei nº 11.416/2006",
+    ("lei", "12527"): "Lei nº 12.527/2011",
+    ("lei", "13303"): "Lei nº 13.303/2016",
+    ("lei", "13709"): "Lei nº 13.709/2018",
+    ("lei", "14133"): "Lei nº 14.133/2021",
+    ("lei complementar", "101"): "Lei Complementar nº 101/2000",
+    ("medida provisoria", "22001"): "Medida Provisória nº 2.200-1/2001",
+}
+_LEGAL_TYPE_LABELS = {
+    "adi": "ADI",
+    "adpf": "ADPF",
+    "decreto": "Decreto",
+    "decreto lei": "Decreto-Lei",
+    "emenda constitucional": "Emenda Constitucional",
+    "in": "Instrução Normativa",
+    "instrucao normativa": "Instrução Normativa",
+    "lei": "Lei",
+    "lei complementar": "Lei Complementar",
+    "medida provisoria": "Medida Provisória",
+    "mp": "Medida Provisória",
+    "portaria": "Portaria",
+    "rdc": "RDC",
+    "re": "RE",
+    "resolucao": "Resolução",
+    "sumula": "Súmula",
+}
+_QUERY_REWRITE_PROMPT = """Você é especialista em recuperação de informação jurídica brasileira.
+Receba uma consulta do usuário e devolva JSON válido com:
+- "queries": até {variant_count} consultas alternativas curtas, complementares e pesquisáveis.
+- "hyde": uma resposta hipotética curta, factual e neutra, útil para recuperação sem inventar detalhes.
+
+Regras:
+- Preserve nomes próprios, órgãos, datas e referências legais.
+- Expanda abreviações jurídicas quando ajudar a busca.
+- Não use markdown.
+- Responda apenas JSON.
+
+Consulta: {query}
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -732,6 +799,563 @@ def _search_context_payload(
     }
 
 
+def _normalize_legal_ref_type(ref_type: str) -> str:
+    normalized = _normalize_text(ref_type).replace("-", " ")
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    aliases = {
+        "in": "instrucao normativa",
+        "mp": "medida provisoria",
+        "sumula": "sumula",
+    }
+    return aliases.get(normalized, normalized)
+
+
+def _format_legal_number(number: str) -> str:
+    if "/" in number or "-" in number:
+        return number
+    digits = number.replace(".", "")
+    if digits.isdigit() and len(digits) >= 4:
+        return f"{int(digits):,}".replace(",", ".")
+    return number
+
+
+def _canonicalize_legal_reference(ref_type: str, number: str) -> str:
+    normalized_type = _normalize_legal_ref_type(ref_type)
+    digits_only = re.sub(r"[^\d]", "", number.split("/", 1)[0])
+    canonical = _CANONICAL_LEGAL_REFERENCES.get((normalized_type, digits_only))
+    if canonical:
+        return canonical
+
+    label = _LEGAL_TYPE_LABELS.get(normalized_type, ref_type.strip().title())
+    return f"{label} nº {_format_legal_number(number)}"
+
+
+def _normalize_rewrite_query(query: str) -> str:
+    text = _query_text(query)
+    if not text:
+        return text
+
+    def _replace(match: re.Match[str]) -> str:
+        return _canonicalize_legal_reference(match.group(1), match.group(2))
+
+    normalized = _LEGAL_REF_PATTERN.sub(_replace, text)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+
+    tokens = _tokenize_query(normalized)
+    if len(tokens) >= 2:
+        return " ".join(tokens)
+    return normalized
+
+
+def _is_question_query(query: str) -> bool:
+    normalized = _normalize_text(query)
+    if "?" in query:
+        return True
+    return any(
+        normalized.startswith(prefix)
+        for prefix in (
+            "quando ",
+            "qual ",
+            "quais ",
+            "como ",
+            "quem ",
+            "onde ",
+            "por que ",
+            "porque ",
+        )
+    )
+
+
+def _deterministic_rewrite_variants(query: str) -> list[str]:
+    variants: list[str] = []
+    normalized = _normalize_rewrite_query(query)
+    if normalized and normalized != query:
+        variants.append(normalized)
+
+    for expansion in _expand_synonyms(query):
+        candidate = f"{normalized} {expansion}".strip() if normalized else expansion
+        if candidate:
+            variants.append(candidate)
+
+    parsed = _parse_query(query)
+    for ref in parsed["legal_refs"]:
+        variants.append(_canonicalize_legal_reference(ref["type"], ref["number"]))
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for candidate in variants:
+        cleaned = re.sub(r"\s+", " ", candidate).strip()
+        key = _normalize_text(cleaned)
+        if not cleaned or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(cleaned)
+    return deduped[:QUERY_REWRITE_VARIANTS]
+
+
+def _rewrite_model_name() -> str:
+    if QUERY_REWRITE_MODEL:
+        return QUERY_REWRITE_MODEL
+    return settings.EDITORIAL_LLM_MODEL
+
+
+def _extract_text_content(parts: list[dict[str, Any]]) -> str:
+    blocks: list[str] = []
+    for part in parts:
+        if part.get("type") == "text" and part.get("text"):
+            blocks.append(str(part["text"]))
+    return "\n".join(blocks).strip()
+
+
+async def _generate_llm_rewrite_bundle(query: str) -> tuple[list[str], str | None]:
+    api_key = settings.ANTHROPIC_API_KEY.strip()
+    model = _rewrite_model_name().strip()
+    if not api_key or not model:
+        return [], None
+
+    try:
+        async with httpx.AsyncClient(timeout=QUERY_REWRITE_TIMEOUT) as client:
+            resp = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "max_tokens": 500,
+                    "temperature": 0.2,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": _QUERY_REWRITE_PROMPT.format(
+                                query=query,
+                                variant_count=QUERY_REWRITE_VARIANTS,
+                            ),
+                        }
+                    ],
+                },
+            )
+            resp.raise_for_status()
+    except Exception:
+        logger.warning("query rewrite LLM call failed", exc_info=True)
+        return [], None
+
+    content = resp.json().get("content", [])
+    if not isinstance(content, list):
+        return [], None
+
+    text = _extract_text_content(content)
+    if not text:
+        return [], None
+
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    payload_text = match.group(0) if match else text
+    try:
+        payload = json.loads(payload_text)
+    except json.JSONDecodeError:
+        logger.warning("query rewrite payload was not valid JSON: %s", text[:200])
+        return [], None
+
+    queries_raw = payload.get("queries", [])
+    hyde_raw = payload.get("hyde")
+    queries = [str(item).strip() for item in queries_raw if str(item).strip()]
+    hyde = str(hyde_raw).strip() if hyde_raw else None
+    return queries[:QUERY_REWRITE_VARIANTS], hyde
+
+
+async def _build_query_rewrite_bundle(
+    query: str,
+    *,
+    rewrite: bool,
+) -> dict[str, Any]:
+    base_query = _query_text(query)
+    normalized_query = _normalize_rewrite_query(base_query) if rewrite else base_query
+    queries = [base_query]
+
+    if not rewrite:
+        return {
+            "normalized_query": normalized_query,
+            "queries": queries,
+            "llm_queries": [],
+            "hyde": None,
+            "used_llm": False,
+        }
+
+    deterministic_queries = _deterministic_rewrite_variants(base_query)
+    llm_queries: list[str] = []
+    hyde: str | None = None
+    if QUERY_REWRITE_ENABLED:
+        llm_queries, hyde = await _generate_llm_rewrite_bundle(base_query)
+
+    if normalized_query and normalized_query != base_query:
+        queries.append(normalized_query)
+    queries.extend(deterministic_queries)
+    queries.extend(llm_queries)
+    if hyde and _is_question_query(base_query):
+        queries.append(hyde)
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for candidate in queries:
+        cleaned = re.sub(r"\s+", " ", candidate).strip()
+        key = _normalize_text(cleaned)
+        if not cleaned or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(cleaned)
+
+    return {
+        "normalized_query": normalized_query,
+        "queries": deduped[: QUERY_REWRITE_VARIANTS + 2],
+        "llm_queries": llm_queries,
+        "hyde": hyde if hyde and _is_question_query(base_query) else None,
+        "used_llm": bool(llm_queries or hyde),
+    }
+
+
+def _merge_search_responses(
+    responses: list[dict[str, Any]],
+    *,
+    page: int,
+    page_size: int,
+) -> dict[str, Any]:
+    merged: dict[str, dict[str, Any]] = {}
+    variant_labels: list[str] = []
+
+    for response in responses:
+        variant_query = str(response.get("query") or "").strip()
+        if variant_query:
+            variant_labels.append(variant_query)
+
+        for rank, result in enumerate(response.get("results", []), start=1):
+            doc_id = str(result.get("doc_id") or "").strip()
+            if not doc_id:
+                continue
+            merged_score = 1.0 / (60 + rank)
+            entry = merged.setdefault(
+                doc_id,
+                {
+                    "result": dict(result),
+                    "score_rrf": 0.0,
+                    "best_score": float(result.get("score") or 0.0),
+                    "matched_queries": [],
+                },
+            )
+            entry["score_rrf"] += merged_score
+            current_score = float(result.get("score") or 0.0)
+            if current_score > entry["best_score"]:
+                entry["result"] = dict(result)
+                entry["best_score"] = current_score
+            entry["matched_queries"].append(variant_query)
+
+    ordered = sorted(
+        merged.values(),
+        key=lambda item: (item["score_rrf"], item["best_score"]),
+        reverse=True,
+    )
+    offset = (page - 1) * page_size
+    page_items = ordered[offset : offset + page_size]
+
+    results: list[dict[str, Any]] = []
+    for item in page_items:
+        result = dict(item["result"])
+        result["score_base"] = result.get("score")
+        result["score_rrf"] = round(item["score_rrf"], 6)
+        result["score"] = round(item["score_rrf"], 6)
+        result["matched_queries"] = item["matched_queries"][:4]
+        results.append(result)
+
+    total = max(
+        [int(response.get("total", 0)) for response in responses] + [len(ordered)]
+    )
+    return {
+        "total": total,
+        "results": results,
+        "variant_queries": variant_labels,
+    }
+
+
+def _stable_payload(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _stable_payload(value[key]) for key in sorted(value)}
+    if isinstance(value, list):
+        return [_stable_payload(item) for item in value]
+    return value
+
+
+def _make_query_id(tool_name: str, **params: Any) -> str:
+    payload = json.dumps(
+        {"tool": tool_name, "params": _stable_payload(params)},
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
+
+
+def _attach_query_id(
+    payload: dict[str, Any], tool_name: str, **params: Any
+) -> dict[str, Any]:
+    payload["query_id"] = _make_query_id(tool_name, **params)
+    return payload
+
+
+def _mongo_db() -> tuple[pymongo.MongoClient, pymongo.database.Database]:
+    client = pymongo.MongoClient(os.getenv("MONGO_STRING", settings.MONGO_STRING))
+    return client, client[os.getenv("DB_NAME", settings.DB_NAME)]
+
+
+def _record_retrieval_audit(payload: dict[str, Any]) -> None:
+    append_retrieval_audit(payload)
+    client, db = _mongo_db()
+    try:
+        db["retrieval_audit"].insert_one({**payload, "updated_at": datetime.now(UTC)})
+    finally:
+        client.close()
+
+
+_DOU_CHUNK_SOURCE_FIELDS = [
+    "chunk_id",
+    "parent_doc_id",
+    "logical_doc_id",
+    "chunk_seq",
+    "chunk_type",
+    "char_start",
+    "char_end",
+    "text",
+    "rerank_text",
+    "identifica",
+    "ementa",
+    "art_type",
+    "issuing_organ",
+    "pub_date",
+    "section",
+    "edition_number",
+    "source_url",
+    "source_type",
+]
+
+_DOU_CHUNK_HIGHLIGHT_SPEC: dict[str, Any] = {
+    "pre_tags": [">>>"],
+    "post_tags": ["<<<"],
+    "max_analyzed_offset": 500000,
+    "fields": {
+        "text": {"number_of_fragments": 2, "fragment_size": 220},
+        "identifica": {"number_of_fragments": 0},
+        "ementa": {"number_of_fragments": 1, "fragment_size": 220},
+    },
+}
+
+
+def _format_dou_chunk_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for hit in hits:
+        src = hit.get("_source", {})
+        hl = hit.get("highlight", {})
+        snippet_parts: list[str] = []
+        for key in ("text", "ementa", "identifica"):
+            frags = hl.get(key)
+            if frags:
+                snippet_parts.extend(frags)
+                if len(snippet_parts) >= 2:
+                    break
+        snippet = (
+            " … ".join(snippet_parts)
+            if snippet_parts
+            else (src.get("text") or src.get("ementa") or src.get("identifica") or "")[
+                :320
+            ]
+        )
+        results.append(
+            {
+                "doc_id": src.get("chunk_id") or hit.get("_id"),
+                "chunk_id": src.get("chunk_id") or hit.get("_id"),
+                "parent_doc_id": src.get("parent_doc_id"),
+                "score": round(
+                    float(hit.get("_rerank_score") or hit.get("_score") or 0.0), 6
+                ),
+                "chunk_type": src.get("chunk_type"),
+                "chunk_text": src.get("text"),
+                "literal_excerpt": snippet,
+                "identifica": src.get("identifica"),
+                "ementa": src.get("ementa"),
+                "art_type": src.get("art_type"),
+                "issuing_organ": src.get("issuing_organ"),
+                "pub_date": src.get("pub_date"),
+                "section": src.get("section"),
+                "doc_url": src.get("source_url"),
+                "source_type": src.get("source_type", "dou_chunk"),
+            }
+        )
+    return results
+
+
+def _dou_chunk_query(
+    query: str, date_from: str | None = None, date_to: str | None = None
+) -> dict[str, Any]:
+    parsed = _parse_query(query)
+    q = parsed["clean_text"]
+    must_clauses: list[dict[str, Any]] = []
+    should_clauses: list[dict[str, Any]] = []
+    for phrase in parsed["phrases"]:
+        must_clauses.append(
+            {
+                "multi_match": {
+                    "query": phrase,
+                    "type": "phrase",
+                    "fields": ["text^4", "identifica^3", "ementa^3", "rerank_text^2"],
+                    "slop": 1,
+                }
+            }
+        )
+    if q and q != "*":
+        must_clauses.append(
+            {
+                "simple_query_string": {
+                    "query": q,
+                    "fields": [
+                        "text^4",
+                        "identifica^3",
+                        "ementa^3",
+                        "rerank_text^2",
+                        "issuing_organ^1.5",
+                    ],
+                    "default_operator": "and",
+                }
+            }
+        )
+        for field_name in ("text", "identifica", "ementa"):
+            should_clauses.append(
+                {"match_phrase": {field_name: {"query": q, "boost": 12}}}
+            )
+    if not must_clauses:
+        must_clauses.append({"match_all": {}})
+
+    filters: list[dict[str, Any]] = []
+    if date_from or date_to:
+        rng: dict[str, str] = {}
+        if date_from:
+            rng["gte"] = date_from
+        if date_to:
+            rng["lte"] = date_to
+        filters.append({"range": {"pub_date": rng}})
+
+    return {
+        "bool": {
+            "must": must_clauses,
+            "should": should_clauses,
+            "filter": filters,
+        }
+    }
+
+
+async def _search_dou_chunks_once(
+    *,
+    query: str,
+    page_size: int,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
+    payload = {
+        "from": 0,
+        "size": max(
+            page_size,
+            settings.RERANKER_TOP_K if settings.RERANKER_ENABLED else page_size,
+        ),
+        "track_total_hits": True,
+        "query": _dou_chunk_query(query, date_from=date_from, date_to=date_to),
+        "_source": _DOU_CHUNK_SOURCE_FIELDS,
+        "highlight": _DOU_CHUNK_HIGHLIGHT_SPEC,
+        "sort": [{"_score": {"order": "desc"}}],
+    }
+    try:
+        data = await ES.arequest("POST", f"/{ES.chunks_index}/_search", payload)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            return {"query": query, "total": 0, "results": []}
+        raise
+
+    hits = data.get("hits", {}).get("hits", [])
+    total = int(data.get("hits", {}).get("total", {}).get("value", 0))
+    if settings.RERANKER_ENABLED and hits:
+        hits = await neural_rerank(
+            query,
+            hits,
+            top_k=min(settings.RERANKER_TOP_K, len(hits)),
+        )
+    return {
+        "query": query,
+        "total": total,
+        "results": _format_dou_chunk_hits(hits[:page_size]),
+    }
+
+
+async def _search_dou_chunks(
+    *,
+    query: str,
+    page_size: int,
+    rewrite: bool,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
+    rewrite_bundle = await _build_query_rewrite_bundle(query, rewrite=rewrite)
+    queries = rewrite_bundle["queries"]
+    if len(queries) <= 1:
+        response = await _search_dou_chunks_once(
+            query=query,
+            page_size=page_size,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        response["rewrite"] = {
+            "enabled": rewrite,
+            "normalized_query": rewrite_bundle["normalized_query"],
+            "variant_queries": queries,
+            "used_llm": rewrite_bundle["used_llm"],
+            "hyde_query": rewrite_bundle["hyde"],
+        }
+        return response
+
+    responses = await asyncio.gather(
+        *[
+            _search_dou_chunks_once(
+                query=variant_query,
+                page_size=page_size,
+                date_from=date_from,
+                date_to=date_to,
+            )
+            for variant_query in queries
+        ]
+    )
+    merged = _merge_search_responses(responses, page=1, page_size=page_size)
+    return {
+        "query": query,
+        "total": merged["total"],
+        "results": merged["results"],
+        "rewrite": {
+            "enabled": rewrite,
+            "normalized_query": rewrite_bundle["normalized_query"],
+            "variant_queries": merged["variant_queries"],
+            "used_llm": rewrite_bundle["used_llm"],
+            "hyde_query": rewrite_bundle["hyde"],
+        },
+    }
+
+
+def _score_distribution(scores: list[float]) -> dict[str, float]:
+    if not scores:
+        return {"p50": 0.0, "p75": 0.0, "p90": 0.0}
+    ordered = sorted(scores)
+
+    def _pick(pct: float) -> float:
+        index = max(0, min(len(ordered) - 1, int(round((len(ordered) - 1) * pct))))
+        return round(float(ordered[index]), 6)
+
+    return {"p50": _pick(0.50), "p75": _pick(0.75), "p90": _pick(0.90)}
+
+
 # ---------------------------------------------------------------------------
 # Elasticsearch client
 # ---------------------------------------------------------------------------
@@ -742,6 +1366,9 @@ class ElasticClient:
         self.url = os.getenv("ES_URL", "http://elasticsearch:9200").rstrip("/")
         self.index = (
             os.getenv("ES_ALIAS") or os.getenv("ES_INDEX") or "gabi_documents"
+        ).strip()
+        self.chunks_index = (
+            os.getenv("ES_CHUNKS_INDEX") or settings.ES_CHUNKS_INDEX
         ).strip()
         self.tcu_index = os.getenv("TCU_ES_INDEX", "gabi_tcu_acordaos_v1").strip()
         self.normas_index = os.getenv("TCU_NORMAS_INDEX", "gabi_tcu_normas_v1").strip()
@@ -759,7 +1386,7 @@ class ElasticClient:
     def resolve_index(self, source: str | None = None) -> str:
         """Resolve index name from source filter.
 
-        source: 'dou' | 'tcu' | 'tcu_normas' | 'btcu' | 'all' | None
+        source: 'dou' | 'tcu' | 'tcu_normas' | 'btcu' | 'publicacoes' | 'all' | None
         """
         if source == "tcu":
             return self.tcu_index
@@ -784,6 +1411,12 @@ class ElasticClient:
         if not isinstance(data, dict):
             raise RuntimeError("Invalid Elasticsearch response")
         return data
+
+    async def arequest(
+        self, method: str, path: str, payload: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Async wrapper for request() — avoids blocking the event loop."""
+        return await asyncio.to_thread(self.request, method, path, payload)
 
     def msearch(
         self, searches: list[tuple[dict[str, Any], dict[str, Any]]]
@@ -1456,7 +2089,7 @@ def _embedding_rerank_mcp(
     return hits
 
 
-def _es_search_direct(
+async def _es_search_direct(
     *,
     query: str,
     page: int = 1,
@@ -1622,14 +2255,21 @@ def _es_search_direct(
         "highlight": _TCU_HIGHLIGHT_SPEC,
     }
 
-    data = ES.request("POST", f"/{index}/_search", payload)
+    data = await ES.arequest("POST", f"/{index}/_search", payload)
     hits = data.get("hits", {}).get("hits", [])
     total = int(data.get("hits", {}).get("total", {}).get("value", 0))
 
     # Pass 2: Embedding re-rank
     if query_vector and hits:
         hits = _embedding_rerank_mcp(hits, query_vector, query_text=query)
-        hits = hits[offset : offset + page_size]
+    if settings.RERANKER_ENABLED and hits:
+        hits = await neural_rerank(
+            query,
+            hits,
+            top_k=min(settings.RERANKER_TOP_K, len(hits)),
+        )
+
+    hits = hits[offset : offset + page_size]
 
     # Format results
     results: list[dict[str, Any]] = []
@@ -1650,12 +2290,8 @@ def _es_search_direct(
     }
 
 
-# ---------------------------------------------------------------------------
-# TOOL 1: es_search — The primary search tool (two-stage, re-ranked)
-# ---------------------------------------------------------------------------
-
-
-async def es_search(
+async def _api_es_search(
+    *,
     query: str,
     page: int = 1,
     page_size: int = 20,
@@ -1667,53 +2303,7 @@ async def es_search(
     topic: str | None = None,
     intent: str | None = None,
     is_trending: bool = False,
-    source: str | None = None,
 ) -> dict[str, Any]:
-    """Search DOU and/or TCU documents via GABI's search pipeline.
-
-    Uses intent classification (person names, legal references, canonical laws,
-    topic profiles), hybrid BM25 + kNN via RRF, quoted phrase detection, and
-    optional neural reranking.
-
-    Args:
-      query: search query in Portuguese.
-             Use quotes for exact phrases: "Eduardo Joerke"
-             Legal references auto-boost: Lei 13709, Decreto nº 1.234
-             Person names auto-detected: Fernando Haddad, Maria Silva
-      page: 1-based page number
-      page_size: results per page (1-100)
-      date_from: YYYY-MM-DD lower bound
-      date_to: YYYY-MM-DD upper bound
-      section: 1 | 2 | 3 | e (DOU section filter, ignored for TCU)
-      art_type: act type filter (e.g. decreto, portaria, resolução)
-      issuing_organ: issuing organ filter
-      topic: topic classification filter. Available topics:
-             concurso_selecao, licitacao_compras, contrato_convenio,
-             pessoal_rh, regulacao_norma, consulta_participacao,
-             saude, educacao, meio_ambiente, financeiro,
-             energia_telecom, administrativo
-      intent: force intent classification. Options:
-              trending | explore | exact_name | canonical | person
-      is_trending: if true, prioritize recent documents
-      source: data source filter. Options:
-              dou — DOU documents only (default)
-              tcu — TCU acórdãos only
-              all — search both DOU and TCU
-    """
-    # TCU direct search — bypass API pipeline, hit ES directly
-    if source in ("tcu", "all"):
-        return _es_search_direct(
-            query=query,
-            page=page,
-            page_size=page_size,
-            date_from=date_from,
-            date_to=date_to,
-            source=source,
-        )
-
-    page = max(1, min(page, 500))
-    page_size = max(1, min(page_size, 100))
-
     try:
         data = await API.search(
             q=query,
@@ -1749,6 +2339,190 @@ async def es_search(
 
 
 # ---------------------------------------------------------------------------
+# TOOL 1: es_search — The primary search tool (two-stage, re-ranked)
+# ---------------------------------------------------------------------------
+
+
+async def es_search(
+    query: str,
+    page: int = 1,
+    page_size: int = 20,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    section: str | None = None,
+    art_type: str | None = None,
+    issuing_organ: str | None = None,
+    topic: str | None = None,
+    intent: str | None = None,
+    is_trending: bool = False,
+    source: str | None = None,
+    rewrite: bool = False,
+) -> dict[str, Any]:
+    """Search DOU and/or TCU documents via GABI's search pipeline.
+
+    Uses intent classification (person names, legal references, canonical laws,
+    topic profiles), optional query rewriting, hybrid BM25 + kNN via RRF,
+    quoted phrase detection, and optional neural reranking.
+
+    Args:
+      query: search query in Portuguese.
+             Use quotes for exact phrases: "Eduardo Joerke"
+             Legal references auto-boost: Lei 13709, Decreto nº 1.234
+             Person names auto-detected: Fernando Haddad, Maria Silva
+      page: 1-based page number
+      page_size: results per page (1-100)
+      date_from: YYYY-MM-DD lower bound
+      date_to: YYYY-MM-DD upper bound
+      section: 1 | 2 | 3 | e (DOU section filter, ignored for TCU)
+      art_type: act type filter (e.g. decreto, portaria, resolução)
+      issuing_organ: issuing organ filter
+      topic: topic classification filter. Available topics:
+             concurso_selecao, licitacao_compras, contrato_convenio,
+             pessoal_rh, regulacao_norma, consulta_participacao,
+             saude, educacao, meio_ambiente, financeiro,
+             energia_telecom, administrativo
+      intent: force intent classification. Options:
+              trending | explore | exact_name | canonical | person
+      is_trending: if true, prioritize recent documents
+      source: data source filter. Options:
+              dou — DOU documents only (default)
+              tcu — TCU acórdãos only
+              all — search both DOU and TCU
+              btcu — TCU Boletins (BTCU) only
+              publicacoes — TCU Publicações Institucionais only
+      rewrite: if true, normalize legal references and run multi-query expansion
+               before merging results in the MCP layer
+    """
+    page = max(1, min(page, 500))
+    page_size = max(1, min(page_size, 100))
+    query_id = _make_query_id(
+        "es_search",
+        query=query,
+        page=page,
+        page_size=page_size,
+        date_from=date_from,
+        date_to=date_to,
+        section=section,
+        art_type=art_type,
+        issuing_organ=issuing_organ,
+        topic=topic,
+        intent=intent,
+        is_trending=is_trending,
+        source=source,
+        rewrite=rewrite,
+    )
+    rewrite_bundle = await _build_query_rewrite_bundle(query, rewrite=rewrite)
+    queries = rewrite_bundle["queries"]
+
+    variant_page_size = min(max(page * page_size * 2, QUERY_REWRITE_POOL_SIZE), 100)
+    # btcu/publicacoes are sync-only; skip multi-query fan-out for them
+    if source in ("btcu", "publicacoes"):
+        queries = queries[:1]
+    if len(queries) > 1:
+        tasks = []
+        for variant_query in queries:
+            if source in ("tcu", "all"):
+                tasks.append(
+                    _es_search_direct(
+                        query=variant_query,
+                        page=1,
+                        page_size=variant_page_size,
+                        date_from=date_from,
+                        date_to=date_to,
+                        source=source,
+                    )
+                )
+            else:
+                tasks.append(
+                    _api_es_search(
+                        query=variant_query,
+                        page=1,
+                        page_size=variant_page_size,
+                        date_from=date_from,
+                        date_to=date_to,
+                        section=section,
+                        art_type=art_type,
+                        issuing_organ=issuing_organ,
+                        topic=topic,
+                        intent=intent,
+                        is_trending=is_trending,
+                    )
+                )
+
+        responses = await asyncio.gather(*tasks)
+        merged = _merge_search_responses(
+            [response for response in responses if not response.get("error")],
+            page=page,
+            page_size=page_size,
+        )
+        return {
+            "query_id": query_id,
+            "query": query,
+            "total": merged["total"],
+            "page": page,
+            "page_size": page_size,
+            "rewrite": {
+                "enabled": rewrite,
+                "normalized_query": rewrite_bundle["normalized_query"],
+                "variant_queries": merged["variant_queries"],
+                "used_llm": rewrite_bundle["used_llm"],
+                "hyde_query": rewrite_bundle["hyde"],
+            },
+            "results": merged["results"],
+        }
+
+    if source in ("tcu", "all"):
+        result = await _es_search_direct(
+            query=query,
+            page=page,
+            page_size=page_size,
+            date_from=date_from,
+            date_to=date_to,
+            source=source,
+        )
+        result["query_id"] = query_id
+        return result
+
+    if source == "btcu":
+        result = es_btcu_search(
+            query=query,
+            date_from=date_from,
+            date_to=date_to,
+            page_size=page_size,
+            page=page,
+        )
+        result["query_id"] = query_id
+        return result
+
+    if source == "publicacoes":
+        result = es_publicacoes_search(
+            query=query,
+            date_from=date_from,
+            date_to=date_to,
+            page_size=page_size,
+            page=page,
+        )
+        result["query_id"] = query_id
+        return result
+
+    result = await _api_es_search(
+        query=query,
+        page=page,
+        page_size=page_size,
+        date_from=date_from,
+        date_to=date_to,
+        section=section,
+        art_type=art_type,
+        issuing_organ=issuing_organ,
+        topic=topic,
+        intent=intent,
+        is_trending=is_trending,
+    )
+    result["query_id"] = query_id
+    return result
+
+
+# ---------------------------------------------------------------------------
 # TOOL 2: es_suggest — Autocomplete
 # ---------------------------------------------------------------------------
 
@@ -1762,13 +2536,28 @@ async def es_suggest(prefix: str, limit: int = 10) -> dict[str, Any]:
     """
     p = prefix.strip()
     if not p:
-        return {"prefix": prefix, "suggestions": []}
+        return _attach_query_id(
+            {"prefix": prefix, "suggestions": []},
+            "es_suggest",
+            prefix=prefix,
+            limit=limit,
+        )
     limit = max(1, min(limit, 20))
     try:
         data = await API.autocomplete(p, limit)
     except httpx.HTTPStatusError:
-        return {"prefix": prefix, "suggestions": []}
-    return {"prefix": prefix, "suggestions": data}
+        return _attach_query_id(
+            {"prefix": prefix, "suggestions": []},
+            "es_suggest",
+            prefix=prefix,
+            limit=limit,
+        )
+    return _attach_query_id(
+        {"prefix": prefix, "suggestions": data},
+        "es_suggest",
+        prefix=prefix,
+        limit=limit,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1833,19 +2622,24 @@ def es_facets(
         data = ES.request("POST", f"/{index}/_search", payload)
         aggs = data.get("aggregations", {})
         total = int(data.get("hits", {}).get("total", {}).get("value", 0))
-        return {
-            "query": query,
-            "source": "tcu",
-            "total": total,
-            "facets": {
-                "colegiados": _extract_agg_buckets(aggs, "colegiados"),
-                "tipos_processo": _extract_agg_buckets(aggs, "tipos_processo"),
-                "relatores": _extract_agg_buckets(aggs, "relatores"),
-                "dispositivo": _extract_agg_buckets(aggs, "dispositivo"),
-                "temas": _extract_agg_buckets(aggs, "temas"),
-                "by_month": _extract_agg_buckets(aggs, "by_month"),
+        return _attach_query_id(
+            {
+                "query": query,
+                "source": "tcu",
+                "total": total,
+                "facets": {
+                    "colegiados": _extract_agg_buckets(aggs, "colegiados"),
+                    "tipos_processo": _extract_agg_buckets(aggs, "tipos_processo"),
+                    "relatores": _extract_agg_buckets(aggs, "relatores"),
+                    "dispositivo": _extract_agg_buckets(aggs, "dispositivo"),
+                    "temas": _extract_agg_buckets(aggs, "temas"),
+                    "by_month": _extract_agg_buckets(aggs, "by_month"),
+                },
             },
-        }
+            "es_facets",
+            query=query,
+            source=source,
+        )
 
     # Default: DOU facets
     filters = _build_filters(
@@ -1871,16 +2665,21 @@ def es_facets(
     data = ES.request("POST", f"/{index}/_search", payload)
     aggs = data.get("aggregations", {})
     total = int(data.get("hits", {}).get("total", {}).get("value", 0))
-    return {
-        "query": query,
-        "total": total,
-        "facets": {
-            "sections": _extract_agg_buckets(aggs, "sections"),
-            "types": _extract_agg_buckets(aggs, "types"),
-            "organs": _extract_agg_buckets(aggs, "organs"),
-            "by_month": _extract_agg_buckets(aggs, "by_month"),
+    return _attach_query_id(
+        {
+            "query": query,
+            "total": total,
+            "facets": {
+                "sections": _extract_agg_buckets(aggs, "sections"),
+                "types": _extract_agg_buckets(aggs, "types"),
+                "organs": _extract_agg_buckets(aggs, "organs"),
+                "by_month": _extract_agg_buckets(aggs, "by_month"),
+            },
         },
-    }
+        "es_facets",
+        query=query,
+        source=source,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1902,7 +2701,7 @@ async def es_document(doc_id: str, source: str | None = None) -> dict[str, Any]:
 
     if is_tcu:
         try:
-            data = ES.request("GET", f"/{ES.tcu_index}/_doc/{doc_id}")
+            data = await ES.arequest("GET", f"/{ES.tcu_index}/_doc/{doc_id}")
             src = data.get("_source", {})
             return {
                 "found": True,
@@ -1954,21 +2753,24 @@ def es_health() -> dict[str, Any]:
         }
     except Exception:
         pass
-    return {
-        "search_backend": "bm25",
-        "tools_available": 13,
-        "cluster_name": health.get("cluster_name"),
-        "cluster_status": health.get("status"),
-        "number_of_nodes": health.get("number_of_nodes"),
-        "active_shards": health.get("active_shards"),
-        "dou_index": ES.index,
-        "dou_count": int(count.get("count", 0)),
-        "tcu_index": ES.tcu_index,
-        "tcu_count": tcu_count,
-        "index": ES.index,
-        "index_count": int(count.get("count", 0)),
-        **stats,
-    }
+    return _attach_query_id(
+        {
+            "search_backend": "bm25",
+            "tools_available": 13,
+            "cluster_name": health.get("cluster_name"),
+            "cluster_status": health.get("status"),
+            "number_of_nodes": health.get("number_of_nodes"),
+            "active_shards": health.get("active_shards"),
+            "dou_index": ES.index,
+            "dou_count": int(count.get("count", 0)),
+            "tcu_index": ES.tcu_index,
+            "tcu_count": tcu_count,
+            "index": ES.index,
+            "index_count": int(count.get("count", 0)),
+            **stats,
+        },
+        "es_health",
+    )
 
 
 def _human_bytes(n: int) -> str:
@@ -2039,11 +2841,11 @@ def es_more_like_this(
     data = ES.request("POST", f"/{ES.index}/_search", payload)
     hits = data.get("hits", {}).get("hits", [])
     total = int(data.get("hits", {}).get("total", {}).get("value", 0))
-    return {
-        "seed_doc_id": doc_id,
-        "total": total,
-        "results": _format_hits(hits),
-    }
+    return _attach_query_id(
+        {"seed_doc_id": doc_id, "total": total, "results": _format_hits(hits)},
+        "es_more_like_this",
+        doc_id=doc_id,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2130,19 +2932,24 @@ def es_significant_terms(
         .get("sig", {})
         .get("buckets", [])
     )
-    return {
-        "query": query,
-        "field": field,
-        "terms": [
-            {
-                "term": b.get("key"),
-                "doc_count": b.get("doc_count", 0),
-                "score": round(float(b.get("score", 0.0)), 4),
-                "bg_count": b.get("bg_count", 0),
-            }
-            for b in buckets
-        ],
-    }
+    return _attach_query_id(
+        {
+            "query": query,
+            "field": field,
+            "terms": [
+                {
+                    "term": b.get("key"),
+                    "doc_count": b.get("doc_count", 0),
+                    "score": round(float(b.get("score", 0.0)), 4),
+                    "bg_count": b.get("bg_count", 0),
+                }
+                for b in buckets
+            ],
+        },
+        "es_significant_terms",
+        query=query,
+        field=field,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2211,24 +3018,29 @@ def es_timeline(
     # Find peak period
     peak = max(buckets, key=lambda b: b.get("doc_count", 0)) if buckets else None
 
-    return {
-        "query": query,
-        "interval": interval,
-        "total": total,
-        "periods": len(buckets),
-        "first_date": date_stats.get("min_as_string"),
-        "last_date": date_stats.get("max_as_string"),
-        "peak_period": {
-            "date": peak.get("key_as_string"),
-            "count": peak.get("doc_count"),
-        }
-        if peak
-        else None,
-        "timeline": [
-            {"date": b.get("key_as_string"), "count": b.get("doc_count", 0)}
-            for b in buckets
-        ],
-    }
+    return _attach_query_id(
+        {
+            "query": query,
+            "interval": interval,
+            "total": total,
+            "periods": len(buckets),
+            "first_date": date_stats.get("min_as_string"),
+            "last_date": date_stats.get("max_as_string"),
+            "peak_period": {
+                "date": peak.get("key_as_string"),
+                "count": peak.get("doc_count"),
+            }
+            if peak
+            else None,
+            "timeline": [
+                {"date": b.get("key_as_string"), "count": b.get("doc_count", 0)}
+                for b in buckets
+            ],
+        },
+        "es_timeline",
+        query=query,
+        interval=interval,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2295,28 +3107,33 @@ def es_trending(
     data = ES.request("POST", f"/{ES.index}/_search", payload)
     aggs = data.get("aggregations", {})
     total = int(data.get("hits", {}).get("total", {}).get("value", 0))
-    return {
-        "days": days,
-        "total_publications": total,
-        "avg_daily": round(total / max(days, 1), 1),
-        "top_organs": _extract_agg_buckets(aggs, "top_organs"),
-        "top_types": _extract_agg_buckets(aggs, "top_types"),
-        "sections": _extract_agg_buckets(aggs, "top_sections"),
-        "daily_volume": [
-            {"date": b.get("key_as_string"), "count": b.get("doc_count", 0)}
-            for b in aggs.get("daily_volume", {}).get("buckets", [])
-        ],
-        "trending_terms": [
-            {
-                "term": b.get("key"),
-                "doc_count": b.get("doc_count", 0),
-                "score": round(float(b.get("score", 0.0)), 4),
-            }
-            for b in aggs.get("hot_terms_sampled", {})
-            .get("hot_terms", {})
-            .get("buckets", [])
-        ],
-    }
+    return _attach_query_id(
+        {
+            "days": days,
+            "total_publications": total,
+            "avg_daily": round(total / max(days, 1), 1),
+            "top_organs": _extract_agg_buckets(aggs, "top_organs"),
+            "top_types": _extract_agg_buckets(aggs, "top_types"),
+            "sections": _extract_agg_buckets(aggs, "top_sections"),
+            "daily_volume": [
+                {"date": b.get("key_as_string"), "count": b.get("doc_count", 0)}
+                for b in aggs.get("daily_volume", {}).get("buckets", [])
+            ],
+            "trending_terms": [
+                {
+                    "term": b.get("key"),
+                    "doc_count": b.get("doc_count", 0),
+                    "score": round(float(b.get("score", 0.0)), 4),
+                }
+                for b in aggs.get("hot_terms_sampled", {})
+                .get("hot_terms", {})
+                .get("buckets", [])
+            ],
+        },
+        "es_trending",
+        days=days,
+        section=section,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2421,18 +3238,23 @@ def es_cross_reference(
         else:
             results.extend(_format_hits([hit]))
 
-    return {
-        "reference": reference,
-        "source": source,
-        "total_citations": total,
-        "citing_organs": _extract_agg_buckets(aggs, "citing_organs"),
-        "citing_types": _extract_agg_buckets(aggs, "citing_types"),
-        "citations_over_time": [
-            {"year": b.get("key_as_string"), "count": b.get("doc_count", 0)}
-            for b in aggs.get("citations_over_time", {}).get("buckets", [])
-        ],
-        "results": results,
-    }
+    return _attach_query_id(
+        {
+            "reference": reference,
+            "source": source,
+            "total_citations": total,
+            "citing_organs": _extract_agg_buckets(aggs, "citing_organs"),
+            "citing_types": _extract_agg_buckets(aggs, "citing_types"),
+            "citations_over_time": [
+                {"year": b.get("key_as_string"), "count": b.get("doc_count", 0)}
+                for b in aggs.get("citations_over_time", {}).get("buckets", [])
+            ],
+            "results": results,
+        },
+        "es_cross_reference",
+        reference=reference,
+        source=source,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2512,34 +3334,38 @@ def es_organ_profile(
     yearly = aggs.get("yearly_volume", {}).get("buckets", [])
     peak_year = max(yearly, key=lambda b: b.get("doc_count", 0)) if yearly else None
 
-    return {
-        "organ": organ,
-        "total_publications": total,
-        "first_publication": date_stats.get("min_as_string"),
-        "latest_publication": date_stats.get("max_as_string"),
-        "peak_year": {
-            "year": peak_year.get("key_as_string"),
-            "count": peak_year.get("doc_count"),
-        }
-        if peak_year
-        else None,
-        "act_types": _extract_agg_buckets(aggs, "act_types"),
-        "sections": _extract_agg_buckets(aggs, "sections"),
-        "key_topics": [
-            {
-                "term": b.get("key"),
-                "doc_count": b.get("doc_count", 0),
-                "score": round(float(b.get("score", 0.0)), 4),
+    return _attach_query_id(
+        {
+            "organ": organ,
+            "total_publications": total,
+            "first_publication": date_stats.get("min_as_string"),
+            "latest_publication": date_stats.get("max_as_string"),
+            "peak_year": {
+                "year": peak_year.get("key_as_string"),
+                "count": peak_year.get("doc_count"),
             }
-            for b in aggs.get("key_topics_sampled", {})
-            .get("key_topics", {})
-            .get("buckets", [])
-        ],
-        "yearly_volume": [
-            {"year": b.get("key_as_string"), "count": b.get("doc_count", 0)}
-            for b in yearly
-        ],
-    }
+            if peak_year
+            else None,
+            "act_types": _extract_agg_buckets(aggs, "act_types"),
+            "sections": _extract_agg_buckets(aggs, "sections"),
+            "key_topics": [
+                {
+                    "term": b.get("key"),
+                    "doc_count": b.get("doc_count", 0),
+                    "score": round(float(b.get("score", 0.0)), 4),
+                }
+                for b in aggs.get("key_topics_sampled", {})
+                .get("key_topics", {})
+                .get("buckets", [])
+            ],
+            "yearly_volume": [
+                {"year": b.get("key_as_string"), "count": b.get("doc_count", 0)}
+                for b in yearly
+            ],
+        },
+        "es_organ_profile",
+        organ=organ,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2650,17 +3476,25 @@ def es_compare_periods(
     total_b = period_b_data["total"]
     change_pct = round((total_b - total_a) / max(total_a, 1) * 100, 1)
 
-    return {
-        "query": query,
-        "period_a": period_a_data,
-        "period_b": period_b_data,
-        "volume_change_pct": change_pct,
-        "volume_direction": "increase"
-        if change_pct > 0
-        else "decrease"
-        if change_pct < 0
-        else "stable",
-    }
+    return _attach_query_id(
+        {
+            "query": query,
+            "period_a": period_a_data,
+            "period_b": period_b_data,
+            "volume_change_pct": change_pct,
+            "volume_direction": "increase"
+            if change_pct > 0
+            else "decrease"
+            if change_pct < 0
+            else "stable",
+        },
+        "es_compare_periods",
+        query=query,
+        period_a_from=period_a_from,
+        period_a_to=period_a_to,
+        period_b_from=period_b_from,
+        period_b_to=period_b_to,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2668,9 +3502,78 @@ def es_compare_periods(
 # ---------------------------------------------------------------------------
 
 
+def _fetch_document_source_for_explain(
+    doc_id: str,
+    source: str | None = None,
+) -> tuple[str | None, dict[str, Any]]:
+    candidate_indices: list[tuple[str | None, str]] = []
+    if source:
+        candidate_indices.append((source, ES.resolve_index(source)))
+    else:
+        candidate_indices.extend(
+            [
+                ("dou", ES.index),
+                ("tcu", ES.tcu_index),
+                ("tcu_normas", ES.normas_index),
+                ("btcu", ES.btcu_index),
+                ("publicacoes", ES.publicacoes_index),
+            ]
+        )
+
+    for resolved_source, index_name in candidate_indices:
+        try:
+            data = ES.request("GET", f"/{index_name}/_doc/{doc_id}")
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                continue
+            raise
+        return resolved_source, data.get("_source", {})
+    return None, {}
+
+
+def _claim_match_details(claim_text: str, source_doc: dict[str, Any]) -> dict[str, Any]:
+    terms = _tokenize_query(claim_text)
+    candidate_text = " ".join(
+        str(source_doc.get(field) or "")
+        for field in (
+            "identifica",
+            "ementa",
+            "body_plain",
+            "titulo",
+            "sumario",
+            "acordao_texto",
+            "texto_norma",
+            "texto_completo",
+            "description",
+        )
+    ).strip()
+    normalized = _normalize_text(candidate_text)
+    matched_terms = [term for term in terms if term in normalized]
+    coverage = round(len(matched_terms) / max(len(terms), 1), 4)
+    proximity = round(_compute_proximity(terms, normalized[:8000]), 4) if terms else 0.0
+
+    excerpts: list[str] = []
+    for term in matched_terms[:3]:
+        idx = normalized.find(term)
+        if idx < 0:
+            continue
+        start = max(0, idx - 120)
+        end = min(len(candidate_text), idx + 220)
+        excerpts.append(candidate_text[start:end].strip())
+
+    return {
+        "matched_terms": matched_terms,
+        "coverage": coverage,
+        "span_score": proximity,
+        "excerpts": excerpts,
+    }
+
+
 def es_explain(
     query: str,
     doc_id: str,
+    source: str | None = None,
+    claim_text: str | None = None,
 ) -> dict[str, Any]:
     """Explain why a document scored the way it did for a given query.
 
@@ -2680,6 +3583,8 @@ def es_explain(
     Args:
       query: the search query
       doc_id: the document ID to explain
+      source: optional source override (dou, tcu, tcu_normas, btcu, publicacoes)
+      claim_text: optional claim text for span-level match diagnostics
     """
     q = _query_text(query)
     interpreted_query, section, art_type, issuing_organ = _infer_request_filters(
@@ -2690,7 +3595,14 @@ def es_explain(
     )
     payload = {"query": _query_clause(interpreted_query)}
 
-    data = ES.request("POST", f"/{ES.index}/_explain/{doc_id}", payload)
+    if source:
+        target_source = source
+    elif doc_id.startswith("ACORDAO-COMPLETO-"):
+        target_source = "tcu"
+    else:
+        target_source = "dou"
+    target_index = ES.resolve_index(target_source)
+    data = ES.request("POST", f"/{target_index}/_explain/{doc_id}", payload)
     explanation = data.get("explanation", {})
 
     def _simplify_explanation(exp: dict[str, Any], depth: int = 0) -> dict[str, Any]:
@@ -2705,13 +3617,35 @@ def es_explain(
             ]
         return result
 
-    return {
+    result = {
         "query": query,
         "doc_id": doc_id,
+        "source": target_source,
         "matched": data.get("matched", False),
         "score": round(float(explanation.get("value", 0.0)), 4),
         "explanation": _simplify_explanation(explanation),
     }
+    if claim_text:
+        resolved_source, source_doc = _fetch_document_source_for_explain(doc_id, source)
+        result["claim_match"] = (
+            _claim_match_details(claim_text, source_doc)
+            if source_doc
+            else {
+                "matched_terms": [],
+                "coverage": 0.0,
+                "span_score": 0.0,
+                "excerpts": [],
+            }
+        )
+        result["claim_source"] = resolved_source
+    return _attach_query_id(
+        result,
+        "es_explain",
+        query=query,
+        doc_id=doc_id,
+        source=source,
+        claim_text=claim_text,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2931,14 +3865,19 @@ def es_btcu_search(
     hits = data.get("hits", {}).get("hits", [])
     total = int(data.get("hits", {}).get("total", {}).get("value", 0))
 
-    return {
-        "query": query,
-        "intent": "person" if is_person else "keyword",
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "results": _format_btcu_hits(hits),
-    }
+    return _attach_query_id(
+        {
+            "query": query,
+            "intent": "person" if is_person else "keyword",
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "results": _format_btcu_hits(hits),
+        },
+        "es_btcu_search",
+        query=query,
+        page=page,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -3060,12 +3999,320 @@ def es_publicacoes_search(
         hits = _embedding_rerank_mcp(hits, query_vector, query_text=query)
         hits = hits[offset : offset + page_size]
 
+    return _attach_query_id(
+        {
+            "query": query,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "results": _format_publicacoes_hits(hits),
+        },
+        "es_publicacoes_search",
+        query=query,
+        page=page,
+    )
+
+
+def _parent_context_from_doc(
+    parent_doc: dict[str, Any], chunk_doc: dict[str, Any]
+) -> str:
+    body_plain = str(parent_doc.get("body_plain") or "")
+    if not body_plain:
+        return str(parent_doc.get("lead_passage") or "")
+
+    char_start = int(chunk_doc.get("char_start") or 0)
+    char_end = int(chunk_doc.get("char_end") or char_start)
+    if char_end <= char_start:
+        return body_plain[:1800]
+
+    start = max(0, char_start - 600)
+    end = min(len(body_plain), char_end + 900)
+    return body_plain[start:end].strip()
+
+
+async def es_parent_expand(chunk_ids: list[str]) -> dict[str, Any]:
+    """Expand DOU chunk IDs back into parent-document context slices."""
+    chunk_ids = [
+        str(chunk_id).strip() for chunk_id in chunk_ids if str(chunk_id).strip()
+    ]
+    result = _attach_query_id(
+        {"requested_chunk_ids": chunk_ids},
+        "es_parent_expand",
+        chunk_ids=chunk_ids,
+    )
+    if not chunk_ids:
+        result["results"] = []
+        return result
+
+    chunk_data = await ES.arequest(
+        "POST", f"/{ES.chunks_index}/_mget", {"ids": chunk_ids}
+    )
+    found_chunks = [doc for doc in chunk_data.get("docs", []) if doc.get("found")]
+    parent_ids = list(
+        {
+            str(doc.get("_source", {}).get("parent_doc_id") or "")
+            for doc in found_chunks
+            if doc.get("_source", {}).get("parent_doc_id")
+        }
+    )
+    if not parent_ids:
+        result["results"] = []
+        return result
+
+    parent_data = await ES.arequest("POST", f"/{ES.index}/_mget", {"ids": parent_ids})
+    parents_by_id = {
+        doc["_id"]: doc.get("_source", {})
+        for doc in parent_data.get("docs", [])
+        if doc.get("found")
+    }
+
+    expansions: list[dict[str, Any]] = []
+    for doc in found_chunks:
+        src = doc.get("_source", {})
+        parent_id = str(src.get("parent_doc_id") or "")
+        parent_doc = parents_by_id.get(parent_id, {})
+        expansions.append(
+            {
+                "chunk_id": src.get("chunk_id") or doc.get("_id"),
+                "parent_doc_id": parent_id,
+                "chunk_type": src.get("chunk_type"),
+                "chunk_text": src.get("text"),
+                "identifica": parent_doc.get("identifica"),
+                "ementa": parent_doc.get("ementa"),
+                "pub_date": parent_doc.get("pub_date"),
+                "art_type": parent_doc.get("art_type"),
+                "issuing_organ": parent_doc.get("issuing_organ"),
+                "doc_url": parent_doc.get("source_url"),
+                "expanded_context": _parent_context_from_doc(parent_doc, src),
+            }
+        )
+
+    result["results"] = expansions
+    return result
+
+
+def _evidence_from_result(
+    result: dict[str, Any], fallback_source_type: str
+) -> dict[str, Any]:
+    parent_id = result.get("parent_doc_id") or result.get("doc_id")
+    literal_excerpt = (
+        result.get("literal_excerpt")
+        or result.get("snippet")
+        or result.get("description")
+        or result.get("sumario")
+        or result.get("ementa")
+        or result.get("chunk_text")
+        or result.get("title")
+        or ""
+    )
+    chunk_text = result.get("chunk_text") or result.get("snippet") or literal_excerpt
     return {
+        "chunk_id": result.get("chunk_id") or result.get("doc_id"),
+        "chunk_text": chunk_text,
+        "parent_id": parent_id,
+        "source_type": result.get("source_type") or fallback_source_type,
+        "pub_date": result.get("pub_date")
+        or result.get("data_publicacao")
+        or result.get("data_sessao"),
+        "score": round(float(result.get("score") or 0.0), 6),
+        "literal_excerpt": literal_excerpt,
+        "doc_url": result.get("doc_url")
+        or result.get("source_url")
+        or result.get("pdf_url"),
+        "title": result.get("identifica")
+        or result.get("titulo")
+        or result.get("title"),
+        "issuing_organ": result.get("issuing_organ") or result.get("entidade"),
+    }
+
+
+def _diversify_evidence(evidence: list[dict[str, Any]], k: int) -> list[dict[str, Any]]:
+    kept: list[dict[str, Any]] = []
+    per_parent: dict[str, int] = {}
+    seen_chunks: set[str] = set()
+    for item in sorted(evidence, key=lambda row: row["score"], reverse=True):
+        chunk_id = str(item.get("chunk_id") or "")
+        parent_id = str(item.get("parent_id") or chunk_id)
+        if chunk_id and chunk_id in seen_chunks:
+            continue
+        if per_parent.get(parent_id, 0) >= 2:
+            continue
+        kept.append(item)
+        if chunk_id:
+            seen_chunks.add(chunk_id)
+        per_parent[parent_id] = per_parent.get(parent_id, 0) + 1
+        if len(kept) >= k:
+            break
+    return kept
+
+
+def _evidence_metrics(evidence: list[dict[str, Any]], k: int) -> dict[str, Any]:
+    scores = [float(item.get("score") or 0.0) for item in evidence]
+    unique_sources = len(
+        {
+            str(item.get("source_type") or "")
+            for item in evidence
+            if item.get("source_type")
+        }
+    )
+    unique_orgs = len(
+        {
+            str(item.get("issuing_organ") or "")
+            for item in evidence
+            if item.get("issuing_organ")
+        }
+    )
+    unique_parents = len(
+        {str(item.get("parent_id") or "") for item in evidence if item.get("parent_id")}
+    )
+    return {
+        "top_score": round(max(scores), 6) if scores else 0.0,
+        "score_distribution": _score_distribution(scores),
+        "source_diversity": {
+            "unique_source_types": unique_sources,
+            "unique_organs": unique_orgs,
+            "unique_parents": unique_parents,
+        },
+        "coverage_estimate": round(unique_parents / max(k, 1), 4),
+    }
+
+
+async def es_evidence_bundle(
+    query: str,
+    source: str | None = None,
+    k: int = 10,
+    min_score: float = 0.3,
+    rewrite: bool = False,
+) -> dict[str, Any]:
+    """Return citation-ready evidence objects for LLM clients."""
+    k = max(1, min(k, 20))
+    query_id = _make_query_id(
+        "es_evidence_bundle",
+        query=query,
+        source=source,
+        k=k,
+        min_score=min_score,
+        rewrite=rewrite,
+    )
+
+    evidence_candidates: list[dict[str, Any]] = []
+    rewrite_meta: dict[str, Any] | None = None
+
+    if source in (None, "dou"):
+        dou_chunks = await _search_dou_chunks(
+            query=query,
+            page_size=max(k * 4, 12),
+            rewrite=rewrite,
+        )
+        rewrite_meta = dou_chunks.get("rewrite")
+        evidence_candidates.extend(
+            _evidence_from_result(result, "dou_chunk")
+            for result in dou_chunks.get("results", [])
+        )
+    elif source == "all":
+        dou_chunks = await _search_dou_chunks(
+            query=query,
+            page_size=max(k * 3, 10),
+            rewrite=rewrite,
+        )
+        tcu_results = await es_search(
+            query=query,
+            page=1,
+            page_size=max(k * 3, 10),
+            source="tcu",
+            rewrite=rewrite,
+        )
+        rewrite_meta = tcu_results.get("rewrite") or dou_chunks.get("rewrite")
+        evidence_candidates.extend(
+            _evidence_from_result(result, "dou_chunk")
+            for result in dou_chunks.get("results", [])
+        )
+        evidence_candidates.extend(
+            _evidence_from_result(
+                result, str(result.get("source_type") or "tcu_acordao")
+            )
+            for result in tcu_results.get("results", [])
+        )
+    else:
+        search_results = await es_search(
+            query=query,
+            page=1,
+            page_size=max(k * 4, 12),
+            source=source,
+            rewrite=rewrite,
+        )
+        rewrite_meta = search_results.get("rewrite")
+        evidence_candidates.extend(
+            _evidence_from_result(
+                result, str(result.get("source_type") or source or "search_result")
+            )
+            for result in search_results.get("results", [])
+        )
+
+    evidence = _diversify_evidence(evidence_candidates, k)
+    metrics = _evidence_metrics(evidence, k)
+    top_score = metrics["top_score"]
+
+    response: dict[str, Any] = {
+        "query_id": query_id,
         "query": query,
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "results": _format_publicacoes_hits(hits),
+        "source": source or "dou",
+        "k": k,
+        "rewrite": rewrite_meta,
+        "retrieval_metrics": metrics,
+        "results": evidence,
+    }
+
+    if top_score < min_score:
+        response["insufficient_evidence"] = True
+        response["rejected"] = True
+        response["reason"] = f"top_score={top_score:.2f} < threshold={min_score:.2f}"
+    else:
+        response["insufficient_evidence"] = False
+        response["rejected"] = False
+
+    _record_retrieval_audit(
+        {
+            "query_id": query_id,
+            "tool": "es_evidence_bundle",
+            "query": query,
+            "source": source or "dou",
+            "k": k,
+            "rewrite": rewrite,
+            "retrieved_doc_ids": [item.get("chunk_id") for item in evidence],
+            "parent_ids": [item.get("parent_id") for item in evidence],
+            "scores": [item.get("score") for item in evidence],
+            "source_types": [item.get("source_type") for item in evidence],
+            "retrieval_metrics": metrics,
+            "rejected": response["rejected"],
+            "reason": response.get("reason"),
+            "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
+        }
+    )
+
+    return response
+
+
+def es_audit_query(query_id: str) -> dict[str, Any]:
+    """Fetch a persisted retrieval audit record by deterministic query ID."""
+    client, db = _mongo_db()
+    try:
+        cursor = (
+            db["retrieval_audit"]
+            .find({"query_id": query_id}, {"_id": 0})
+            .sort("updated_at", -1)
+            .limit(10)
+        )
+        records = list(cursor)
+    finally:
+        client.close()
+
+    return {
+        "query_id": query_id,
+        "lookup_query_id": _make_query_id("es_audit_query", query_id=query_id),
+        "found": bool(records),
+        "latest_record": records[0] if records else None,
+        "records": records,
     }
 
 
@@ -3274,13 +4521,19 @@ def es_tcu_semantic_search(
     else:
         results = _format_tcu_hits(hits)
 
-    return {
-        "query": query,
-        "source": source,
-        "method": "semantic_knn",
-        "total": total,
-        "results": results,
-    }
+    return _attach_query_id(
+        {
+            "query": query,
+            "source": source,
+            "method": "semantic_knn",
+            "total": total,
+            "results": results,
+        },
+        "es_tcu_semantic_search",
+        query=query,
+        source=source,
+        k=k,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -3379,12 +4632,18 @@ def es_tcu_similar(
     else:
         results = _format_tcu_hits(hits)
 
-    return {
-        "seed_doc_id": doc_id,
-        "seed_titulo": doc_data.get("titulo"),
-        "method": "vector_similarity",
-        "results": results,
-    }
+    return _attach_query_id(
+        {
+            "seed_doc_id": doc_id,
+            "seed_titulo": doc_data.get("titulo"),
+            "method": "vector_similarity",
+            "results": results,
+        },
+        "es_tcu_similar",
+        doc_id=doc_id,
+        source=source,
+        k=k,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -3436,6 +4695,9 @@ if FastMCP is not None:
     mcp.tool()(es_publicacoes_search)
     mcp.tool()(es_tcu_semantic_search)
     mcp.tool()(es_tcu_similar)
+    mcp.tool()(es_parent_expand)
+    mcp.tool()(es_evidence_bundle)
+    mcp.tool()(es_audit_query)
 else:
     mcp = None
 
