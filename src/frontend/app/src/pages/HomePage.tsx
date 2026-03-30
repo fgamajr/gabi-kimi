@@ -135,8 +135,8 @@ const HomePage: React.FC = () => {
             </h1>
 
             {/* Integrated Search Bar */}
-            <div ref={searchRef} className="relative max-w-3xl mx-auto">
-              <div className="glass rounded-full p-2 pl-6 flex items-center shadow-lg border border-border/40">
+            <div ref={searchRef} className="relative w-full max-w-3xl mx-auto">
+              <div className="glass rounded-full p-2 pl-6 flex items-center shadow-lg border border-border/40 overflow-hidden">
                 <div className="flex items-center gap-2 pr-4 border-r border-border/40">
                   <Icons.search className="w-5 h-5 text-primary" />
                   <select
