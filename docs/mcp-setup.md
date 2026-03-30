@@ -50,17 +50,17 @@ Just paste this into your config file. No local setup needed.
 
 **Windsurf** (`~/.windsurf/mcp.json`) — same as Cursor format.
 
-Replace `YOUR_TOKEN` with the token you received from the admin. Restart your editor. 13 tools are immediately available.
+Replace `YOUR_TOKEN` with the token you received from the admin. Restart your editor. 20 tools are immediately available.
 
 ---
 
-## Available Tools (13)
+## Available Tools (20)
 
 ### Search Tools (hybrid pipeline)
 
 | Tool | What it does |
 |------|-------------|
-| `es_search` | Full hybrid search with intent detection, topic filters, person names, quoted phrases |
+| `es_search` | Canonical search entry point across DOU, TCU, BTCU, and TCU Publicações |
 | `es_suggest` | Autocomplete suggestions |
 | `es_document` | Fetch a full document by ID (body, metadata, signatures, media) |
 
@@ -78,6 +78,21 @@ Replace `YOUR_TOKEN` with the token you received from the admin. Restart your ed
 | `es_compare_periods` | Compare query volumes between two time periods |
 | `es_explain` | Debug why a document scored the way it did |
 | `es_health` | Cluster health, index stats, storage |
+
+### Evidence & audit tools
+
+| Tool | What it does |
+|------|-------------|
+| `es_evidence_bundle` | Return citation-ready evidence rows with chunk and parent metadata |
+| `es_parent_expand` | Expand DOU chunk IDs back into parent-document context |
+| `es_audit_query` | Fetch persisted retrieval traces by query ID |
+
+### Compatibility wrappers
+
+| Tool | What it does |
+|------|-------------|
+| `es_btcu_search` | Backward-compatible BTCU wrapper over `es_search(source="btcu")` |
+| `es_publicacoes_search` | Backward-compatible Publicações wrapper over `es_search(source="publicacoes")` |
 
 ---
 
@@ -280,7 +295,7 @@ Ask the project admin for a token. Tokens are `label:secret` pairs stored server
 
 - **No token in config** → search still works (public API), but some clients require it
 - **Invalid token** → 401 Unauthorized
-- **Valid token** → full access to all 13 tools
+- **Valid token** → full access to all 20 tools
 
 ---
 

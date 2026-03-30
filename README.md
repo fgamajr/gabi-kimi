@@ -316,7 +316,7 @@ A triangular consensus panel (qwen3-max, kimi-k2.5, claude-sonnet-4.5) evaluated
 
 ## MCP (Model Context Protocol)
 
-GABI exposes 15+ search tools via MCP, allowing AI assistants to query DOU and TCU data programmatically.
+GABI exposes 20 search and evidence tools via MCP, allowing AI assistants to query DOU and TCU data programmatically.
 
 Two transports are available:
 
@@ -361,12 +361,13 @@ claude mcp add --transport sse gabi-dou https://gabidou.top/mcp/sse \
 
 | Group | Tools | Description |
 |-------|-------|-------------|
-| Search | `es_search` | Hybrid BM25 + kNN with intent detection (source: dou/tcu/tcu_normas/all) |
+| Search | `es_search` | Canonical search entry point for DOU, TCU, BTCU, and TCU Publicações (`source: dou/tcu/tcu_normas/all/btcu/publicacoes`) |
 | Discover | `es_more_like_this`, `es_significant_terms`, `es_cross_reference` | Similar docs, themes, citation network |
 | Analyze | `es_timeline`, `es_trending`, `es_organ_profile`, `es_compare_periods` | Temporal trends, institutional analysis |
 | TCU Semantic | `es_tcu_semantic_search`, `es_tcu_similar` | kNN vector search on TCU embeddings (source: tcu/normas/btcu/all) |
-| TCU Publicações | `es_publicacoes_search` | Full-text search on TCU institutional publications (relatórios, cartilhas, sumários) |
-| Utility | `es_suggest`, `es_facets`, `es_document`, `es_health`, `es_explain` | Autocomplete, aggregations, debugging |
+| Evidence | `es_evidence_bundle`, `es_parent_expand`, `es_audit_query` | Citation-ready retrieval, parent context expansion, retrieval audit lookup |
+| Compatibility | `es_btcu_search`, `es_publicacoes_search` | Backward-compatible wrappers over `es_search` |
+| Utility | `es_suggest`, `es_facets`, `es_document`, `es_health`, `es_explain` | Autocomplete, aggregations, fetch, health, debugging |
 
 ### Traditional stdio server
 

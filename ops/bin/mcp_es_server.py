@@ -23,6 +23,7 @@ import json
 import logging
 import os
 import re
+import time
 from typing import Any
 
 import httpx
@@ -1024,16 +1025,19 @@ def _merge_search_responses(
     merged: dict[str, dict[str, Any]] = {}
     variant_labels: list[str] = []
 
-    for response in responses:
+    for variant_idx, response in enumerate(responses):
         variant_query = str(response.get("query") or "").strip()
         if variant_query:
             variant_labels.append(variant_query)
+
+        variant_weight = 1.0 / (variant_idx + 1)
 
         for rank, result in enumerate(response.get("results", []), start=1):
             doc_id = str(result.get("doc_id") or "").strip()
             if not doc_id:
                 continue
-            merged_score = 1.0 / (60 + rank)
+            rrf_score = 1.0 / (60 + rank)
+            merged_score = rrf_score * variant_weight
             entry = merged.setdefault(
                 doc_id,
                 {
@@ -1098,8 +1102,84 @@ def _make_query_id(tool_name: str, **params: Any) -> str:
 def _attach_query_id(
     payload: dict[str, Any], tool_name: str, **params: Any
 ) -> dict[str, Any]:
-    payload["query_id"] = _make_query_id(tool_name, **params)
-    return payload
+    return _attach_tool_meta(payload, tool_name, **params)
+
+
+def _elapsed_ms(started_at: float | None) -> float:
+    if started_at is None:
+        return 0.0
+    return round((time.perf_counter() - started_at) * 1000, 1)
+
+
+def _attach_tool_meta(
+    payload: dict[str, Any],
+    tool_name: str,
+    *,
+    started_at: float | None = None,
+    error: str | None = None,
+    **params: Any,
+) -> dict[str, Any]:
+    result = dict(payload)
+    result["query_id"] = _make_query_id(tool_name, **params)
+    result["took_ms"] = _elapsed_ms(started_at)
+    result["error"] = error
+    return result
+
+
+def _safe_record_retrieval_audit(payload: dict[str, Any]) -> None:
+    try:
+        _record_retrieval_audit(payload)
+    except Exception as exc:
+        logger.warning("Retrieval audit write failed (non-fatal): %s", exc)
+
+
+def _rewrite_meta(
+    rewrite_bundle: dict[str, Any],
+    *,
+    enabled: bool,
+    variant_queries: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "enabled": enabled,
+        "normalized_query": rewrite_bundle["normalized_query"],
+        "variant_queries": variant_queries or rewrite_bundle["queries"],
+        "used_llm": rewrite_bundle["used_llm"],
+        "hyde_query": rewrite_bundle["hyde"],
+    }
+
+
+def _record_search_audit(
+    result: dict[str, Any],
+    *,
+    tool_name: str,
+    query: str,
+    source: str | None,
+    page: int,
+    page_size: int,
+    rewrite: bool,
+) -> None:
+    if result.get("error"):
+        return
+    rows = result.get("results", [])
+    _safe_record_retrieval_audit(
+        {
+            "query_id": result.get("query_id"),
+            "tool": tool_name,
+            "query": query,
+            "source": source or "dou",
+            "page": page,
+            "page_size": page_size,
+            "rewrite": rewrite,
+            "retrieved_doc_ids": [
+                row.get("chunk_id") or row.get("doc_id") for row in rows
+            ],
+            "parent_ids": [row.get("parent_doc_id") or row.get("parent_id") for row in rows],
+            "scores": [row.get("score") for row in rows],
+            "source_types": [row.get("source_type") for row in rows],
+            "total": result.get("total"),
+            "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
+        }
+    )
 
 
 def _mongo_db() -> tuple[pymongo.MongoClient, pymongo.database.Database]:
@@ -1451,7 +1531,11 @@ class GabiAPIClient:
     """
 
     def __init__(self) -> None:
-        self.base_url = os.getenv("GABI_API_URL", "http://localhost:8001").rstrip("/")
+        base_url = os.getenv("GABI_API_URL", "http://127.0.0.1:8000").rstrip("/")
+        internal_port = (os.getenv("BACKEND_INTERNAL_PORT") or "8000").strip()
+        if base_url in {"http://localhost:8001", "http://127.0.0.1:8001"}:
+            base_url = f"http://127.0.0.1:{internal_port}"
+        self.base_url = base_url
         token = os.getenv("GABI_API_TOKEN", "").strip()
         headers: dict[str, str] = {}
         if token:
@@ -1914,6 +1998,20 @@ def _rerank_hits(query: str, hits: list[dict[str, Any]]) -> list[dict[str, Any]]
     return [hit for _, hit in scored]
 
 
+def _get_knn_score(hit: dict[str, Any]) -> float:
+    """Extract kNN similarity score from ES sort array.
+
+    kNN search returns cosine similarity in the sort field when
+    inner_hits is not used. The score is the first element of sort array.
+    Returns score in 0-1 range (cosine similarity for normalized vectors).
+    """
+    sort = hit.get("sort")
+    if sort and isinstance(sort, (list, tuple)):
+        raw = float(sort[0])
+        return round(max(0.0, min(1.0, raw)), 4)
+    return 0.0
+
+
 def _format_reranked_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Convert re-ranked ES hits to result dicts, including rerank signals."""
     results: list[dict[str, Any]] = []
@@ -1934,12 +2032,22 @@ def _format_reranked_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
             else (src.get("ementa") or src.get("body_plain") or "")[:280]
         )
 
+        raw_score = hit.get("_score")
+        knn_score = _get_knn_score(hit)
+
+        if raw_score is None and knn_score > 0:
+            score = knn_score
+            score_bm25 = 0.0
+        else:
+            score = hit.get("_rerank_score", round(float(raw_score or 0.0), 4))
+            score_bm25 = round(float(raw_score or 0.0), 4)
+
         entry: dict[str, Any] = {
             "doc_id": src.get("doc_id") or hit.get("_id"),
-            "score": hit.get(
-                "_rerank_score", round(float(hit.get("_score") or 0.0), 4)
-            ),
-            "score_bm25": round(float(hit.get("_score") or 0.0), 4),
+            "score": score,
+            "score_bm25": score_bm25,
+            "is_knn": knn_score > 0 and (raw_score is None),
+            "knn_score": knn_score if knn_score > 0 else None,
             "identifica": src.get("identifica"),
             "ementa": src.get("ementa"),
             "art_type": src.get("art_type"),
@@ -2012,10 +2120,19 @@ def _format_tcu_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
             else (src.get("sumario") or src.get("acordao_texto") or "")[:280]
         )
 
+        raw_score = hit.get("_score")
+        knn_score = _get_knn_score(hit)
+        if raw_score is None and knn_score > 0:
+            score = knn_score
+        else:
+            score = round(float(raw_score or 0.0), 4)
+
         results.append(
             {
                 "doc_id": src.get("doc_id") or hit.get("_id"),
-                "score": round(float(hit.get("_score") or 0.0), 4),
+                "score": score,
+                "is_knn": knn_score > 0 and (raw_score is None),
+                "knn_score": knn_score if knn_score > 0 else None,
                 "titulo": src.get("titulo"),
                 "sumario": src.get("sumario"),
                 "tipo": src.get("tipo"),
@@ -2357,6 +2474,9 @@ async def es_search(
     is_trending: bool = False,
     source: str | None = None,
     rewrite: bool = False,
+    caderno: str | None = None,
+    section_type: str | None = None,
+    pub_type: str | None = None,
 ) -> dict[str, Any]:
     """Search DOU and/or TCU documents via GABI's search pipeline.
 
@@ -2392,32 +2512,76 @@ async def es_search(
               publicacoes — TCU Publicações Institucionais only
       rewrite: if true, normalize legal references and run multi-query expansion
                before merging results in the MCP layer
+      caderno: BTCU caderno filter (source='btcu')
+      section_type: BTCU section filter (source='btcu')
+      pub_type: TCU publication type slug (source='publicacoes')
     """
+    started_at = time.perf_counter()
     page = max(1, min(page, 500))
     page_size = max(1, min(page_size, 100))
-    query_id = _make_query_id(
-        "es_search",
-        query=query,
-        page=page,
-        page_size=page_size,
-        date_from=date_from,
-        date_to=date_to,
-        section=section,
-        art_type=art_type,
-        issuing_organ=issuing_organ,
-        topic=topic,
-        intent=intent,
-        is_trending=is_trending,
-        source=source,
-        rewrite=rewrite,
+    params = {
+        "query": query,
+        "page": page,
+        "page_size": page_size,
+        "date_from": date_from,
+        "date_to": date_to,
+        "section": section,
+        "art_type": art_type,
+        "issuing_organ": issuing_organ,
+        "topic": topic,
+        "intent": intent,
+        "is_trending": is_trending,
+        "source": source,
+        "rewrite": rewrite,
+        "caderno": caderno,
+        "section_type": section_type,
+        "pub_type": pub_type,
+    }
+
+    max_offset = 10000
+    if (page - 1) * page_size > max_offset:
+        return _attach_tool_meta(
+            {
+                "query": query,
+                "page": page,
+                "page_size": page_size,
+            },
+            "es_search",
+            started_at=started_at,
+            error=(
+                f"Offset too large ({page - 1} * {page_size} = {(page - 1) * page_size}). "
+                f"Maximum offset is {max_offset}. Use pagination or reduce page_size."
+            ),
+            **params,
+        )
+
+    if date_from and date_to and date_from > date_to:
+        return _attach_tool_meta(
+            {
+                "query": query,
+                "date_from": date_from,
+                "date_to": date_to,
+            },
+            "es_search",
+            started_at=started_at,
+            error="date_from must be before or equal to date_to",
+            **params,
+        )
+
+    query_id = _make_query_id("es_search", **params)
+    rewrite_response = _rewrite_meta(
+        await _build_query_rewrite_bundle(query, rewrite=rewrite),
+        enabled=rewrite,
     )
-    rewrite_bundle = await _build_query_rewrite_bundle(query, rewrite=rewrite)
+    rewrite_bundle = {
+        "normalized_query": rewrite_response["normalized_query"],
+        "queries": rewrite_response["variant_queries"],
+        "used_llm": rewrite_response["used_llm"],
+        "hyde": rewrite_response["hyde_query"],
+    }
     queries = rewrite_bundle["queries"]
 
     variant_page_size = min(max(page * page_size * 2, QUERY_REWRITE_POOL_SIZE), 100)
-    # btcu/publicacoes are sync-only; skip multi-query fan-out for them
-    if source in ("btcu", "publicacoes"):
-        queries = queries[:1]
     if len(queries) > 1:
         tasks = []
         for variant_query in queries:
@@ -2430,6 +2594,31 @@ async def es_search(
                         date_from=date_from,
                         date_to=date_to,
                         source=source,
+                        )
+                    )
+            elif source == "btcu":
+                tasks.append(
+                    asyncio.to_thread(
+                        _search_btcu_once,
+                        query=variant_query,
+                        caderno=caderno,
+                        date_from=date_from,
+                        date_to=date_to,
+                        section_type=section_type,
+                        page_size=variant_page_size,
+                        page=1,
+                    )
+                )
+            elif source == "publicacoes":
+                tasks.append(
+                    asyncio.to_thread(
+                        _search_publicacoes_once,
+                        query=variant_query,
+                        pub_type=pub_type,
+                        date_from=date_from,
+                        date_to=date_to,
+                        page=1,
+                        page_size=variant_page_size,
                     )
                 )
             else:
@@ -2455,21 +2644,33 @@ async def es_search(
             page=page,
             page_size=page_size,
         )
-        return {
-            "query_id": query_id,
-            "query": query,
-            "total": merged["total"],
-            "page": page,
-            "page_size": page_size,
-            "rewrite": {
-                "enabled": rewrite,
-                "normalized_query": rewrite_bundle["normalized_query"],
-                "variant_queries": merged["variant_queries"],
-                "used_llm": rewrite_bundle["used_llm"],
-                "hyde_query": rewrite_bundle["hyde"],
+        final_result = _attach_tool_meta(
+            {
+                "query": query,
+                "total": merged["total"],
+                "page": page,
+                "page_size": page_size,
+                "rewrite": _rewrite_meta(
+                    rewrite_bundle,
+                    enabled=rewrite,
+                    variant_queries=merged["variant_queries"],
+                ),
+                "results": merged["results"],
             },
-            "results": merged["results"],
-        }
+            "es_search",
+            started_at=started_at,
+            **params,
+        )
+        _record_search_audit(
+            final_result,
+            tool_name="es_search",
+            query=query,
+            source=source,
+            page=page,
+            page_size=page_size,
+            rewrite=rewrite,
+        )
+        return final_result
 
     if source in ("tcu", "all"):
         result = await _es_search_direct(
@@ -2480,45 +2681,56 @@ async def es_search(
             date_to=date_to,
             source=source,
         )
-        result["query_id"] = query_id
-        return result
-
-    if source == "btcu":
-        result = es_btcu_search(
+    elif source == "btcu":
+        result = await asyncio.to_thread(
+            _search_btcu_once,
             query=query,
+            caderno=caderno,
             date_from=date_from,
             date_to=date_to,
+            section_type=section_type,
             page_size=page_size,
             page=page,
         )
-        result["query_id"] = query_id
-        return result
-
-    if source == "publicacoes":
-        result = es_publicacoes_search(
+    elif source == "publicacoes":
+        result = await asyncio.to_thread(
+            _search_publicacoes_once,
             query=query,
+            pub_type=pub_type,
             date_from=date_from,
             date_to=date_to,
-            page_size=page_size,
             page=page,
+            page_size=page_size,
         )
-        result["query_id"] = query_id
-        return result
+    else:
+        result = await _api_es_search(
+            query=query,
+            page=page,
+            page_size=page_size,
+            date_from=date_from,
+            date_to=date_to,
+            section=section,
+            art_type=art_type,
+            issuing_organ=issuing_organ,
+            topic=topic,
+            intent=intent,
+            is_trending=is_trending,
+        )
 
-    result = await _api_es_search(
+    result["query_id"] = query_id
+    result["took_ms"] = _elapsed_ms(started_at)
+    result["error"] = result.get("error")
+    if rewrite or rewrite_bundle["normalized_query"] != query:
+        result["rewrite"] = _rewrite_meta(rewrite_bundle, enabled=rewrite)
+    _record_search_audit(
+        result,
+        tool_name="es_search",
         query=query,
+        source=source,
         page=page,
         page_size=page_size,
-        date_from=date_from,
-        date_to=date_to,
-        section=section,
-        art_type=art_type,
-        issuing_organ=issuing_organ,
-        topic=topic,
-        intent=intent,
-        is_trending=is_trending,
+        rewrite=rewrite,
     )
-    result["query_id"] = query_id
     return result
 
 
@@ -2534,11 +2746,13 @@ async def es_suggest(prefix: str, limit: int = 10) -> dict[str, Any]:
       prefix: partial text to autocomplete
       limit: max suggestions (1-20)
     """
+    started_at = time.perf_counter()
     p = prefix.strip()
     if not p:
-        return _attach_query_id(
+        return _attach_tool_meta(
             {"prefix": prefix, "suggestions": []},
             "es_suggest",
+            started_at=started_at,
             prefix=prefix,
             limit=limit,
         )
@@ -2546,15 +2760,17 @@ async def es_suggest(prefix: str, limit: int = 10) -> dict[str, Any]:
     try:
         data = await API.autocomplete(p, limit)
     except httpx.HTTPStatusError:
-        return _attach_query_id(
+        return _attach_tool_meta(
             {"prefix": prefix, "suggestions": []},
             "es_suggest",
+            started_at=started_at,
             prefix=prefix,
             limit=limit,
         )
-    return _attach_query_id(
+    return _attach_tool_meta(
         {"prefix": prefix, "suggestions": data},
         "es_suggest",
+        started_at=started_at,
         prefix=prefix,
         limit=limit,
     )
@@ -2697,29 +2913,59 @@ async def es_document(doc_id: str, source: str | None = None) -> dict[str, Any]:
       doc_id: the document ID
       source: dou | tcu (auto-detected from doc_id prefix if omitted)
     """
+    started_at = time.perf_counter()
     is_tcu = (source == "tcu") or doc_id.startswith("ACORDAO-COMPLETO-")
 
     if is_tcu:
         try:
             data = await ES.arequest("GET", f"/{ES.tcu_index}/_doc/{doc_id}")
             src = data.get("_source", {})
-            return {
-                "found": True,
-                "doc_id": doc_id,
-                "source_type": "tcu_acordao",
-                "document": src,
-            }
+            return _attach_tool_meta(
+                {
+                    "found": True,
+                    "doc_id": doc_id,
+                    "source_type": "tcu_acordao",
+                    "document": src,
+                },
+                "es_document",
+                started_at=started_at,
+                doc_id=doc_id,
+                source=source,
+            )
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 404:
-                return {"found": False, "doc_id": doc_id}
+                return _attach_tool_meta(
+                    {"found": False, "doc_id": doc_id},
+                    "es_document",
+                    started_at=started_at,
+                    doc_id=doc_id,
+                    source=source,
+                )
             raise
 
     try:
         data = await API.document(doc_id)
-        return {"found": True, "doc_id": doc_id, "source_type": "dou", "document": data}
+        return _attach_tool_meta(
+            {
+                "found": True,
+                "doc_id": doc_id,
+                "source_type": "dou",
+                "document": data,
+            },
+            "es_document",
+            started_at=started_at,
+            doc_id=doc_id,
+            source=source,
+        )
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:
-            return {"found": False, "doc_id": doc_id}
+            return _attach_tool_meta(
+                {"found": False, "doc_id": doc_id},
+                "es_document",
+                started_at=started_at,
+                doc_id=doc_id,
+                source=source,
+            )
         raise
 
 
@@ -2730,6 +2976,7 @@ async def es_document(doc_id: str, source: str | None = None) -> dict[str, Any]:
 
 def es_health() -> dict[str, Any]:
     """Cluster and index health summary with storage and performance stats for DOU and TCU."""
+    started_at = time.perf_counter()
     health = ES.request("GET", "/_cluster/health")
     count = ES.request("GET", f"/{ES.index}/_count")
     tcu_count = 0
@@ -2753,10 +3000,10 @@ def es_health() -> dict[str, Any]:
         }
     except Exception:
         pass
-    return _attach_query_id(
+    return _attach_tool_meta(
         {
             "search_backend": "bm25",
-            "tools_available": 13,
+            "tools_available": 20,
             "cluster_name": health.get("cluster_name"),
             "cluster_status": health.get("status"),
             "number_of_nodes": health.get("number_of_nodes"),
@@ -2770,6 +3017,7 @@ def es_health() -> dict[str, Any]:
             **stats,
         },
         "es_health",
+        started_at=started_at,
     )
 
 
@@ -2881,12 +3129,20 @@ def es_significant_terms(
       issuing_organ: exact issuing organ name filter
       size: number of terms (1-50)
     """
+    started_at = time.perf_counter()
     size = max(1, min(size, 50))
     has_filters = any([date_from, date_to, section, art_type, issuing_organ])
     q = query.strip()
 
     if (q == "*" or not q) and not has_filters:
-        return {"error": "Provide a non-wildcard query or at least one filter."}
+        return _attach_tool_meta(
+            {"query": query, "field": field, "terms": []},
+            "es_significant_terms",
+            started_at=started_at,
+            error="Provide a non-wildcard query or at least one filter.",
+            query=query,
+            field=field,
+        )
 
     filters = _build_filters(
         date_from=date_from,
@@ -2913,9 +3169,17 @@ def es_significant_terms(
             }
         }
     else:
-        return {
-            "error": f"Unsupported field: {field}. Use: {', '.join(sorted(text_fields | keyword_fields))}"
-        }
+        return _attach_tool_meta(
+            {"query": query, "field": field, "terms": []},
+            "es_significant_terms",
+            started_at=started_at,
+            error=(
+                f"Unsupported field: {field}. Use: "
+                f"{', '.join(sorted(text_fields | keyword_fields))}"
+            ),
+            query=query,
+            field=field,
+        )
 
     # Wrap in sampler to avoid scanning millions of docs for text aggregations
     payload = {
@@ -2932,7 +3196,7 @@ def es_significant_terms(
         .get("sig", {})
         .get("buckets", [])
     )
-    return _attach_query_id(
+    return _attach_tool_meta(
         {
             "query": query,
             "field": field,
@@ -2947,6 +3211,7 @@ def es_significant_terms(
             ],
         },
         "es_significant_terms",
+        started_at=started_at,
         query=query,
         field=field,
     )
@@ -3163,10 +3428,18 @@ def es_cross_reference(
       section: do1 | do2 | do3
       source: dou | tcu | all (default: all — searches both DOU and TCU)
     """
+    started_at = time.perf_counter()
     max_results = max(1, min(max_results, 100))
     ref = reference.strip()
     if not ref:
-        return {"error": "Provide a legal reference to search for."}
+        return _attach_tool_meta(
+            {"reference": reference, "source": source, "results": []},
+            "es_cross_reference",
+            started_at=started_at,
+            error="Provide a legal reference to search for.",
+            reference=reference,
+            source=source,
+        )
 
     index = ES.resolve_index(source)
 
@@ -3238,7 +3511,7 @@ def es_cross_reference(
         else:
             results.extend(_format_hits([hit]))
 
-    return _attach_query_id(
+    return _attach_tool_meta(
         {
             "reference": reference,
             "source": source,
@@ -3252,6 +3525,7 @@ def es_cross_reference(
             "results": results,
         },
         "es_cross_reference",
+        started_at=started_at,
         reference=reference,
         source=source,
     )
@@ -3278,9 +3552,16 @@ def es_organ_profile(
       date_from: YYYY-MM-DD lower bound
       date_to: YYYY-MM-DD upper bound
     """
+    started_at = time.perf_counter()
     organ = organ.strip()
     if not organ:
-        return {"error": "Provide an organ name."}
+        return _attach_tool_meta(
+            {"organ": organ, "total_publications": 0},
+            "es_organ_profile",
+            started_at=started_at,
+            error="Provide an organ name.",
+            organ=organ,
+        )
 
     filters = _build_filters(
         date_from=date_from,
@@ -3334,7 +3615,7 @@ def es_organ_profile(
     yearly = aggs.get("yearly_volume", {}).get("buckets", [])
     peak_year = max(yearly, key=lambda b: b.get("doc_count", 0)) if yearly else None
 
-    return _attach_query_id(
+    return _attach_tool_meta(
         {
             "organ": organ,
             "total_publications": total,
@@ -3364,6 +3645,7 @@ def es_organ_profile(
             ],
         },
         "es_organ_profile",
+        started_at=started_at,
         organ=organ,
     )
 
@@ -3395,10 +3677,19 @@ def es_compare_periods(
       period_b_to: YYYY-MM-DD end of period B
       section: do1 | do2 | do3
     """
+    started_at = time.perf_counter()
     if not all([period_a_from, period_a_to, period_b_from, period_b_to]):
-        return {
-            "error": "All four period dates are required (period_a_from/to, period_b_from/to)."
-        }
+        return _attach_tool_meta(
+            {"query": query},
+            "es_compare_periods",
+            started_at=started_at,
+            error="All four period dates are required (period_a_from/to, period_b_from/to).",
+            query=query,
+            period_a_from=period_a_from,
+            period_a_to=period_a_to,
+            period_b_from=period_b_from,
+            period_b_to=period_b_to,
+        )
 
     def _period_payload(d_from: str, d_to: str) -> dict[str, Any]:
         filters = _build_filters(
@@ -3476,7 +3767,7 @@ def es_compare_periods(
     total_b = period_b_data["total"]
     change_pct = round((total_b - total_a) / max(total_a, 1) * 100, 1)
 
-    return _attach_query_id(
+    return _attach_tool_meta(
         {
             "query": query,
             "period_a": period_a_data,
@@ -3489,6 +3780,7 @@ def es_compare_periods(
             else "stable",
         },
         "es_compare_periods",
+        started_at=started_at,
         query=query,
         period_a_from=period_a_from,
         period_a_to=period_a_to,
@@ -3733,10 +4025,19 @@ def _format_btcu_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
             else (src.get("assunto") or src.get("section_title") or "")[:280]
         )
 
+        raw_score = hit.get("_score")
+        knn_score = _get_knn_score(hit)
+        if raw_score is None and knn_score > 0:
+            score = knn_score
+        else:
+            score = round(float(raw_score or 0.0), 4)
+
         results.append(
             {
                 "doc_id": src.get("doc_id") or hit.get("_id"),
-                "score": round(float(hit.get("_score") or 0.0), 4),
+                "score": score,
+                "is_knn": knn_score > 0 and (raw_score is None),
+                "knn_score": knn_score if knn_score > 0 else None,
                 "parent_btcu_id": src.get("parent_btcu_id"),
                 "caderno": src.get("caderno"),
                 "edicao_numero": src.get("edicao_numero"),
@@ -3759,7 +4060,7 @@ def _format_btcu_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
-def es_btcu_search(
+def _search_btcu_once(
     query: str,
     caderno: str | None = None,
     date_from: str | None = None,
@@ -3768,24 +4069,9 @@ def es_btcu_search(
     page_size: int = 20,
     page: int = 1,
 ) -> dict[str, Any]:
-    """Search TCU Boletins (BTCU) by keyword. Searches deliberações, portarias,
-    atos administrativos, and other official TCU publications.
-
-    Automatically detects person names and uses phrase matching for better precision.
-
-    Args:
-      query: search terms in Portuguese
-      caderno: filter by type — 'Deliberações', 'Administrativo', 'Controle Externo', 'Especial'
-      date_from: YYYY-MM-DD lower bound (publication date)
-      date_to: YYYY-MM-DD upper bound
-      section_type: filter by section — 'acordao', 'portaria', 'ata', 'despacho', 'resolucao', etc.
-      page_size: results per page (1-50)
-      page: page number (1-based)
-    """
     page_size = max(1, min(page_size, 50))
     offset = (max(1, page) - 1) * page_size
 
-    # Detect person names → use match_phrase for precision
     is_person = _is_likely_person_name(query)
 
     if is_person:
@@ -3861,21 +4147,63 @@ def es_btcu_search(
         "sort": [{"_score": {"order": "desc"}}],
     }
 
-    data = ES.request("POST", f"/{ES.btcu_index}/_search", payload)
+    try:
+        data = ES.request("POST", f"/{ES.btcu_index}/_search", payload)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            return {
+                "query": query,
+                "intent": "person" if is_person else "keyword",
+                "total": 0,
+                "page": page,
+                "page_size": page_size,
+                "results": [],
+                "warning": f"Index {ES.btcu_index} is not available",
+            }
+        raise
     hits = data.get("hits", {}).get("hits", [])
     total = int(data.get("hits", {}).get("total", {}).get("value", 0))
 
-    return _attach_query_id(
-        {
-            "query": query,
-            "intent": "person" if is_person else "keyword",
-            "total": total,
-            "page": page,
-            "page_size": page_size,
-            "results": _format_btcu_hits(hits),
-        },
-        "es_btcu_search",
+    return {
+        "query": query,
+        "intent": "person" if is_person else "keyword",
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "results": _format_btcu_hits(hits),
+    }
+
+
+def es_btcu_search(
+    query: str,
+    caderno: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    section_type: str | None = None,
+    page_size: int = 20,
+    page: int = 1,
+) -> dict[str, Any]:
+    """Compatibility wrapper over es_search(source='btcu')."""
+    started_at = time.perf_counter()
+    result = _search_btcu_once(
         query=query,
+        caderno=caderno,
+        date_from=date_from,
+        date_to=date_to,
+        section_type=section_type,
+        page_size=page_size,
+        page=page,
+    )
+    return _attach_tool_meta(
+        result,
+        "es_btcu_search",
+        started_at=started_at,
+        query=query,
+        caderno=caderno,
+        date_from=date_from,
+        date_to=date_to,
+        section_type=section_type,
+        page_size=page_size,
         page=page,
     )
 
@@ -3895,7 +4223,6 @@ _PUBLICACOES_SOURCE_FIELDS = [
     "source_url",
     "page_count",
     "source_type",
-    "embedding",
 ]
 
 _PUBLICACOES_HIGHLIGHT_SPEC: dict[str, Any] = {
@@ -3932,7 +4259,7 @@ def _format_publicacoes_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]
     return results
 
 
-def es_publicacoes_search(
+def _search_publicacoes_once(
     query: str,
     pub_type: str | None = None,
     date_from: str | None = None,
@@ -3940,23 +4267,15 @@ def es_publicacoes_search(
     page: int = 1,
     page_size: int = 10,
 ) -> dict[str, Any]:
-    """Search TCU Publicações Institucionais (relatórios de auditoria, sumários executivos, cartilhas, etc.).
-
-    Args:
-        query:     Full-text search in Portuguese.
-        pub_type:  Filter by type slug, e.g. "sumarios-executivos",
-                   "relatorio-de-fiscalizacao", "cartilha-manual-ou-tutorial".
-        date_from: Start date filter (YYYY-MM-DD).
-        date_to:   End date filter (YYYY-MM-DD).
-        page:      Page number (1-indexed).
-        page_size: Results per page (max 50).
-    """
     page = max(1, min(page, 500))
     page_size = max(1, min(page_size, 50))
     offset = (page - 1) * page_size
 
     query_vector = _get_openai_embedding(query)
     pool_size = max(page_size * 3, _RERANK_POOL_SIZE) if query_vector else page_size
+    source_fields = list(_PUBLICACOES_SOURCE_FIELDS)
+    if query_vector:
+        source_fields.append("embedding")
 
     bm25_query: dict[str, Any] = {
         "multi_match": {
@@ -3986,7 +4305,7 @@ def es_publicacoes_search(
         "size": pool_size,
         "track_total_hits": True,
         "query": full_query,
-        "_source": _PUBLICACOES_SOURCE_FIELDS,
+        "_source": source_fields,
         "highlight": _PUBLICACOES_HIGHLIGHT_SPEC,
         "sort": [{"_score": {"order": "desc"}}],
     }
@@ -3999,17 +4318,43 @@ def es_publicacoes_search(
         hits = _embedding_rerank_mcp(hits, query_vector, query_text=query)
         hits = hits[offset : offset + page_size]
 
-    return _attach_query_id(
-        {
-            "query": query,
-            "total": total,
-            "page": page,
-            "page_size": page_size,
-            "results": _format_publicacoes_hits(hits),
-        },
-        "es_publicacoes_search",
+    return {
+        "query": query,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "results": _format_publicacoes_hits(hits),
+    }
+
+
+def es_publicacoes_search(
+    query: str,
+    pub_type: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    page: int = 1,
+    page_size: int = 10,
+) -> dict[str, Any]:
+    """Compatibility wrapper over es_search(source='publicacoes')."""
+    started_at = time.perf_counter()
+    result = _search_publicacoes_once(
         query=query,
+        pub_type=pub_type,
+        date_from=date_from,
+        date_to=date_to,
         page=page,
+        page_size=page_size,
+    )
+    return _attach_tool_meta(
+        result,
+        "es_publicacoes_search",
+        started_at=started_at,
+        query=query,
+        pub_type=pub_type,
+        date_from=date_from,
+        date_to=date_to,
+        page=page,
+        page_size=page_size,
     )
 
 
@@ -4185,6 +4530,7 @@ async def es_evidence_bundle(
     rewrite: bool = False,
 ) -> dict[str, Any]:
     """Return citation-ready evidence objects for LLM clients."""
+    started_at = time.perf_counter()
     k = max(1, min(k, 20))
     query_id = _make_query_id(
         "es_evidence_bundle",
@@ -4270,8 +4616,10 @@ async def es_evidence_bundle(
     else:
         response["insufficient_evidence"] = False
         response["rejected"] = False
+    response["took_ms"] = _elapsed_ms(started_at)
+    response["error"] = None
 
-    _record_retrieval_audit(
+    _safe_record_retrieval_audit(
         {
             "query_id": query_id,
             "tool": "es_evidence_bundle",
@@ -4295,6 +4643,7 @@ async def es_evidence_bundle(
 
 def es_audit_query(query_id: str) -> dict[str, Any]:
     """Fetch a persisted retrieval audit record by deterministic query ID."""
+    started_at = time.perf_counter()
     client, db = _mongo_db()
     try:
         cursor = (
@@ -4307,13 +4656,18 @@ def es_audit_query(query_id: str) -> dict[str, Any]:
     finally:
         client.close()
 
-    return {
-        "query_id": query_id,
-        "lookup_query_id": _make_query_id("es_audit_query", query_id=query_id),
-        "found": bool(records),
-        "latest_record": records[0] if records else None,
-        "records": records,
-    }
+    return _attach_tool_meta(
+        {
+            "lookup_query_id": _make_query_id("es_audit_query", query_id=query_id),
+            "requested_query_id": query_id,
+            "found": bool(records),
+            "latest_record": records[0] if records else None,
+            "records": records,
+        },
+        "es_audit_query",
+        started_at=started_at,
+        query_id=query_id,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -4371,10 +4725,19 @@ def _format_normas_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
             else (src.get("assunto") or src.get("titulo") or "")[:280]
         )
 
+        raw_score = hit.get("_score")
+        knn_score = _get_knn_score(hit)
+        if raw_score is None and knn_score > 0:
+            score = knn_score
+        else:
+            score = round(float(raw_score or 0.0), 4)
+
         results.append(
             {
                 "doc_id": src.get("doc_id") or hit.get("_id"),
-                "score": round(float(hit.get("_score") or 0.0), 4),
+                "score": score,
+                "is_knn": knn_score > 0 and (raw_score is None),
+                "knn_score": knn_score if knn_score > 0 else None,
                 "titulo": src.get("titulo"),
                 "assunto": src.get("assunto"),
                 "tipo_norma": src.get("tipo_norma"),
@@ -4423,6 +4786,15 @@ def es_tcu_semantic_search(
       tipo_norma: e.g. Portaria, Resolução, Instrução Normativa (normas only)
     """
     k = max(1, min(k, 50))
+
+    if date_from and date_to and date_from > date_to:
+        return {
+            "error": "date_from must be before or equal to date_to",
+            "query": query,
+            "date_from": date_from,
+            "date_to": date_to,
+        }
+
     query_vector = _get_openai_embedding(query)
     if query_vector is None:
         return {
@@ -4656,11 +5028,12 @@ if FastMCP is not None:
         instructions=(
             "Hybrid search server for Brazil's Diário Oficial da União (DOU) and "
             "Tribunal de Contas da União (TCU) jurisprudence. "
-            "15 tools over ~16M DOU legal documents (2002-2026) and ~520K TCU acórdãos (1992-2026). Capabilities:\n"
+            "20 tools over ~16M DOU legal documents (2002-2026) and ~520K TCU acórdãos (1992-2026). Capabilities:\n"
             "- SEARCH: es_search (hybrid BM25 + kNN via RRF, intent detection, "
             "topic classification, person name detection, quoted phrases, "
             "canonical law lookup, neural reranking). Use source='tcu' for TCU, "
-            "source='all' for cross-search DOU+TCU.\n"
+            "source='all' for cross-search DOU+TCU, source='btcu' for boletins, "
+            "and source='publicacoes' for TCU institutional publications.\n"
             "- DISCOVER: es_more_like_this (find similar docs), es_significant_terms "
             "(theme discovery), es_cross_reference (citation network — searches DOU+TCU by default)\n"
             "- ANALYZE: es_timeline (temporal trends), es_trending (recent activity), "
@@ -4668,6 +5041,8 @@ if FastMCP is not None:
             "- UTILITY: es_suggest (autocomplete), es_facets (aggregations — use source='tcu' for "
             "colegiados, relatores, tipos_processo, dispositivo facets), "
             "es_document (fetch), es_health (status), es_explain (debug ranking)\n\n"
+            "- EVIDENCE: es_evidence_bundle (citation-ready retrieval), es_parent_expand "
+            "(expand DOU chunk context), es_audit_query (retrieve stored audit trace)\n"
             "Tips: Use Portuguese terms. Use quotes for exact phrases. "
             "Use topic= filter: concurso_selecao, licitacao_compras, regulacao_norma, "
             "pessoal_rh, contrato_convenio, saude, educacao, financeiro, meio_ambiente. "
