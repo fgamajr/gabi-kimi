@@ -9,7 +9,7 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
-    allowedHosts: true,
+    allowedHosts: ['.gabidou.top', 'localhost', '127.0.0.1'],
     hmr: {
       overlay: false,
     },
