@@ -38,8 +38,10 @@ logger = logging.getLogger(__name__)
 
 try:
     from mcp.server.fastmcp import FastMCP
+    from mcp.server.sse import TransportSecuritySettings
 except ModuleNotFoundError:
     FastMCP = None  # type: ignore[assignment]
+    TransportSecuritySettings = None  # type: ignore[assignment]
 
 
 load_dotenv()
@@ -1173,7 +1175,9 @@ def _record_search_audit(
             "retrieved_doc_ids": [
                 row.get("chunk_id") or row.get("doc_id") for row in rows
             ],
-            "parent_ids": [row.get("parent_doc_id") or row.get("parent_id") for row in rows],
+            "parent_ids": [
+                row.get("parent_doc_id") or row.get("parent_id") for row in rows
+            ],
             "scores": [row.get("score") for row in rows],
             "source_types": [row.get("source_type") for row in rows],
             "total": result.get("total"),
@@ -2594,8 +2598,8 @@ async def es_search(
                         date_from=date_from,
                         date_to=date_to,
                         source=source,
-                        )
                     )
+                )
             elif source == "btcu":
                 tasks.append(
                     asyncio.to_thread(
@@ -5022,6 +5026,45 @@ def es_tcu_similar(
 # MCP registration
 # ---------------------------------------------------------------------------
 
+
+def _build_mcp_transport_security() -> "TransportSecuritySettings | None":
+    """Build TransportSecuritySettings that allows both localhost and the production hostname.
+
+    FastMCP defaults host='127.0.0.1', which auto-enables DNS-rebinding protection
+    with only 127.0.0.1:* and localhost:* allowed.  When the server is mounted inside
+    FastAPI and accessed via a public hostname (e.g. gabidou.top through Caddy), the
+    Host header check fails with 421.  We override the settings to also allow the
+    site hostname derived from SITE_URL / GABI_ALLOWED_HOSTS.
+    """
+    if TransportSecuritySettings is None:
+        return None
+
+    from urllib.parse import urlparse
+
+    allowed_hosts: list[str] = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+
+    # Add bare localhost without port (direct curl / health-check access)
+    allowed_hosts += ["127.0.0.1", "localhost", "::1"]
+
+    # Add production hostname from SITE_URL
+    site_url = os.getenv("SITE_URL", "").strip()
+    if site_url:
+        hostname = urlparse(site_url).hostname
+        if hostname and hostname not in allowed_hosts:
+            allowed_hosts.append(hostname)
+
+    # Add any extra hosts from GABI_ALLOWED_HOSTS
+    for h in os.getenv("GABI_ALLOWED_HOSTS", "").split(","):
+        h = h.strip()
+        if h and h not in allowed_hosts:
+            allowed_hosts.append(h)
+
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=allowed_hosts,
+    )
+
+
 if FastMCP is not None:
     mcp = FastMCP(
         "gabi-dou",
@@ -5052,6 +5095,7 @@ if FastMCP is not None:
             "- TCU SEMANTIC: es_tcu_semantic_search (kNN vector search for conceptual queries, source='tcu'/'normas'/'all'), "
             "es_tcu_similar (find similar docs by vector similarity, source='tcu'/'normas'/'all')"
         ),
+        transport_security=_build_mcp_transport_security(),
     )
     mcp.tool()(es_search)
     mcp.tool()(es_suggest)
