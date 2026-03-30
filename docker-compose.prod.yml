@@ -122,6 +122,42 @@ services:
     networks:
       - internal
 
+  dev-converge-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: gabi-kimi-backend
+    container_name: gabi-kimi-dev-converge-api
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DEV_CONVERGE_INTERNAL_PORT: 8000
+      PYTHONPATH: /opt/app
+      DEV_CONVERGE_MONGO_STRING: ${DEV_CONVERGE_MONGO_STRING:-mongodb://mongo:27017/gabi_dou}
+      DEV_CONVERGE_DB_NAME: ${DEV_CONVERGE_DB_NAME:-gabi_dou}
+      DEV_CONVERGE_DATA_ROOT: /data/dev_converge
+      DEV_CONVERGE_SITE_URL: ${DEV_CONVERGE_SITE_URL:-https://converge.gabidou.top}
+      DEV_CONVERGE_ALLOWED_HOSTS: ${DEV_CONVERGE_ALLOWED_HOSTS:-converge.gabidou.top,localhost,127.0.0.1,dev-converge-api}
+    working_dir: /opt/app
+    command: ["sh", "/opt/container-scripts/dev-converge-api-prod.sh"]
+    volumes:
+      - ${GABI_HOST_DATA_ROOT:-/mnt/HC_Volume_105154890}/dev_converge:/data/dev_converge
+    ports:
+      - "8011:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/live', timeout=5).read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - edge
+      - internal
+
   frontend:
     build:
       context: .
@@ -196,6 +232,8 @@ services:
       frontend:
         condition: service_healthy
       backend:
+        condition: service_healthy
+      dev-converge-api:
         condition: service_healthy
     volumes:
       - ./ops/nginx/prod.conf:/etc/nginx/conf.d/default.conf:ro

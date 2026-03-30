@@ -14,6 +14,7 @@
 .dev/
 .playwright-cli/
 .venv/
+.venv-*/
 venv/
 archive_legacy/
 node_modules/
@@ -23,6 +24,7 @@ src/frontend/app/dist/
 dist/
 output/
 var/
+.data/
 __pycache__/
 *.pyc
 .pytest_cache/
@@ -36,6 +38,7 @@ Thumbs.db
 *.md
 !README.md
 docs/
+ops/data/
 
 # Frontend source excluded from backend images only
 # (frontend-static Dockerfile needs src/frontend/web/)
