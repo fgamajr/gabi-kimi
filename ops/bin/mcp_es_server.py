@@ -25,6 +25,7 @@ import os
 import re
 import time
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 from dotenv import load_dotenv
@@ -57,6 +58,10 @@ def _env_bool(name: str, default: bool) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _doc_path_id(doc_id: str) -> str:
+    return quote(doc_id, safe="")
 
 
 SYNONYM_EXPANSION = _env_bool("SYNONYM_EXPANSION", True)
@@ -1035,13 +1040,25 @@ def _merge_search_responses(
         variant_weight = 1.0 / (variant_idx + 1)
 
         for rank, result in enumerate(response.get("results", []), start=1):
-            doc_id = str(result.get("doc_id") or "").strip()
-            if not doc_id:
+            doc_id = str(
+                result.get("source_doc_id")
+                or result.get("doc_id")
+                or result.get("id")
+                or ""
+            ).strip()
+            source_key = str(
+                result.get("source")
+                or result.get("source_type")
+                or response.get("source")
+                or "unknown"
+            ).strip()
+            merge_key = f"{source_key}:{doc_id}" if doc_id else ""
+            if not merge_key:
                 continue
             rrf_score = 1.0 / (60 + rank)
             merged_score = rrf_score * variant_weight
             entry = merged.setdefault(
-                doc_id,
+                merge_key,
                 {
                     "result": dict(result),
                     "score_rrf": 0.0,
@@ -1168,7 +1185,7 @@ def _record_search_audit(
             "query_id": result.get("query_id"),
             "tool": tool_name,
             "query": query,
-            "source": source or "dou",
+            "source": source or "federated",
             "page": page,
             "page_size": page_size,
             "rewrite": rewrite,
@@ -1526,6 +1543,122 @@ class ElasticClient:
 
 ES = ElasticClient()
 
+_SOURCE_LABELS = {
+    "dou": "Diário Oficial da União",
+    "tcu": "TCU Acórdãos",
+    "tcu_normas": "TCU Normas",
+    "btcu": "Boletins do TCU",
+    "publicacoes": "TCU Publicações",
+}
+
+_SOURCE_DEFAULT_TYPES = {
+    "dou": "dou_document",
+    "tcu": "tcu_acordao",
+    "tcu_normas": "tcu_norma",
+    "btcu": "tcu_btcu",
+    "publicacoes": "tcu_publicacao",
+}
+
+_FEDERATED_SEARCH_SOURCES = [
+    "dou",
+    "tcu",
+    "tcu_normas",
+    "btcu",
+    "publicacoes",
+]
+
+
+def _canonical_source(source: str | None) -> str | None:
+    if source is None:
+        return None
+    normalized = source.strip().lower()
+    aliases = {
+        "normas": "tcu_normas",
+        "acordaos": "tcu",
+        "acordaos_tcu": "tcu",
+    }
+    return aliases.get(normalized, normalized)
+
+
+def _normalize_search_result_row(
+    row: dict[str, Any],
+    *,
+    source: str,
+) -> dict[str, Any]:
+    normalized = dict(row)
+    doc_id = str(
+        normalized.get("source_doc_id")
+        or normalized.get("doc_id")
+        or normalized.get("id")
+        or ""
+    ).strip()
+    normalized["source"] = source
+    normalized["source_label"] = _SOURCE_LABELS.get(source, source.upper())
+    normalized["source_doc_id"] = doc_id
+    normalized.setdefault("doc_id", doc_id)
+    normalized.setdefault("source_type", _SOURCE_DEFAULT_TYPES.get(source, source))
+    if source == "dou":
+        normalized.setdefault("identifica", normalized.get("title"))
+        normalized.setdefault(
+            "ementa",
+            normalized.get("subtitle") or normalized.get("snippet") or "",
+        )
+    return normalized
+
+
+def _normalize_search_response(
+    response: dict[str, Any],
+    *,
+    source: str,
+) -> dict[str, Any]:
+    normalized = dict(response)
+    normalized["source"] = source
+    normalized["results"] = [
+        _normalize_search_result_row(dict(row), source=source)
+        for row in response.get("results", [])
+        if isinstance(row, dict)
+    ]
+    return normalized
+
+
+def _source_breakdown_from_responses(
+    responses: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    breakdown: dict[str, dict[str, Any]] = {}
+    for response in responses:
+        source = str(response.get("source") or "unknown")
+        breakdown[source] = {
+            "source": source,
+            "label": _SOURCE_LABELS.get(source, source.upper()),
+            "available": not bool(response.get("warning")),
+            "total": int(response.get("total", 0) or 0),
+            "returned": len(response.get("results", [])),
+            "warning": response.get("warning"),
+        }
+    return breakdown
+
+
+def _merge_source_breakdowns(
+    responses: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    for response in responses:
+        for source, entry in response.get("source_breakdown", {}).items():
+            current = merged.setdefault(source, dict(entry))
+            current["available"] = bool(current.get("available")) or bool(
+                entry.get("available")
+            )
+            current["total"] = max(
+                int(current.get("total", 0) or 0),
+                int(entry.get("total", 0) or 0),
+            )
+            current["returned"] = max(
+                int(current.get("returned", 0) or 0),
+                int(entry.get("returned", 0) or 0),
+            )
+            current["warning"] = current.get("warning") or entry.get("warning")
+    return merged
+
 
 class GabiAPIClient:
     """Async HTTP client for the FastAPI backend (hybrid search pipeline).
@@ -1575,7 +1708,9 @@ class GabiAPIClient:
 
     async def document(self, doc_id: str) -> dict[str, Any]:
         client = self._get_async_client()
-        resp = await client.get(f"{self.base_url}/api/document/{doc_id}")
+        resp = await client.get(
+            f"{self.base_url}/api/document", params={"doc_id": doc_id}
+        )
         resp.raise_for_status()
         return resp.json()
 
@@ -1809,6 +1944,10 @@ def _format_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
         results.append(
             {
                 "doc_id": src.get("doc_id") or hit.get("_id"),
+                "source_doc_id": src.get("doc_id") or hit.get("_id"),
+                "source": "dou",
+                "source_label": _SOURCE_LABELS["dou"],
+                "source_type": src.get("source_type", "dou_document"),
                 "score": round(float(hit.get("_score") or 0.0), 4),
                 "identifica": src.get("identifica"),
                 "ementa": src.get("ementa"),
@@ -2048,6 +2187,10 @@ def _format_reranked_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
         entry: dict[str, Any] = {
             "doc_id": src.get("doc_id") or hit.get("_id"),
+            "source_doc_id": src.get("doc_id") or hit.get("_id"),
+            "source": "dou",
+            "source_label": _SOURCE_LABELS["dou"],
+            "source_type": src.get("source_type", "dou_document"),
             "score": score,
             "score_bm25": score_bm25,
             "is_knn": knn_score > 0 and (raw_score is None),
@@ -2134,6 +2277,9 @@ def _format_tcu_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
         results.append(
             {
                 "doc_id": src.get("doc_id") or hit.get("_id"),
+                "source_doc_id": src.get("doc_id") or hit.get("_id"),
+                "source": "tcu",
+                "source_label": _SOURCE_LABELS["tcu"],
                 "score": score,
                 "is_knn": knn_score > 0 and (raw_score is None),
                 "knn_score": knn_score if knn_score > 0 else None,
@@ -2221,7 +2367,7 @@ async def _es_search_direct(
 ) -> dict[str, Any]:
     """Two-pass search: BM25 first → embedding re-rank.
 
-    Works for source='tcu' and source='all' (cross-search DOU+TCU).
+    Works for source='tcu' and source='tcu_normas'.
     """
     page = max(1, min(page, 500))
     page_size = max(1, min(page_size, 100))
@@ -2258,6 +2404,8 @@ async def _es_search_direct(
             )
         elif source == "tcu":
             filters.append({"range": {"data_sessao": rng}})
+        elif source == "tcu_normas":
+            filters.append({"range": {"data_inicio_vigencia": rng}})
         else:
             filters.append({"range": {"pub_date": rng}})
 
@@ -2356,9 +2504,14 @@ async def _es_search_direct(
     # Pass 1: BM25 retrieval (larger pool if re-ranking)
     query_vector = _get_openai_embedding(query)
     pool_size = max(page_size * 3, _RERANK_POOL_SIZE) if query_vector else page_size
-    source_fields = _TCU_SOURCE_FIELDS + _SOURCE_FIELDS
+    if source == "tcu_normas":
+        source_fields = list(_NORMAS_SOURCE_FIELDS)
+        highlight_spec = _NORMAS_HIGHLIGHT_SPEC
+    else:
+        source_fields = list(_TCU_SOURCE_FIELDS)
+        highlight_spec = _TCU_HIGHLIGHT_SPEC
     if query_vector:
-        source_fields = source_fields + ["embedding"]
+        source_fields.append("embedding")
 
     payload: dict[str, Any] = {
         "from": 0 if query_vector else offset,
@@ -2373,10 +2526,23 @@ async def _es_search_direct(
         },
         "sort": [{"_score": {"order": "desc"}}],
         "_source": source_fields,
-        "highlight": _TCU_HIGHLIGHT_SPEC,
+        "highlight": highlight_spec,
     }
 
-    data = await ES.arequest("POST", f"/{index}/_search", payload)
+    try:
+        data = await ES.arequest("POST", f"/{index}/_search", payload)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            return {
+                "query": query,
+                "source": source,
+                "total": 0,
+                "page": page,
+                "page_size": page_size,
+                "results": [],
+                "warning": f"Index {index} is not available",
+            }
+        raise
     hits = data.get("hits", {}).get("hits", [])
     total = int(data.get("hits", {}).get("total", {}).get("value", 0))
 
@@ -2396,7 +2562,9 @@ async def _es_search_direct(
     results: list[dict[str, Any]] = []
     for hit in hits:
         src = hit.get("_source", {})
-        if (src.get("source_type") or "").startswith("tcu_"):
+        if source == "tcu_normas":
+            results.extend(_format_normas_hits([hit]))
+        elif (src.get("source_type") or "").startswith("tcu_"):
             results.extend(_format_tcu_hits([hit]))
         else:
             results.extend(_format_hits([hit]))
@@ -2459,6 +2627,135 @@ async def _api_es_search(
     }
 
 
+async def _search_source_once(
+    *,
+    source: str,
+    query: str,
+    page: int,
+    page_size: int,
+    date_from: str | None,
+    date_to: str | None,
+    section: str | None,
+    art_type: str | None,
+    issuing_organ: str | None,
+    topic: str | None,
+    intent: str | None,
+    is_trending: bool,
+    caderno: str | None,
+    section_type: str | None,
+    pub_type: str | None,
+) -> dict[str, Any]:
+    if source == "dou":
+        response = await _api_es_search(
+            query=query,
+            page=page,
+            page_size=page_size,
+            date_from=date_from,
+            date_to=date_to,
+            section=section,
+            art_type=art_type,
+            issuing_organ=issuing_organ,
+            topic=topic,
+            intent=intent,
+            is_trending=is_trending,
+        )
+    elif source in {"tcu", "tcu_normas"}:
+        response = await _es_search_direct(
+            query=query,
+            page=page,
+            page_size=page_size,
+            date_from=date_from,
+            date_to=date_to,
+            source=source,
+        )
+    elif source == "btcu":
+        response = await asyncio.to_thread(
+            _search_btcu_once,
+            query=query,
+            caderno=caderno,
+            date_from=date_from,
+            date_to=date_to,
+            section_type=section_type,
+            page_size=page_size,
+            page=page,
+        )
+    elif source == "publicacoes":
+        response = await asyncio.to_thread(
+            _search_publicacoes_once,
+            query=query,
+            pub_type=pub_type,
+            date_from=date_from,
+            date_to=date_to,
+            page=page,
+            page_size=page_size,
+        )
+    else:
+        return {
+            "query": query,
+            "source": source,
+            "total": 0,
+            "page": page,
+            "page_size": page_size,
+            "results": [],
+            "error": f"Unsupported source: {source}",
+        }
+    return _normalize_search_response(response, source=source)
+
+
+async def _federated_search(
+    *,
+    query: str,
+    page: int,
+    page_size: int,
+    date_from: str | None,
+    date_to: str | None,
+    section: str | None,
+    art_type: str | None,
+    issuing_organ: str | None,
+    topic: str | None,
+    intent: str | None,
+    is_trending: bool,
+    caderno: str | None,
+    section_type: str | None,
+    pub_type: str | None,
+) -> dict[str, Any]:
+    per_source_page_size = min(max(page * page_size * 2, page_size * 2), 100)
+    responses = await asyncio.gather(
+        *[
+            _search_source_once(
+                source=source_name,
+                query=query,
+                page=1,
+                page_size=per_source_page_size,
+                date_from=date_from,
+                date_to=date_to,
+                section=section,
+                art_type=art_type,
+                issuing_organ=issuing_organ,
+                topic=topic,
+                intent=intent,
+                is_trending=is_trending,
+                caderno=caderno,
+                section_type=section_type,
+                pub_type=pub_type,
+            )
+            for source_name in _FEDERATED_SEARCH_SOURCES
+        ]
+    )
+    successful = [response for response in responses if not response.get("error")]
+    merged = _merge_search_responses(successful, page=page, page_size=page_size)
+    return {
+        "query": query,
+        "source": "federated",
+        "total": merged["total"],
+        "page": page,
+        "page_size": page_size,
+        "results": merged["results"],
+        "source_breakdown": _source_breakdown_from_responses(successful),
+        "variant_queries": merged["variant_queries"],
+    }
+
+
 # ---------------------------------------------------------------------------
 # TOOL 1: es_search — The primary search tool (two-stage, re-ranked)
 # ---------------------------------------------------------------------------
@@ -2509,9 +2806,11 @@ async def es_search(
               trending | explore | exact_name | canonical | person
       is_trending: if true, prioritize recent documents
       source: data source filter. Options:
-              dou — DOU documents only (default)
+              omitted/None — federated search across DOU, TCU, normas, BTCU, publicações
+              dou — DOU documents only
               tcu — TCU acórdãos only
-              all — search both DOU and TCU
+              tcu_normas / normas — TCU normas only
+              all — federated search across all supported corpora
               btcu — TCU Boletins (BTCU) only
               publicacoes — TCU Publicações Institucionais only
       rewrite: if true, normalize legal references and run multi-query expansion
@@ -2523,6 +2822,7 @@ async def es_search(
     started_at = time.perf_counter()
     page = max(1, min(page, 500))
     page_size = max(1, min(page_size, 100))
+    source = _canonical_source(source)
     params = {
         "query": query,
         "page": page,
@@ -2589,45 +2889,9 @@ async def es_search(
     if len(queries) > 1:
         tasks = []
         for variant_query in queries:
-            if source in ("tcu", "all"):
+            if source in (None, "all"):
                 tasks.append(
-                    _es_search_direct(
-                        query=variant_query,
-                        page=1,
-                        page_size=variant_page_size,
-                        date_from=date_from,
-                        date_to=date_to,
-                        source=source,
-                    )
-                )
-            elif source == "btcu":
-                tasks.append(
-                    asyncio.to_thread(
-                        _search_btcu_once,
-                        query=variant_query,
-                        caderno=caderno,
-                        date_from=date_from,
-                        date_to=date_to,
-                        section_type=section_type,
-                        page_size=variant_page_size,
-                        page=1,
-                    )
-                )
-            elif source == "publicacoes":
-                tasks.append(
-                    asyncio.to_thread(
-                        _search_publicacoes_once,
-                        query=variant_query,
-                        pub_type=pub_type,
-                        date_from=date_from,
-                        date_to=date_to,
-                        page=1,
-                        page_size=variant_page_size,
-                    )
-                )
-            else:
-                tasks.append(
-                    _api_es_search(
+                    _federated_search(
                         query=variant_query,
                         page=1,
                         page_size=variant_page_size,
@@ -2639,6 +2903,29 @@ async def es_search(
                         topic=topic,
                         intent=intent,
                         is_trending=is_trending,
+                        caderno=caderno,
+                        section_type=section_type,
+                        pub_type=pub_type,
+                    )
+                )
+            else:
+                tasks.append(
+                    _search_source_once(
+                        source=source,
+                        query=variant_query,
+                        page=1,
+                        page_size=variant_page_size,
+                        date_from=date_from,
+                        date_to=date_to,
+                        section=section,
+                        art_type=art_type,
+                        issuing_organ=issuing_organ,
+                        topic=topic,
+                        intent=intent,
+                        is_trending=is_trending,
+                        caderno=caderno,
+                        section_type=section_type,
+                        pub_type=pub_type,
                     )
                 )
 
@@ -2659,6 +2946,17 @@ async def es_search(
                     enabled=rewrite,
                     variant_queries=merged["variant_queries"],
                 ),
+                "source_breakdown": _merge_source_breakdowns(responses)
+                if source in (None, "all")
+                else _source_breakdown_from_responses(
+                    [
+                        {
+                            "source": source or "federated",
+                            "total": merged["total"],
+                            "results": merged["results"],
+                        }
+                    ]
+                ),
                 "results": merged["results"],
             },
             "es_search",
@@ -2676,38 +2974,8 @@ async def es_search(
         )
         return final_result
 
-    if source in ("tcu", "all"):
-        result = await _es_search_direct(
-            query=query,
-            page=page,
-            page_size=page_size,
-            date_from=date_from,
-            date_to=date_to,
-            source=source,
-        )
-    elif source == "btcu":
-        result = await asyncio.to_thread(
-            _search_btcu_once,
-            query=query,
-            caderno=caderno,
-            date_from=date_from,
-            date_to=date_to,
-            section_type=section_type,
-            page_size=page_size,
-            page=page,
-        )
-    elif source == "publicacoes":
-        result = await asyncio.to_thread(
-            _search_publicacoes_once,
-            query=query,
-            pub_type=pub_type,
-            date_from=date_from,
-            date_to=date_to,
-            page=page,
-            page_size=page_size,
-        )
-    else:
-        result = await _api_es_search(
+    if source in (None, "all"):
+        result = await _federated_search(
             query=query,
             page=page,
             page_size=page_size,
@@ -2719,11 +2987,36 @@ async def es_search(
             topic=topic,
             intent=intent,
             is_trending=is_trending,
+            caderno=caderno,
+            section_type=section_type,
+            pub_type=pub_type,
+        )
+    else:
+        result = await _search_source_once(
+            source=source,
+            query=query,
+            page=page,
+            page_size=page_size,
+            date_from=date_from,
+            date_to=date_to,
+            section=section,
+            art_type=art_type,
+            issuing_organ=issuing_organ,
+            topic=topic,
+            intent=intent,
+            is_trending=is_trending,
+            caderno=caderno,
+            section_type=section_type,
+            pub_type=pub_type,
         )
 
     result["query_id"] = query_id
     result["took_ms"] = _elapsed_ms(started_at)
     result["error"] = result.get("error")
+    result.setdefault(
+        "source_breakdown",
+        _source_breakdown_from_responses([result]),
+    )
     if rewrite or rewrite_bundle["normalized_query"] != query:
         result["rewrite"] = _rewrite_meta(rewrite_bundle, enabled=rewrite)
     _record_search_audit(
@@ -2910,11 +3203,16 @@ def es_facets(
 async def es_document(doc_id: str, source: str | None = None) -> dict[str, Any]:
     """Fetch a single document by its ID.
 
-    For TCU documents (doc_id starting with ACORDAO-COMPLETO-), fetches
-    directly from ES. For DOU documents, uses the GABI API.
+    IMPORTANT: Never guess or construct document IDs. Always call es_search
+    first to obtain real IDs from the results, then pass those IDs here.
+
+    TCU document ID formats (obtained from es_search results):
+      ACORDAO-COMPLETO-{seq}        — full acórdão (e.g. ACORDAO-COMPLETO-31652)
+      JURISPRUDENCIA-SELECIONADA-{seq} — selected jurisprudence excerpt
+    DOU document IDs are alphanumeric slugs returned by es_search.
 
     Args:
-      doc_id: the document ID
+      doc_id: the document ID as returned by es_search (never constructed manually)
       source: dou | tcu (auto-detected from doc_id prefix if omitted)
     """
     started_at = time.perf_counter()
@@ -2922,7 +3220,9 @@ async def es_document(doc_id: str, source: str | None = None) -> dict[str, Any]:
 
     if is_tcu:
         try:
-            data = await ES.arequest("GET", f"/{ES.tcu_index}/_doc/{doc_id}")
+            data = await ES.arequest(
+                "GET", f"/{ES.tcu_index}/_doc/{_doc_path_id(doc_id)}"
+            )
             src = data.get("_source", {})
             return _attach_tool_meta(
                 {
@@ -3818,7 +4118,7 @@ def _fetch_document_source_for_explain(
 
     for resolved_source, index_name in candidate_indices:
         try:
-            data = ES.request("GET", f"/{index_name}/_doc/{doc_id}")
+            data = ES.request("GET", f"/{index_name}/_doc/{_doc_path_id(doc_id)}")
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 404:
                 continue
@@ -3898,7 +4198,9 @@ def es_explain(
     else:
         target_source = "dou"
     target_index = ES.resolve_index(target_source)
-    data = ES.request("POST", f"/{target_index}/_explain/{doc_id}", payload)
+    data = ES.request(
+        "POST", f"/{target_index}/_explain/{_doc_path_id(doc_id)}", payload
+    )
     explanation = data.get("explanation", {})
 
     def _simplify_explanation(exp: dict[str, Any], depth: int = 0) -> dict[str, Any]:
@@ -4039,6 +4341,9 @@ def _format_btcu_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
         results.append(
             {
                 "doc_id": src.get("doc_id") or hit.get("_id"),
+                "source_doc_id": src.get("doc_id") or hit.get("_id"),
+                "source": "btcu",
+                "source_label": _SOURCE_LABELS["btcu"],
                 "score": score,
                 "is_knn": knn_score > 0 and (raw_score is None),
                 "knn_score": knn_score if knn_score > 0 else None,
@@ -4249,6 +4554,9 @@ def _format_publicacoes_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]
         results.append(
             {
                 "doc_id": src.get("doc_id"),
+                "source_doc_id": src.get("doc_id"),
+                "source": "publicacoes",
+                "source_label": _SOURCE_LABELS["publicacoes"],
                 "title": src.get("title"),
                 "pub_type": src.get("pub_type"),
                 "pub_date": src.get("pub_date"),
@@ -4257,6 +4565,7 @@ def _format_publicacoes_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]
                 "pdf_urls": src.get("pdf_urls", []),
                 "source_url": src.get("source_url"),
                 "page_count": src.get("page_count"),
+                "source_type": src.get("source_type", "tcu_publicacao"),
                 "score": round(hit.get("_score", 0), 4),
             }
         )
@@ -4314,7 +4623,19 @@ def _search_publicacoes_once(
         "sort": [{"_score": {"order": "desc"}}],
     }
 
-    data = ES.request("POST", f"/{ES.publicacoes_index}/_search", payload)
+    try:
+        data = ES.request("POST", f"/{ES.publicacoes_index}/_search", payload)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            return {
+                "query": query,
+                "total": 0,
+                "page": page,
+                "page_size": page_size,
+                "results": [],
+                "warning": f"Index {ES.publicacoes_index} is not available",
+            }
+        raise
     hits = data.get("hits", {}).get("hits", [])
     total = int(data.get("hits", {}).get("total", {}).get("value", 0))
 
@@ -4739,6 +5060,9 @@ def _format_normas_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
         results.append(
             {
                 "doc_id": src.get("doc_id") or hit.get("_id"),
+                "source_doc_id": src.get("doc_id") or hit.get("_id"),
+                "source": "tcu_normas",
+                "source_label": _SOURCE_LABELS["tcu_normas"],
                 "score": score,
                 "is_knn": knn_score > 0 and (raw_score is None),
                 "knn_score": knn_score if knn_score > 0 else None,
@@ -4946,7 +5270,8 @@ def es_tcu_similar(
     # Fetch the source document's embedding from ES
     try:
         doc_data = ES.request(
-            "GET", f"/{seed_index}/_source/{doc_id}?_source_includes=embedding,titulo"
+            "GET",
+            f"/{seed_index}/_source/{_doc_path_id(doc_id)}?_source_includes=embedding,titulo",
         )
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:
@@ -5074,18 +5399,20 @@ if FastMCP is not None:
             "20 tools over ~16M DOU legal documents (2002-2026) and ~520K TCU acórdãos (1992-2026). Capabilities:\n"
             "- SEARCH: es_search (hybrid BM25 + kNN via RRF, intent detection, "
             "topic classification, person name detection, quoted phrases, "
-            "canonical law lookup, neural reranking). Use source='tcu' for TCU, "
-            "source='all' for cross-search DOU+TCU, source='btcu' for boletins, "
-            "and source='publicacoes' for TCU institutional publications.\n"
+            "canonical law lookup, neural reranking). Omit source when you do not "
+            "know the corpus: the default path federates across DOU, TCU acórdãos, "
+            "TCU normas, BTCU, and TCU institutional publications. Use explicit "
+            "source='tcu', source='tcu_normas'/'normas', source='btcu', or "
+            "source='publicacoes' only when the corpus is already known.\n"
             "- DISCOVER: es_more_like_this (find similar docs), es_significant_terms "
             "(theme discovery), es_cross_reference (citation network — searches DOU+TCU by default)\n"
             "- ANALYZE: es_timeline (temporal trends), es_trending (recent activity), "
             "es_organ_profile (institutional analysis), es_compare_periods (before/after)\n"
             "- UTILITY: es_suggest (autocomplete), es_facets (aggregations — use source='tcu' for "
             "colegiados, relatores, tipos_processo, dispositivo facets), "
-            "es_document (fetch), es_health (status), es_explain (debug ranking)\n\n"
-            "- EVIDENCE: es_evidence_bundle (citation-ready retrieval), es_parent_expand "
-            "(expand DOU chunk context), es_audit_query (retrieve stored audit trace)\n"
+            "es_document (fetch by ID — see ID rules below), es_health (status), es_explain (debug ranking)\n"
+            "- EVIDENCE: es_evidence_bundle (use after es_search for citation-ready retrieval), "
+            "es_parent_expand (expand DOU chunk context), es_audit_query (retrieve stored audit trace)\n"
             "Tips: Use Portuguese terms. Use quotes for exact phrases. "
             "Use topic= filter: concurso_selecao, licitacao_compras, regulacao_norma, "
             "pessoal_rh, contrato_convenio, saude, educacao, financeiro, meio_ambiente. "
@@ -5093,7 +5420,16 @@ if FastMCP is not None:
             "TCU search: use source='tcu' and filter by colegiado, relator, tipo_processo, "
             "dispositivo_tipo (irregular, aplicar_multa, imputar_debito, etc.).\n"
             "- TCU SEMANTIC: es_tcu_semantic_search (kNN vector search for conceptual queries, source='tcu'/'normas'/'all'), "
-            "es_tcu_similar (find similar docs by vector similarity, source='tcu'/'normas'/'all')"
+            "es_tcu_similar (find similar docs by vector similarity, source='tcu'/'normas'/'all')\n\n"
+            "CORRECT WORKFLOW — ALWAYS follow this order:\n"
+            "  Step 1: es_search(query='licitação', source='tcu', page_size=5) → returns results with doc_id\n"
+            "  Step 2: es_document(doc_id='ACORDAO-COMPLETO-31652', source='tcu') → returns full document\n"
+            "DOCUMENT ID RULES — CRITICAL: Never guess or construct doc IDs. "
+            "Always call es_search FIRST and use the doc_id values returned in the results array. "
+            "TCU formats: ACORDAO-COMPLETO-{seq} (e.g. ACORDAO-COMPLETO-31652) or "
+            "JURISPRUDENCIA-SELECIONADA-{seq}. The seq is an internal index key, "
+            "NOT the acórdão number/year. Patterns like ACORDAO-1234-2024, "
+            "ACORDAO-COMPLETO-1234/2024, ACORDAO-885-2024-PLENARIO are ALL WRONG."
         ),
         transport_security=_build_mcp_transport_security(),
     )
