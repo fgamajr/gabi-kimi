@@ -102,6 +102,11 @@ Replace `YOUR_TOKEN` with the token you received from the admin. Restart your ed
 
 Ask your AI assistant in natural language — it will pick the right tool automatically.
 
+Default retrieval path for agents:
+1. Start with `es_search` and omit `source` when the corpus is unknown. This now federates across DOU, TCU acórdãos, TCU normas, BTCU, and Publicações.
+2. Use `es_evidence_bundle` when you need citation-ready rows and provenance.
+3. Use specialist tools like `es_tcu_semantic_search`, `es_cross_reference`, and `es_explain` only after the search step narrows the corpus.
+
 **Basic search:**
 ```
 "Busque decretos presidenciais de 2025"
@@ -217,6 +222,100 @@ Returns: terms that are statistically over-represented vs. the full corpus.
 → `es_explain(query="concurso público", doc_id="abc123def456")`
 
 Returns: score breakdown showing which fields and signals contributed.
+
+---
+
+## Benchmarking MCP Quality
+
+For deploy validation and search-quality regression checks, run the curated evaluator from the backend container:
+
+```bash
+docker compose exec backend python ops/eval_mcp_quality.py
+docker compose exec backend python ops/eval_mcp_quality.py --case lgpd
+docker compose exec backend python ops/eval_mcp_quality.py --strict-optional
+```
+
+Outputs:
+- `ops/eval_mcp_quality_results.json` — full machine-readable results
+- `ops/eval_mcp_quality_report.md` — human-readable summary with failures and previews
+
+The evaluator exercises representative DOU, TCU, BTCU, Publicações, autocomplete, facets, trending, cross-reference, semantic, and evidence-bundle flows. Optional cases are skipped by default if a source index or embedding service is unavailable; use `--strict-optional` to fail them instead.
+
+Deploy rule: do not claim an MCP deploy improved retrieval unless this benchmark passes on production data and the report is archived outside the repo.
+
+## Hosted Dev-Converge Setup
+
+Separate multi-agent MCP service at `converge.gabidou.top`. Each request carries the full agent catalog in a `X-Dev-Converge-Agents` header — the server holds no provider keys.
+
+### Step 1 — Set credentials in `.env`
+
+```bash
+# Provider keys + models (semicolon-separated for multiple models)
+OPENAI_API_KEY=sk-proj-...
+OPENAI_API_MODELS=gpt-5.4
+
+ANTHROPIC_API_KEY=sk-ant-...
+ANTHROPIC_API_MODELS=claude-sonnet-4-6
+
+GEMINI_API_KEY=AIza...
+GEMINI_API_MODELS=gemini-2.0-flash
+
+DASHSCOPE_API_KEY=sk-sp-...
+DASHSCOPE_API_MODELS=kimi-k2.5;MiniMax-M2.5;qwen3-max-2026-01-23;glm-5
+
+# Bearer token for the dev-converge service
+DEV_CONVERGE_API_TOKENS=label:your-bearer-token
+```
+
+A provider is silently skipped if either its `API_KEY` or `API_MODELS` is missing. DashScope covers Kimi, Qwen, GLM, and MiniMax-M2.5 through the same key.
+
+### Step 2 — Generate and apply the MCP config
+
+```bash
+python3 gen_converge_mcp.py          # dry-run: print catalog summary
+python3 gen_converge_mcp.py --apply  # encode catalog + update .mcp.json
+```
+
+Re-run after any key rotation or model list change. Restart your editor afterwards.
+
+The script defaults the synthesizer to the first Kimi model found. Override with `DEV_CONVERGE_DEFAULT_SYNTHESIZER=<agent-name>` in `.env`.
+
+### Transports
+
+| Client | Config format | URL |
+|--------|--------------|-----|
+| Claude Code, Cursor, Claude Desktop | SSE | `https://converge.gabidou.top/mcp/sse` |
+| Codex, newer clients | Streamable HTTP | `https://converge.gabidou.top/mcp-http/` |
+| Health check | — | `https://converge.gabidou.top/api/health` |
+
+### Tools (11)
+
+| Tool | Type | Description |
+|------|------|-------------|
+| `get_defaults` | sync | Service capabilities and required header format |
+| `ping_models` | sync | Health-check all catalog agents |
+| `complete_once` | sync | Single-agent completion (`agent_name` required if catalog > 1) |
+| `run_panel` | sync | Parallel multi-agent analysis + synthesis |
+| `swarm_panel` | sync | Cooperative swarm with assigned roles |
+| `jury_panel` | sync | Expert witnesses + jury verdict |
+| `triangular_panel` | sync | 3-phase: analysis → critique → revision |
+| `start_run_panel` | async | Enqueue `run_panel`, returns `job_id` |
+| `start_swarm_panel` | async | Enqueue `swarm_panel` |
+| `start_jury_panel` | async | Enqueue `jury_panel` |
+| `poll_job` | — | Poll async job status and retrieve result |
+
+### Recommended workflow
+
+1. `get_defaults` — confirm which agents are loaded from your catalog
+2. `complete_once` — quick single-agent call
+3. `run_panel` / `swarm_panel` / `jury_panel` — for multi-agent consensus
+4. `start_*` + `poll_job` — for async jobs that exceed the sync timeout
+
+### Local smoke test
+
+```bash
+docker compose exec dev-converge-api python ops/test_dev_converge_tools.py
+```
 
 ### Reading Documents
 

@@ -456,7 +456,35 @@ Supported `provider` values: `openai_compatible`, `anthropic_compatible`, `gemin
 
 Auth: `Authorization: Bearer <DEV_CONVERGE_API_TOKENS value>`
 
-### MCP client config
+### Local client setup
+
+Set provider credentials and model lists in `.env` (see `.env.example` for all keys):
+
+```bash
+OPENAI_API_KEY=sk-proj-...
+OPENAI_API_MODELS=gpt-5.4
+
+ANTHROPIC_API_KEY=sk-ant-...
+ANTHROPIC_API_MODELS=claude-sonnet-4-6
+
+GEMINI_API_KEY=AIza...
+GEMINI_API_MODELS=gemini-2.0-flash
+
+DASHSCOPE_API_KEY=sk-sp-...
+DASHSCOPE_API_MODELS=kimi-k2.5;MiniMax-M2.5;qwen3-max-2026-01-23;glm-5  # semicolon-separated
+
+DEV_CONVERGE_API_TOKENS=label:your-bearer-token
+```
+
+Then run the setup script:
+
+```bash
+python3 gen_converge_mcp.py --apply   # encodes catalog and updates .mcp.json
+```
+
+Re-run whenever you rotate keys or change the model list. The script also accepts `--env path/to/.env` for non-default locations.
+
+The resulting `.mcp.json` entry looks like:
 
 ```json
 {
@@ -470,14 +498,6 @@ Auth: `Authorization: Bearer <DEV_CONVERGE_API_TOKENS value>`
     }
   }
 }
-```
-
-To generate the header value locally:
-
-```python
-import base64, json
-catalog = {"agents": [...], "default_synthesizer": "kimi"}
-header = base64.urlsafe_b64encode(json.dumps(catalog).encode()).rstrip(b"=").decode()
 ```
 
 ### Tools (11 total)
