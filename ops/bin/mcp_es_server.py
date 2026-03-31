@@ -2774,59 +2774,26 @@ async def es_search(
     query: str,
     page: int = 1,
     page_size: int = 20,
-    date_from: str | None = None,
-    date_to: str | None = None,
-    section: str | None = None,
-    art_type: str | None = None,
-    issuing_organ: str | None = None,
-    topic: str | None = None,
-    intent: str | None = None,
-    is_trending: bool = False,
-    source: str | None = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    source: Optional[str] = None,
     rewrite: bool = False,
-    caderno: str | None = None,
-    section_type: str | None = None,
-    pub_type: str | None = None,
 ) -> dict[str, Any]:
     """Search DOU and/or TCU documents via GABI's search pipeline.
 
-    Uses intent classification (person names, legal references, canonical laws,
-    topic profiles), optional query rewriting, hybrid BM25 + kNN via RRF,
-    quoted phrase detection, and optional neural reranking.
+    Uses intent classification, query rewriting, and hybrid BM25 + kNN via RRF.
+    For advanced filters (section, art_type, issuing_organ, topic, intent,
+    is_trending, caderno, section_type, pub_type), use es_search_basic.
 
     Args:
-      query: search query in Portuguese.
-             Use quotes for exact phrases: "Eduardo Joerke"
+      query: search query in Portuguese. Use quotes for exact phrases.
              Legal references auto-boost: Lei 13709, Decreto nº 1.234
-             Person names auto-detected: Fernando Haddad, Maria Silva
       page: 1-based page number
       page_size: results per page (1-100)
       date_from: YYYY-MM-DD lower bound
       date_to: YYYY-MM-DD upper bound
-      section: 1 | 2 | 3 | e (DOU section filter, ignored for TCU)
-      art_type: act type filter (e.g. decreto, portaria, resolução)
-      issuing_organ: issuing organ filter
-      topic: topic classification filter. Available topics:
-             concurso_selecao, licitacao_compras, contrato_convenio,
-             pessoal_rh, regulacao_norma, consulta_participacao,
-             saude, educacao, meio_ambiente, financeiro,
-             energia_telecom, administrativo
-      intent: force intent classification. Options:
-              trending | explore | exact_name | canonical | person
-      is_trending: if true, prioritize recent documents
-      source: data source filter. Options:
-              omitted/None — federated search across DOU, TCU, normas, BTCU, publicações
-              dou — DOU documents only
-              tcu — TCU acórdãos only
-              tcu_normas / normas — TCU normas only
-              all — federated search across all supported corpora
-              btcu — TCU Boletins (BTCU) only
-              publicacoes — TCU Publicações Institucionais only
-      rewrite: if true, normalize legal references and run multi-query expansion
-               before merging results in the MCP layer
-      caderno: BTCU caderno filter (source='btcu')
-      section_type: BTCU section filter (source='btcu')
-      pub_type: TCU publication type slug (source='publicacoes')
+      source: dou | tcu | normas | btcu | publicacoes | all (default: all)
+      rewrite: if true, normalize legal references and expand queries
     """
     started_at = time.perf_counter()
     page = max(1, min(page, 500))
@@ -2838,17 +2805,17 @@ async def es_search(
         "page_size": page_size,
         "date_from": date_from,
         "date_to": date_to,
-        "section": section,
-        "art_type": art_type,
-        "issuing_organ": issuing_organ,
-        "topic": topic,
-        "intent": intent,
-        "is_trending": is_trending,
         "source": source,
         "rewrite": rewrite,
-        "caderno": caderno,
-        "section_type": section_type,
-        "pub_type": pub_type,
+        "section": None,
+        "art_type": None,
+        "issuing_organ": None,
+        "topic": None,
+        "intent": None,
+        "is_trending": False,
+        "caderno": None,
+        "section_type": None,
+        "pub_type": None,
     }
 
     max_offset = 10000
@@ -2911,15 +2878,15 @@ async def es_search(
                         page_size=variant_page_size,
                         date_from=date_from,
                         date_to=date_to,
-                        section=section,
-                        art_type=art_type,
-                        issuing_organ=issuing_organ,
-                        topic=topic,
-                        intent=intent,
-                        is_trending=is_trending,
-                        caderno=caderno,
-                        section_type=section_type,
-                        pub_type=pub_type,
+                        section=None,
+                        art_type=None,
+                        issuing_organ=None,
+                        topic=None,
+                        intent=None,
+                        is_trending=False,
+                        caderno=None,
+                        section_type=None,
+                        pub_type=None,
                     )
                 )
             else:
@@ -2931,15 +2898,15 @@ async def es_search(
                         page_size=variant_page_size,
                         date_from=date_from,
                         date_to=date_to,
-                        section=section,
-                        art_type=art_type,
-                        issuing_organ=issuing_organ,
-                        topic=topic,
-                        intent=intent,
-                        is_trending=is_trending,
-                        caderno=caderno,
-                        section_type=section_type,
-                        pub_type=pub_type,
+                        section=None,
+                        art_type=None,
+                        issuing_organ=None,
+                        topic=None,
+                        intent=None,
+                        is_trending=False,
+                        caderno=None,
+                        section_type=None,
+                        pub_type=None,
                     )
                 )
 
@@ -2995,15 +2962,15 @@ async def es_search(
             page_size=page_size,
             date_from=date_from,
             date_to=date_to,
-            section=section,
-            art_type=art_type,
-            issuing_organ=issuing_organ,
-            topic=topic,
-            intent=intent,
-            is_trending=is_trending,
-            caderno=caderno,
-            section_type=section_type,
-            pub_type=pub_type,
+            section=None,
+            art_type=None,
+            issuing_organ=None,
+            topic=None,
+            intent=None,
+            is_trending=False,
+            caderno=None,
+            section_type=None,
+            pub_type=None,
         )
     else:
         result = await _search_source_once(
@@ -3013,15 +2980,15 @@ async def es_search(
             page_size=page_size,
             date_from=date_from,
             date_to=date_to,
-            section=section,
-            art_type=art_type,
-            issuing_organ=issuing_organ,
-            topic=topic,
-            intent=intent,
-            is_trending=is_trending,
-            caderno=caderno,
-            section_type=section_type,
-            pub_type=pub_type,
+            section=None,
+            art_type=None,
+            issuing_organ=None,
+            topic=None,
+            intent=None,
+            is_trending=False,
+            caderno=None,
+            section_type=None,
+            pub_type=None,
         )
 
     result["query_id"] = query_id
@@ -5542,8 +5509,6 @@ if FastMCP is not None:
 
     mcp.tool()(es_search)
     mcp.tool()(es_search_basic)
-    _registered = [t.name for t in mcp._tool_manager.list_tools()]
-    print(f"[DEBUG] Registered tools ({len(_registered)}): {sorted(_registered)}")
     mcp.tool()(es_suggest)
     mcp.tool()(es_facets)
     mcp.tool()(es_document)
