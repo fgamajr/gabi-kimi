@@ -549,7 +549,9 @@ On restart, any in-flight jobs are marked `failed` with `reason: service_restart
 ```
 src/dev_converge/
   config.py      — Settings (no provider keys)
-  providers.py   — decode_catalog(), build_agent(), call_agent() for 3 API contracts
+  providers.py   — decode_catalog(), build_agent(), call_agent() for 5 provider types:
+                    openai (max_completion_tokens), openai_compatible (max_tokens),
+                    anthropic, anthropic_compatible, gemini_compatible
   executor.py    — Panel execution patterns; all accept runtime catalog
   mcp_server.py  — FastMCP tools, auth + X-Dev-Converge-Agents header decode
   jobs.py        — MongoDB job queue (redacted metadata only)
@@ -571,6 +573,37 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build de
 ```bash
 docker compose exec dev-converge-api python ops/test_dev_converge_tools.py
 ```
+
+### Live test results (2026-03-30)
+
+All 7 catalog agents confirmed responding:
+
+**ping_models — all agents reachable:**
+
+| Agent | Provider | Latency |
+|-------|----------|---------|
+| gpt-5.4-2026-03-05 | openai | 1828ms |
+| claude-sonnet-4-6 | anthropic | 1056ms |
+| gemini-3.1-pro-preview | gemini_compatible | 4061ms |
+| kimi-k2.5 | openai_compatible | 2018ms |
+| MiniMax-M2.5 | openai_compatible | 3555ms |
+| qwen3-max-2026-01-23 | openai_compatible | 3057ms |
+| glm-5 | openai_compatible | 5054ms |
+
+**run_panel — DOU compliance question (4-agent subset):**
+- Task: "A Brazilian federal agency needs to publish a new regulation in the DOU. List the 3 most critical compliance requirements they must follow, and one concrete mitigation for each."
+- Agents: gpt-5.4-2026-03-05, claude-sonnet-4-6, kimi-k2.5, qwen3-max-2026-01-23
+- Result: All 4 responded with distinct, substantive answers. Consensus converged on: (1) legal basis/competency + Nota Jurídica from CONJUR, (2) AIR + public consultation under Decreto 10.411/2020, (3) formatting/LAI metadata compliance. Each agent cited different specific laws (Art. 2º Lei 9.784/99, Decreto 7.724/2012, IN SAD/PR 1/2020) showing diversity of knowledge.
+
+**swarm_panel — microservices vs monolith (7-agent):**
+- Task: "A developer asks: should I use microservices or a monolith for a small team?"
+- Roles: architect, devops, backend_developer
+- Result: 7/7 agents responded. Strong consensus: **start with a modular monolith**. Key themes: cognitive load limit for small teams, operational tax of microservices, YAGNI principle. Notable: kimi-k2.5 produced an ASCII architecture diagram; claude-sonnet-4-6 included a team-size decision table; glm-5 framed microservices as solving organizational (not technical) scaling problems.
+
+**Key fixes validated:**
+- `gpt-5.4-2026-03-05` — was returning HTTP 400 due to `max_tokens`; now works with `max_completion_tokens` via `openai` provider type
+- `return_exceptions=True` in `asyncio.gather` — one agent failure no longer aborts the entire panel
+- Provider taxonomy: `openai` (direct), `openai_compatible` (DashScope), `anthropic` (direct), `anthropic_compatible`, `gemini_compatible`
 
 ## Backlog
 
