@@ -532,6 +532,23 @@ The resulting `.mcp.json` entry looks like:
 
 On restart, any in-flight jobs are marked `failed` with `reason: service_restart`. Completed results remain accessible via `poll_job` for `DEV_CONVERGE_JOB_RETENTION_HOURS` (default 168h).
 
+### Dynamic timeout
+
+Panel tools auto-calculate a timeout per call:
+
+```
+timeout = max(60, min(600, 60 × num_agents × rounds))
+```
+
+| Scenario | Auto-timeout |
+|----------|-------------|
+| 4 agents, 1 round | 240s |
+| 7 agents, 1 round | 420s → capped at 600s |
+| 3 agents, 2 rounds | 360s |
+| 1 agent | 60s (minimum) |
+
+Override with `timeout_sec` on any tool (e.g. `timeout_sec=900` for a very long panel). For jobs that exceed the sync timeout, use `start_run_panel` + `poll_job` instead.
+
 ### Key environment variables
 
 | Variable | Description |
@@ -540,7 +557,7 @@ On restart, any in-flight jobs are marked `failed` with `reason: service_restart
 | `DEV_CONVERGE_MONGO_STRING` | MongoDB connection (must include auth in prod) |
 | `DEV_CONVERGE_SITE_URL` | Public URL for DNS rebinding protection |
 | `DEV_CONVERGE_ALLOWED_HOSTS` | Comma-separated allowed Host headers |
-| `DEV_CONVERGE_SYNC_TIMEOUT_SEC` | Timeout for synchronous panel tools (default 90) |
+| `DEV_CONVERGE_SYNC_TIMEOUT_SEC` | Fallback timeout for sync calls without auto-calc (default 180s) |
 | `DEV_CONVERGE_MAX_PARALLEL_AGENTS` | Max concurrent agent calls per job (default 4) |
 | `DEV_CONVERGE_DATA_ROOT` | Artifact storage root (default `/data/dev_converge`) |
 
