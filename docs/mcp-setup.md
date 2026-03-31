@@ -326,6 +326,23 @@ The script defaults the synthesizer to the first Kimi model found. Override with
 3. `run_panel` / `swarm_panel` / `jury_panel` — for multi-agent consensus
 4. `start_*` + `poll_job` — for async jobs that exceed the sync timeout
 
+### Dynamic timeout
+
+Panel tools auto-calculate a timeout per call:
+
+```
+timeout = max(60, min(600, 60 × num_agents × rounds))
+```
+
+| Scenario | Auto-timeout |
+|----------|-------------|
+| 4 agents, 1 round | 240s |
+| 7 agents, 1 round | 420s (capped at 600s) |
+| 3 agents, 2 rounds | 360s |
+| 1 agent | 60s (minimum) |
+
+Override with `timeout_sec` on any panel tool (e.g. `timeout_sec=900` for very long panels). Use `start_*` + `poll_job` for jobs that exceed the sync timeout.
+
 ### IDE setup (VSCode, Trae, Windsurf, Cursor)
 
 IDEs load MCP configs as static JSON — they cannot run scripts or read `.env` files. You need to pre-generate the header value and paste it in directly.
