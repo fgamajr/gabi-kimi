@@ -383,6 +383,165 @@ Run the standalone SSE server on a custom port:
 ./ops/bin/run_mcp_server.sh --transport sse --port 8766
 ```
 
+### MCP quality benchmark
+
+Run the curated MCP quality harness to verify real search usefulness, not just tool contracts:
+
+```bash
+docker compose exec backend python ops/eval_mcp_quality.py
+docker compose exec backend python ops/eval_mcp_quality.py --case lgpd
+docker compose exec backend python ops/eval_mcp_quality.py --strict-optional
+```
+
+This writes:
+- `ops/eval_mcp_quality_results.json`
+- `ops/eval_mcp_quality_report.md`
+
+When the source is unknown, start with `es_search` and omit `source`. GABI now federates across DOU, TCU acórdãos, TCU normas, BTCU, and Publicações by default, and returns a `source_breakdown` summary plus normalized per-hit source metadata. Reach for `es_evidence_bundle` after search when you need citation-ready evidence, and only then move to specialist tools like `es_tcu_semantic_search`, `es_cross_reference`, or `es_explain`.
+
+Treat benchmark output as an ops artifact, not repo state: generate the JSON/Markdown report during deploy validation and archive it in ops notes or release notes instead of committing it.
+
+## Hosted Dev-Converge
+
+Multi-agent consensus and synthesis service hosted at `converge.gabidou.top`. Runs as a separate FastAPI container (`dev-converge-api`) on port 8011, independent from the main GABI backend.
+
+### Design: stateless credentials
+
+The server holds **no provider keys**. Every request carries the full agent catalog in a required header:
+
+```
+X-Dev-Converge-Agents: <base64url-encoded JSON>
+```
+
+Payload format:
+
+```json
+{
+  "agents": [
+    {
+      "name": "kimi",
+      "provider": "openai_compatible",
+      "model": "kimi-k2.5",
+      "api_key": "sk-...",
+      "base_url": "https://coding-intl.dashscope.aliyuncs.com/v1"
+    },
+    {
+      "name": "claude",
+      "provider": "anthropic_compatible",
+      "model": "claude-sonnet-4-6",
+      "api_key": "sk-ant-...",
+      "base_url": ""
+    },
+    {
+      "name": "gemini",
+      "provider": "gemini_compatible",
+      "model": "gemini-2.0-flash",
+      "api_key": "AIza...",
+      "base_url": ""
+    }
+  ],
+  "default_synthesizer": "kimi"
+}
+```
+
+Supported `provider` values: `openai_compatible`, `anthropic_compatible`, `gemini_compatible`. Any endpoint that follows one of these three API contracts works — Alibaba/DashScope, Qwen, Minimax, OpenAI, Anthropic, Gemini, etc.
+
+### Endpoints
+
+| Transport | URL |
+|-----------|-----|
+| SSE (Claude Code, Cursor) | `https://converge.gabidou.top/mcp/sse` |
+| Streamable HTTP (Codex, newer clients) | `https://converge.gabidou.top/mcp-http/` |
+| Health | `https://converge.gabidou.top/api/health` |
+
+Auth: `Authorization: Bearer <DEV_CONVERGE_API_TOKENS value>`
+
+### MCP client config
+
+```json
+{
+  "mcpServers": {
+    "dev-converge": {
+      "url": "https://converge.gabidou.top/mcp/sse",
+      "headers": {
+        "Authorization": "Bearer <token>",
+        "X-Dev-Converge-Agents": "<base64url catalog>"
+      }
+    }
+  }
+}
+```
+
+To generate the header value locally:
+
+```python
+import base64, json
+catalog = {"agents": [...], "default_synthesizer": "kimi"}
+header = base64.urlsafe_b64encode(json.dumps(catalog).encode()).rstrip(b"=").decode()
+```
+
+### Tools (11 total)
+
+| Tool | Type | Description |
+|------|------|-------------|
+| `get_defaults` | sync | Service capabilities and required header format |
+| `ping_models` | sync | Health check — call all catalog agents |
+| `complete_once` | sync | Single agent completion (requires `agent_name` if catalog > 1) |
+| `run_panel` | sync | Parallel multi-agent analysis + local synthesis |
+| `swarm_panel` | sync | Cooperative swarm with assigned roles |
+| `jury_panel` | sync | Expert witnesses + jury verdict |
+| `triangular_panel` | sync | 3-phase: analysis → critique → revision |
+| `start_run_panel` | async | Enqueue run_panel job, returns `job_id` |
+| `start_swarm_panel` | async | Enqueue swarm_panel job |
+| `start_jury_panel` | async | Enqueue jury_panel job |
+| `poll_job` | — | Poll async job status and retrieve result |
+
+### Async job lifecycle
+
+`start_*` tools enqueue the job in an **in-memory asyncio queue** inside the API process. Job metadata (status, agents used, result preview) is persisted to MongoDB. Raw API keys are never written to Mongo or disk — only agent name, provider, model, and base URL are stored.
+
+On restart, any in-flight jobs are marked `failed` with `reason: service_restart`. Completed results remain accessible via `poll_job` for `DEV_CONVERGE_JOB_RETENTION_HOURS` (default 168h).
+
+### Key environment variables
+
+| Variable | Description |
+|----------|-------------|
+| `DEV_CONVERGE_API_TOKENS` | Bearer tokens: `label:token,label2:token2` |
+| `DEV_CONVERGE_MONGO_STRING` | MongoDB connection (must include auth in prod) |
+| `DEV_CONVERGE_SITE_URL` | Public URL for DNS rebinding protection |
+| `DEV_CONVERGE_ALLOWED_HOSTS` | Comma-separated allowed Host headers |
+| `DEV_CONVERGE_SYNC_TIMEOUT_SEC` | Timeout for synchronous panel tools (default 90) |
+| `DEV_CONVERGE_MAX_PARALLEL_AGENTS` | Max concurrent agent calls per job (default 4) |
+| `DEV_CONVERGE_DATA_ROOT` | Artifact storage root (default `/data/dev_converge`) |
+
+### Source layout
+
+```
+src/dev_converge/
+  config.py      — Settings (no provider keys)
+  providers.py   — decode_catalog(), build_agent(), call_agent() for 3 API contracts
+  executor.py    — Panel execution patterns; all accept runtime catalog
+  mcp_server.py  — FastMCP tools, auth + X-Dev-Converge-Agents header decode
+  jobs.py        — MongoDB job queue (redacted metadata only)
+  worker.py      — In-process asyncio queue + maintenance loop
+  main.py        — FastAPI app, lifespan starts worker + stale-job cleanup
+```
+
+### Production deploy
+
+```bash
+# On Hetzner server
+cd /home/gabi/gabi-kimi
+git pull
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build dev-converge-api
+```
+
+### Local smoke test
+
+```bash
+docker compose exec dev-converge-api python ops/test_dev_converge_tools.py
+```
+
 ## Backlog
 
 Open issues tracked in `.planning/todos/pending/`:
