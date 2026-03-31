@@ -3028,16 +3028,7 @@ async def es_search_basic(
         page_size=page_size,
         date_from=date_from,
         date_to=date_to,
-        section=None,
-        art_type=None,
-        issuing_organ=None,
-        topic=None,
-        intent=None,
-        is_trending=False,
         rewrite=False,
-        caderno=None,
-        section_type=None,
-        pub_type=None,
     )
 
 
