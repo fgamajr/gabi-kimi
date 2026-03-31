@@ -461,20 +461,26 @@ Auth: `Authorization: Bearer <DEV_CONVERGE_API_TOKENS value>`
 Set provider credentials and model lists in `.env` (see `.env.example` for all keys):
 
 ```bash
+# OpenAI direct (uses max_completion_tokens — NOT max_tokens)
 OPENAI_API_KEY=sk-proj-...
-OPENAI_API_MODELS=gpt-5.4
+OPENAI_API_MODELS=gpt-5.4-2026-03-05
 
+# Anthropic direct
 ANTHROPIC_API_KEY=sk-ant-...
 ANTHROPIC_API_MODELS=claude-sonnet-4-6
 
+# Gemini compatible
 GEMINI_API_KEY=AIza...
-GEMINI_API_MODELS=gemini-2.0-flash
+GEMINI_API_MODELS=gemini-3.1-pro-preview
 
+# DashScope openai_compatible (uses max_tokens)
 DASHSCOPE_API_KEY=sk-sp-...
 DASHSCOPE_API_MODELS=kimi-k2.5;MiniMax-M2.5;qwen3-max-2026-01-23;glm-5  # semicolon-separated
 
 DEV_CONVERGE_API_TOKENS=label:your-bearer-token
 ```
+
+Provider types: `openai` (direct, max_completion_tokens), `openai_compatible` (DashScope, max_tokens), `anthropic` (direct), `anthropic_compatible`, `gemini_compatible`.
 
 Then run the setup script:
 

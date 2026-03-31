@@ -251,15 +251,20 @@ Separate multi-agent MCP service at `converge.gabidou.top`. Each request carries
 
 ```bash
 # Provider keys + models (semicolon-separated for multiple models)
-OPENAI_API_KEY=sk-proj-...
-OPENAI_API_MODELS=gpt-5.4
 
+# OpenAI direct — uses max_completion_tokens (NOT max_tokens)
+OPENAI_API_KEY=sk-proj-...
+OPENAI_API_MODELS=gpt-5.4-2026-03-05
+
+# Anthropic direct
 ANTHROPIC_API_KEY=sk-ant-...
 ANTHROPIC_API_MODELS=claude-sonnet-4-6
 
+# Gemini compatible
 GEMINI_API_KEY=AIza...
-GEMINI_API_MODELS=gemini-2.0-flash
+GEMINI_API_MODELS=gemini-3.1-pro-preview
 
+# DashScope (openai_compatible) — uses max_tokens
 DASHSCOPE_API_KEY=sk-sp-...
 DASHSCOPE_API_MODELS=kimi-k2.5;MiniMax-M2.5;qwen3-max-2026-01-23;glm-5
 
@@ -267,7 +272,17 @@ DASHSCOPE_API_MODELS=kimi-k2.5;MiniMax-M2.5;qwen3-max-2026-01-23;glm-5
 DEV_CONVERGE_API_TOKENS=label:your-bearer-token
 ```
 
-A provider is silently skipped if either its `API_KEY` or `API_MODELS` is missing. DashScope covers Kimi, Qwen, GLM, and MiniMax-M2.5 through the same key.
+The catalog uses 5 provider types:
+
+| Provider | API | Auth | Notes |
+|----------|-----|------|-------|
+| `openai` | OpenAI direct | `max_completion_tokens` | Only for OpenAI's own API |
+| `openai_compatible` | DashScope, etc. | `max_tokens` | For third-party OpenAI-compatible APIs |
+| `anthropic` | Anthropic direct | `max_tokens` | Only for Anthropic's own API |
+| `anthropic_compatible` | Third-party | `max_tokens` | For third-party Anthropic-compatible APIs |
+| `gemini_compatible` | Google via API key | `maxOutputTokens` | Third-party Gemini-compatible APIs |
+
+A provider is silently skipped if either its `API_KEY` or `API_MODELS` is missing.
 
 ### Step 2 — Generate and apply the MCP config
 
@@ -332,23 +347,23 @@ The catalog JSON that gets encoded looks like this (shown here decoded for clari
 {
   "agents": [
     {
-      "name": "gpt-5.4",
-      "provider": "openai_compatible",
-      "model": "gpt-5.4",
+      "name": "gpt-5.4-2026-03-05",
+      "provider": "openai",
+      "model": "gpt-5.4-2026-03-05",
       "api_key": "sk-proj-YOUR_OPENAI_KEY",
       "base_url": "https://api.openai.com/v1"
     },
     {
       "name": "claude-sonnet-4-6",
-      "provider": "anthropic_compatible",
+      "provider": "anthropic",
       "model": "claude-sonnet-4-6",
       "api_key": "sk-ant-YOUR_ANTHROPIC_KEY",
       "base_url": ""
     },
     {
-      "name": "gemini-2.0-flash",
+      "name": "gemini-3.1-pro-preview",
       "provider": "gemini_compatible",
-      "model": "gemini-2.0-flash",
+      "model": "gemini-3.1-pro-preview",
       "api_key": "AIzaYOUR_GEMINI_KEY",
       "base_url": ""
     },
