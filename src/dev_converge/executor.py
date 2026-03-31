@@ -49,13 +49,22 @@ async def _gather_agent_outputs(
 
     async def _run(spec: AgentSpec, prompt: str) -> dict[str, Any]:
         async with semaphore:
-            return await call_agent(
-                spec=spec,
-                prompt=prompt,
-                system_prompt=system_prompt,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
+            try:
+                return await call_agent(
+                    spec=spec,
+                    prompt=prompt,
+                    system_prompt=system_prompt,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+            except Exception as exc:
+                return {
+                    "agent": spec.name,
+                    "provider": spec.provider,
+                    "model": spec.model,
+                    "error": str(exc),
+                    "output": "",
+                }
 
     tasks = [_run(spec, prompt_builder(spec)) for spec in agents]
     return await asyncio.gather(*tasks)
