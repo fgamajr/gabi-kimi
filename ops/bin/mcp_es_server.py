@@ -2776,13 +2776,14 @@ async def es_search(
     page_size: int = 20,
     date_from: str | None = None,
     date_to: str | None = None,
+    section: str | None = None,
     source: str | None = None,
     rewrite: bool = False,
 ) -> dict[str, Any]:
     """Search DOU and/or TCU documents via GABI's search pipeline.
 
     Uses intent classification, query rewriting, and hybrid BM25 + kNN via RRF.
-    For advanced filters (section, art_type, issuing_organ, topic, intent,
+    For advanced filters (art_type, issuing_organ, topic, intent,
     is_trending, caderno, section_type, pub_type), use es_search_basic.
 
     Args:
@@ -2792,6 +2793,7 @@ async def es_search(
       page_size: results per page (1-100)
       date_from: YYYY-MM-DD lower bound
       date_to: YYYY-MM-DD upper bound
+      section: "1" | "2" | "3" | "e" (DOU section filter; None = all sections)
       source: dou | tcu | normas | btcu | publicacoes | all (default: all)
       rewrite: if true, normalize legal references and expand queries
     """
@@ -2805,9 +2807,9 @@ async def es_search(
         "page_size": page_size,
         "date_from": date_from,
         "date_to": date_to,
+        "section": section,
         "source": source,
         "rewrite": rewrite,
-        "section": None,
         "art_type": None,
         "issuing_organ": None,
         "topic": None,
@@ -2878,7 +2880,7 @@ async def es_search(
                         page_size=variant_page_size,
                         date_from=date_from,
                         date_to=date_to,
-                        section=None,
+                        section=section,
                         art_type=None,
                         issuing_organ=None,
                         topic=None,
@@ -2898,7 +2900,7 @@ async def es_search(
                         page_size=variant_page_size,
                         date_from=date_from,
                         date_to=date_to,
-                        section=None,
+                        section=section,
                         art_type=None,
                         issuing_organ=None,
                         topic=None,
@@ -2962,7 +2964,7 @@ async def es_search(
             page_size=page_size,
             date_from=date_from,
             date_to=date_to,
-            section=None,
+            section=section,
             art_type=None,
             issuing_organ=None,
             topic=None,
@@ -2980,7 +2982,7 @@ async def es_search(
             page_size=page_size,
             date_from=date_from,
             date_to=date_to,
-            section=None,
+            section=section,
             art_type=None,
             issuing_organ=None,
             topic=None,
@@ -3019,6 +3021,7 @@ async def es_search_basic(
     page_size: int = 20,
     date_from: str | None = None,
     date_to: str | None = None,
+    section: str | None = None,
 ) -> dict[str, Any]:
     """Cursor-friendly fallback with a reduced schema that delegates to es_search."""
     return await es_search(
@@ -3028,6 +3031,7 @@ async def es_search_basic(
         page_size=page_size,
         date_from=date_from,
         date_to=date_to,
+        section=section,
         rewrite=False,
     )
 
