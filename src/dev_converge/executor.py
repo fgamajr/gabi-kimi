@@ -162,6 +162,7 @@ async def run_panel(
     temperature: float | str | None = 0.2,
     topology: str = "parallel",
     catalog: list[AgentSpec] | None = None,
+    timeout_sec: int | None = None,
 ) -> dict[str, Any]:
     if catalog is None:
         catalog = []
@@ -199,6 +200,7 @@ async def swarm_panel(
     swarm_roles: str = "",
     temperature: float | str | None = 0.2,
     catalog: list[AgentSpec] | None = None,
+    timeout_sec: int | None = None,
 ) -> dict[str, Any]:
     if catalog is None:
         catalog = []
@@ -242,6 +244,7 @@ async def jury_panel(
     swarm_roles: str = "",
     temperature: float | str | None = 0.2,
     catalog: list[AgentSpec] | None = None,
+    timeout_sec: int | None = None,
 ) -> dict[str, Any]:
     if catalog is None:
         catalog = []
@@ -290,6 +293,7 @@ async def triangular_panel(
     synthesizer: str = "",
     temperature: float | str | None = 0.2,
     catalog: list[AgentSpec] | None = None,
+    timeout_sec: int | None = None,
 ) -> dict[str, Any]:
     if catalog is None:
         catalog = []

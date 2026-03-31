@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 
 from src.dev_converge.config import settings
 from src.dev_converge.executor import (
+    _coerce_int,
     complete_once as executor_complete_once,
     get_defaults as executor_get_defaults,
     jury_panel as executor_jury_panel,
@@ -22,6 +23,7 @@ from src.dev_converge.providers import (
     AgentSpec,
     decode_catalog,
     get_default_synthesizer,
+    resolve_agents,
 )
 
 logger = logging.getLogger(__name__)
@@ -110,6 +112,11 @@ async def ping_models(
     )
 
 
+def _compute_timeout(num_agents: int, rounds: int = 1, per_agent_sec: int = 60) -> int:
+    timeout = per_agent_sec * max(1, num_agents) * max(1, rounds)
+    return max(60, min(600, timeout))
+
+
 async def _wrap_timeout(coro, timeout_sec: int, tool_name: str):
     try:
         return await asyncio.wait_for(coro, timeout=timeout_sec)
@@ -157,11 +164,20 @@ async def run_panel(
     rounds: int | str | None = 1,
     temperature: float | str | None = 0.2,
     topology: str = "parallel",
+    timeout_sec: int | None = None,
 ) -> dict[str, Any]:
     """Run a task on multiple agents in parallel and synthesize the results.
     agent_names: leave EMPTY ("") to use all agents. Pass comma-separated names from
     get_defaults.catalog_agents to use a subset. Never pass the string "all".
-    Set include_transcript=true to see each agent's individual answer before the synthesis."""
+    Set include_transcript=true to see each agent's individual answer before the synthesis.
+    timeout_sec: overrides the auto-calculated timeout (default: 60s × agents × rounds, capped at 600s)."""
+    catalog = current_catalog()
+    agents = resolve_agents(agent_names, catalog)
+    effective_timeout = (
+        timeout_sec
+        if timeout_sec is not None
+        else _compute_timeout(len(agents), _coerce_int(rounds, 1))
+    )
     return await _wrap_timeout(
         executor_run_panel(
             task=task,
@@ -172,9 +188,9 @@ async def run_panel(
             rounds=rounds,
             temperature=temperature,
             topology=topology,
-            catalog=current_catalog(),
+            catalog=catalog,
         ),
-        settings.DEV_CONVERGE_SYNC_TIMEOUT_SEC,
+        effective_timeout,
         "run_panel",
     )
 
@@ -187,9 +203,16 @@ async def swarm_panel(
     max_tokens: int | str | None = 1200,
     swarm_roles: str = "",
     temperature: float | str | None = 0.2,
+    timeout_sec: int | None = None,
 ) -> dict[str, Any]:
     """Run a cooperative swarm: each agent is assigned a distinct role and answers in character.
-    agent_names: leave EMPTY ("") to use all agents. Never pass the string "all"."""
+    agent_names: leave EMPTY ("") to use all agents. Never pass the string "all".
+    timeout_sec: overrides the auto-calculated timeout (default: 60s × agents, capped at 600s)."""
+    catalog = current_catalog()
+    agents = resolve_agents(agent_names, catalog)
+    effective_timeout = (
+        timeout_sec if timeout_sec is not None else _compute_timeout(len(agents))
+    )
     return await _wrap_timeout(
         executor_swarm_panel(
             task=task,
@@ -199,9 +222,9 @@ async def swarm_panel(
             max_tokens=max_tokens,
             swarm_roles=swarm_roles,
             temperature=temperature,
-            catalog=current_catalog(),
+            catalog=catalog,
         ),
-        settings.DEV_CONVERGE_SYNC_TIMEOUT_SEC,
+        effective_timeout,
         "swarm_panel",
     )
 
@@ -215,10 +238,26 @@ async def jury_panel(
     max_tokens: int | str | None = 1200,
     swarm_roles: str = "",
     temperature: float | str | None = 0.2,
+    timeout_sec: int | None = None,
 ) -> dict[str, Any]:
     """Expert witnesses answer the task; jury agents deliberate and deliver a verdict.
     expert_agents and jury_agents are comma-separated names from get_defaults.catalog_agents.
-    Leave both EMPTY ("") to split the catalog automatically. Never pass "all"."""
+    Leave both EMPTY ("") to split the catalog automatically. Never pass "all".
+    timeout_sec: overrides the auto-calculated timeout (default: 60s × agents, capped at 600s)."""
+    catalog = current_catalog()
+    expert_list = resolve_agents(expert_agents, catalog) if expert_agents else []
+    jury_list = resolve_agents(jury_agents, catalog) if jury_agents else []
+    num_agents = (
+        len(expert_list) + len(jury_list)
+        if (expert_agents or jury_agents)
+        else len(catalog)
+    )
+    effective_timeout = (
+        timeout_sec if timeout_sec is not None else _compute_timeout(num_agents)
+    )
+    effective_timeout = (
+        timeout_sec if timeout_sec is not None else _compute_timeout(num_agents)
+    )
     return await _wrap_timeout(
         executor_jury_panel(
             task=task,
@@ -229,9 +268,9 @@ async def jury_panel(
             max_tokens=max_tokens,
             swarm_roles=swarm_roles,
             temperature=temperature,
-            catalog=current_catalog(),
+            catalog=catalog,
         ),
-        settings.DEV_CONVERGE_SYNC_TIMEOUT_SEC,
+        effective_timeout,
         "jury_panel",
     )
 
@@ -244,10 +283,19 @@ async def triangular_panel(
     max_tokens: int | str | None = 1200,
     synthesizer: str = "",
     temperature: float | str | None = 0.2,
+    timeout_sec: int | None = None,
 ) -> dict[str, Any]:
     """3-phase panel: agents analyse → critique each other → revise. One agent synthesises.
     agent_names: leave EMPTY ("") to use all agents. Never pass the string "all".
-    synthesizer: name of the agent that writes the final synthesis (defaults to default_synthesizer)."""
+    synthesizer: name of the agent that writes the final synthesis (defaults to default_synthesizer).
+    timeout_sec: overrides the auto-calculated timeout (default: 60s × agents × 3 phases, capped at 600s)."""
+    catalog = current_catalog()
+    agents = resolve_agents(agent_names, catalog)
+    effective_timeout = (
+        timeout_sec
+        if timeout_sec is not None
+        else _compute_timeout(len(agents), rounds=3)
+    )
     return await _wrap_timeout(
         executor_triangular_panel(
             task=task,
@@ -257,9 +305,9 @@ async def triangular_panel(
             max_tokens=max_tokens,
             synthesizer=synthesizer or _default_synthesizer.get(),
             temperature=temperature,
-            catalog=current_catalog(),
+            catalog=catalog,
         ),
-        settings.DEV_CONVERGE_SYNC_TIMEOUT_SEC,
+        effective_timeout,
         "triangular_panel",
     )
 
@@ -285,9 +333,11 @@ def start_run_panel(
     rounds: int | str | None = 1,
     temperature: float | str | None = 0.2,
     topology: str = "parallel",
+    timeout_sec: int | None = None,
 ) -> dict[str, Any]:
     """Enqueue a run_panel job and return a job_id immediately. Use poll_job to retrieve the result.
-    agent_names: leave EMPTY ("") for all agents. Never pass "all"."""
+    agent_names: leave EMPTY ("") for all agents. Never pass "all".
+    timeout_sec: overrides the auto-calculated timeout (default: 60s × agents × rounds, capped at 600s)."""
     return _start_job(
         "run_panel",
         {
@@ -299,6 +349,7 @@ def start_run_panel(
             "rounds": rounds,
             "temperature": temperature,
             "topology": topology,
+            "timeout_sec": timeout_sec,
         },
     )
 
@@ -311,9 +362,11 @@ def start_swarm_panel(
     max_tokens: int | str | None = 1200,
     swarm_roles: str = "",
     temperature: float | str | None = 0.2,
+    timeout_sec: int | None = None,
 ) -> dict[str, Any]:
     """Enqueue a swarm_panel job and return a job_id immediately. Use poll_job to retrieve the result.
-    agent_names: leave EMPTY ("") for all agents. Never pass "all"."""
+    agent_names: leave EMPTY ("") for all agents. Never pass "all".
+    timeout_sec: overrides the auto-calculated timeout (default: 60s × agents, capped at 600s)."""
     return _start_job(
         "swarm_panel",
         {
@@ -324,6 +377,7 @@ def start_swarm_panel(
             "max_tokens": max_tokens,
             "swarm_roles": swarm_roles,
             "temperature": temperature,
+            "timeout_sec": timeout_sec,
         },
     )
 
@@ -337,9 +391,11 @@ def start_jury_panel(
     max_tokens: int | str | None = 1200,
     swarm_roles: str = "",
     temperature: float | str | None = 0.2,
+    timeout_sec: int | None = None,
 ) -> dict[str, Any]:
     """Enqueue a jury_panel job and return a job_id immediately. Use poll_job to retrieve the result.
-    expert_agents and jury_agents: comma-separated names from get_defaults.catalog_agents, or EMPTY for auto-split."""
+    expert_agents and jury_agents: comma-separated names from get_defaults.catalog_agents, or EMPTY for auto-split.
+    timeout_sec: overrides the auto-calculated timeout (default: 60s × agents, capped at 600s)."""
     return _start_job(
         "jury_panel",
         {
