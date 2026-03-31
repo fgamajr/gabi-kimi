@@ -23,7 +23,10 @@ def _connect():
     global _client, _collection
     if _collection is not None:
         return _collection
-    _client = MongoClient(settings.DEV_CONVERGE_MONGO_STRING)
+    _client = MongoClient(
+        settings.DEV_CONVERGE_MONGO_STRING,
+        readPreference="primary",
+    )
     db = _client[settings.DEV_CONVERGE_DB_NAME]
     _collection = db["dev_converge_jobs"]
     return _collection

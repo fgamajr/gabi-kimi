@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     DEV_CONVERGE_ALLOWED_HOSTS: str = "localhost,127.0.0.1,dev-converge-api"
     DEV_CONVERGE_API_TOKENS: str = ""
     DEV_CONVERGE_DATA_ROOT: str = "/data/dev_converge"
-    DEV_CONVERGE_SYNC_TIMEOUT_SEC: int = 90
+    DEV_CONVERGE_SYNC_TIMEOUT_SEC: int = 180
     DEV_CONVERGE_JOB_RETENTION_HOURS: int = 168
     DEV_CONVERGE_STALE_JOB_SEC: int = 600
     DEV_CONVERGE_MAX_PARALLEL_AGENTS: int = 4

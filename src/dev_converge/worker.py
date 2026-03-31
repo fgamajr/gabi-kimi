@@ -47,10 +47,17 @@ async def _process_one(task: _JobTask) -> None:
 
 async def run_worker_loop() -> None:
     """Long-running coroutine that drains the in-memory job queue."""
+    logger.info("Worker loop started, waiting for jobs...")
     while True:
-        task = await _job_queue.get()
-        asyncio.create_task(_process_one(task))
-        _job_queue.task_done()
+        try:
+            task = await asyncio.wait_for(_job_queue.get(), timeout=30.0)
+            logger.info("Dequeued job %s, submitting for processing", task.job_id)
+            asyncio.create_task(_process_one(task))
+            _job_queue.task_done()
+        except asyncio.TimeoutError:
+            continue
+        except Exception as exc:
+            logger.exception("Unexpected error in worker loop: %s", exc)
 
 
 async def run_maintenance_loop(interval_sec: int = 3600) -> None:

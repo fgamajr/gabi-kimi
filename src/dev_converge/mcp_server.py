@@ -110,6 +110,16 @@ async def ping_models(
     )
 
 
+async def _wrap_timeout(coro, timeout_sec: int, tool_name: str):
+    try:
+        return await asyncio.wait_for(coro, timeout=timeout_sec)
+    except asyncio.TimeoutError:
+        raise RuntimeError(
+            f"{tool_name} timed out after {timeout_sec}s. "
+            f"Use start_{tool_name} + poll_job for jobs that exceed the sync timeout."
+        ) from None
+
+
 async def complete_once(
     task: str,
     context: str = "",
@@ -122,7 +132,7 @@ async def complete_once(
     """Run a task on a single agent. agent_name must be one of the names listed in
     get_defaults.catalog_agents (e.g. 'kimi-k2.5', 'claude-sonnet-4-6', 'gpt-5.4').
     Required when the catalog has more than one agent; omit only when there is exactly one."""
-    return await asyncio.wait_for(
+    return await _wrap_timeout(
         executor_complete_once(
             task=task,
             context=context,
@@ -133,7 +143,8 @@ async def complete_once(
             thinking=thinking,
             catalog=current_catalog(),
         ),
-        timeout=settings.DEV_CONVERGE_SYNC_TIMEOUT_SEC,
+        settings.DEV_CONVERGE_SYNC_TIMEOUT_SEC,
+        "complete_once",
     )
 
 
@@ -151,7 +162,7 @@ async def run_panel(
     agent_names: leave EMPTY ("") to use all agents. Pass comma-separated names from
     get_defaults.catalog_agents to use a subset. Never pass the string "all".
     Set include_transcript=true to see each agent's individual answer before the synthesis."""
-    return await asyncio.wait_for(
+    return await _wrap_timeout(
         executor_run_panel(
             task=task,
             agent_names=agent_names,
@@ -163,7 +174,8 @@ async def run_panel(
             topology=topology,
             catalog=current_catalog(),
         ),
-        timeout=settings.DEV_CONVERGE_SYNC_TIMEOUT_SEC,
+        settings.DEV_CONVERGE_SYNC_TIMEOUT_SEC,
+        "run_panel",
     )
 
 
@@ -178,7 +190,7 @@ async def swarm_panel(
 ) -> dict[str, Any]:
     """Run a cooperative swarm: each agent is assigned a distinct role and answers in character.
     agent_names: leave EMPTY ("") to use all agents. Never pass the string "all"."""
-    return await asyncio.wait_for(
+    return await _wrap_timeout(
         executor_swarm_panel(
             task=task,
             agent_names=agent_names,
@@ -189,7 +201,8 @@ async def swarm_panel(
             temperature=temperature,
             catalog=current_catalog(),
         ),
-        timeout=settings.DEV_CONVERGE_SYNC_TIMEOUT_SEC,
+        settings.DEV_CONVERGE_SYNC_TIMEOUT_SEC,
+        "swarm_panel",
     )
 
 
@@ -206,7 +219,7 @@ async def jury_panel(
     """Expert witnesses answer the task; jury agents deliberate and deliver a verdict.
     expert_agents and jury_agents are comma-separated names from get_defaults.catalog_agents.
     Leave both EMPTY ("") to split the catalog automatically. Never pass "all"."""
-    return await asyncio.wait_for(
+    return await _wrap_timeout(
         executor_jury_panel(
             task=task,
             context=context,
@@ -218,7 +231,8 @@ async def jury_panel(
             temperature=temperature,
             catalog=current_catalog(),
         ),
-        timeout=settings.DEV_CONVERGE_SYNC_TIMEOUT_SEC,
+        settings.DEV_CONVERGE_SYNC_TIMEOUT_SEC,
+        "jury_panel",
     )
 
 
@@ -234,7 +248,7 @@ async def triangular_panel(
     """3-phase panel: agents analyse → critique each other → revise. One agent synthesises.
     agent_names: leave EMPTY ("") to use all agents. Never pass the string "all".
     synthesizer: name of the agent that writes the final synthesis (defaults to default_synthesizer)."""
-    return await asyncio.wait_for(
+    return await _wrap_timeout(
         executor_triangular_panel(
             task=task,
             agent_names=agent_names,
@@ -245,7 +259,8 @@ async def triangular_panel(
             temperature=temperature,
             catalog=current_catalog(),
         ),
-        timeout=settings.DEV_CONVERGE_SYNC_TIMEOUT_SEC,
+        settings.DEV_CONVERGE_SYNC_TIMEOUT_SEC,
+        "triangular_panel",
     )
 
 
