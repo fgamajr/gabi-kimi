@@ -2774,9 +2774,9 @@ async def es_search(
     query: str,
     page: int = 1,
     page_size: int = 20,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
-    source: Optional[str] = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    source: str | None = None,
     rewrite: bool = False,
 ) -> dict[str, Any]:
     """Search DOU and/or TCU documents via GABI's search pipeline.
