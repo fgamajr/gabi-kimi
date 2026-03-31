@@ -577,9 +577,9 @@ class TestAuthWrapper(unittest.IsolatedAsyncioTestCase):
         with patch("src.dev_converge.mcp_server.settings") as s:
             s.api_tokens = {"secret": "ops"}
             wrapper = _auth_wrapper(inner)
+            scope = self._make_scope({})
+            await wrapper(scope, AsyncMock(), send)
 
-        scope = self._make_scope({})
-        await wrapper(scope, AsyncMock(), send)
         status = next(
             (r["status"] for r in responses if r.get("type") == "http.response.start"),
             None,
@@ -596,10 +596,10 @@ class TestAuthWrapper(unittest.IsolatedAsyncioTestCase):
 
         with patch("src.dev_converge.mcp_server.settings") as s:
             s.api_tokens = {"secret": "ops"}
-            wrapper = _auth_wrapper(inner := AsyncMock())
+            wrapper = _auth_wrapper(AsyncMock())
+            scope = self._make_scope({b"authorization": b"Bearer wrong-token"})
+            await wrapper(scope, AsyncMock(), send)
 
-        scope = self._make_scope({b"authorization": b"Bearer wrong-token"})
-        await wrapper(scope, AsyncMock(), send)
         status = next(
             (r["status"] for r in responses if r.get("type") == "http.response.start"),
             None,
@@ -620,9 +620,9 @@ class TestAuthWrapper(unittest.IsolatedAsyncioTestCase):
         with patch("src.dev_converge.mcp_server.settings") as s:
             s.api_tokens = {"secret": "ops"}
             wrapper = _auth_wrapper(inner)
+            scope = self._make_scope({b"authorization": b"Bearer secret"})
+            await wrapper(scope, AsyncMock(), send)
 
-        scope = self._make_scope({b"authorization": b"Bearer secret"})
-        await wrapper(scope, AsyncMock(), send)
         status = next(
             (r["status"] for r in responses if r.get("type") == "http.response.start"),
             None,
@@ -641,11 +641,11 @@ class TestAuthWrapper(unittest.IsolatedAsyncioTestCase):
             await send({"type": "http.response.start", "status": 200, "headers": []})
 
         with patch("src.dev_converge.mcp_server.settings") as s:
-            s.api_tokens = {}  # no auth required
+            s.api_tokens = {}
             wrapper = _auth_wrapper(inner)
+            scope = self._make_scope({b"x-dev-converge-agents": b"not-valid-base64!!!"})
+            await wrapper(scope, AsyncMock(), send)
 
-        scope = self._make_scope({b"x-dev-converge-agents": b"not-valid-base64!!!"})
-        await wrapper(scope, AsyncMock(), send)
         status = next(
             (r["status"] for r in responses if r.get("type") == "http.response.start"),
             None,
@@ -664,10 +664,10 @@ class TestAuthWrapper(unittest.IsolatedAsyncioTestCase):
         with patch("src.dev_converge.mcp_server.settings") as s:
             s.api_tokens = {}
             wrapper = _auth_wrapper(inner)
+            header = _make_catalog_header([KIMI_AGENT])
+            scope = self._make_scope({b"x-dev-converge-agents": header.encode()})
+            await wrapper(scope, AsyncMock(), AsyncMock())
 
-        header = _make_catalog_header([KIMI_AGENT])
-        scope = self._make_scope({b"x-dev-converge-agents": header.encode()})
-        await wrapper(scope, AsyncMock(), AsyncMock())
         self.assertEqual(len(captured_catalog), 1)
         self.assertEqual(captured_catalog[0].name, "kimi")
 
