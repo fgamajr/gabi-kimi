@@ -75,5 +75,11 @@ async def health() -> dict[str, object]:
         "queue": queue_stats(),
         "sync_timeout_sec": settings.DEV_CONVERGE_SYNC_TIMEOUT_SEC,
         "job_retention_hours": settings.DEV_CONVERGE_JOB_RETENTION_HOURS,
-        "providers": ["openai_compatible", "anthropic_compatible", "gemini_compatible"],
+        "providers": [
+            "openai",
+            "openai_compatible",
+            "anthropic",
+            "anthropic_compatible",
+            "gemini_compatible",
+        ],
     }

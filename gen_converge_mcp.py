@@ -63,27 +63,27 @@ def build_catalog(env: dict[str, str]) -> tuple[list[dict], str]:
     """Return (agents, default_synthesizer)."""
     agents: list[dict] = []
 
-    # OpenAI
+    # OpenAI (direct — uses max_completion_tokens)
     if env.get("OPENAI_API_KEY") and env.get("OPENAI_API_MODELS"):
         base = env.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
         for model in _split_models(env["OPENAI_API_MODELS"]):
             agents.append(
                 {
                     "name": model,
-                    "provider": "openai_compatible",
+                    "provider": "openai",
                     "model": model,
                     "api_key": env["OPENAI_API_KEY"],
                     "base_url": base,
                 }
             )
 
-    # Anthropic
+    # Anthropic (direct)
     if env.get("ANTHROPIC_API_KEY") and env.get("ANTHROPIC_API_MODELS"):
         for model in _split_models(env["ANTHROPIC_API_MODELS"]):
             agents.append(
                 {
                     "name": model,
-                    "provider": "anthropic_compatible",
+                    "provider": "anthropic",
                     "model": model,
                     "api_key": env["ANTHROPIC_API_KEY"],
                     "base_url": "",

@@ -355,6 +355,8 @@ if FastMCP is not None:
             "For agent_names parameters: leave EMPTY string to use all agents; pass comma-separated names for a subset. "
             "NEVER pass the string 'all' as agent_names — it is not a valid agent name. "
             "For complete_once: agent_name must be one of the names from catalog_agents. "
+            "Providers: openai (direct, max_completion_tokens), openai_compatible (DashScope, max_tokens), "
+            "anthropic (direct), anthropic_compatible, gemini_compatible. "
             "Use ping_models to health-check agents, run_panel/swarm_panel/jury_panel/triangular_panel for multi-agent synthesis, "
             "start_* variants for async jobs, poll_job to retrieve results."
         ),

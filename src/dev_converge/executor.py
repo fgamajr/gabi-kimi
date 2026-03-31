@@ -74,7 +74,13 @@ async def get_defaults() -> dict[str, Any]:
     return {
         "service": "dev-converge",
         "version": "v1",
-        "providers": ["openai_compatible", "anthropic_compatible", "gemini_compatible"],
+        "providers": [
+            "openai",
+            "openai_compatible",
+            "anthropic",
+            "anthropic_compatible",
+            "gemini_compatible",
+        ],
         "required_header": "X-Dev-Converge-Agents",
         "header_format": "base64url-encoded JSON: {agents: [{name, provider, model, api_key, base_url?}], default_synthesizer?}",
         "defaults": {

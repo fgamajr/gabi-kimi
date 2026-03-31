@@ -19,7 +19,13 @@ class AgentSpec:
 
 
 _REQUIRED_FIELDS = {"name", "provider", "model", "api_key"}
-_VALID_PROVIDERS = {"openai_compatible", "anthropic_compatible", "gemini_compatible"}
+_VALID_PROVIDERS = {
+    "openai",
+    "openai_compatible",
+    "anthropic",
+    "anthropic_compatible",
+    "gemini_compatible",
+}
 
 
 def build_agent(spec: dict[str, Any]) -> AgentSpec:
@@ -145,6 +151,36 @@ def _gemini_text(response: dict[str, Any]) -> str:
     return "\n".join(str(p.get("text") or "") for p in parts if "text" in p)
 
 
+async def _call_openai_direct(
+    *,
+    spec: AgentSpec,
+    prompt: str,
+    system_prompt: str,
+    temperature: float,
+    max_tokens: int,
+) -> str:
+    base = spec.base_url.rstrip("/") or "https://api.openai.com/v1"
+    payload = {
+        "model": spec.model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": temperature,
+        "max_completion_tokens": max_tokens,
+    }
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        response = await client.post(
+            f"{base}/chat/completions",
+            headers={"Authorization": f"Bearer {spec.api_key}"},
+            json=payload,
+        )
+        response.raise_for_status()
+        data = response.json()
+    message = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+    return _openai_message_text(message)
+
+
 async def _call_openai_compatible(
     *,
     spec: AgentSpec,
@@ -173,6 +209,36 @@ async def _call_openai_compatible(
         data = response.json()
     message = data.get("choices", [{}])[0].get("message", {}).get("content", "")
     return _openai_message_text(message)
+
+
+async def _call_anthropic_direct(
+    *,
+    spec: AgentSpec,
+    prompt: str,
+    system_prompt: str,
+    temperature: float,
+    max_tokens: int,
+) -> str:
+    base = spec.base_url.rstrip("/") or "https://api.anthropic.com"
+    payload = {
+        "model": spec.model,
+        "system": system_prompt,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        response = await client.post(
+            f"{base}/v1/messages",
+            headers={
+                "x-api-key": spec.api_key,
+                "anthropic-version": "2023-06-01",
+            },
+            json=payload,
+        )
+        response.raise_for_status()
+        data = response.json()
+    return _anthropic_text(data.get("content", []))
 
 
 async def _call_anthropic_compatible(
@@ -244,8 +310,24 @@ async def call_agent(
     max_tokens: int,
 ) -> dict[str, Any]:
     started = perf_counter()
-    if spec.provider == "openai_compatible":
+    if spec.provider == "openai":
+        output = await _call_openai_direct(
+            spec=spec,
+            prompt=prompt,
+            system_prompt=system_prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+    elif spec.provider == "openai_compatible":
         output = await _call_openai_compatible(
+            spec=spec,
+            prompt=prompt,
+            system_prompt=system_prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+    elif spec.provider == "anthropic":
+        output = await _call_anthropic_direct(
             spec=spec,
             prompt=prompt,
             system_prompt=system_prompt,
