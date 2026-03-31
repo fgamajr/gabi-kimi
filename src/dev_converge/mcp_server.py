@@ -78,7 +78,14 @@ def _build_transport_security() -> TransportSecuritySettings | None:
 
 
 async def get_defaults() -> dict[str, Any]:
-    return await executor_get_defaults()
+    """Return service capabilities and the available agent names in the current request catalog.
+    Always call this first to discover which agent names can be used in complete_once,
+    ping_models, run_panel, and other tools."""
+    result = await executor_get_defaults()
+    catalog = current_catalog()
+    result["catalog_agents"] = [a.name for a in catalog]
+    result["default_synthesizer"] = _default_synthesizer.get()
+    return result
 
 
 async def ping_models(
@@ -89,6 +96,9 @@ async def ping_models(
     temperature: float | str | None = 0.0,
     thinking: str = "low",
 ) -> dict[str, Any]:
+    """Health-check all agents in the catalog in parallel.
+    agent_names: leave EMPTY ("") to ping every agent. Pass a comma-separated list of
+    names from get_defaults.catalog_agents to ping a subset. Never pass the string "all"."""
     return await executor_ping_models(
         task=task,
         agent_names=agent_names,
@@ -109,6 +119,9 @@ async def complete_once(
     temperature: float | str | None = 0.2,
     thinking: str = "medium",
 ) -> dict[str, Any]:
+    """Run a task on a single agent. agent_name must be one of the names listed in
+    get_defaults.catalog_agents (e.g. 'kimi-k2.5', 'claude-sonnet-4-6', 'gpt-5.4').
+    Required when the catalog has more than one agent; omit only when there is exactly one."""
     return await asyncio.wait_for(
         executor_complete_once(
             task=task,
@@ -134,6 +147,10 @@ async def run_panel(
     temperature: float | str | None = 0.2,
     topology: str = "parallel",
 ) -> dict[str, Any]:
+    """Run a task on multiple agents in parallel and synthesize the results.
+    agent_names: leave EMPTY ("") to use all agents. Pass comma-separated names from
+    get_defaults.catalog_agents to use a subset. Never pass the string "all".
+    Set include_transcript=true to see each agent's individual answer before the synthesis."""
     return await asyncio.wait_for(
         executor_run_panel(
             task=task,
@@ -159,6 +176,8 @@ async def swarm_panel(
     swarm_roles: str = "",
     temperature: float | str | None = 0.2,
 ) -> dict[str, Any]:
+    """Run a cooperative swarm: each agent is assigned a distinct role and answers in character.
+    agent_names: leave EMPTY ("") to use all agents. Never pass the string "all"."""
     return await asyncio.wait_for(
         executor_swarm_panel(
             task=task,
@@ -184,6 +203,9 @@ async def jury_panel(
     swarm_roles: str = "",
     temperature: float | str | None = 0.2,
 ) -> dict[str, Any]:
+    """Expert witnesses answer the task; jury agents deliberate and deliver a verdict.
+    expert_agents and jury_agents are comma-separated names from get_defaults.catalog_agents.
+    Leave both EMPTY ("") to split the catalog automatically. Never pass "all"."""
     return await asyncio.wait_for(
         executor_jury_panel(
             task=task,
@@ -209,6 +231,9 @@ async def triangular_panel(
     synthesizer: str = "",
     temperature: float | str | None = 0.2,
 ) -> dict[str, Any]:
+    """3-phase panel: agents analyse → critique each other → revise. One agent synthesises.
+    agent_names: leave EMPTY ("") to use all agents. Never pass the string "all".
+    synthesizer: name of the agent that writes the final synthesis (defaults to default_synthesizer)."""
     return await asyncio.wait_for(
         executor_triangular_panel(
             task=task,
@@ -246,6 +271,8 @@ def start_run_panel(
     temperature: float | str | None = 0.2,
     topology: str = "parallel",
 ) -> dict[str, Any]:
+    """Enqueue a run_panel job and return a job_id immediately. Use poll_job to retrieve the result.
+    agent_names: leave EMPTY ("") for all agents. Never pass "all"."""
     return _start_job(
         "run_panel",
         {
@@ -270,6 +297,8 @@ def start_swarm_panel(
     swarm_roles: str = "",
     temperature: float | str | None = 0.2,
 ) -> dict[str, Any]:
+    """Enqueue a swarm_panel job and return a job_id immediately. Use poll_job to retrieve the result.
+    agent_names: leave EMPTY ("") for all agents. Never pass "all"."""
     return _start_job(
         "swarm_panel",
         {
@@ -294,6 +323,8 @@ def start_jury_panel(
     swarm_roles: str = "",
     temperature: float | str | None = 0.2,
 ) -> dict[str, Any]:
+    """Enqueue a jury_panel job and return a job_id immediately. Use poll_job to retrieve the result.
+    expert_agents and jury_agents: comma-separated names from get_defaults.catalog_agents, or EMPTY for auto-split."""
     return _start_job(
         "jury_panel",
         {
@@ -310,6 +341,8 @@ def start_jury_panel(
 
 
 def poll_job(job_id: str, include_result: bool = False) -> dict[str, Any]:
+    """Poll the status of an async job started by start_run_panel, start_swarm_panel, or start_jury_panel.
+    Set include_result=true to retrieve the full result once status is 'succeeded'."""
     return serialize_job(get_job(job_id), include_result=include_result)
 
 
@@ -317,12 +350,13 @@ if FastMCP is not None:
     mcp = FastMCP(
         "dev-converge",
         instructions=(
-            "Multi-agent consensus and synthesis service. Clients must send provider credentials "
-            "and model catalog in the X-Dev-Converge-Agents header (base64url-encoded JSON). "
-            "Use get_defaults to see service capabilities. "
-            "Use complete_once for single-agent tasks. "
-            "Use run_panel, swarm_panel, jury_panel, or triangular_panel for multi-agent synthesis. "
-            "Use start_run_panel, start_swarm_panel, or start_jury_panel for async jobs, then poll_job."
+            "Multi-agent consensus and synthesis service. "
+            "IMPORTANT: always call get_defaults first — it returns catalog_agents, the list of valid agent names. "
+            "For agent_names parameters: leave EMPTY string to use all agents; pass comma-separated names for a subset. "
+            "NEVER pass the string 'all' as agent_names — it is not a valid agent name. "
+            "For complete_once: agent_name must be one of the names from catalog_agents. "
+            "Use ping_models to health-check agents, run_panel/swarm_panel/jury_panel/triangular_panel for multi-agent synthesis, "
+            "start_* variants for async jobs, poll_job to retrieve results."
         ),
         transport_security=_build_transport_security(),
     )
