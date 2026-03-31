@@ -1136,12 +1136,18 @@ def _attach_tool_meta(
     *,
     started_at: float | None = None,
     error: str | None = None,
+    error_cause: str | None = None,
+    error_fix: str | None = None,
     **params: Any,
 ) -> dict[str, Any]:
     result = dict(payload)
     result["query_id"] = _make_query_id(tool_name, **params)
     result["took_ms"] = _elapsed_ms(started_at)
     result["error"] = error
+    if error and error_cause is not None:
+        result["error_cause"] = error_cause
+    if error and error_fix is not None:
+        result["error_fix"] = error_fix
     return result
 
 
@@ -1618,6 +1624,9 @@ def _normalize_search_response(
         for row in response.get("results", [])
         if isinstance(row, dict)
     ]
+    # Normalize method field → rank_method for consistent envelope across sources
+    if "method" in normalized and "rank_method" not in normalized:
+        normalized["rank_method"] = normalized.pop("method")
     return normalized
 
 
@@ -2844,6 +2853,7 @@ async def es_search(
 
     max_offset = 10000
     if (page - 1) * page_size > max_offset:
+        offset = (page - 1) * page_size
         return _attach_tool_meta(
             {
                 "query": query,
@@ -2853,9 +2863,11 @@ async def es_search(
             "es_search",
             started_at=started_at,
             error=(
-                f"Offset too large ({page - 1} * {page_size} = {(page - 1) * page_size}). "
-                f"Maximum offset is {max_offset}. Use pagination or reduce page_size."
+                f"Offset too large ({page - 1} * {page_size} = {offset}). "
+                f"Maximum offset is {max_offset}."
             ),
+            error_cause=f"page={page} × page_size={page_size} = {offset} > {max_offset}",
+            error_fix="Reduza page_size ou use date_from/date_to para restringir o intervalo antes de paginar.",
             **params,
         )
 
@@ -2869,6 +2881,8 @@ async def es_search(
             "es_search",
             started_at=started_at,
             error="date_from must be before or equal to date_to",
+            error_cause=f"date_from='{date_from}' é posterior a date_to='{date_to}'",
+            error_fix=f"Inverta os valores: date_from='{date_to}', date_to='{date_from}'",
             **params,
         )
 
@@ -3029,6 +3043,35 @@ async def es_search(
         rewrite=rewrite,
     )
     return result
+
+
+async def es_search_basic(
+    query: str,
+    source: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
+    """Cursor-friendly fallback with a reduced schema that delegates to es_search."""
+    return await es_search(
+        query=query,
+        source=source,
+        page=page,
+        page_size=page_size,
+        date_from=date_from,
+        date_to=date_to,
+        section=None,
+        art_type=None,
+        issuing_organ=None,
+        topic=None,
+        intent=None,
+        is_trending=False,
+        rewrite=False,
+        caderno=None,
+        section_type=None,
+        pub_type=None,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -4492,7 +4535,10 @@ def es_btcu_search(
     page_size: int = 20,
     page: int = 1,
 ) -> dict[str, Any]:
-    """Compatibility wrapper over es_search(source='btcu')."""
+    """DEPRECATED: Use es_search(source='btcu') instead. Kept for backwards compatibility only.
+
+    Compatibility wrapper over es_search(source='btcu').
+    """
     started_at = time.perf_counter()
     result = _search_btcu_once(
         query=query,
@@ -4551,12 +4597,21 @@ def _format_publicacoes_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]
     for hit in hits:
         src = hit.get("_source", {})
         hl = hit.get("highlight", {})
+        raw_score = hit.get("_score")
+        knn_score = _get_knn_score(hit)
+        if raw_score is None and knn_score > 0:
+            score = knn_score
+        else:
+            score = round(float(raw_score or 0.0), 4)
         results.append(
             {
                 "doc_id": src.get("doc_id"),
                 "source_doc_id": src.get("doc_id"),
                 "source": "publicacoes",
                 "source_label": _SOURCE_LABELS["publicacoes"],
+                "score": score,
+                "is_knn": knn_score > 0 and (raw_score is None),
+                "knn_score": knn_score if knn_score > 0 else None,
                 "title": src.get("title"),
                 "pub_type": src.get("pub_type"),
                 "pub_date": src.get("pub_date"),
@@ -4566,7 +4621,6 @@ def _format_publicacoes_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]
                 "source_url": src.get("source_url"),
                 "page_count": src.get("page_count"),
                 "source_type": src.get("source_type", "tcu_publicacao"),
-                "score": round(hit.get("_score", 0), 4),
             }
         )
     return results
@@ -4585,10 +4639,6 @@ def _search_publicacoes_once(
     offset = (page - 1) * page_size
 
     query_vector = _get_openai_embedding(query)
-    pool_size = max(page_size * 3, _RERANK_POOL_SIZE) if query_vector else page_size
-    source_fields = list(_PUBLICACOES_SOURCE_FIELDS)
-    if query_vector:
-        source_fields.append("embedding")
 
     bm25_query: dict[str, Any] = {
         "multi_match": {
@@ -4613,15 +4663,41 @@ def _search_publicacoes_once(
         {"bool": {"must": [bm25_query], "filter": filters}} if filters else bm25_query
     )
 
-    payload: dict[str, Any] = {
-        "from": 0 if query_vector else offset,
-        "size": pool_size,
-        "track_total_hits": True,
-        "query": full_query,
-        "_source": source_fields,
-        "highlight": _PUBLICACOES_HIGHLIGHT_SPEC,
-        "sort": [{"_score": {"order": "desc"}}],
-    }
+    if query_vector:
+        rrf_window_size = max(offset + page_size, 100)
+        # ES requires k <= num_candidates; cap both at 1000 to prevent validation errors
+        # on deep pagination (e.g. page=21, page_size=50 → offset=1000).
+        num_candidates = min(max(rrf_window_size * 2, 200), 1000)
+        knn_k = min(rrf_window_size, num_candidates)
+        # ES native hybrid: BM25 + kNN via RRF
+        knn: dict[str, Any] = {
+            "field": "embedding",
+            "query_vector": query_vector,
+            "k": knn_k,
+            "num_candidates": num_candidates,
+        }
+        if filters:
+            knn["filter"] = {"bool": {"filter": filters}}
+        payload: dict[str, Any] = {
+            "size": page_size,
+            "from": offset,
+            "track_total_hits": True,
+            "query": full_query,
+            "knn": knn,
+            "rank": {"rrf": {"window_size": rrf_window_size, "rank_constant": 60}},
+            "_source": _PUBLICACOES_SOURCE_FIELDS,
+            "highlight": _PUBLICACOES_HIGHLIGHT_SPEC,
+        }
+    else:
+        payload = {
+            "from": offset,
+            "size": page_size,
+            "track_total_hits": True,
+            "query": full_query,
+            "_source": _PUBLICACOES_SOURCE_FIELDS,
+            "highlight": _PUBLICACOES_HIGHLIGHT_SPEC,
+            "sort": [{"_score": {"order": "desc"}}],
+        }
 
     try:
         data = ES.request("POST", f"/{ES.publicacoes_index}/_search", payload)
@@ -4639,12 +4715,9 @@ def _search_publicacoes_once(
     hits = data.get("hits", {}).get("hits", [])
     total = int(data.get("hits", {}).get("total", {}).get("value", 0))
 
-    if query_vector and hits:
-        hits = _embedding_rerank_mcp(hits, query_vector, query_text=query)
-        hits = hits[offset : offset + page_size]
-
     return {
         "query": query,
+        "method": "hybrid_rrf" if query_vector else "bm25",
         "total": total,
         "page": page,
         "page_size": page_size,
@@ -4660,7 +4733,10 @@ def es_publicacoes_search(
     page: int = 1,
     page_size: int = 10,
 ) -> dict[str, Any]:
-    """Compatibility wrapper over es_search(source='publicacoes')."""
+    """DEPRECATED: Use es_search(source='publicacoes') instead. Kept for backwards compatibility only.
+
+    Compatibility wrapper over es_search(source='publicacoes').
+    """
     started_at = time.perf_counter()
     result = _search_publicacoes_once(
         query=query,
@@ -5103,7 +5179,7 @@ def es_tcu_semantic_search(
 
     Args:
       query: natural language query in Portuguese
-      source: 'tcu' (acórdãos+jurisprudência+boletins), 'normas', or 'all' (both)
+      source: 'tcu' (acórdãos+jurisprudência+boletins), 'normas', 'publicacoes', or 'all' (tcu+normas+btcu)
       k: number of results (1-50)
       date_from: YYYY-MM-DD lower bound
       date_to: YYYY-MM-DD upper bound
@@ -5134,6 +5210,8 @@ def es_tcu_semantic_search(
         index = ES.normas_index
     elif source == "btcu":
         index = ES.btcu_index
+    elif source == "publicacoes":
+        index = ES.publicacoes_index
     elif source == "all":
         index = f"{ES.tcu_index},{ES.normas_index},{ES.btcu_index}"
     else:
@@ -5152,6 +5230,8 @@ def es_tcu_semantic_search(
             if source == "normas"
             else "data_publicacao"
             if source == "btcu"
+            else "pub_date"
+            if source == "publicacoes"
             else "data_sessao"
         )
         filters.append({"range": {date_field: rng}})
@@ -5162,11 +5242,11 @@ def es_tcu_semantic_search(
     if dispositivo:
         filters.append({"term": {"dispositivo_resumo": dispositivo}})
     # Normas-specific filters
-    if vigente is not None:
+    if vigente is not None and source == "normas":
         filters.append({"term": {"vigente": vigente}})
     elif source == "normas":
         filters.append({"term": {"vigente": True}})  # default: only vigentes
-    if tipo_norma:
+    if tipo_norma and source == "normas":
         filters.append({"term": {"tipo_norma": tipo_norma}})
 
     payload: dict[str, Any] = {
@@ -5186,6 +5266,9 @@ def es_tcu_semantic_search(
     elif source == "btcu":
         payload["_source"] = _BTCU_SOURCE_FIELDS
         payload["highlight"] = _BTCU_HIGHLIGHT_SPEC
+    elif source == "publicacoes":
+        payload["_source"] = _PUBLICACOES_SOURCE_FIELDS
+        payload["highlight"] = _PUBLICACOES_HIGHLIGHT_SPEC
     elif source == "all":
         payload["_source"] = list(
             set(_TCU_SOURCE_FIELDS + _NORMAS_SOURCE_FIELDS + _BTCU_SOURCE_FIELDS)
@@ -5195,7 +5278,18 @@ def es_tcu_semantic_search(
         payload["_source"] = _TCU_SOURCE_FIELDS
         payload["highlight"] = _TCU_HIGHLIGHT_SPEC
 
-    if filters:
+    if source == "publicacoes":
+        pub_filters: list[dict[str, Any]] = []
+        if date_from or date_to:
+            rng: dict[str, str] = {}
+            if date_from:
+                rng["gte"] = date_from
+            if date_to:
+                rng["lte"] = date_to
+            pub_filters.append({"range": {"pub_date": rng}})
+        if pub_filters:
+            payload["knn"]["filter"] = {"bool": {"filter": pub_filters}}
+    elif filters:
         payload["knn"]["filter"] = {"bool": {"filter": filters}}
 
     data = ES.request("POST", f"/{index}/_search", payload)
@@ -5207,6 +5301,8 @@ def es_tcu_semantic_search(
         results = _format_normas_hits(hits)
     elif source == "btcu":
         results = _format_btcu_hits(hits)
+    elif source == "publicacoes":
+        results = _format_publicacoes_hits(hits)
     elif source == "all":
         # Mixed results — format based on each hit's index
         results = []
@@ -5396,7 +5492,7 @@ if FastMCP is not None:
         instructions=(
             "Hybrid search server for Brazil's Diário Oficial da União (DOU) and "
             "Tribunal de Contas da União (TCU) jurisprudence. "
-            "20 tools over ~16M DOU legal documents (2002-2026) and ~520K TCU acórdãos (1992-2026). Capabilities:\n"
+            "21 tools over ~16M DOU legal documents (2002-2026) and ~520K TCU acórdãos (1992-2026). Capabilities:\n"
             "- SEARCH: es_search (hybrid BM25 + kNN via RRF, intent detection, "
             "topic classification, person name detection, quoted phrases, "
             "canonical law lookup, neural reranking). Omit source when you do not "
@@ -5404,6 +5500,8 @@ if FastMCP is not None:
             "TCU normas, BTCU, and TCU institutional publications. Use explicit "
             "source='tcu', source='tcu_normas'/'normas', source='btcu', or "
             "source='publicacoes' only when the corpus is already known.\n"
+            "- COMPAT: es_search_basic (reduced-schema fallback for MCP clients with "
+            "tool schema limits, such as Cursor; delegates to es_search).\n"
             "- DISCOVER: es_more_like_this (find similar docs), es_significant_terms "
             "(theme discovery), es_cross_reference (citation network — searches DOU+TCU by default)\n"
             "- ANALYZE: es_timeline (temporal trends), es_trending (recent activity), "
@@ -5421,6 +5519,13 @@ if FastMCP is not None:
             "dispositivo_tipo (irregular, aplicar_multa, imputar_debito, etc.).\n"
             "- TCU SEMANTIC: es_tcu_semantic_search (kNN vector search for conceptual queries, source='tcu'/'normas'/'all'), "
             "es_tcu_similar (find similar docs by vector similarity, source='tcu'/'normas'/'all')\n\n"
+            "TOOL ROUTING — decision tree for correct tool selection:\n"
+            "  1. Need to search for documents? → es_search (the primary tool for ALL searches)\n"
+            "     - If your client cannot see es_search, use es_search_basic.\n"
+            "  2. Need autocomplete/term suggestions? → es_suggest (NOT es_search)\n"
+            "  3. Have a doc_id from search results? → es_document (NEVER construct doc IDs manually)\n"
+            "  4. Need to understand why a doc ranked? → es_explain\n"
+            "  5. es_btcu_search / es_publicacoes_search → DEPRECATED, use es_search(source='btcu'/'publicacoes')\n\n"
             "CORRECT WORKFLOW — ALWAYS follow this order:\n"
             "  Step 1: es_search(query='licitação', source='tcu', page_size=5) → returns results with doc_id\n"
             "  Step 2: es_document(doc_id='ACORDAO-COMPLETO-31652', source='tcu') → returns full document\n"
@@ -5433,7 +5538,12 @@ if FastMCP is not None:
         ),
         transport_security=_build_mcp_transport_security(),
     )
+    import pprint
+
     mcp.tool()(es_search)
+    mcp.tool()(es_search_basic)
+    _registered = [t.name for t in mcp._tool_manager.list_tools()]
+    print(f"[DEBUG] Registered tools ({len(_registered)}): {sorted(_registered)}")
     mcp.tool()(es_suggest)
     mcp.tool()(es_facets)
     mcp.tool()(es_document)
@@ -5457,6 +5567,33 @@ else:
     mcp = None
 
 
+def _make_auth_wrapper(inner_app: Any, token: str) -> Any:
+    """Wrap an ASGI app with bearer token authentication.
+
+    Returns a new ASGI app that rejects requests without a valid
+    'Authorization: Bearer <token>' header with HTTP 401.
+    Non-HTTP scopes (websocket, lifespan) pass through unchanged.
+    """
+    from starlette.responses import JSONResponse as _JSONResp
+
+    class _AuthWrap:
+        def __init__(self, app: Any) -> None:
+            self.app = app
+
+        async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+            if scope["type"] == "http":
+                headers = dict(scope.get("headers", []))
+                auth = (headers.get(b"authorization") or b"").decode()
+                if not auth.startswith("Bearer ") or auth[7:] != token:
+                    await _JSONResp(
+                        status_code=401, content={"detail": "Invalid MCP auth token"}
+                    )(scope, receive, send)
+                    return
+            await self.app(scope, receive, send)
+
+    return _AuthWrap(inner_app)
+
+
 def get_mcp_sse_app():
     """Return the MCP SSE ASGI app for mounting inside FastAPI."""
     if mcp is None:
@@ -5469,26 +5606,7 @@ def get_mcp_sse_app():
         return app
 
     logger.info("MCP SSE: bearer token auth enabled")
-
-    from starlette.responses import JSONResponse as _JSONResp
-
-    class _AuthWrap:
-        def __init__(self, inner):  # type: ignore
-            self.inner = inner
-
-        async def __call__(self, scope, receive, send):  # type: ignore
-            if scope["type"] == "http":
-                headers = dict(scope.get("headers", []))
-                auth = (headers.get(b"authorization") or b"").decode()
-                if not auth.startswith("Bearer ") or auth[7:] != mcp_auth_token:
-                    resp = _JSONResp(
-                        status_code=401, content={"detail": "Invalid MCP auth token"}
-                    )
-                    await resp(scope, receive, send)
-                    return
-            await self.inner(scope, receive, send)
-
-    return _AuthWrap(app)
+    return _make_auth_wrapper(app, mcp_auth_token)
 
 
 def get_mcp_streamable_app():
@@ -5508,29 +5626,37 @@ def get_mcp_streamable_app():
 
     inner_app = mcp.streamable_http_app()
 
-    # Grab the session manager so the caller can run its lifespan
-    session_manager = mcp._session_manager
+    # Grab the session manager so the caller can run its lifespan.
+    # _session_manager is a private FastMCP attribute — guard against version skew.
+    session_manager = getattr(mcp, "_session_manager", None)
+    if session_manager is None:
+        logger.warning(
+            "MCP Streamable HTTP: mcp._session_manager not found — "
+            "session lifecycle will not be managed. Upgrade FastMCP if sessions expire unexpectedly."
+        )
+
+    # Paths that FastAPI strips to before passing to this sub-app when mounted at /mcp-http.
+    # Only normalize these exact paths → /mcp (FastMCP's internal handler path).
+    # Any other path passes through unchanged to surface routing errors correctly.
+    _STREAMABLE_ROOT_PATHS = frozenset({"", "/", "/mcp-http", "/mcp-http/"})
 
     class _RootAliasWrap:
-        """Make a mounted streamable app accept both `/` and `/mcp`.
+        """Normalize the 4 expected root paths → /mcp for FastMCP's streamable handler.
 
-        FastMCP's streamable HTTP app currently exposes its handler at `/mcp`.
-        When mounted inside another ASGI app, that yields a public path like
-        `/mcp-http/mcp`. We normalize `/mcp-http/` to the internal `/mcp`
-        route so clients can use the documented root endpoint.
+        FastMCP's streamable HTTP app exposes its handler at `/mcp`. When mounted
+        inside FastAPI at `/mcp-http`, the sub-app receives paths with the prefix
+        already stripped (e.g. `/` or `/mcp`). We remap only the known root aliases
+        to `/mcp`; all other paths pass through unchanged so routing errors surface.
         """
 
-        def __init__(self, app):  # type: ignore
+        def __init__(self, app: Any) -> None:  # type: ignore
             self.app = app
 
-        async def __call__(self, scope, receive, send):  # type: ignore
-            path = scope.get("path", "")
-            if scope["type"] == "http" and path in {
-                "",
-                "/",
-                "/mcp-http",
-                "/mcp-http/",
-            }:
+        async def __call__(self, scope: Any, receive: Any, send: Any) -> None:  # type: ignore
+            if (
+                scope["type"] == "http"
+                and scope.get("path", "") in _STREAMABLE_ROOT_PATHS
+            ):
                 scope = dict(scope)
                 scope["path"] = "/mcp"
                 scope["raw_path"] = b"/mcp"
@@ -5542,25 +5668,8 @@ def get_mcp_streamable_app():
     if not mcp_auth_token:
         return app, session_manager
 
-    from starlette.responses import JSONResponse as _JSONResp
-
-    class _AuthWrap:
-        def __init__(self, inner):  # type: ignore
-            self.inner = inner
-
-        async def __call__(self, scope, receive, send):  # type: ignore
-            if scope["type"] == "http":
-                headers = dict(scope.get("headers", []))
-                auth = (headers.get(b"authorization") or b"").decode()
-                if not auth.startswith("Bearer ") or auth[7:] != mcp_auth_token:
-                    resp = _JSONResp(
-                        status_code=401, content={"detail": "Invalid MCP auth token"}
-                    )
-                    await resp(scope, receive, send)
-                    return
-            await self.inner(scope, receive, send)
-
-    return _AuthWrap(app), session_manager
+    logger.info("MCP Streamable HTTP: bearer token auth enabled")
+    return _make_auth_wrapper(app, mcp_auth_token), session_manager
 
 
 def main() -> int:
@@ -5577,34 +5686,13 @@ def main() -> int:
     if args.transport == "sse":
         mcp_auth_token = os.getenv("MCP_AUTH_TOKEN", "").strip()
         if mcp_auth_token:
-            logger.info("SSE transport: bearer token auth enabled")
-
-            # Wrap the SSE app with auth middleware
-            from starlette.responses import JSONResponse as StarletteJSONResponse
-
-            class _MCPAuthMiddleware:
-                def __init__(self, app):  # type: ignore
-                    self.app = app
-
-                async def __call__(self, scope, receive, send):  # type: ignore
-                    if scope["type"] == "http":
-                        headers = dict(scope.get("headers", []))
-                        auth = (headers.get(b"authorization") or b"").decode()
-                        if not auth.startswith("Bearer ") or auth[7:] != mcp_auth_token:
-                            response = StarletteJSONResponse(
-                                status_code=401,
-                                content={"detail": "Invalid MCP auth token"},
-                            )
-                            await response(scope, receive, send)
-                            return
-                    await self.app(scope, receive, send)
-
-            # Use lower-level API to wrap the SSE app
-            mcp.settings.port = args.port
-            mcp.run(transport="sse")  # TODO: inject middleware when FastMCP supports it
-        else:
-            mcp.settings.port = args.port
-            mcp.run(transport="sse")
+            logger.warning(
+                "SSE standalone: MCP_AUTH_TOKEN is set but bearer token auth is NOT "
+                "enforced in standalone mode. mcp.run(transport='sse') does not support "
+                "middleware injection. For production auth, run via FastAPI (src/backend/main.py)."
+            )
+        mcp.settings.port = args.port
+        mcp.run(transport="sse")
     else:
         mcp.run(transport="stdio")
     return 0
