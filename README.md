@@ -479,10 +479,14 @@ DEV_CONVERGE_API_TOKENS=label:your-bearer-token
 Then run the setup script:
 
 ```bash
-python3 gen_converge_mcp.py --apply   # encodes catalog and updates .mcp.json
+python3 gen_converge_mcp.py --apply        # encode catalog + update .mcp.json
+python3 gen_converge_mcp.py --header-only  # print just the header value (for IDE copy-paste)
+python3 gen_converge_mcp.py --header-only | pbcopy  # macOS: copy directly to clipboard
 ```
 
-Re-run whenever you rotate keys or change the model list. The script also accepts `--env path/to/.env` for non-default locations.
+Re-run `--apply` whenever you rotate keys or change the model list. The script also accepts `--env path/to/.env` for non-default locations.
+
+For IDEs that load static JSON (VSCode, Trae, Cursor, Windsurf), use `--header-only` to get the value to paste into `X-Dev-Converge-Agents`. See `docs/mcp-setup.md` for per-IDE config examples.
 
 The resulting `.mcp.json` entry looks like:
 

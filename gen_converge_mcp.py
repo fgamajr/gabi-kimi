@@ -158,6 +158,11 @@ def main() -> int:
         "--apply", action="store_true", help="Update .mcp.json in place"
     )
     parser.add_argument(
+        "--header-only",
+        action="store_true",
+        help="Print just the raw header value (for IDE copy-paste)",
+    )
+    parser.add_argument(
         "--env", default=".env", help="Path to .env file (default: .env)"
     )
     args = parser.parse_args()
@@ -189,14 +194,19 @@ def main() -> int:
     )
     sse_url = f"{site_url}/mcp/sse"
 
+    if args.header_only:
+        print(header)
+        return 0
+
     print(f"Agents ({len(agents)}):")
     for a in agents:
         print(f"  {a['name']:<30}  {a['provider']}  {a['model']}")
     print(f"\nDefault synthesizer : {default_synth}")
     print(f"SSE URL             : {sse_url}")
-    print(f"Header (truncated)  : {header[:72]}...")
+    print("X-Dev-Converge-Agents (full):")
+    print(f"  {header}")
     if token:
-        print(f"Bearer token        : {token[:8]}...")
+        print(f"\nBearer token        : {token[:8]}...")
     else:
         print("WARNING: DEV_CONVERGE_API_TOKENS not set — Authorization header omitted")
 

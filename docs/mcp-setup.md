@@ -311,6 +311,97 @@ The script defaults the synthesizer to the first Kimi model found. Override with
 3. `run_panel` / `swarm_panel` / `jury_panel` — for multi-agent consensus
 4. `start_*` + `poll_job` — for async jobs that exceed the sync timeout
 
+### IDE setup (VSCode, Trae, Windsurf, Cursor)
+
+IDEs load MCP configs as static JSON — they cannot run scripts or read `.env` files. You need to pre-generate the header value and paste it in directly.
+
+**Step 1 — get the full header from the terminal:**
+
+```bash
+python3 gen_converge_mcp.py --header-only | pbcopy   # macOS: copies to clipboard
+python3 gen_converge_mcp.py --header-only             # Linux/Windows: copy manually
+```
+
+The dry-run output also prints the full header under `X-Dev-Converge-Agents (full):` if you want to see what's being encoded before copying.
+
+**Step 2 — paste into your IDE config:**
+
+The catalog JSON that gets encoded looks like this (shown here decoded for clarity):
+
+```json
+{
+  "agents": [
+    {
+      "name": "gpt-5.4",
+      "provider": "openai_compatible",
+      "model": "gpt-5.4",
+      "api_key": "sk-proj-YOUR_OPENAI_KEY",
+      "base_url": "https://api.openai.com/v1"
+    },
+    {
+      "name": "claude-sonnet-4-6",
+      "provider": "anthropic_compatible",
+      "model": "claude-sonnet-4-6",
+      "api_key": "sk-ant-YOUR_ANTHROPIC_KEY",
+      "base_url": ""
+    },
+    {
+      "name": "gemini-2.0-flash",
+      "provider": "gemini_compatible",
+      "model": "gemini-2.0-flash",
+      "api_key": "AIzaYOUR_GEMINI_KEY",
+      "base_url": ""
+    },
+    {
+      "name": "kimi-k2.5",
+      "provider": "openai_compatible",
+      "model": "kimi-k2.5",
+      "api_key": "sk-sp-YOUR_DASHSCOPE_KEY",
+      "base_url": "https://coding-intl.dashscope.aliyuncs.com/v1"
+    }
+  ],
+  "default_synthesizer": "kimi-k2.5"
+}
+```
+
+The base64url-encoded form of that JSON is the value you paste as `X-Dev-Converge-Agents`.
+
+**VSCode** (`~/Library/Application Support/Code/User/mcp.json`):
+
+```json
+{
+  "servers": {
+    "dev-converge": {
+      "url": "https://converge.gabidou.top/mcp/sse",
+      "headers": {
+        "Authorization": "Bearer YOUR_BEARER_TOKEN",
+        "X-Dev-Converge-Agents": "PASTE_FULL_BASE64URL_HEADER_HERE"
+      }
+    }
+  }
+}
+```
+
+**Trae / Windsurf / Cursor** (`~/.cursor/mcp.json`, `~/.trae/mcp.json`, or IDE settings panel):
+
+```json
+{
+  "mcpServers": {
+    "dev-converge": {
+      "url": "https://converge.gabidou.top/mcp/sse",
+      "headers": {
+        "Authorization": "Bearer YOUR_BEARER_TOKEN",
+        "X-Dev-Converge-Agents": "PASTE_FULL_BASE64URL_HEADER_HERE"
+      }
+    }
+  }
+}
+```
+
+The only difference between VSCode and the others is the top-level key (`servers` vs `mcpServers`). The header values are identical across all clients.
+
+> **Note:** The header embeds live API keys. Treat your IDE MCP config as a secrets file — don't commit it or paste it in screenshots.
+
 ### Local smoke test
 
 ```bash
