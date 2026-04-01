@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import quote
 
 import httpx
 from fastapi import FastAPI, Query, Response
@@ -165,6 +166,32 @@ class TokenAuthMiddleware:
         await self.app(scope, receive, send)
 
 
+class MCPAcceptHeaderMiddleware:
+    """Ensure MCP Streamable HTTP clients get the Accept header they need.
+
+    FastMCP's streamable_http_app requires Accept: application/json, text/event-stream.
+    Clients like Codex may only send Accept: application/json. This middleware
+    augments the Accept header for /mcp-http/ routes so Streamable HTTP works
+    with clients that don't send the full Accept header.
+    """
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] == "http" and scope.get("path", "").startswith("/mcp-http/"):
+            headers = dict(scope.get("headers", []))
+            accept = headers.get(b"accept", b"application/json").decode()
+            if "text/event-stream" not in accept:
+                accept = f"{accept}, text/event-stream"
+            scope = dict(scope)
+            scope["headers"] = [
+                (k, v) for k, v in scope["headers"] if k != b"accept"
+            ] + [(b"accept", accept.encode())]
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(MCPAcceptHeaderMiddleware)
 app.add_middleware(TokenAuthMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
@@ -194,11 +221,21 @@ try:
         app.mount("/mcp", _mcp_app)
         logger.info("MCP SSE endpoint mounted at /mcp/")
 
-    _mcp_http_result = get_mcp_streamable_app()
-    if _mcp_http_result:
-        _mcp_http_app, _mcp_http_session_mgr = _mcp_http_result
-        app.mount("/mcp-http", _mcp_http_app)
-        logger.info("MCP Streamable HTTP endpoint mounted at /mcp-http/")
+    # Feature flag: set MCP_STREAMABLE_ENABLED=false to disable streamable HTTP
+    # without a code deploy (useful for emergency rollback).
+    if os.getenv("MCP_STREAMABLE_ENABLED", "true").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }:
+        _mcp_http_result = get_mcp_streamable_app()
+        if _mcp_http_result:
+            _mcp_http_app, _mcp_http_session_mgr = _mcp_http_result
+            app.mount("/mcp-http", _mcp_http_app)
+            logger.info("MCP Streamable HTTP endpoint mounted at /mcp-http/")
+    else:
+        logger.info("MCP Streamable HTTP disabled via MCP_STREAMABLE_ENABLED=false")
 except Exception as exc:
     logger.warning("MCP SSE endpoint not available: %s", exc)
 
@@ -1134,7 +1171,9 @@ async def autocomplete(
 async def _fetch_document_source(doc_id: str) -> dict[str, Any] | None:
     """Fetch raw ES source for a document. Returns None if not found."""
     try:
-        data = await es_request("GET", f"/{settings.es_target_index}/_doc/{doc_id}")
+        data = await es_request(
+            "GET", f"/{settings.es_target_index}/_doc/{quote(doc_id, safe='')}"
+        )
         return data.get("_source", {})
     except httpx.HTTPStatusError:
         return None
@@ -1143,7 +1182,7 @@ async def _fetch_document_source(doc_id: str) -> dict[str, Any] | None:
 async def _fetch_tcu_document_source(doc_id: str) -> dict[str, Any] | None:
     """Fetch raw ES source for a TCU document."""
     try:
-        data = await es_request("GET", f"/{_TCU_INDEX}/_doc/{doc_id}")
+        data = await es_request("GET", f"/{_TCU_INDEX}/_doc/{quote(doc_id, safe='')}")
         return data.get("_source", {})
     except httpx.HTTPStatusError:
         return None
@@ -1152,14 +1191,15 @@ async def _fetch_tcu_document_source(doc_id: str) -> dict[str, Any] | None:
 async def _fetch_norma_document_source(doc_id: str) -> dict[str, Any] | None:
     """Fetch raw ES source for a TCU norma."""
     try:
-        data = await es_request("GET", f"/{_TCU_NORMAS_INDEX}/_doc/{doc_id}")
+        data = await es_request(
+            "GET", f"/{_TCU_NORMAS_INDEX}/_doc/{quote(doc_id, safe='')}"
+        )
         return data.get("_source", {})
     except httpx.HTTPStatusError:
         return None
 
 
-@app.get("/api/document/{doc_id}")
-async def document(doc_id: str):
+async def _document_response(doc_id: str) -> dict[str, Any] | Response:
     # Auto-detect TCU normas by prefix
     if doc_id.startswith("NORMA-"):
         src = await _fetch_norma_document_source(doc_id)
@@ -1274,6 +1314,16 @@ async def document(doc_id: str):
         "primary_signer": src.get("primary_signer"),
         "signers_all": src.get("signers_all_flat") or [],
     }
+
+
+@app.get("/api/document")
+async def document_by_query(doc_id: str = Query(...)):
+    return await _document_response(doc_id)
+
+
+@app.get("/api/document/{doc_id}")
+async def document(doc_id: str):
+    return await _document_response(doc_id)
 
 
 @app.get("/api/document/{doc_id}/pdf")
