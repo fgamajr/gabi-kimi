@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """GABI feedback CLI.
 
 Usage:
@@ -8,6 +6,8 @@ Usage:
     python -m src.backend.cli agent-learn
     python -m src.backend.cli traces [--limit 10]
 """
+
+from __future__ import annotations
 
 import argparse
 import json
@@ -20,9 +20,17 @@ def _ledger_dir() -> Path:
     try:
         from src.backend.core.config import settings
 
-        return Path(settings.RETRIEVAL_AUDIT_LOG_PATH).parent / "answers"
+        preferred = Path(settings.RETRIEVAL_AUDIT_LOG_PATH).parent / "answers"
+        try:
+            preferred.mkdir(parents=True, exist_ok=True)
+            return preferred
+        except OSError:
+            pass
     except Exception:
-        return Path("/data/gabi_dou/answering")
+        pass
+    fallback = Path.home() / ".gabi_dou" / "answers"
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
 
 
 def cmd_feedback_query(args: argparse.Namespace) -> int:
@@ -97,6 +105,23 @@ def cmd_agent_learn(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_agent_learn_scoring(args: argparse.Namespace) -> int:
+    from src.backend.answering.classifier import AdaptiveQueryClassifier
+
+    classifier = AdaptiveQueryClassifier(ledger_root=_ledger_dir())
+    summary = classifier.learn_scoring()
+    by_qt = summary.get("by_query_type", {})
+    total_n = sum(v.get("total", 0) for v in by_qt.values())
+    if total_n == 0:
+        print("Nenhum feedback registrado.")
+        return 0
+    for qt in sorted(by_qt.keys()):
+        inf = by_qt[qt]
+        rate = float(inf["success_rate"])
+        print(f"{qt}: taxa_de_sucesso={rate:.2%} total_feedbacks={inf['total']}")
+    return 0
+
+
 def cmd_traces(args: argparse.Namespace) -> int:
     from src.backend.answering.ledger import recent_traces
 
@@ -145,6 +170,12 @@ def build_parser() -> argparse.ArgumentParser:
     # agent-learn
     sub.add_parser("agent-learn", help="Process feedback and update learned patterns")
 
+    # agent-learn-scoring
+    sub.add_parser(
+        "agent-learn-scoring",
+        help="Aggregate scoring_feedback.jsonl into scoring_stats.json",
+    )
+
     # traces
     p_tr = sub.add_parser("traces", help="List recent answer traces")
     p_tr.add_argument(
@@ -162,6 +193,7 @@ def main() -> int:
         "feedback-query": cmd_feedback_query,
         "feedback-answer": cmd_feedback_answer,
         "agent-learn": cmd_agent_learn,
+        "agent-learn-scoring": cmd_agent_learn_scoring,
         "traces": cmd_traces,
     }
     return handlers[args.command](args)

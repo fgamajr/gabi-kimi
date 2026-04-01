@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """CLI for manually scoring RAG answers.
 
 Usage:
@@ -8,14 +6,38 @@ Usage:
     python -m src.backend.answering.feedback --list
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Iterator
 
 from src.backend.answering.ledger import _LEDGER_DIR, get_trace, recent_traces
 
-_FEEDBACK_FILE = _LEDGER_DIR / "scoring_feedback.jsonl"
+
+def _feedback_path() -> Path:
+    return _LEDGER_DIR / "scoring_feedback.jsonl"
+
+
+def iter_scoring_feedback(
+    *,
+    feedback_path: Path | None = None,
+) -> Iterator[dict[str, Any]]:
+    path = feedback_path or _feedback_path()
+    if not path.exists():
+        return
+    with path.open(encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                yield json.loads(line)
+            except json.JSONDecodeError:
+                continue
 
 
 def record_feedback(
@@ -44,7 +66,7 @@ def record_feedback(
     }
 
     _LEDGER_DIR.mkdir(parents=True, exist_ok=True)
-    with _FEEDBACK_FILE.open("a", encoding="utf-8") as fh:
+    with _feedback_path().open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(row, ensure_ascii=False) + "\n")
 
     print(f"Feedback recorded: {score} for query_id={query_id}")

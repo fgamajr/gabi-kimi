@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -467,6 +468,49 @@ class AdaptiveQueryClassifier:
         self._pattern_overrides = learned_patterns
         self._save_patterns()
         return learned_patterns
+
+    def learn_scoring(self) -> dict[str, Any]:
+        from src.backend.answering.feedback import iter_scoring_feedback
+
+        counts: dict[str, dict[str, int]] = defaultdict(
+            lambda: {"correct": 0, "partial": 0, "incorrect": 0, "total": 0}
+        )
+        feedback_file = self.ledger_root / "scoring_feedback.jsonl"
+        for row in iter_scoring_feedback(feedback_path=feedback_file):
+            raw_score = row.get("score")
+            if raw_score is None and "success" in row:
+                raw_score = "correct" if row.get("success") else "incorrect"
+            if raw_score not in ("correct", "partial", "incorrect"):
+                continue
+            qt = str(row.get("query_type") or "unknown")
+            bucket = counts[qt]
+            bucket[str(raw_score)] += 1
+            bucket["total"] += 1
+
+        by_query_type: dict[str, Any] = {}
+        for qt, bucket in sorted(counts.items()):
+            total = bucket["total"]
+            success_rate = (
+                (bucket["correct"] + bucket["partial"] * 0.5) / total if total else 0.0
+            )
+            by_query_type[qt] = {
+                "correct": bucket["correct"],
+                "partial": bucket["partial"],
+                "incorrect": bucket["incorrect"],
+                "total": total,
+                "success_rate": round(success_rate, 4),
+            }
+
+        summary: dict[str, Any] = {
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "by_query_type": by_query_type,
+        }
+        out_path = self.ledger_root / "scoring_stats.json"
+        out_path.write_text(
+            json.dumps(summary, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        return summary
 
     def patterns(self) -> dict[str, str]:
         return dict(sorted(self._pattern_overrides.items()))
