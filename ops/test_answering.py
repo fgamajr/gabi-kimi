@@ -8,8 +8,13 @@ from __future__ import annotations
 
 import sys
 import unittest
+from pathlib import Path
 
-sys.path.insert(0, "/workspace")
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if (_REPO_ROOT / "src").is_dir():
+    sys.path.insert(0, str(_REPO_ROOT))
+else:
+    sys.path.insert(0, "/workspace")
 
 
 class TestClassifier(unittest.TestCase):

@@ -130,6 +130,7 @@ _FACTUAL_TOKENS = frozenset(
 )
 
 _DECRETO_NUM_SHORT_REF = re.compile(r"^\s*decreto\s+\d+\s*$", re.IGNORECASE)
+_LEI_NUM_SOBRE_RE = re.compile(r"\blei\s+\d+\s+sobre\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -181,6 +182,8 @@ def _contains_token(lowered: str, token_set: frozenset[str]) -> bool:
 def gabi_intent_to_query_type(
     gabi_intent: "QueryIntent",
     classification: QueryClassification,
+    *,
+    query: str = "",
 ) -> QueryClassification:
     mapping: dict["QueryIntent", tuple[str, float]] = {
         QueryIntent.EXACT_NAME: ("exact_match", 0.95),
@@ -190,6 +193,19 @@ def gabi_intent_to_query_type(
         QueryIntent.SUBJECT_EXPLORE: ("exploratory", 0.50),
     }
     caf_type, base_conf = mapping.get(gabi_intent, ("exploratory", 0.50))
+    if (
+        gabi_intent == QueryIntent.EXACT_NAME
+        and classification.query_type == "legal_reference"
+        and len(query.split()) > 3
+    ):
+        return QueryClassification(
+            query_type="legal_reference",
+            confidence=max(classification.confidence, base_conf),
+            source=classification.source,
+            used_llm_fallback=classification.used_llm_fallback,
+            facets=classification.facets,
+            gabi_intent=gabi_intent,
+        )
     if caf_type == "exploratory" and classification.confidence > base_conf:
         return QueryClassification(
             query_type=classification.query_type,
@@ -229,6 +245,10 @@ def _regex_classification(query: str) -> QueryClassification:
     if _contains_token(lowered, _EVIDENTIAL_TOKENS):
         return QueryClassification(
             query_type="evidential", confidence=0.9, facets=facets
+        )
+    if _LEI_NUM_SOBRE_RE.search(query):
+        return QueryClassification(
+            query_type="legal_reference", confidence=0.9, facets=facets
         )
     if EXACT_REF_RE.search(query) or any(
         t in lowered.split()[:3] for t in _EXACT_MATCH_TOKENS if t in lowered
@@ -279,7 +299,7 @@ def classify_query(
         else gabi_intent_result
     )
     caf_class = _regex_classification(query)
-    caf_class = gabi_intent_to_query_type(gabi_result.intent, caf_class)
+    caf_class = gabi_intent_to_query_type(gabi_result.intent, caf_class, query=query)
     if _AGGREGATION_TOKENS & set(re.findall(r"\b[\w-]+\b", query.casefold())):
         caf_class = QueryClassification(
             query_type="aggregation",
