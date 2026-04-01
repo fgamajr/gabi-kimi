@@ -55,12 +55,33 @@ def group_by_organ(
     return dict(groups)
 
 
+_SECTION_ORDER = ["do1", "tcu", "do2", "btcu", "normas", "publicacoes", "do3", "do_e"]
+
+
+def group_by_section(
+    docs: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for doc in docs:
+        source = doc.get("_source", doc)
+        section = source.get("section") or "desconhecida"
+        groups[section].append(doc)
+    ordered: dict[str, list[dict[str, Any]]] = {}
+    for key in _SECTION_ORDER:
+        if key in groups:
+            ordered[key] = groups.pop(key)
+    for key in sorted(groups):
+        ordered[key] = groups[key]
+    return ordered
+
+
 def build_aggregation_summary(
     docs: list[dict[str, Any]],
     query: str,
 ) -> dict[str, Any]:
     deduped = deduplicate_docs(docs)
     by_organ = group_by_organ(deduped)
+    by_section = group_by_section(deduped)
     by_type: dict[str, int] = defaultdict(int)
     for doc in deduped:
         source = doc.get("_source", doc)
@@ -71,6 +92,7 @@ def build_aggregation_summary(
         "total_retrieved": len(docs),
         "total_after_dedup": len(deduped),
         "by_organ": {organ: len(items) for organ, items in by_organ.items()},
+        "by_section": {section: len(items) for section, items in by_section.items()},
         "by_type": dict(by_type),
         "note": "Contagem reflete apenas os documentos recuperados nesta busca.",
     }

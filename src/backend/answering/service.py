@@ -28,6 +28,17 @@ from src.backend.search.reranker import rerank
 
 logger = logging.getLogger(__name__)
 
+_SECTION_LABELS = {
+    "do1": "DOU Seção 1 (Atos Normativos)",
+    "do2": "DOU Seção 2 (Atos de Pessoal)",
+    "do3": "DOU Seção 3 (Contratos/Extratos)",
+    "do_e": "DOU Seção Extra",
+    "tcu": "TCU — Jurisprudência",
+    "btcu": "TCU — Boletim",
+    "publicacoes": "TCU — Publicações",
+    "normas": "TCU — Normas",
+}
+
 _EVIDENCE_FIELDS = [
     "_id",
     "title",
@@ -110,7 +121,14 @@ def _build_evidence_text(docs: list[dict[str, Any]]) -> str:
         body = source.get("body_plain") or ""
         organ = source.get("issuing_organ") or source.get("organ") or ""
         pub_date = source.get("pub_date") or source.get("data_sessao") or ""
-        chunk = f"[{doc_id}] {title}\nÓrgão: {organ} | Data: {pub_date}\n{body[:2000]}"
+        section_raw = source.get("section") or ""
+        section_label = _SECTION_LABELS.get(section_raw, section_raw or "Desconhecida")
+        art_type = source.get("art_type") or source.get("tipo_processo") or ""
+        chunk = (
+            f"[{doc_id}] {title}\n"
+            f"Fonte: {section_label} | Tipo: {art_type} | Órgão: {organ} | Data: {pub_date}\n"
+            f"{body[:2000]}"
+        )
         parts.append(chunk)
     return "\n\n---\n\n".join(parts)
 
