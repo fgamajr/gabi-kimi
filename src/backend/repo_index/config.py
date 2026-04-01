@@ -13,6 +13,7 @@ _SKIP_DIRS = frozenset(
     {
         ".ai",
         ".git",
+        "worktrees",
         ".idea",
         ".next",
         ".playwright-cli",
