@@ -10,3 +10,5 @@ httpx
 openai
 weasyprint
 pymupdf
+typer
+watchdog
