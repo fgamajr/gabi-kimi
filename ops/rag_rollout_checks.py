@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Pré-checagens para rollout RAG: cobertura de campo embedding no ES e reachability do reranker.
+"""Pré-checagens para rollout RAG: embedding no ES, índice de publicações TCU e reranker.
 
 Uso:
   python3 ops/rag_rollout_checks.py
   ES_URL=http://elasticsearch:9200 ES_ALIAS=gabi_documents python3 ops/rag_rollout_checks.py
 
-Não altera cluster; apenas lê contagens e tenta HTTP GET no base URL do reranker.
+Não altera cluster; apenas lê contagens, faz _search size=0 no índice de publicações e tenta HTTP GET no reranker.
 """
 
 from __future__ import annotations
@@ -56,6 +56,27 @@ def _http_get_ok(url: str, timeout: float = 5.0) -> tuple[bool, str]:
         return False, str(exc)
 
 
+def _index_search_probe(es_url: str, index: str) -> tuple[str, str]:
+    """POST _search size=0 on index; returns (status_label, detail)."""
+    try:
+        out = _es_post_json(
+            es_url,
+            f"/{index}/_search",
+            {"size": 0, "query": {"match_all": {}}},
+        )
+        total = out.get("hits", {}).get("total", {})
+        if isinstance(total, dict):
+            n = int(total.get("value", 0))
+        else:
+            n = int(total or 0)
+        return "OK", f"search_ok total≈{n}"
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")[:400]
+        return f"HTTP_{exc.code}", body
+    except OSError as exc:
+        return "ERR", str(exc)
+
+
 def main() -> int:
     es_url = os.environ.get("ES_URL", "http://localhost:9200").strip()
     primary = (
@@ -63,6 +84,9 @@ def main() -> int:
     ).strip()
     chunks = os.environ.get("ES_CHUNKS_INDEX", "gabi_document_chunks_v1").strip()
     tcu = os.environ.get("TCU_ES_INDEX", "gabi_tcu_acordaos_v1").strip()
+    publicacoes = os.environ.get(
+        "TCU_PUBLICACOES_INDEX", "gabi_tcu_publicacoes_v1"
+    ).strip()
     reranker_url = os.environ.get("RERANKER_URL", "http://localhost:8902").strip()
 
     print(f"ES_URL={es_url}")
@@ -92,6 +116,16 @@ def main() -> int:
         print(
             "\nAviso: nenhum índice listado devolveu count>0 para exists:embedding. "
             "Verifique alias/índice e dados antes de VECTOR_SEARCH_ENABLED=true.",
+        )
+
+    print(f"\n[publicacoes] TCU_PUBLICACOES_INDEX={publicacoes}")
+    pub_status, pub_detail = _index_search_probe(es_url, publicacoes)
+    print(f"  _search probe -> {pub_status}: {pub_detail}")
+    if pub_status != "OK":
+        print(
+            "  Aviso: índice ausente ou sem permissão — corrija ingest/permissões ES. "
+            "Ingest: src/backend/ingest/tcu_publicacoes_ingest.py. "
+            "(O MCP trata 401/403/404 em publicações como fonte vazia para não quebrar a federação.)",
         )
 
     base = reranker_url.rstrip("/")

@@ -12,6 +12,19 @@ python3 ops/rag_rollout_checks.py
 ES_URL=https://seu-es:9200 python3 ops/rag_rollout_checks.py
 ```
 
+O mesmo script faz um *probe* de leitura em `TCU_PUBLICACOES_INDEX` (publicações TCU) — útil antes de depender da busca federada no MCP.
+
+**Respostas RAG (`POST /api/answer`):** o backend só gera texto quando `RAG_ENABLED=true` e há chave Anthropic configurada. Em produção, defina no `.env` do servidor `RAG_ENABLED=true` e `ANTHROPIC_API_KEY=...`; o [`docker-compose.prod.yml`](../docker-compose.prod.yml) repassa `RAG_ENABLED` e `ANTHROPIC_API_KEY` ao serviço `backend`. Depois: `docker compose -f docker-compose.prod.yml restart backend`. Smoke (porta publicada do backend, ex. 8001):
+
+```bash
+curl -sS -X POST "http://localhost:8001/api/answer" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"o que é dispensa de licitação"}' \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print('fallback=',d.get('fallback'), 'reason=',d.get('fallback_reason'), 'answer_len=',len(d.get('answer')or''))"
+```
+
+**Diagnóstico TCU (`_id` vs campo `doc_id`):** somente leitura — [`ops/diagnose_tcu_doc_id.py`](../ops/diagnose_tcu_doc_id.py). Ex.: `ES_URL=http://elasticsearch:9200 python3 ops/diagnose_tcu_doc_id.py JURISPRUDENCIA-SELECIONADA-12345`.
+
 ---
 
 ## Fase 1 (dias 1–2) — Reranker

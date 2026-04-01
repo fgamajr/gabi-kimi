@@ -3205,6 +3205,37 @@ def es_facets(
 # ---------------------------------------------------------------------------
 
 
+def _looks_like_tcu_acordaos_doc_id(doc_id: str) -> bool:
+    """Heuristic for TCU acórdãos / jurisprudência / informativos index (not normas, not BTCU)."""
+    if doc_id.startswith("NORMA-") or doc_id.startswith("BTCU-"):
+        return False
+    return (
+        doc_id.startswith("ACORDAO-COMPLETO-")
+        or doc_id.startswith("JURISPRUDENCIA-SELECIONADA-")
+        or doc_id.startswith("INFORMATIVO-")
+    )
+
+
+async def _fetch_tcu_source_for_es_document(doc_id: str) -> dict[str, Any] | None:
+    """Resolve TCU document: GET by _id, then term query on doc_id if 404 (alias _id mismatch)."""
+    try:
+        data = await ES.arequest("GET", f"/{ES.tcu_index}/_doc/{_doc_path_id(doc_id)}")
+        return data.get("_source")
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code != 404:
+            raise
+    payload: dict[str, Any] = {
+        "size": 1,
+        "query": {"term": {"doc_id": doc_id}},
+        "_source": True,
+    }
+    data = await ES.arequest("POST", f"/{ES.tcu_index}/_search", payload)
+    hits = data.get("hits", {}).get("hits", [])
+    if not hits:
+        return None
+    return hits[0].get("_source")
+
+
 async def es_document(doc_id: str, source: str | None = None) -> dict[str, Any]:
     """Fetch a single document by its ID.
 
@@ -3221,14 +3252,22 @@ async def es_document(doc_id: str, source: str | None = None) -> dict[str, Any]:
       source: dou | tcu (auto-detected from doc_id prefix if omitted)
     """
     started_at = time.perf_counter()
-    is_tcu = (source == "tcu") or doc_id.startswith("ACORDAO-COMPLETO-")
+    is_tcu = (source == "tcu") or _looks_like_tcu_acordaos_doc_id(doc_id)
 
     if is_tcu:
         try:
-            data = await ES.arequest(
-                "GET", f"/{ES.tcu_index}/_doc/{_doc_path_id(doc_id)}"
-            )
-            src = data.get("_source", {})
+            src = await _fetch_tcu_source_for_es_document(doc_id)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return _attach_tool_meta(
+                    {"found": False, "doc_id": doc_id},
+                    "es_document",
+                    started_at=started_at,
+                    doc_id=doc_id,
+                    source=source,
+                )
+            raise
+        if src is not None:
             return _attach_tool_meta(
                 {
                     "found": True,
@@ -3241,16 +3280,13 @@ async def es_document(doc_id: str, source: str | None = None) -> dict[str, Any]:
                 doc_id=doc_id,
                 source=source,
             )
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 404:
-                return _attach_tool_meta(
-                    {"found": False, "doc_id": doc_id},
-                    "es_document",
-                    started_at=started_at,
-                    doc_id=doc_id,
-                    source=source,
-                )
-            raise
+        return _attach_tool_meta(
+            {"found": False, "doc_id": doc_id},
+            "es_document",
+            started_at=started_at,
+            doc_id=doc_id,
+            source=source,
+        )
 
     try:
         data = await API.document(doc_id)
@@ -4664,7 +4700,8 @@ def _search_publicacoes_once(
     try:
         data = ES.request("POST", f"/{ES.publicacoes_index}/_search", payload)
     except httpx.HTTPStatusError as exc:
-        if exc.response.status_code == 404:
+        code = exc.response.status_code
+        if code == 404:
             return {
                 "query": query,
                 "total": 0,
@@ -4672,6 +4709,18 @@ def _search_publicacoes_once(
                 "page_size": page_size,
                 "results": [],
                 "warning": f"Index {ES.publicacoes_index} is not available",
+            }
+        if code in (401, 403):
+            return {
+                "query": query,
+                "total": 0,
+                "page": page,
+                "page_size": page_size,
+                "results": [],
+                "warning": (
+                    f"Index {ES.publicacoes_index} returned HTTP {code} "
+                    "(forbidden or unauthorized — federated search continues without it)"
+                ),
             }
         raise
     hits = data.get("hits", {}).get("hits", [])

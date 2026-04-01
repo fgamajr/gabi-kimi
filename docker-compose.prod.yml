@@ -74,6 +74,9 @@ services:
       GABI_EXPOSE_API_DOCS: ${GABI_EXPOSE_API_DOCS:-false}
       GABI_PUBLIC_HEALTH_DETAILS: ${GABI_PUBLIC_HEALTH_DETAILS:-false}
       RERANKER_URL: ${RERANKER_URL:-http://reranker:8902}
+      # RAG / answering (see docs/RAG_14DAY_RUNBOOK.md — set RAG_ENABLED=true in server .env)
+      RAG_ENABLED: ${RAG_ENABLED:-false}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       SPA_DIST_DIR: /shared/dist
       SITE_URL: ${SITE_URL:-https://gabidou.top}
     working_dir: /opt/app
