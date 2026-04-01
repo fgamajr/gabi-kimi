@@ -296,7 +296,11 @@ async def generate_answer(
     citations, hallucinated = extract_and_validate_citations(llm_response, docs_for_llm)
     confidence = _compute_confidence(classification, risk, len(citations))
 
-    trace_detail = build_chunk_traces(docs_for_llm, safe_mode=risk.safe_mode)
+    trace_detail = build_chunk_traces(
+        docs_for_llm,
+        safe_mode=risk.safe_mode,
+        query_type=classification.query_type,
+    )
 
     aggregation: dict[str, Any] | None = None
     if classification.query_type == "aggregation":

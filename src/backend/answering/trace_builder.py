@@ -1,14 +1,16 @@
-from __future__ import annotations
-
 """FASE 6: per-chunk trace with 13 analytical components + confidence disclosure.
 
 Each retrieved chunk gets a ChunkTrace with scores and reasons.
 ConfidenceDisclosure aggregates chunk-level data for user-facing transparency.
 """
 
+from __future__ import annotations
+
 import re
 from dataclasses import dataclass, field
 from typing import Any
+
+from src.backend.search.scoring import compute_final_score
 
 
 # ---------------------------------------------------------------------------
@@ -281,6 +283,7 @@ def build_chunk_traces(
     docs: list[dict[str, Any]],
     *,
     safe_mode: bool = False,
+    query_type: str = "exploratory",
 ) -> AnswerTraceDetail:
     """Build per-chunk traces from ES hits.
 
@@ -353,10 +356,15 @@ def build_chunk_traces(
         rr_raw = rerank_raws[idx]
         rr_norm = rerank_norm_map.get(idx)
         relevance_base = rr_norm if rr_norm is not None else bm25_norm
-        final_score = round(
-            relevance_base * authority * policy_mult * boost_factor * penalty_factor
-            + evidence_score * 0.1,
-            4,
+        final_score = compute_final_score(
+            query_type=query_type,
+            relevance_base=relevance_base,
+            authority=authority,
+            entity_density=entity_density,
+            evidence_score=evidence_score,
+            policy_multiplier=policy_mult,
+            boost_factor=boost_factor,
+            penalty_factor=penalty_factor,
         )
 
         reasons: list[str] = []

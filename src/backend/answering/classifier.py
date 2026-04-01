@@ -38,7 +38,8 @@ RISK_WEIGHTS = {
 }
 
 HIERARCHICAL_RE = re.compile(
-    r"\b(se[çc][aã]o|item|inciso|alin[ea]|par[áa]grafo|subitem)\s+\d+(?:\.\d+)*\b",
+    r"\b(se[çc][aã]o|item|inciso|alin[ea]|par[áa]grafo|subitem)\s+"
+    r"(?:\d+(?:\.\d+)*|[ivxlcdm]+)\b",
     re.IGNORECASE,
 )
 SUB_SCOPE_RE = re.compile(
@@ -46,7 +47,9 @@ SUB_SCOPE_RE = re.compile(
     re.IGNORECASE,
 )
 EXACT_REF_RE = re.compile(
-    r'"[^"]{10,}"|\b(lei|decreto|portaria|ac[óo]rd[ãa]o|instru[çc][ãa]o)\s+\d+',
+    r'"[^"]{10,}"|'
+    r"\bport\.?\s+\S+\s+\d+\b|"
+    r"\b(lei|decreto|portaria|ac[óo]rd[ãa]o|instru[çc][ãa]o)\s+\d+",
     re.IGNORECASE,
 )
 
@@ -73,6 +76,7 @@ _AGGREGATION_TOKENS = frozenset(
         "número",
         "numero",
         "lista",
+        "liste",
     }
 )
 _SUMMARY_TOKENS = frozenset({"resuma", "resumo", "síntese", "sintese", "explique"})
@@ -111,11 +115,20 @@ _LEGAL_TOKENS = frozenset(
 )
 _ACCOUNTABILITY_TOKENS = frozenset({"responsável", "responsavel", "responsabilidade"})
 _RECOMMENDATION_TOKENS = frozenset(
-    {"proposta", "solução", "solucao", "recomendação", "recomendacao"}
+    {
+        "proposta",
+        "solução",
+        "solucao",
+        "recomendação",
+        "recomendacao",
+        "recomendado",
+    }
 )
 _FACTUAL_TOKENS = frozenset(
     {"quais", "qual", "causas", "causa", "efeitos", "efeito", "riscos", "risco"}
 )
+
+_DECRETO_NUM_SHORT_REF = re.compile(r"^\s*decreto\s+\d+\s*$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -176,6 +189,15 @@ def gabi_intent_to_query_type(
         QueryIntent.SUBJECT_EXPLORE: ("exploratory", 0.50),
     }
     caf_type, base_conf = mapping.get(gabi_intent, ("exploratory", 0.50))
+    if caf_type == "exploratory" and classification.confidence > base_conf:
+        return QueryClassification(
+            query_type=classification.query_type,
+            confidence=max(classification.confidence, base_conf),
+            source=classification.source,
+            used_llm_fallback=classification.used_llm_fallback,
+            facets=classification.facets,
+            gabi_intent=gabi_intent,
+        )
     return QueryClassification(
         query_type=caf_type,
         confidence=max(classification.confidence, base_conf),
@@ -193,15 +215,9 @@ def _regex_classification(query: str) -> QueryClassification:
         return QueryClassification(
             query_type="exploratory", confidence=0.6, facets=facets
         )
-    if EXACT_REF_RE.search(query) or any(
-        t in lowered.split()[:3] for t in _EXACT_MATCH_TOKENS if t in lowered
-    ):
-        if _contains_token(lowered, _AGGREGATION_TOKENS):
-            return QueryClassification(
-                query_type="aggregation", confidence=0.9, facets=facets
-            )
+    if _DECRETO_NUM_SHORT_REF.match(query):
         return QueryClassification(
-            query_type="exact_match", confidence=0.95, facets=facets
+            query_type="legal_reference", confidence=0.9, facets=facets
         )
     if _contains_token(lowered, _AGGREGATION_TOKENS):
         return QueryClassification(
@@ -212,6 +228,16 @@ def _regex_classification(query: str) -> QueryClassification:
     if _contains_token(lowered, _EVIDENTIAL_TOKENS):
         return QueryClassification(
             query_type="evidential", confidence=0.9, facets=facets
+        )
+    if EXACT_REF_RE.search(query) or any(
+        t in lowered.split()[:3] for t in _EXACT_MATCH_TOKENS if t in lowered
+    ):
+        if _contains_token(lowered, _AGGREGATION_TOKENS):
+            return QueryClassification(
+                query_type="aggregation", confidence=0.9, facets=facets
+            )
+        return QueryClassification(
+            query_type="exact_match", confidence=0.95, facets=facets
         )
     if _contains_token(lowered, _LEGAL_TOKENS):
         return QueryClassification(
@@ -318,7 +344,12 @@ class AdaptiveQueryClassifier:
         enabled: bool = False,
     ) -> None:
         if ledger_root is None:
-            ledger_root = Path("/data/gabi_dou/answering")
+            preferred = Path("/data/gabi_dou/answering")
+            try:
+                preferred.mkdir(parents=True, exist_ok=True)
+                ledger_root = preferred
+            except OSError:
+                ledger_root = Path.home() / ".gabi_dou" / "answering"
         self.ledger_root = Path(ledger_root)
         self.enabled = enabled
         self.ledger_root.mkdir(parents=True, exist_ok=True)
