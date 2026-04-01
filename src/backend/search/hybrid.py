@@ -36,46 +36,201 @@ MIN_PHRASE_RESULTS = 3
 # Query classification
 # ---------------------------------------------------------------------------
 
-_STOPWORDS_PT = frozenset({
-    "a", "e", "o", "da", "de", "do", "das", "dos", "na", "no", "nas", "nos",
-    "em", "um", "uma", "para", "por", "com", "que", "se",
-})
+_STOPWORDS_PT = frozenset(
+    {
+        "a",
+        "e",
+        "o",
+        "da",
+        "de",
+        "do",
+        "das",
+        "dos",
+        "na",
+        "no",
+        "nas",
+        "nos",
+        "em",
+        "um",
+        "uma",
+        "para",
+        "por",
+        "com",
+        "que",
+        "se",
+    }
+)
 
 _NAME_PARTICLES = frozenset({"de", "da", "do", "dos", "das", "e"})
 
-_NAME_SUFFIXES = frozenset({
-    "junior", "júnior", "jr", "filho", "neto", "sobrinho", "segundo",
-    "terceiro", "senior", "sênior",
-})
+_NAME_SUFFIXES = frozenset(
+    {
+        "junior",
+        "júnior",
+        "jr",
+        "filho",
+        "neto",
+        "sobrinho",
+        "segundo",
+        "terceiro",
+        "senior",
+        "sênior",
+    }
+)
 
 # ~60 top Brazilian first names (lowercase, accent-folded)
-_COMMON_FIRST_NAMES = frozenset({
-    "fernando", "carlos", "jose", "joao", "antonio", "francisco", "pedro",
-    "paulo", "lucas", "marcos", "rafael", "andre", "marcelo", "rodrigo",
-    "bruno", "ricardo", "eduardo", "fabio", "sergio", "gustavo", "roberto",
-    "daniel", "luis", "luiz", "alexandre", "felipe", "thiago", "tiago",
-    "anderson", "leonardo", "renato", "diego", "guilherme", "gabriel",
-    "leandro", "claudio", "flavio", "adriano", "maria", "ana", "patricia",
-    "fernanda", "juliana", "claudia", "adriana", "luciana", "marcia",
-    "cristina", "sandra", "monica", "camila", "vanessa", "aline", "priscila",
-    "raquel", "tatiana", "simone", "carla", "renata", "larissa", "beatriz",
-    "carolina", "bruna", "amanda", "leticia", "jessica", "roberta", "helena",
-    "valeria", "eliane", "solange", "rosangela", "denise", "silvia", "cecilia",
-})
+_COMMON_FIRST_NAMES = frozenset(
+    {
+        "fernando",
+        "carlos",
+        "jose",
+        "joao",
+        "antonio",
+        "francisco",
+        "pedro",
+        "paulo",
+        "lucas",
+        "marcos",
+        "rafael",
+        "andre",
+        "marcelo",
+        "rodrigo",
+        "bruno",
+        "ricardo",
+        "eduardo",
+        "fabio",
+        "sergio",
+        "gustavo",
+        "roberto",
+        "daniel",
+        "luis",
+        "luiz",
+        "alexandre",
+        "felipe",
+        "thiago",
+        "tiago",
+        "anderson",
+        "leonardo",
+        "renato",
+        "diego",
+        "guilherme",
+        "gabriel",
+        "leandro",
+        "claudio",
+        "flavio",
+        "adriano",
+        "maria",
+        "ana",
+        "patricia",
+        "fernanda",
+        "juliana",
+        "claudia",
+        "adriana",
+        "luciana",
+        "marcia",
+        "cristina",
+        "sandra",
+        "monica",
+        "camila",
+        "vanessa",
+        "aline",
+        "priscila",
+        "raquel",
+        "tatiana",
+        "simone",
+        "carla",
+        "renata",
+        "larissa",
+        "beatriz",
+        "carolina",
+        "bruna",
+        "amanda",
+        "leticia",
+        "jessica",
+        "roberta",
+        "helena",
+        "valeria",
+        "eliane",
+        "solange",
+        "rosangela",
+        "denise",
+        "silvia",
+        "cecilia",
+    }
+)
 
-_NON_NAME_WORDS = frozenset({
-    "lei", "decreto", "portaria", "edital", "resolução", "resolucao", "despacho",
-    "instrução", "instrucao", "normativa", "ministerio", "ministério", "secretaria",
-    "tribunal", "conselho", "comissão", "comissao", "fundação", "fundacao", "instituto",
-    "universidade", "empresa", "sociedade", "ltda", "eireli", "cnpj", "cpf",
-    "contrato", "licitação", "licitacao", "pregão", "pregao", "aviso", "extrato",
-    "reforma", "tributária", "tributaria", "fiscal", "saúde", "saude", "educação",
-    "educacao", "defesa", "agricultura", "artigo", "parágrafo", "paragrafo",
-    "concurso", "concursos", "público", "publico", "públicos", "publicos",
-    "nomeação", "nomeacao", "nomeações", "nomeacoes", "exoneração", "exoneracao",
-    "aposentadoria", "pensão", "pensao", "designação", "designacao",
-    "homologação", "homologacao", "ratificação", "ratificacao",
-})
+_NON_NAME_WORDS = frozenset(
+    {
+        "lei",
+        "decreto",
+        "portaria",
+        "edital",
+        "resolução",
+        "resolucao",
+        "despacho",
+        "instrução",
+        "instrucao",
+        "normativa",
+        "ministerio",
+        "ministério",
+        "secretaria",
+        "tribunal",
+        "conselho",
+        "comissão",
+        "comissao",
+        "fundação",
+        "fundacao",
+        "instituto",
+        "universidade",
+        "empresa",
+        "sociedade",
+        "ltda",
+        "eireli",
+        "cnpj",
+        "cpf",
+        "contrato",
+        "licitação",
+        "licitacao",
+        "pregão",
+        "pregao",
+        "aviso",
+        "extrato",
+        "reforma",
+        "tributária",
+        "tributaria",
+        "fiscal",
+        "saúde",
+        "saude",
+        "educação",
+        "educacao",
+        "defesa",
+        "agricultura",
+        "artigo",
+        "parágrafo",
+        "paragrafo",
+        "concurso",
+        "concursos",
+        "público",
+        "publico",
+        "públicos",
+        "publicos",
+        "nomeação",
+        "nomeacao",
+        "nomeações",
+        "nomeacoes",
+        "exoneração",
+        "exoneracao",
+        "aposentadoria",
+        "pensão",
+        "pensao",
+        "designação",
+        "designacao",
+        "homologação",
+        "homologacao",
+        "ratificação",
+        "ratificacao",
+    }
+)
 
 _LEGAL_REF_PATTERN = re.compile(
     r"\b(lei(?:\s+complementar)?|decreto(?:\s*-?\s*lei)?|portaria|"
@@ -86,15 +241,19 @@ _LEGAL_REF_PATTERN = re.compile(
 )
 
 _ORTHO_SUBS: list[tuple[str, str]] = [
-    ("y", "i"), ("i", "y"),
-    ("ph", "f"), ("f", "ph"),
+    ("y", "i"),
+    ("i", "y"),
+    ("ph", "f"),
+    ("f", "ph"),
     ("th", "t"),
-    ("w", "v"), ("v", "w"),
+    ("w", "v"),
+    ("v", "w"),
 ]
 
 
 def _normalize_text(s: str) -> str:
     import unicodedata
+
     return unicodedata.normalize("NFC", s.lower().strip())
 
 
@@ -136,8 +295,7 @@ def _is_person_name(query: str) -> bool:
 
     # Capitalization signal: all words start uppercase (natural name typing)
     all_capitalized = all(
-        w[0].isupper() or _normalize_text(w) in _NAME_PARTICLES
-        for w in words if w
+        w[0].isupper() or _normalize_text(w) in _NAME_PARTICLES for w in words if w
     )
     if all_capitalized:
         return True
@@ -149,18 +307,62 @@ def _is_person_name(query: str) -> bool:
         all_short = all(len(w) <= 15 for w in meaningful)
         has_substance = any(len(w) >= 4 for w in meaningful)
         # Check none of the words are common Portuguese content words
-        _CONTENT_WORDS = frozenset({
-            "federal", "nacional", "municipal", "estadual", "geral", "publica",
-            "resultado", "extrato", "registro", "processo", "sistema", "programa",
-            "servico", "trabalho", "governo", "brasil", "diario", "oficial",
-            "banco", "central", "meio", "ambiente", "saude", "energia",
-            "imposto", "renda", "receita", "valores", "mobiliarios",
-            "comercio", "exterior", "industria", "transporte", "infraestrutura",
-            "justica", "seguranca", "desenvolvimento", "planejamento",
-            "orcamento", "previdencia", "assistencia", "social",
-            "publico", "consulta", "audiencia", "chamada", "pregao",
-            "licitacao", "aditivo", "convenio", "cessao", "vacancia",
-        })
+        _CONTENT_WORDS = frozenset(
+            {
+                "federal",
+                "nacional",
+                "municipal",
+                "estadual",
+                "geral",
+                "publica",
+                "resultado",
+                "extrato",
+                "registro",
+                "processo",
+                "sistema",
+                "programa",
+                "servico",
+                "trabalho",
+                "governo",
+                "brasil",
+                "diario",
+                "oficial",
+                "banco",
+                "central",
+                "meio",
+                "ambiente",
+                "saude",
+                "energia",
+                "imposto",
+                "renda",
+                "receita",
+                "valores",
+                "mobiliarios",
+                "comercio",
+                "exterior",
+                "industria",
+                "transporte",
+                "infraestrutura",
+                "justica",
+                "seguranca",
+                "desenvolvimento",
+                "planejamento",
+                "orcamento",
+                "previdencia",
+                "assistencia",
+                "social",
+                "publico",
+                "consulta",
+                "audiencia",
+                "chamada",
+                "pregao",
+                "licitacao",
+                "aditivo",
+                "convenio",
+                "cessao",
+                "vacancia",
+            }
+        )
         no_content = not any(w in _CONTENT_WORDS for w in meaningful)
         if all_short and has_substance and no_content:
             return True
@@ -168,10 +370,40 @@ def _is_person_name(query: str) -> bool:
     return False
 
 
+def _is_strong_person_signal(query: str) -> bool:
+    """Return True only on high-confidence person name signals.
+
+    Used in the quoted-search path to avoid routing generic phrases through
+    the person query builder on fuzzy matches.
+    Requires: first word is a known first name, OR all meaningful words start
+    with uppercase (natural name typing).
+    """
+    q = query.strip()
+    words = q.split()
+    if len(words) < 2:
+        return False
+    normalized = [_normalize_text(w) for w in words]
+    meaningful = [w for w in normalized if w not in _NAME_PARTICLES]
+    if not meaningful:
+        return False
+    # Strong signal 1: first meaningful word is a known Brazilian first name
+    if meaningful[0] in _COMMON_FIRST_NAMES:
+        return True
+    # Strong signal 2: all words start uppercase (user typed a proper name)
+    if all(w[0].isupper() or _normalize_text(w) in _NAME_PARTICLES for w in words if w):
+        return True
+    return False
+
+
 _LAW_NAME_PATTERNS = [
-    re.compile(r"^lei\s+(geral|complementar|orgânica|federal|estadual|municipal)", re.IGNORECASE),
+    re.compile(
+        r"^lei\s+(geral|complementar|orgânica|federal|estadual|municipal)",
+        re.IGNORECASE,
+    ),
     re.compile(r"^(código|estatuto)\s+d[aeo]", re.IGNORECASE),
-    re.compile(r"^(lei|decreto|mp|medida\s+provisória)\s*(n[°º.]?\s*)?\d", re.IGNORECASE),
+    re.compile(
+        r"^(lei|decreto|mp|medida\s+provisória)\s*(n[°º.]?\s*)?\d", re.IGNORECASE
+    ),
 ]
 
 
@@ -215,7 +447,7 @@ def _name_spelling_variants(normalized_name: str) -> list[str]:
     for i, word in enumerate(words):
         for variant in _word_ortho_variants(word):
             if variant != word:
-                new_name = words[:i] + [variant] + words[i + 1:]
+                new_name = words[:i] + [variant] + words[i + 1 :]
                 results.add(" ".join(new_name))
     return list(results)
 
@@ -251,6 +483,7 @@ def _person_name_variants(query: str) -> list[str]:
 # Public interest scoring (PageRank proxy for DOU)
 # ---------------------------------------------------------------------------
 
+
 def _public_interest_functions() -> list[dict[str, Any]]:
     """Approximate public interest without click data.
 
@@ -259,17 +492,60 @@ def _public_interest_functions() -> list[dict[str, Any]]:
     """
     return [
         # Organ importance
-        {"filter": {"match_phrase": {"issuing_organ": "Presidência da República"}}, "weight": 3.0},
-        {"filter": {"match_phrase": {"issuing_organ": "Congresso Nacional"}}, "weight": 2.5},
-        {"filter": {"match_phrase": {"issuing_organ": "Supremo Tribunal Federal"}}, "weight": 2.5},
-        {"filter": {"match_phrase": {"issuing_organ": "Tribunal de Contas da União"}}, "weight": 2.0},
+        {
+            "filter": {"match_phrase": {"issuing_organ": "Presidência da República"}},
+            "weight": 3.0,
+        },
+        {
+            "filter": {"match_phrase": {"issuing_organ": "Congresso Nacional"}},
+            "weight": 2.5,
+        },
+        {
+            "filter": {"match_phrase": {"issuing_organ": "Supremo Tribunal Federal"}},
+            "weight": 2.5,
+        },
+        {
+            "filter": {
+                "match_phrase": {"issuing_organ": "Tribunal de Contas da União"}
+            },
+            "weight": 2.0,
+        },
         {"filter": {"match": {"issuing_organ": "Ministério"}}, "weight": 1.4},
         # DOU Section (Seção 1 = normativa > Seção 3 = contratos)
-        {"filter": {"bool": {"should": [{"term": {"section": "do1"}}, {"term": {"section": "DO1"}}]}}, "weight": 1.6},
+        {
+            "filter": {
+                "bool": {
+                    "should": [
+                        {"term": {"section": "do1"}},
+                        {"term": {"section": "DO1"}},
+                    ]
+                }
+            },
+            "weight": 1.6,
+        },
         # Art type hierarchy
-        {"filter": {"terms": {"art_type_normalized": ["lei", "lei complementar"]}}, "weight": 2.5},
-        {"filter": {"terms": {"art_type_normalized": ["decreto", "decreto numerado", "decreto-lei", "medida provisória", "medida provisoria"]}}, "weight": 2.0},
-        {"filter": {"terms": {"art_type_normalized": ["resolução", "resolucao"]}}, "weight": 1.5},
+        {
+            "filter": {"terms": {"art_type_normalized": ["lei", "lei complementar"]}},
+            "weight": 2.5,
+        },
+        {
+            "filter": {
+                "terms": {
+                    "art_type_normalized": [
+                        "decreto",
+                        "decreto numerado",
+                        "decreto-lei",
+                        "medida provisória",
+                        "medida provisoria",
+                    ]
+                }
+            },
+            "weight": 2.0,
+        },
+        {
+            "filter": {"terms": {"art_type_normalized": ["resolução", "resolucao"]}},
+            "weight": 1.5,
+        },
         # Front page docs
         {"filter": {"range": {"page_number": {"lte": 5}}}, "weight": 1.3},
         # Cited docs
@@ -281,20 +557,25 @@ def _public_interest_functions() -> list[dict[str, Any]]:
 # Query builders
 # ---------------------------------------------------------------------------
 
+
 def _decay_functions() -> list[dict[str, Any]]:
-    return [{
-        "gauss": {
-            "pub_date": {
-                "origin": "now",
-                "scale": "365d",
-                "offset": "30d",
-                "decay": 0.5,
+    return [
+        {
+            "gauss": {
+                "pub_date": {
+                    "origin": "now",
+                    "scale": "365d",
+                    "offset": "30d",
+                    "decay": 0.5,
+                },
             },
-        },
-    }]
+        }
+    ]
 
 
-def _wrap_function_score(bool_query: dict[str, Any], *, use_decay: bool = True) -> dict[str, Any]:
+def _wrap_function_score(
+    bool_query: dict[str, Any], *, use_decay: bool = True
+) -> dict[str, Any]:
     if use_decay:
         return {
             "function_score": {
@@ -305,6 +586,42 @@ def _wrap_function_score(bool_query: dict[str, Any], *, use_decay: bool = True) 
         }
     # No decay — pure BM25 relevance (smaller docs with phrase match rank higher)
     return bool_query
+
+
+def build_person_quoted_query(
+    q: str,
+    filters: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build a quoted person-name query: exact phrase match (slop=0), no ortho
+    variants, no recency decay. Used when the user wraps a name in quotes."""
+    normalized = _normalize_person_query(q)
+    fields = ["identifica", "ementa", "body_plain"]
+
+    must_clause: dict[str, Any] = {
+        "multi_match": {
+            "query": normalized,
+            "type": "phrase",
+            "fields": fields,
+            "slop": 0,
+        },
+    }
+
+    should: list[dict] = [
+        {"match_phrase": {"identifica": {"query": normalized, "boost": 50}}},
+        {"match_phrase": {"ementa": {"query": normalized, "boost": 40}}},
+        {"match_phrase": {"body_plain": {"query": normalized, "boost": 20}}},
+    ]
+
+    bool_query: dict[str, Any] = {
+        "bool": {
+            "must": [must_clause],
+            "should": should,
+        }
+    }
+    if filters:
+        bool_query["bool"]["filter"] = filters
+
+    return _wrap_function_score(bool_query, use_decay=False)
 
 
 def build_person_query(
@@ -396,10 +713,12 @@ def build_phrase_query(
     if legal_refs:
         for ref in legal_refs:
             ref_text = f"{ref['type']} {ref['number']}"
-            should.extend([
-                {"match_phrase": {"identifica": {"query": ref_text, "boost": 100}}},
-                {"match_phrase": {"ementa": {"query": ref_text, "boost": 60}}},
-            ])
+            should.extend(
+                [
+                    {"match_phrase": {"identifica": {"query": ref_text, "boost": 100}}},
+                    {"match_phrase": {"ementa": {"query": ref_text, "boost": 60}}},
+                ]
+            )
 
     bool_query: dict[str, Any] = {
         "bool": {
@@ -447,10 +766,12 @@ def build_bm25_query(
     if legal_refs:
         for ref in legal_refs:
             ref_text = f"{ref['type']} {ref['number']}"
-            should.extend([
-                {"match_phrase": {"identifica": {"query": ref_text, "boost": 100}}},
-                {"match_phrase": {"ementa": {"query": ref_text, "boost": 60}}},
-            ])
+            should.extend(
+                [
+                    {"match_phrase": {"identifica": {"query": ref_text, "boost": 100}}},
+                    {"match_phrase": {"ementa": {"query": ref_text, "boost": 60}}},
+                ]
+            )
 
     bool_query: dict[str, Any] = {
         "bool": {
@@ -473,7 +794,8 @@ def build_canonical_query(
     # Extract the likely art_type from query
     art_type_match = re.match(
         r"^(lei(?:\s+complementar)?|decreto(?:\s*-?\s*lei)?|código|estatuto|medida\s+provisória|emenda\s+constitucional)",
-        q.strip(), re.IGNORECASE,
+        q.strip(),
+        re.IGNORECASE,
     )
     art_type_term = art_type_match.group(1).strip().lower() if art_type_match else None
 
@@ -500,10 +822,12 @@ def build_canonical_query(
     if legal_refs:
         for ref in legal_refs:
             ref_text = f"{ref['type']} {ref['number']}"
-            should.extend([
-                {"match_phrase": {"identifica": {"query": ref_text, "boost": 300}}},
-                {"match_phrase": {"ementa": {"query": ref_text, "boost": 150}}},
-            ])
+            should.extend(
+                [
+                    {"match_phrase": {"identifica": {"query": ref_text, "boost": 300}}},
+                    {"match_phrase": {"ementa": {"query": ref_text, "boost": 150}}},
+                ]
+            )
 
     bool_query: dict[str, Any] = {
         "bool": {
@@ -530,10 +854,12 @@ def build_canonical_query(
     if art_type_term:
         keywords = _ART_TYPE_KEYWORD_VARIANTS.get(art_type_term, [])
         if keywords:
-            functions.append({
-                "filter": {"terms": {"art_type": keywords}},
-                "weight": 5,
-            })
+            functions.append(
+                {
+                    "filter": {"terms": {"art_type": keywords}},
+                    "weight": 5,
+                }
+            )
 
     if functions:
         return {
@@ -553,6 +879,7 @@ def build_canonical_query(
 # Query classification & routing
 # ---------------------------------------------------------------------------
 
+
 def classify_and_build(
     q: str,
     filters: list[dict[str, Any]],
@@ -565,10 +892,15 @@ def classify_and_build(
     Returns (query_body, strategy_name, intent_metadata).
     """
     from src.backend.search.intent import (
-        classify_intent, QueryIntent, IntentResult,
+        classify_intent,
+        QueryIntent,
+        IntentResult,
     )
     from src.backend.search.query_builders import (
-        build_exact_name_query, build_topic_query, build_trending_query, build_subject_query,
+        build_exact_name_query,
+        build_topic_query,
+        build_trending_query,
+        build_subject_query,
     )
 
     # Strip user-supplied quotes and treat as phrase search signal
@@ -599,7 +931,9 @@ def classify_and_build(
                         "topic_profile": profile.to_metadata(),
                         "topic": profile.label,
                     }
-            intent_result = IntentResult(intent=forced, confidence=1.0, metadata=metadata)
+            intent_result = IntentResult(
+                intent=forced, confidence=1.0, metadata=metadata
+            )
         else:
             intent_result = classify_intent(q, is_trending=is_trending)
     else:
@@ -617,12 +951,15 @@ def classify_and_build(
         intent_data["topic"] = topic_profile.get("label")
         intent_data["topic_profile_id"] = topic_profile.get("id")
 
-    # Quoted queries → force phrase search (user explicitly wants exact phrase)
+    # Quoted queries → force exact phrase match (slop=0, no recency decay).
+    # build_person_quoted_query is used for ALL quoted multi-word queries because
+    # slop=0 is exactly what the user signals with quotes, and the high
+    # identifica/ementa boosts benefit both name and topic phrase searches.
     if is_quoted and len(q.split()) >= 2:
-        query_body = build_phrase_query(q, filters, legal_refs)
-        intent_data["detected"] = "phrase"
+        query_body = build_person_quoted_query(q, filters)
+        intent_data["detected"] = "phrase_exact"
         intent_data["confidence"] = 1.0
-        return query_body, "phrase", intent_data
+        return query_body, "phrase_exact", intent_data
 
     # Route to appropriate builder
     if intent == QueryIntent.EXACT_NAME:
@@ -639,16 +976,22 @@ def classify_and_build(
         # Build enhanced canonical query using formal reference
         if formal_ref.get("number"):
             # Pin the formal reference with structured fields
-            from src.backend.search.query_builders import build_exact_name_query as _build_exact
+            from src.backend.search.query_builders import (
+                build_exact_name_query as _build_exact,
+            )
+
             formal_number = formal_ref["number"]
             formal_year = formal_ref.get("year")
             formal_type = formal_ref.get("art_type", "lei")
             pin_query = _build_exact(
-                {"art_type": formal_type,
-                 "number": formal_number,
-                 "year": formal_year,
-                 "organ": None},
-                q, [],
+                {
+                    "art_type": formal_type,
+                    "number": formal_number,
+                    "year": formal_year,
+                    "organ": None,
+                },
+                q,
+                [],
             )
             # Also build the text-based canonical query
             canon_query = build_canonical_query(q, filters, legal_refs)
@@ -692,11 +1035,15 @@ def classify_and_build(
             # Add organ boost + art_type hierarchy via function_score
             functions = []
             for organ in boost_organs:
-                functions.append({
-                    "filter": {"match_phrase": {"issuing_organ": organ}},
-                    "weight": 8,
-                })
-            functions.append({"filter": {"term": {"art_type_normalized": formal_type}}, "weight": 10})
+                functions.append(
+                    {
+                        "filter": {"match_phrase": {"issuing_organ": organ}},
+                        "weight": 8,
+                    }
+                )
+            functions.append(
+                {"filter": {"term": {"art_type_normalized": formal_type}}, "weight": 10}
+            )
             for term in related_terms:
                 functions.append(
                     {
@@ -735,14 +1082,18 @@ def classify_and_build(
 
     if intent == QueryIntent.TRENDING_BROWSE:
         if topic_profile:
-            query_body = build_topic_query(topic_profile, q, filters, legal_refs=legal_refs)
+            query_body = build_topic_query(
+                topic_profile, q, filters, legal_refs=legal_refs
+            )
             return query_body, "topic_profile", intent_data
         query_body = build_trending_query(q, filters, None)
         return query_body, "trending", intent_data
 
     if intent == QueryIntent.SUBJECT_EXPLORE:
         if topic_profile:
-            query_body = build_topic_query(topic_profile, q, filters, legal_refs=legal_refs)
+            query_body = build_topic_query(
+                topic_profile, q, filters, legal_refs=legal_refs
+            )
             return query_body, "topic_profile", intent_data
         query_body = build_subject_query(q, filters, legal_refs)
         return query_body, "subject", intent_data
@@ -755,6 +1106,7 @@ def classify_and_build(
 # ---------------------------------------------------------------------------
 # Search execution
 # ---------------------------------------------------------------------------
+
 
 async def _get_query_embedding(
     query: str, client: httpx.AsyncClient
@@ -771,7 +1123,9 @@ async def _get_query_embedding(
         if embeddings:
             return embeddings[0]
     except Exception:
-        logger.warning("embed server unavailable, falling back to BM25-only", exc_info=True)
+        logger.warning(
+            "embed server unavailable, falling back to BM25-only", exc_info=True
+        )
     return None
 
 
@@ -842,7 +1196,10 @@ async def hybrid_search(
       Pass 2: if < MIN_PHRASE_RESULTS, fall back to bag-of-words
     """
     query_body, strategy, intent_data = classify_and_build(
-        query, filters, is_trending=is_trending, intent_override=intent,
+        query,
+        filters,
+        is_trending=is_trending,
+        intent_override=intent,
     )
     query_vector = await _get_query_embedding(query, client)
     es_url = f"{settings.ES_URL}/{settings.es_target_index}/_search"
@@ -852,7 +1209,9 @@ async def hybrid_search(
     effective_source_fields = source_fields
     effective_highlight_spec = highlight_spec
     if strategy in ("topic_profile", "trending"):
-        effective_source_fields = [field for field in source_fields if field != "body_plain"]
+        effective_source_fields = [
+            field for field in source_fields if field != "body_plain"
+        ]
         effective_highlight_spec = _lightweight_highlight_spec(highlight_spec)
 
     if query_vector is not None:
@@ -869,7 +1228,11 @@ async def hybrid_search(
                                 "query_vector": query_vector,
                                 "k": min(size, 50),
                                 "num_candidates": min(size * 2, 200),
-                                **({"filter": {"bool": {"filter": knn_filter}}} if knn_filter else {}),
+                                **(
+                                    {"filter": {"bool": {"filter": knn_filter}}}
+                                    if knn_filter
+                                    else {}
+                                ),
                             }
                         },
                     ],
@@ -887,10 +1250,17 @@ async def hybrid_search(
 
         # Fallback for strict strategies
         total = result.get("hits", {}).get("total", {}).get("value", 0)
-        if strategy in ("person", "phrase", "canonical", "exact_name") and total < MIN_PHRASE_RESULTS:
-            logger.info("strategy=%s returned %d, falling back to bm25", strategy, total)
+        if (
+            strategy in ("person", "phrase", "canonical", "exact_name")
+            and total < MIN_PHRASE_RESULTS
+        ):
+            logger.info(
+                "strategy=%s returned %d, falling back to bm25", strategy, total
+            )
             fallback_query = build_bm25_query(query, filters, _has_legal_ref(query))
-            payload["retriever"]["rrf"]["retrievers"][0] = {"standard": {"query": fallback_query}}
+            payload["retriever"]["rrf"]["retrievers"][0] = {
+                "standard": {"query": fallback_query}
+            }
             result = await _execute_search(es_url, payload, client)
 
         result["_intent"] = intent_data
@@ -899,20 +1269,36 @@ async def hybrid_search(
     # BM25-only mode
     # For browse-by-type queries (pure_act_type), sort by date (most recent first)
     use_date_sort = strategy in ("topic_profile", "trending")
-    payload = _build_payload(query_body, size, from_, effective_source_fields, effective_highlight_spec, sort_by_date=use_date_sort)
+    payload = _build_payload(
+        query_body,
+        size,
+        from_,
+        effective_source_fields,
+        effective_highlight_spec,
+        sort_by_date=use_date_sort,
+    )
     result = await _execute_search(es_url, payload, client)
 
     total = result.get("hits", {}).get("total", {}).get("value", 0)
 
     # Two-pass: strict → bag-of-words fallback
-    if strategy in ("person", "phrase", "canonical", "exact_name") and total < MIN_PHRASE_RESULTS:
+    if (
+        strategy in ("person", "phrase", "canonical", "exact_name")
+        and total < MIN_PHRASE_RESULTS
+    ):
         if strategy == "person":
             # Progressive relaxation: try name variants before bag-of-words
             variants = _person_name_variants(query)
             for variant in variants[1:]:
                 logger.info("person relaxation: trying variant %r", variant)
                 variant_query = build_person_query(variant, filters)
-                payload = _build_payload(variant_query, size, from_, effective_source_fields, effective_highlight_spec)
+                payload = _build_payload(
+                    variant_query,
+                    size,
+                    from_,
+                    effective_source_fields,
+                    effective_highlight_spec,
+                )
                 result = await _execute_search(es_url, payload, client)
                 total = result.get("hits", {}).get("total", {}).get("value", 0)
                 if total >= MIN_PHRASE_RESULTS:
@@ -922,7 +1308,9 @@ async def hybrid_search(
         # Final fallback: bag-of-words
         logger.info("strategy=%s returned %d, falling back to bm25", strategy, total)
         fallback = build_bm25_query(query, filters, _has_legal_ref(query))
-        payload = _build_payload(fallback, size, from_, effective_source_fields, effective_highlight_spec)
+        payload = _build_payload(
+            fallback, size, from_, effective_source_fields, effective_highlight_spec
+        )
         result = await _execute_search(es_url, payload, client)
 
     result["_intent"] = intent_data

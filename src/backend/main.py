@@ -1602,6 +1602,33 @@ async def editorial_highlights():
     return {"date": doc.get("generated_for", today), **doc}
 
 
+@app.post("/api/answer")
+async def answer_query(body: dict):
+    from src.backend.answering.models import AnswerRequest
+    from src.backend.answering.service import generate_answer
+
+    try:
+        request = AnswerRequest(**body)
+    except Exception as exc:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=422, detail=str(exc))
+    response = await generate_answer(request)
+    return response.model_dump(mode="json")
+
+
+@app.get("/api/answer/trace/{query_id}")
+async def answer_trace(query_id: str):
+    from fastapi import HTTPException
+
+    from src.backend.answering.ledger import get_trace
+
+    trace = get_trace(query_id)
+    if trace is None:
+        raise HTTPException(status_code=404, detail="Trace not found")
+    return trace
+
+
 @app.get("/api/media/{doc_id:path}/{name}")
 async def media(doc_id: str, name: str):
     return Response(

@@ -1,0 +1,344 @@
+[
+  {
+    "id": "health_cluster",
+    "label": "Cluster health and corpus presence",
+    "tool": "es_health",
+    "kwargs": {},
+    "checks": {
+      "require_query_id": true,
+      "scalar_paths_min": {
+        "dou_count": 1000000,
+        "tools_available": 20
+      }
+    }
+  },
+  {
+    "id": "search_lei_14133",
+    "label": "Federated default legal reference search",
+    "tool": "es_search",
+    "kwargs": {
+      "query": "lei 14133 licitações",
+      "page_size": 3
+    },
+    "checks": {
+      "require_query_id": true,
+      "error_absent": true,
+      "min_total": 100,
+      "min_items": 3,
+      "scalar_paths_min": {
+        "source_breakdown.dou.total": 1
+      },
+      "top_contains_any": [
+        "14.133",
+        "licitação",
+        "contratos"
+      ]
+    }
+  },
+  {
+    "id": "search_lgpd",
+    "label": "Canonical legal lookup for LGPD",
+    "tool": "es_search",
+    "kwargs": {
+      "query": "LGPD proteção de dados pessoais",
+      "page_size": 3
+    },
+    "checks": {
+      "require_query_id": true,
+      "error_absent": true,
+      "min_total": 100,
+      "min_items": 3,
+      "top_contains_any": [
+        "13.709",
+        "proteção de dados",
+        "lgpd"
+      ]
+    }
+  },
+  {
+    "id": "search_licitacao_topic",
+    "label": "Topic-filtered procurement search",
+    "tool": "es_search",
+    "kwargs": {
+      "query": "licitação pregão eletrônico",
+      "page_size": 3
+    },
+    "checks": {
+      "require_query_id": true,
+      "error_absent": true,
+      "min_total": 100,
+      "min_items": 3,
+      "top_contains_any": [
+        "licitação",
+        "pregão",
+        "aviso"
+      ]
+    }
+  },
+  {
+    "id": "search_tcu_keyword",
+    "label": "TCU keyword jurisprudence search",
+    "tool": "es_search",
+    "optional": true,
+    "kwargs": {
+      "query": "responsabilidade gestor omissão irregularidade",
+      "source": "tcu",
+      "page_size": 3
+    },
+    "checks": {
+      "require_query_id": true,
+      "error_absent": true,
+      "min_total": 10,
+      "min_items": 3,
+      "top_contains_any": [
+        "responsabilidade",
+        "omissão",
+        "irregularidade",
+        "acórdão"
+      ]
+    }
+  },
+  {
+    "id": "search_tcu_normas_keyword",
+    "label": "TCU normas explicit-source search",
+    "tool": "es_search",
+    "optional": true,
+    "kwargs": {
+      "query": "instrução normativa auditoria",
+      "source": "normas",
+      "page_size": 3
+    },
+    "checks": {
+      "require_query_id": true,
+      "error_absent": true,
+      "min_total": 1,
+      "min_items": 1,
+      "top_contains_any": [
+        "instrução",
+        "normativa",
+        "auditoria",
+        "norma"
+      ]
+    }
+  },
+  {
+    "id": "suggest_concess",
+    "label": "Autocomplete suggestions",
+    "tool": "es_suggest",
+    "kwargs": {
+      "prefix": "concess",
+      "limit": 5
+    },
+    "checks": {
+      "require_query_id": true,
+      "error_absent": true,
+      "min_suggestions": 3,
+      "text_path": "suggestions",
+      "top_contains_any": [
+        "concess"
+      ]
+    }
+  },
+  {
+    "id": "facets_portaria",
+    "label": "Facet coverage for portarias",
+    "tool": "es_facets",
+    "kwargs": {
+      "query": "portaria",
+      "size": 5
+    },
+    "checks": {
+      "require_query_id": true,
+      "min_total": 100,
+      "list_paths_min": {
+        "facets.organs": 1,
+        "facets.types": 1,
+        "facets.by_month": 1
+      }
+    }
+  },
+  {
+    "id": "trending_week",
+    "label": "Trending analytics",
+    "tool": "es_trending",
+    "kwargs": {
+      "days": 7,
+      "size": 5
+    },
+    "checks": {
+      "require_query_id": true,
+      "scalar_paths_min": {
+        "total_publications": 100
+      },
+      "list_paths_min": {
+        "top_organs": 1,
+        "top_types": 1,
+        "daily_volume": 1
+      }
+    }
+  },
+  {
+    "id": "crossref_lei_14133",
+    "label": "Cross-reference lookup for Lei 14.133",
+    "tool": "es_cross_reference",
+    "optional": true,
+    "kwargs": {
+      "reference": "Lei 14.133",
+      "max_results": 3
+    },
+    "checks": {
+      "require_query_id": true,
+      "error_absent": true,
+      "min_total": 10,
+      "min_items": 3,
+      "top_contains_any": [
+        "14.133",
+        "licitação",
+        "contratos"
+      ]
+    }
+  },
+  {
+    "id": "btcu_auditoria",
+    "label": "BTCU wrapper search",
+    "tool": "es_btcu_search",
+    "optional": true,
+    "kwargs": {
+      "query": "auditoria obras públicas",
+      "page_size": 3
+    },
+    "checks": {
+      "require_query_id": true,
+      "error_absent": true,
+      "min_total": 1,
+      "min_items": 3,
+      "top_contains_any": [
+        "auditoria",
+        "obras"
+      ]
+    },
+    "followups": [
+      "wrapper_parity"
+    ]
+  },
+  {
+    "id": "btcu_auditoria_canonical",
+    "label": "BTCU canonical es_search",
+    "tool": "es_search",
+    "optional": true,
+    "kwargs": {
+      "query": "auditoria obras públicas",
+      "source": "btcu",
+      "page_size": 3
+    },
+    "checks": {
+      "require_query_id": true,
+      "error_absent": true,
+      "min_total": 1,
+      "min_items": 3,
+      "top_contains_any": [
+        "auditoria",
+        "obras"
+      ]
+    }
+  },
+  {
+    "id": "publicacoes_sumarios",
+    "label": "Publicações wrapper search",
+    "tool": "es_publicacoes_search",
+    "optional": true,
+    "kwargs": {
+      "query": "governança auditoria",
+      "pub_type": "sumarios-executivos",
+      "page_size": 3
+    },
+    "checks": {
+      "require_query_id": true,
+      "error_absent": true,
+      "min_total": 1,
+      "min_items": 1,
+      "top_contains_any": [
+        "governança",
+        "auditoria",
+        "sumário"
+      ]
+    },
+    "followups": [
+      "wrapper_parity"
+    ]
+  },
+  {
+    "id": "publicacoes_sumarios_canonical",
+    "label": "Publicações canonical es_search",
+    "tool": "es_search",
+    "optional": true,
+    "kwargs": {
+      "query": "governança auditoria",
+      "source": "publicacoes",
+      "pub_type": "sumarios-executivos",
+      "page_size": 3
+    },
+    "checks": {
+      "require_query_id": true,
+      "error_absent": true,
+      "min_total": 1,
+      "min_items": 1,
+      "top_contains_any": [
+        "governança",
+        "auditoria",
+        "sumário"
+      ]
+    }
+  },
+  {
+    "id": "tcu_semantic_superfaturamento",
+    "label": "TCU semantic search",
+    "tool": "es_tcu_semantic_search",
+    "optional": true,
+    "kwargs": {
+      "query": "responsabilidade solidária em contratos administrativos com superfaturamento",
+      "source": "tcu",
+      "k": 3
+    },
+    "checks": {
+      "require_query_id": true,
+      "error_absent": true,
+      "min_total": 1,
+      "min_items": 3,
+      "top_contains_any": [
+        "superfaturamento",
+        "contrato",
+        "responsabilidade",
+        "acórdão"
+      ]
+    }
+  },
+  {
+    "id": "evidence_bundle_all",
+    "label": "Evidence bundle retrieval",
+    "tool": "es_evidence_bundle",
+    "optional": true,
+    "kwargs": {
+      "query": "TCU contrato emergencial fracionamento",
+      "source": "all",
+      "k": 5
+    },
+    "checks": {
+      "require_query_id": true,
+      "error_absent": true,
+      "min_items": 3,
+      "top_contains_any": [
+        "contrato",
+        "emergencial",
+        "fracionamento"
+      ],
+      "scalar_paths_min": {
+        "metrics.source_diversity.unique_parents": 2
+      }
+    },
+    "followups": [
+      "audit_roundtrip",
+      "parent_expand"
+    ]
+  }
+]

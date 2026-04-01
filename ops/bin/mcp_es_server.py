@@ -5406,6 +5406,75 @@ def es_tcu_similar(
 
 
 # ---------------------------------------------------------------------------
+# TOOL 18: gabi_answer — RAG answer generation with verified citations
+# ---------------------------------------------------------------------------
+
+
+async def gabi_answer(
+    query: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    section: str | None = None,
+    source: str | None = None,
+    intent_override: str | None = None,
+) -> dict[str, Any]:
+    """Generate a grounded answer from DOU + TCU documents using RAG.
+
+    Retrieves relevant documents via hybrid search, reranks them, then calls
+    Claude to produce a cited answer in Portuguese. Every citation [doc_id] is
+    validated against the retrieved evidence set — hallucinated citations are
+    removed before the response is returned.
+
+    Args:
+      query: Natural language question in Portuguese (3-500 chars)
+      date_from: Restrict evidence to documents from this date (YYYY-MM-DD)
+      date_to: Restrict evidence to documents up to this date (YYYY-MM-DD)
+      section: DOU section filter ('do1', 'do2', 'do3', 'do1e', 'do2e', 'do3e')
+      source: Corpus override ('dou', 'tcu', 'normas', 'btcu', 'publicacoes')
+      intent_override: Force a specific query intent type for retrieval tuning
+    """
+    import sys
+
+    sys.path.insert(0, "/workspace")
+
+    from src.backend.answering.models import AnswerRequest
+    from src.backend.answering.service import generate_answer
+
+    request = AnswerRequest(
+        query=query,
+        date_from=date_from,
+        date_to=date_to,
+        section=section,
+        source=source,
+        intent_override=intent_override,
+    )
+    response = await generate_answer(request)
+    return response.model_dump(mode="json")
+
+
+async def gabi_answer_trace(query_id: str) -> dict[str, Any]:
+    """Retrieve a stored RAG answer trace by query_id.
+
+    Returns the full trace including classification, risk assessment, evidence
+    doc_ids, answer text, citation counts, and latency. Useful for debugging
+    answer quality or auditing AI-generated responses.
+
+    Args:
+      query_id: UUID returned in the query_id field of a previous gabi_answer call
+    """
+    import sys
+
+    sys.path.insert(0, "/workspace")
+
+    from src.backend.answering.ledger import get_trace
+
+    trace = get_trace(query_id)
+    if trace is None:
+        return {"found": False, "query_id": query_id}
+    return {"found": True, "trace": trace}
+
+
+# ---------------------------------------------------------------------------
 # MCP registration
 # ---------------------------------------------------------------------------
 
@@ -5500,7 +5569,6 @@ if FastMCP is not None:
         ),
         transport_security=_build_mcp_transport_security(),
     )
-    import pprint
 
     mcp.tool()(es_search)
     mcp.tool()(es_search_basic)
@@ -5523,6 +5591,8 @@ if FastMCP is not None:
     mcp.tool()(es_parent_expand)
     mcp.tool()(es_evidence_bundle)
     mcp.tool()(es_audit_query)
+    mcp.tool()(gabi_answer)
+    mcp.tool()(gabi_answer_trace)
 else:
     mcp = None
 

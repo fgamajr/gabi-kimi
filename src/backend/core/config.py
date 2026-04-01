@@ -89,6 +89,13 @@ class Settings(BaseSettings):
     EDITORIAL_LLM_MODEL: str = "claude-sonnet-4-20250514"
     EDITORIAL_LOOKBACK_DAYS: int = 7
 
+    # RAG answer pipeline
+    RAG_ENABLED: bool = False
+    RAG_MODEL: str = "claude-sonnet-4-20250514"
+    RAG_MAX_CONTEXT_CHARS: int = 80000
+    RAG_TIMEOUT: float = 30.0
+    RAG_MAX_EVIDENCE_CHUNKS: int = 15
+
     # SEO
     SPA_DIST_DIR: str = "/shared/dist"
     SITE_URL: str = "https://gabidou.top"

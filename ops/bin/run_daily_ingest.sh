@@ -32,13 +32,25 @@ log "Starting rolling ingest window (${rolling_window_days} days)"
 cd "${repo_root}"
 docker compose -f "${compose_file}" up -d mongo elasticsearch backend >>"${log_file}" 2>&1
 
-while read -r target_date; do
-  log "INLABS daily sync date=${target_date}"
-  docker compose -f "${compose_file}" exec -T backend \
-    python -m src.backend.ingest.inlabs_daily --date "${target_date}" --skip-counts >>"${log_file}" 2>&1 || log "DOU sync failed for ${target_date} (non-fatal)"
-done < <(collect_dates)
+# Ensure a working Webshare proxy is set before DOU sync
+log "Checking/updating INLABS proxy..."
+"${script_dir}/update_proxy.sh" "/home/gabi/webshare_proxies.txt" "${repo_root}/.env" >>"${log_file}" 2>&1 || log "Proxy update failed — will proceed with existing INLABS_PROXY (non-fatal)"
 
-log "Rolling DOU ingest completed"
+inlabs_reachable() {
+  curl -sf --max-time 10 --proxy "$(grep -oP '(?<=INLABS_PROXY=).+' "${repo_root}/.env" || true)" \
+    "https://acesso.imprensanacional.gov.br/cas/login" -o /dev/null 2>/dev/null
+}
+
+if inlabs_reachable; then
+  while read -r target_date; do
+    log "INLABS daily sync date=${target_date}"
+    docker compose -f "${compose_file}" exec -T backend \
+      python -m src.backend.ingest.inlabs_daily --date "${target_date}" --skip-counts >>"${log_file}" 2>&1 || log "DOU sync failed for ${target_date} (non-fatal)"
+  done < <(collect_dates)
+  log "Rolling DOU ingest completed"
+else
+  log "INLABS unreachable — skipping DOU sync, proceeding to TCU"
+fi
 
 # ── TCU sync: acórdãos (current year) + súmulas/jurisprudência ──
 log "TCU sync: re-ingesting current year acórdãos..."
@@ -87,6 +99,6 @@ docker compose -f "${compose_file}" exec -T backend \
   python -m src.backend.ingest.es_indexer sync >>"${log_file}" 2>&1 || log "ES sync failed before homepage refresh (non-fatal)"
 
 log "Refreshing homepage caches (trending + editorial)..."
-"${script_dir}/update_homepage_cache.sh" >>"${log_file}" 2>&1 || log "Homepage cache refresh failed (non-fatal)"
+bash "${script_dir}/update_homepage_cache.sh" >>"${log_file}" 2>&1 || log "Homepage cache refresh failed (non-fatal)"
 
 log "All daily ingest completed"

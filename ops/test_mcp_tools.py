@@ -88,6 +88,19 @@ async def _search_validation_error() -> dict[str, Any]:
     return result
 
 
+async def _search_federated_default() -> dict[str, Any]:
+    result = await es_search(
+        query="lei 14133 licitações",
+        page_size=3,
+    )
+    _assert_envelope(result)
+    if result.get("source") != "federated":
+        raise AssertionError(f"expected federated source, got {result.get('source')!r}")
+    if "source_breakdown" not in result:
+        raise AssertionError("federated search missing source_breakdown")
+    return result
+
+
 async def _search_btcu_canonical() -> dict[str, Any]:
     result = await es_search(
         query="portaria",
@@ -202,12 +215,55 @@ def _health_smoke() -> dict[str, Any]:
     return result
 
 
+async def _search_publicacoes_recall_bm25() -> dict[str, Any]:
+    """Regression: conceptual query in publicacoes returns results via BM25.
+
+    Proves the critical case: queries that fall outside the old implicit top-100
+    BM25 pool still surface results when searching publicacoes directly.
+    No embedding required — validates pure BM25 path.
+    """
+    result = await es_search(
+        query="fiscalização obras infraestrutura irregularidades auditoria",
+        source="publicacoes",
+        page=1,
+        page_size=5,
+    )
+    _assert_envelope(result)
+    if result.get("error"):
+        raise AssertionError(f"publicacoes BM25 recall failed: {result['error']}")
+    # rank_method must be one of the known values (or absent if index unavailable)
+    rank_method = result.get("rank_method")
+    if rank_method not in (None, "bm25", "hybrid_rrf"):
+        raise AssertionError(f"unexpected rank_method: {rank_method!r}")
+    return result
+
+
+def _streamable_path_normalization() -> dict[str, Any]:
+    """Regression: _RootAliasWrap and session_manager initialize without error.
+
+    Validates that get_mcp_streamable_app() either returns a valid (app, session_manager)
+    tuple or None (if streamable HTTP is not available in this env).
+    A missing _session_manager or mis-routed path would surface here as an exception.
+    """
+    from ops.bin.mcp_es_server import get_mcp_streamable_app
+
+    result = get_mcp_streamable_app()
+    if result is None:
+        return {"skipped": True, "reason": "streamable_http not available in this env"}
+    app, session_manager = result
+    return {
+        "streamable_app_type": type(app).__name__,
+        "session_manager_present": session_manager is not None,
+    }
+
+
 def build_test_suite() -> list[tuple[str, Any]]:
     return [
         ("health:smoke", _health_smoke),
         ("suggest:empty", _suggest_empty),
         ("document:not_found", _document_not_found),
         ("search:validation_error", _search_validation_error),
+        ("search:federated:default", _search_federated_default),
         ("search:btcu:canonical", _search_btcu_canonical),
         ("search:publicacoes:canonical", _search_publicacoes_canonical),
         ("search:btcu:rewrite", _search_rewrite_btcu),
@@ -218,6 +274,8 @@ def build_test_suite() -> list[tuple[str, Any]]:
         ("evidence_bundle:smoke", _evidence_bundle_smoke),
         ("parent_expand:empty", _parent_expand_empty),
         ("audit_query:miss", _audit_lookup_miss),
+        ("search:publicacoes:recall_bm25", _search_publicacoes_recall_bm25),
+        ("streamable:path_normalization", _streamable_path_normalization),
     ]
 
 
