@@ -193,7 +193,10 @@ services:
       - internal
 
   qwen-embed:
-    image: michaelf/infinity:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.qwen-embed
+    image: gabi-kimi-qwen-embed
     container_name: gabi-kimi-qwen-embed
     restart: unless-stopped
     command: >
