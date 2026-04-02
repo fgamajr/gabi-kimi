@@ -7,6 +7,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && \
 RUN pip install --no-cache-dir \
     torch==2.3.0+cpu \
     --index-url https://download.pytorch.org/whl/cpu
-RUN pip install --no-cache-dir "infinity-emb[torch,server]" "typer==0.9.4"
+RUN pip install --no-cache-dir "infinity-emb[torch,server]" "typer==0.9.4" "click<8.2"
 
 ENTRYPOINT ["infinity_emb"]
