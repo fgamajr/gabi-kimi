@@ -194,6 +194,28 @@ docker compose exec backend python -m src.backend.ingest.es_indexer backfill
 docker compose exec backend python -m src.backend.ingest.es_indexer stats
 ```
 
+### Search Baseline (S0-1)
+
+Run the search-only baseline against `/api/search` and write a versioned JSON artifact:
+
+```bash
+python3 ops/baseline_search.py --base-url http://localhost:8001
+```
+
+Inputs and output:
+- Query set: `ops/baselines/queries_v1.json`
+- Output file: `ops/baselines/baseline_YYYYMMDD_<commit>.json`
+
+Baseline JSON schema (minimum):
+- `timestamp`, `commit`, `api_base`, `query_set_id`, `runs`
+- `summary` with `latency_ms_p50`, `latency_ms_p95`, `error_rate`, `empty_rate`
+- `summary.results_count_histogram` and `summary.total_histogram`
+- `per_query` aggregated stats
+
+Exit behavior:
+- Returns `0` when all samples succeed
+- Returns non-zero when any query/run fails (still writes the JSON report)
+
 ## Server Crons
 
 | Schedule | Task |

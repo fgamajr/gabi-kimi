@@ -1,0 +1,226 @@
+{
+  "timestamp": "2026-04-02T01:30:36.139919+00:00",
+  "commit": "04f6babe",
+  "env": "local",
+  "api_base": "https://gabidou.top",
+  "query_set_id": "queries_v1_search_core",
+  "runs": 1,
+  "summary": {
+    "sample_count": 10,
+    "ok_count": 10,
+    "error_count": 0,
+    "latency_ms_p50": 1746.601,
+    "latency_ms_p95": 2960.167,
+    "error_rate": 0.0,
+    "empty_rate": 0.0,
+    "results_count_histogram": {
+      "4-10": 10
+    },
+    "total_histogram": {
+      "201+": 9,
+      "51-200": 1
+    }
+  },
+  "per_query": [
+    {
+      "query": "LGPD",
+      "runs": 1,
+      "summary": {
+        "sample_count": 1,
+        "ok_count": 1,
+        "error_count": 0,
+        "latency_ms_p50": 1700.206,
+        "latency_ms_p95": 1700.206,
+        "error_rate": 0.0,
+        "empty_rate": 0.0,
+        "results_count_histogram": {
+          "4-10": 1
+        },
+        "total_histogram": {
+          "201+": 1
+        },
+        "avg_took_ms": 84.0
+      }
+    },
+    {
+      "query": "Lei 14.133",
+      "runs": 1,
+      "summary": {
+        "sample_count": 1,
+        "ok_count": 1,
+        "error_count": 0,
+        "latency_ms_p50": 1480.758,
+        "latency_ms_p95": 1480.758,
+        "error_rate": 0.0,
+        "empty_rate": 0.0,
+        "results_count_histogram": {
+          "4-10": 1
+        },
+        "total_histogram": {
+          "51-200": 1
+        },
+        "avg_took_ms": 17.0
+      }
+    },
+    {
+      "query": "Fernando Gama",
+      "runs": 1,
+      "summary": {
+        "sample_count": 1,
+        "ok_count": 1,
+        "error_count": 0,
+        "latency_ms_p50": 1590.079,
+        "latency_ms_p95": 1590.079,
+        "error_rate": 0.0,
+        "empty_rate": 0.0,
+        "results_count_histogram": {
+          "4-10": 1
+        },
+        "total_histogram": {
+          "201+": 1
+        },
+        "avg_took_ms": 33.0
+      }
+    },
+    {
+      "query": "concurso público ministério da saúde",
+      "runs": 1,
+      "summary": {
+        "sample_count": 1,
+        "ok_count": 1,
+        "error_count": 0,
+        "latency_ms_p50": 1598.793,
+        "latency_ms_p95": 1598.793,
+        "error_rate": 0.0,
+        "empty_rate": 0.0,
+        "results_count_histogram": {
+          "4-10": 1
+        },
+        "total_histogram": {
+          "201+": 1
+        },
+        "avg_took_ms": 158.0
+      }
+    },
+    {
+      "query": "dispensa de licitação emergência",
+      "runs": 1,
+      "summary": {
+        "sample_count": 1,
+        "ok_count": 1,
+        "error_count": 0,
+        "latency_ms_p50": 2964.584,
+        "latency_ms_p95": 2964.584,
+        "error_rate": 0.0,
+        "empty_rate": 0.0,
+        "results_count_histogram": {
+          "4-10": 1
+        },
+        "total_histogram": {
+          "201+": 1
+        },
+        "avg_took_ms": 1277.0
+      }
+    },
+    {
+      "query": "acórdão TCU fraude licitação",
+      "runs": 1,
+      "summary": {
+        "sample_count": 1,
+        "ok_count": 1,
+        "error_count": 0,
+        "latency_ms_p50": 2954.769,
+        "latency_ms_p95": 2954.769,
+        "error_rate": 0.0,
+        "empty_rate": 0.0,
+        "results_count_histogram": {
+          "4-10": 1
+        },
+        "total_histogram": {
+          "201+": 1
+        },
+        "avg_took_ms": 1233.0
+      }
+    },
+    {
+      "query": "resolução anpd",
+      "runs": 1,
+      "summary": {
+        "sample_count": 1,
+        "ok_count": 1,
+        "error_count": 0,
+        "latency_ms_p50": 1458.098,
+        "latency_ms_p95": 1458.098,
+        "error_rate": 0.0,
+        "empty_rate": 0.0,
+        "results_count_histogram": {
+          "4-10": 1
+        },
+        "total_histogram": {
+          "201+": 1
+        },
+        "avg_took_ms": 67.0
+      }
+    },
+    {
+      "query": "medida provisória 2024",
+      "runs": 1,
+      "summary": {
+        "sample_count": 1,
+        "ok_count": 1,
+        "error_count": 0,
+        "latency_ms_p50": 2167.106,
+        "latency_ms_p95": 2167.106,
+        "error_rate": 0.0,
+        "empty_rate": 0.0,
+        "results_count_histogram": {
+          "4-10": 1
+        },
+        "total_histogram": {
+          "201+": 1
+        },
+        "avg_took_ms": 462.0
+      }
+    },
+    {
+      "query": "pregão eletrônico",
+      "runs": 1,
+      "summary": {
+        "sample_count": 1,
+        "ok_count": 1,
+        "error_count": 0,
+        "latency_ms_p50": 1803.591,
+        "latency_ms_p95": 1803.591,
+        "error_rate": 0.0,
+        "empty_rate": 0.0,
+        "results_count_histogram": {
+          "4-10": 1
+        },
+        "total_histogram": {
+          "201+": 1
+        },
+        "avg_took_ms": 361.0
+      }
+    },
+    {
+      "query": "nomeação seção 2",
+      "runs": 1,
+      "summary": {
+        "sample_count": 1,
+        "ok_count": 1,
+        "error_count": 0,
+        "latency_ms_p50": 1792.996,
+        "latency_ms_p95": 1792.996,
+        "error_rate": 0.0,
+        "empty_rate": 0.0,
+        "results_count_histogram": {
+          "4-10": 1
+        },
+        "total_histogram": {
+          "201+": 1
+        },
+        "avg_took_ms": 259.0
+      }
+    }
+  ]
+}
