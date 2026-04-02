@@ -3,10 +3,16 @@ FROM python:3.11-slim
 RUN apt-get update && apt-get install -y --no-install-recommends curl && \
     rm -rf /var/lib/apt/lists/*
 
-# torch CPU-only wheel (~240 MB) + infinity-emb
+# torch CPU-only wheel + sentence-transformers (pulls transformers>=4.51 for Qwen3)
 RUN pip install --no-cache-dir \
     torch==2.3.0+cpu \
     --index-url https://download.pytorch.org/whl/cpu
-RUN pip install --no-cache-dir "infinity-emb[torch,server,optimum]" "optimum<1.20" "typer==0.9.4" "click<8.2"
+RUN pip install --no-cache-dir \
+    "sentence-transformers>=3.0" \
+    "fastapi>=0.111" \
+    "uvicorn[standard]>=0.29" \
+    "pydantic>=2.0"
 
-ENTRYPOINT ["infinity_emb"]
+COPY ops/qwen_embed_server.py /app/server.py
+
+CMD ["python", "/app/server.py"]

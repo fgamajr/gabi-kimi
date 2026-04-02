@@ -199,14 +199,11 @@ services:
     image: gabi-kimi-qwen-embed
     container_name: gabi-kimi-qwen-embed
     restart: unless-stopped
-    command: >
-      v2
-      --model-id Qwen/Qwen3-Embedding-0.6B
-      --served-model-name qwen3-embedding
-      --port 8900
-      --engine torch
     environment:
       HF_HOME: /app/hf_cache
+      QWEN_MODEL_ID: Qwen/Qwen3-Embedding-0.6B
+      QWEN_SERVED_MODEL_NAME: qwen3-embedding
+      QWEN_PORT: "8900"
     volumes:
       - ${GABI_HOST_DATA_ROOT:-/mnt/HC_Volume_105154890}/qwen_models:/app/hf_cache
     expose:
