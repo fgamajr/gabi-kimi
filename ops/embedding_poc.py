@@ -254,17 +254,18 @@ def _fetch_es_sample(
 def _call_qwen_embed(
     client: httpx.Client, url: str, texts: list[str], dims: int
 ) -> tuple[list[list[float]], float]:
-    """Call Qwen3-Embedding server. Returns (embeddings, latency_ms)."""
+    """Call Qwen3-Embedding via infinity-emb (OpenAI-compatible). Returns (embeddings, latency_ms)."""
     t0 = time.perf_counter()
     resp = client.post(
-        f"{url}/embed",
-        json={"texts": texts, "dimensions": dims},
+        f"{url}/v1/embeddings",
+        json={"input": texts, "model": "qwen3-embedding", "dimensions": dims},
         timeout=120,
     )
     resp.raise_for_status()
     data = resp.json()
     latency_ms = (time.perf_counter() - t0) * 1000
-    return data["embeddings"], latency_ms
+    embeddings = [item["embedding"] for item in sorted(data["data"], key=lambda x: x["index"])]
+    return embeddings, latency_ms
 
 
 def _call_gemini_embed(
@@ -274,17 +275,21 @@ def _call_gemini_embed(
     t0 = time.perf_counter()
     embeddings: list[list[float]] = []
     for text in texts:
-        payload = {
-            "content": {"role": "user", "parts": [{"text": text}]},
-        }
-        resp = client.post(
-            f"{base_url}/models/{model}:embedContent?key={api_key}",
-            json=payload,
-            timeout=60,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        emb = data.get("embedding", {}).get("values", [])
+        payload = {"content": {"role": "user", "parts": [{"text": text}]}}
+        emb: list[float] = []
+        for attempt in range(1, 6):
+            resp = client.post(
+                f"{base_url}/models/{model}:embedContent?key={api_key}",
+                json=payload,
+                timeout=60,
+            )
+            if resp.status_code in {429, 500, 502, 503, 504} and attempt < 5:
+                time.sleep(min(20, 2**attempt))
+                continue
+            resp.raise_for_status()
+            data = resp.json()
+            emb = data.get("embedding", {}).get("values", [])
+            break
         embeddings.append(emb)
     latency_ms = (time.perf_counter() - t0) * 1000
     return embeddings, latency_ms
@@ -296,20 +301,32 @@ def _call_gemini_embed(
 
 
 def _bm25_topk(
-    client: httpx.Client, es_url: str, index: str, query: str, k: int = 10
+    client: httpx.Client,
+    es_url: str,
+    index: str,
+    query: str,
+    k: int = 10,
+    allowed_ids: list[str] | None = None,
 ) -> list[str]:
     """Return top-K doc_ids by BM25 for a given query."""
     try:
-        resp = client.post(
-            f"{es_url}/{index}/_search",
-            json={
-                "size": k,
-                "query": {
+        bool_query: dict[str, Any] = {
+            "must": [
+                {
                     "multi_match": {
                         "query": query,
                         "fields": ["identifica^3", "ementa^2", "body_plain"],
                     }
-                },
+                }
+            ]
+        }
+        if allowed_ids:
+            bool_query["filter"] = [{"ids": {"values": allowed_ids}}]
+        resp = client.post(
+            f"{es_url}/{index}/_search",
+            json={
+                "size": k,
+                "query": {"bool": bool_query},
                 "_source": False,
             },
             timeout=30,
@@ -405,17 +422,21 @@ def main() -> int:
 
         # Build text list
         all_texts: list[tuple[str, str]] = []  # (doc_id, text)
+        sampled_dou_ids: list[str] = []
+        sampled_tcu_ids: list[str] = []
         for doc in dou_docs:
             text = _build_doc_text(doc, cfg.char_limit)
             if text:
                 doc_id = str(doc.get("__doc_id") or "").strip()
                 if doc_id:
+                    sampled_dou_ids.append(doc_id)
                     all_texts.append((f"dou:{doc_id}", text))
         for doc in tcu_docs:
             text = _build_doc_text(doc, cfg.char_limit)
             if text:
                 doc_id = str(doc.get("__doc_id") or "").strip()
                 if doc_id:
+                    sampled_tcu_ids.append(doc_id)
                     all_texts.append((f"tcu:{doc_id}", text))
 
         if len(all_texts) < 10:
@@ -472,8 +493,25 @@ def main() -> int:
         results: list[QueryResult] = []
 
         for query in cfg.queries:
-            bm25_ids = _bm25_topk(client, cfg.es_url, cfg.es_dou_index, query, k=10)
-            bm25_ids += _bm25_topk(client, cfg.es_url, cfg.es_tcu_index, query, k=10)
+            bm25_dou = _bm25_topk(
+                client,
+                cfg.es_url,
+                cfg.es_dou_index,
+                query,
+                k=10,
+                allowed_ids=sampled_dou_ids,
+            )
+            bm25_tcu = _bm25_topk(
+                client,
+                cfg.es_url,
+                cfg.es_tcu_index,
+                query,
+                k=10,
+                allowed_ids=sampled_tcu_ids,
+            )
+            bm25_ids = [f"dou:{doc_id}" for doc_id in bm25_dou] + [
+                f"tcu:{doc_id}" for doc_id in bm25_tcu
+            ]
 
             # Qwen3 recall
             if qwen_embs and bm25_ids:

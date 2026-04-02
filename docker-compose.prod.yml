@@ -74,6 +74,8 @@ services:
       GABI_EXPOSE_API_DOCS: ${GABI_EXPOSE_API_DOCS:-false}
       GABI_PUBLIC_HEALTH_DETAILS: ${GABI_PUBLIC_HEALTH_DETAILS:-false}
       RERANKER_URL: ${RERANKER_URL:-http://reranker:8902}
+      EMBED_SERVER_URL: ${EMBED_SERVER_URL:-http://qwen-embed:8900}
+      EMBED_DIMS: ${EMBED_DIMS:-384}
       # RAG / answering (see docs/RAG_14DAY_RUNBOOK.md — set RAG_ENABLED=true in server .env)
       RAG_ENABLED: ${RAG_ENABLED:-false}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -189,6 +191,33 @@ services:
     networks:
       - edge
       - internal
+
+  qwen-embed:
+    image: michaelf/infinity:latest
+    container_name: gabi-kimi-qwen-embed
+    restart: unless-stopped
+    command: >
+      v2
+      --model-name-or-path Qwen/Qwen3-Embedding-0.6B
+      --served-model-name qwen3-embedding
+      --port 8900
+      --engine torch
+    environment:
+      HF_HOME: /app/hf_cache
+    volumes:
+      - ${GABI_HOST_DATA_ROOT:-/mnt/HC_Volume_105154890}/qwen_models:/app/hf_cache
+    expose:
+      - "8900"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8900/health >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 180s
+    networks:
+      - internal
+    profiles:
+      - embedding
 
   reranker:
     build:
