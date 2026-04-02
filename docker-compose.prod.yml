@@ -201,7 +201,7 @@ services:
     restart: unless-stopped
     command: >
       v2
-      --model-name-or-path Qwen/Qwen3-Embedding-0.6B
+      --model-id Qwen/Qwen3-Embedding-0.6B
       --served-model-name qwen3-embedding
       --port 8900
       --engine torch
