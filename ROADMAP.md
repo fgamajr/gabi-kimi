@@ -433,9 +433,37 @@ POSTGRES_DSN=postgresql://user:pass@postgres:5432/gabi
 
 ## How to Resume in a New Session
 
-1. Read this file (`ROADMAP.md`) first — complete plan is here.
-2. Check memory files at `~/.claude/projects/-Users-fgamajr-dev-gabi-kimi/memory/` for additional context (user profile, prod deployment notes, MCP config, etc).
-3. Current state: Sprint 0, all changes committed on `main`, pushed to GitHub.
-4. **Next action: Sprint 1** — add Postgres+pgvector to `docker-compose.prod.yml`, write DDL, write `ops/etl_mongo_to_postgres.py`.
+1. Read this file (`ROADMAP.md`) — it is the single source of truth.
+2. Read `AGENTS.md` and `CLAUDE.md` for build commands, code style, and infra details.
+3. All changes are committed on `main` and pushed to GitHub.
 
-**Trigger phrase for next session:** "Vamos começar o Sprint 1 do ROADMAP — DDL do schema raw no Postgres e script de ETL."
+---
+
+## Handover Prompt for Next Session
+
+Copy and paste this as the opening message of a new chat:
+
+---
+
+> Você vai trabalhar no projeto **GABI** — uma plataforma de busca full-text para o Diário Oficial da União (DOU) do Brasil (~16M documentos, 2002–2026) e jurisprudência do TCU (~520K acórdãos). O projeto roda em produção em gabidou.top, hospedado em Hetzner CPX42 (8 vCPU / 16GB RAM). Stack: Python 3.12, FastAPI, MongoDB 7, Elasticsearch 8.15.4, Docker Compose.
+>
+> **Problema atual:** o sistema tem dois pipelines de embedding incompatíveis e mal feitos — DOU usa Qwen3 384-dim rodando apenas em Apple Silicon (MLX), TCU usa OpenAI 1536-dim. Ambos gravam vetores no Elasticsearch (target errado). O parsing atual é básico: concatenação de campos + strip HTML + truncate em 2000 chars. Esse texto plano não é adequado para leitura por LLMs nem para retrieval semântico de qualidade.
+>
+> **Para onde queremos ir:** substituir toda a stack de RAG por uma arquitetura limpa em 5 sprints:
+> 1. **Raw Archive** — ETL fiel MongoDB → Postgres sem transformação, com hash de integridade real (SHA256 do conteúdo raw, não do texto processado). Destruir o MongoDB após validação.
+> 2. **Parsers source-dependent** — um parser por tipo de documento, produzindo texto estruturado com tags XML semânticas (`<RELATORIO>`, `<VOTO>`, `<ACORDAO>`, `<EMENTA>`, `<OBJETO>`, etc.). DOU tem ~5 clusters de tipos (extratos contratuais, normativos, licitação, resultado, genérico). TCU tem acórdão completo vs por relação.
+> 3. **LLM Enrichment** — geração assíncrona de `<RESUMO>` por LLM local para documentos elegíveis, armazenado como chunk separado com versão do modelo.
+> 4. **Embeddings + pgvector + ES v4** — Gemini `gemini-embedding-2-preview` (dims=3072), pgvector ivfflat, novo índice ES lexical-only, Query Tool v2 com RRF.
+> 5. **Cutover + Cleanup** — shadow queries, rollback criterion, remoção do legado.
+>
+> **Discussões-chave já resolvidas:**
+> - Não migrar com parser embutido no ETL — o ETL copia raw e o parser roda depois. Isso permite iterar nos parsers sem re-ETL.
+> - O `content_hash` existente no MongoDB é SHA256 do texto *processado*, não do HTML raw. O hash de integridade real precisa ser computado durante o ETL a partir de `content_html` (DOU) e `acordao_texto` (TCU).
+> - TCU não tem `content_html` — veio de CSV. `acordao_texto` é o raw disponível. Para qualidade maior nos acórdãos, pode ser necessário re-ingerir dos CSVs originais no futuro.
+> - A abordagem de tags XML (`<VOTO></VOTO>`) foi escolhida deliberadamente para orientar a leitura do LLM e melhorar o retrieval por seção.
+>
+> **Estado atual:** Sprint 0 concluído. `ROADMAP.md` contém o plano completo com DDL, interface de parsers, clusters DOU com volumes reais, campos reais do MongoDB para DOU (80 campos) e TCU (68 campos). Tudo commitado em `main`.
+>
+> **Sua missão agora é o Sprint 1:** adicionar o serviço Postgres+pgvector ao `docker-compose.prod.yml`, criar o DDL do schema `raw` no Postgres, e escrever o script `ops/etl_mongo_to_postgres.py` (cursor-based, idempotente, com validação de paridade e spot-check de hashes). Leia o `ROADMAP.md` completo antes de começar — ele tem o DDL esperado, os campos relevantes de cada coleção MongoDB, e os gates de validação antes de destruir o Mongo.
+
+---
