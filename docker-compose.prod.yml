@@ -218,6 +218,7 @@ services:
       retries: 20
       start_period: 180s
     networks:
+      - edge
       - internal
     profiles:
       - embedding
