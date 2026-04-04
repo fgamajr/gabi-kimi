@@ -80,13 +80,11 @@ def ensure_schema(conn: Any) -> None:
             );
 
             CREATE INDEX IF NOT EXISTS ix_raw_tcu_acordaos_tipo ON raw.tcu_acordaos (tipo);
-            CREATE INDEX IF NOT EXISTS ix_raw_tcu_acordaos_source_type ON raw.tcu_acordaos (source_type);
             CREATE INDEX IF NOT EXISTS ix_raw_tcu_acordaos_data_sessao ON raw.tcu_acordaos (data_sessao);
-            CREATE INDEX IF NOT EXISTS ix_raw_tcu_acordaos_area ON raw.tcu_acordaos (area);
             """
         )
 
-        # Migrate existing table: add missing columns if they don't exist yet
+        # Add new columns to pre-existing table (no-op if already present)
         new_cols = [
             ("source_type", "TEXT"),
             ("relator", "TEXT"),
@@ -101,15 +99,12 @@ def ensure_schema(conn: Any) -> None:
         ]
         for col, coltype in new_cols:
             cur.execute(
-                """
-                ALTER TABLE raw.tcu_acordaos ADD COLUMN IF NOT EXISTS %s %s;
-                """ % (col, coltype)  # noqa: S608 – column names are hardcoded above, not user input
+                "ALTER TABLE raw.tcu_acordaos ADD COLUMN IF NOT EXISTS %s %s;" % (col, coltype)  # noqa: S608
             )
+        # Indexes for new columns — created after columns exist
         for idx_col in ("source_type", "area"):
             cur.execute(
-                """
-                CREATE INDEX IF NOT EXISTS ix_raw_tcu_acordaos_%s ON raw.tcu_acordaos (%s);
-                """ % (idx_col, idx_col)  # noqa: S608
+                "CREATE INDEX IF NOT EXISTS ix_raw_tcu_acordaos_%s ON raw.tcu_acordaos (%s);" % (idx_col, idx_col)  # noqa: S608
             )
     conn.commit()
 
