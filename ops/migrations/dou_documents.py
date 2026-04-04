@@ -4,6 +4,8 @@ import json
 import time
 from typing import Any
 
+from bson import ObjectId
+
 from ops.migrations._common import (
     clamp_spot_check_size,
     count_postgres,
@@ -38,9 +40,7 @@ def ensure_schema(conn: Any) -> None:
             CREATE INDEX IF NOT EXISTS ix_raw_dou_documents_art_type ON raw.dou_documents (art_type);
             CREATE INDEX IF NOT EXISTS ix_raw_dou_documents_raw_html_hash ON raw.dou_documents (raw_html_hash);
             """
-            from bson import ObjectId
-        )
-            from ops.migrations._common import (
+            )
 
 
 def _build_row(document: dict[str, Any]) -> tuple[str, Any, Any, Any, Any, Any, str, str] | None:

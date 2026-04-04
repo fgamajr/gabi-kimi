@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-from bson import ObjectId
-
 import time
 from datetime import date
 from typing import Any
+
+from bson import ObjectId
 
 from ops.migrations._common import (
     clamp_spot_check_size,
