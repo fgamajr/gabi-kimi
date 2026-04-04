@@ -213,7 +213,7 @@ def run(
         return
 
     mongo_collection = mongo_db[spec.mongo_name]
-    source_count = mongo_collection.count_documents({})
+    source_count = mongo_collection.estimated_document_count()
     effective_source_count = min(source_count, limit) if limit is not None else source_count
     print(f"[{spec.name}] source_count={source_count} effective={effective_source_count}")
 

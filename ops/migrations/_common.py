@@ -223,7 +223,7 @@ def run_simple_raw_collection(
         return
 
     mongo_collection = mongo_db[collection_name]
-    source_count = mongo_collection.count_documents({})
+    source_count = mongo_collection.estimated_document_count()
     effective_source_count = min(source_count, limit) if limit is not None else source_count
     print(f"[{collection_name}] source_count={source_count} effective={effective_source_count}")
 
