@@ -5,6 +5,9 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     MONGO_STRING: str = "mongodb://mongo:27017/gabi_dou"
     DB_NAME: str = "gabi_dou"
+    POSTGRES_URL: str = "postgresql://gabi:gabi@postgres:5432/gabi"
+    POSTGRES_DB: str = "gabi"
+    POSTGRES_USER: str = "gabi"
     DOU_DATA_PATH: Optional[str] = "/data/gabi_dou"
     ICLOUD_DATA_PATH: Optional[str] = "/data/gabi_dou"
     PIPELINE_TMP: str = "/data/gabi_dou/pipeline"

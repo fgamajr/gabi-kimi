@@ -1,4 +1,27 @@
 services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: gabi-kimi-postgres
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-gabi}
+      POSTGRES_USER: ${POSTGRES_USER:-gabi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gabi}
+    volumes:
+      - ${GABI_HOST_DATA_ROOT:-/mnt/HC_Volume_105154890}/postgres_data:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - internal
+
   mongo:
     image: mongo:7
     container_name: gabi-kimi-mongo
@@ -54,6 +77,8 @@ services:
     container_name: gabi-kimi-backend
     restart: unless-stopped
     depends_on:
+      postgres:
+        condition: service_healthy
       mongo:
         condition: service_healthy
       elasticsearch:
@@ -65,6 +90,7 @@ services:
       PYTHONPATH: /opt/app
       MONGO_STRING: ${MONGO_STRING}
       DB_NAME: ${DB_NAME:-gabi_dou}
+      POSTGRES_URL: ${POSTGRES_URL:-postgresql://gabi:gabi@postgres:5432/gabi}
       ES_URL: ${ES_URL:-http://elasticsearch:9200}
       ES_INDEX: ${ES_INDEX:-gabi_documents_v3}
       ES_ALIAS: ${ES_ALIAS:-gabi_documents}
@@ -106,6 +132,8 @@ services:
     container_name: gabi-kimi-worker
     restart: unless-stopped
     depends_on:
+      postgres:
+        condition: service_healthy
       mongo:
         condition: service_healthy
       elasticsearch:
@@ -116,6 +144,7 @@ services:
       PYTHONPATH: /opt/app
       MONGO_STRING: ${MONGO_STRING}
       DB_NAME: ${DB_NAME:-gabi_dou}
+      POSTGRES_URL: ${POSTGRES_URL:-postgresql://gabi:gabi@postgres:5432/gabi}
       ES_URL: ${ES_URL:-http://elasticsearch:9200}
       ES_INDEX: ${ES_INDEX:-gabi_documents_v3}
       ES_ALIAS: ${ES_ALIAS:-gabi_documents}

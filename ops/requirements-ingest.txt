@@ -1,4 +1,5 @@
 pymongo
+psycopg[binary]
 pydantic-settings
 python-dotenv
 lxml

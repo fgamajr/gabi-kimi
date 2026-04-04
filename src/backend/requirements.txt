@@ -1,6 +1,7 @@
 fastapi
 uvicorn[standard]
 pymongo
+psycopg[binary]
 pydantic-settings
 python-dotenv
 mcp
