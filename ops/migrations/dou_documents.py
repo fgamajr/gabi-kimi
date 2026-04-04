@@ -38,8 +38,9 @@ def ensure_schema(conn: Any) -> None:
             CREATE INDEX IF NOT EXISTS ix_raw_dou_documents_art_type ON raw.dou_documents (art_type);
             CREATE INDEX IF NOT EXISTS ix_raw_dou_documents_raw_html_hash ON raw.dou_documents (raw_html_hash);
             """
+            from bson import ObjectId
         )
-    conn.commit()
+            from ops.migrations._common import (
 
 
 def _build_row(document: dict[str, Any]) -> tuple[str, Any, Any, Any, Any, Any, str, str] | None:
@@ -99,25 +100,42 @@ def _spot_check_hashes(mongo_collection: Any, conn: Any, sample_size: int) -> tu
     if sample_size <= 0:
         return 0, 0
 
-    sampled_docs = list(mongo_collection.aggregate([{"$sample": {"size": sample_size}}]))
-    checked = 0
-    errors = 0
+        # Sample from Postgres to guarantee we only verify rows that were actually migrated.
+        # (Sampling from Mongo would yield rows not yet in Postgres when --limit is used.)
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, raw_html_hash FROM raw.dou_documents ORDER BY random() LIMIT %s",
+                (sample_size,),
+            )
+            pg_rows: dict[str, str] = {row[0]: row[1] for row in cur.fetchall()}
 
-    with conn.cursor() as cur:
-        for document in sampled_docs:
+        if not pg_rows:
+            return 0, 0
+
+        oid_list: list[Any] = []
+        for id_str in pg_rows:
+            try:
+                oid_list.append(ObjectId(id_str))
+            except Exception:
+                pass
+
+        if not oid_list:
+            return 0, 0
+
+        checked = 0
+        errors = 0
+        for document in mongo_collection.find({"_id": {"$in": oid_list}}):
             doc_id = str(document.get("_id", "")).strip()
             if not doc_id:
                 continue
-
             content_html = document.get("content_html") if isinstance(document.get("content_html"), str) else ""
             expected = sha256_text(content_html)
-            cur.execute("SELECT raw_html_hash FROM raw.dou_documents WHERE id = %s", (doc_id,))
-            row = cur.fetchone()
+            stored = pg_rows.get(doc_id)
             checked += 1
-            if not row or row[0] != expected:
+            if stored != expected:
                 errors += 1
 
-    return checked, errors
+        return checked, errors
 
 
 def run(

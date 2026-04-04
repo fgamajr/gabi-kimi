@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from bson import ObjectId
+
 import time
 from datetime import date
 from typing import Any
@@ -156,25 +158,41 @@ def _spot_check_hashes(mongo_collection: Any, conn: Any, sample_size: int) -> tu
     if sample_size <= 0:
         return 0, 0
 
-    sampled_docs = list(mongo_collection.aggregate([{"$sample": {"size": sample_size}}]))
-    checked = 0
-    errors = 0
+        # Sample from Postgres to guarantee we only verify rows that were actually migrated.
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, raw_text_hash FROM raw.tcu_acordaos ORDER BY random() LIMIT %s",
+                (sample_size,),
+            )
+            pg_rows: dict[str, str] = {row[0]: row[1] for row in cur.fetchall()}
 
-    with conn.cursor() as cur:
-        for document in sampled_docs:
+        if not pg_rows:
+            return 0, 0
+
+        oid_list: list[Any] = []
+        for id_str in pg_rows:
+            try:
+                oid_list.append(ObjectId(id_str))
+            except Exception:
+                pass
+
+        if not oid_list:
+            return 0, 0
+
+        checked = 0
+        errors = 0
+        for document in mongo_collection.find({"_id": {"$in": oid_list}}):
             doc_id = str(document.get("_id", "")).strip()
             if not doc_id:
                 continue
-
             acordao_texto = document.get("acordao_texto")
             expected = sha256_text(acordao_texto if isinstance(acordao_texto, str) else "")
-            cur.execute("SELECT raw_text_hash FROM raw.tcu_acordaos WHERE id = %s", (doc_id,))
-            row = cur.fetchone()
+            stored = pg_rows.get(doc_id)
             checked += 1
-            if not row or row[0] != expected:
+            if stored != expected:
                 errors += 1
 
-    return checked, errors
+        return checked, errors
 
 
 def run(
