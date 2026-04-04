@@ -36,8 +36,19 @@ def json_default(value: Any) -> Any:
     return str(value)
 
 
+def _strip_nullbytes(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.replace("\x00", "")
+    if isinstance(value, list):
+        return [_strip_nullbytes(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _strip_nullbytes(item) for key, item in value.items()}
+    return value
+
+
 def safe_json_payload(document: dict[str, Any]) -> dict[str, Any]:
-    return json.loads(json.dumps(document, default=json_default, ensure_ascii=False))
+    payload = json.loads(json.dumps(document, default=json_default, ensure_ascii=False))
+    return _strip_nullbytes(payload)
 
 
 def safe_bool(value: Any) -> bool | None:
