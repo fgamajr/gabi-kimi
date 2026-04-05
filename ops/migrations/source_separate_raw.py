@@ -188,11 +188,11 @@ COMMENT ON TABLE raw.tcu_publicacoes_raw IS 'TCU Publications (667). Books, jour
 # ============================================================================
 
 INSERT_STATEMENTS = {
-    # DOU: copy from existing raw.dou_documents
+    # DOU: copy from existing raw.dou_documents_raw_data
     "raw.dou_documents_raw": """
 INSERT INTO raw.dou_documents_raw (id, all_fields, source_type, dumped_at)
 SELECT id, all_fields, 'dou_documents', NOW()
-FROM raw.dou_documents
+FROM raw.dou_documents_raw_data
 ON CONFLICT (id) DO NOTHING;
 """,
 

@@ -38,7 +38,7 @@ DOU_DOCUMENTS = RawTableDef(
     table_name='raw.dou_documents_raw',
     row_count=15_853_837,
     origin='INLABS/Liferay (scraped)',
-    migrations_from=['raw.dou_documents'],  # Already exists; ensure compatibility
+    migrations_from=['raw.dou_documents_raw_data'],  # Already exists; ensure compatibility
     notes=(
         'DOU raw documents. All art_types mixed in one source. '
         'No splitting by art_type_normalized (that happens in parsing, Sprint 2).'
@@ -250,7 +250,7 @@ MIGRATION PLAN: Consolidate → Source-Separated (Sprint 2)
 ===========================================================
 
 Current State (Sprint 1 Complete):
-  - raw.dou_documents: 15.8M rows (typed + raw, already split-ready)
+  - raw.dou_documents_raw_data: 15.8M rows (typed + raw, already split-ready)
   - raw.tcu_acordaos: 547.5K rows (typed, two-family schema)
   - raw.tcu_acordaos_raw_data: 547.5K rows (7 CSV sources consolidated)
   - raw.tcu_btcu_raw_data: 223.5K rows (single source)
@@ -261,7 +261,7 @@ Target State (Sprint 2):
   11 source-separated raw tables + 11 independent typed materialization layers.
 
 Phase 1: Create New Raw Tables (non-destructive)
-  1. Create raw.dou_documents_raw (copy from raw.dou_documents)
+  1. Create raw.dou_documents_raw (copy from raw.dou_documents_raw_data)
   2. Create raw.tcu_acordao_completo_raw
   3. Create raw.tcu_jurisprudencia_selecionada_raw
   4. Create raw.tcu_resposta_consulta_raw
@@ -281,7 +281,7 @@ Phase 2: Split TCU CSV Sources
 
 Phase 3: Rename & Archive (post-validation)
   - Rename old tables to _archive suffix:
-    - raw.dou_documents → raw.dou_documents_archive
+    - raw.dou_documents_raw_data → raw.dou_documents_raw_data_archive
     - raw.tcu_acordaos_raw_data → raw.tcu_acordaos_raw_data_archive
     - raw.tcu_btcu_raw_data → raw.tcu_btcu_raw_data_archive
     - etc.

@@ -10,7 +10,7 @@ from typing import Any
 
 
 VALID_TABLES = {
-    "raw.dou_documents",
+    "raw.dou_documents_raw_data",
     "raw.tcu_acordaos_raw_data",
     "raw.tcu_acordaos",
     "raw.tcu_normas_raw_data",

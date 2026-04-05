@@ -17,14 +17,14 @@ from ops.migrations._common import (
 )
 
 
-RAW_TABLE = "raw.dou_documents"
+RAW_TABLE = "raw.dou_documents_raw_data"
 
 
 def ensure_schema(conn: Any) -> None:
     with conn.cursor() as cur:
         cur.execute(
             """
-            CREATE TABLE IF NOT EXISTS raw.dou_documents (
+            CREATE TABLE IF NOT EXISTS raw.dou_documents_raw_data (
                 id TEXT PRIMARY KEY,
                 pub_date DATE,
                 section TEXT,
@@ -36,9 +36,9 @@ def ensure_schema(conn: Any) -> None:
                 migrated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
 
-            CREATE INDEX IF NOT EXISTS ix_raw_dou_documents_pub_date ON raw.dou_documents (pub_date);
-            CREATE INDEX IF NOT EXISTS ix_raw_dou_documents_art_type ON raw.dou_documents (art_type);
-            CREATE INDEX IF NOT EXISTS ix_raw_dou_documents_raw_html_hash ON raw.dou_documents (raw_html_hash);
+            CREATE INDEX IF NOT EXISTS ix_raw_dou_documents_raw_data_pub_date ON raw.dou_documents_raw_data (pub_date);
+            CREATE INDEX IF NOT EXISTS ix_raw_dou_documents_raw_data_art_type ON raw.dou_documents_raw_data (art_type);
+            CREATE INDEX IF NOT EXISTS ix_raw_dou_documents_raw_data_raw_html_hash ON raw.dou_documents_raw_data (raw_html_hash);
             """
             )
 
@@ -76,7 +76,7 @@ def _insert_batch(conn: Any, batch: list[dict[str, Any]]) -> int:
     with conn.cursor() as cur:
         cur.executemany(
             """
-            INSERT INTO raw.dou_documents (
+            INSERT INTO raw.dou_documents_raw_data (
                 id,
                 pub_date,
                 section,
@@ -104,7 +104,7 @@ def _spot_check_hashes(mongo_collection: Any, conn: Any, sample_size: int) -> tu
     # (Sampling from Mongo would yield rows not yet in Postgres when --limit is used.)
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT id, raw_html_hash FROM raw.dou_documents ORDER BY random() LIMIT %s",
+            "SELECT id, raw_html_hash FROM raw.dou_documents_raw_data ORDER BY random() LIMIT %s",
             (sample_size,),
         )
         pg_rows: dict[str, str] = {row[0]: row[1] for row in cur.fetchall()}
