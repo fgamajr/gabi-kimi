@@ -40,45 +40,35 @@ Sem resumos	Enriquecimento LLM com <RESUMO> para docs elegíveis
 
 ## 1.1 Sources & Metadata
 
-Cada source tem metadata padrão, plus campos específicos:
+Modelo adotado: **source-separated**.
+Cada source é tratado como dataset independente (pipeline, raw table e parser próprios), sem abstração por "família".
 
-| Collection | Sub-tipo (`tipo`) | Source CSV | Rows | Sprint 1 Status | Key Metadata | Parser Sprint |
-|-----------|-------------------|-----------|------|-----------------|--------------|------|
-| **DOU (documents)** | — | INLABS/Liferay | ~15.8M | ✅ Raw dump | pub_date, section, art_type | 2 |
-| **tcu_acordaos** — _Family A_ | ACÓRDÃO DE RELAÇÃO | acordao-completo-{ano}.csv | 357,718 | ✅ Raw + typed | data_sessao, colegiado, relator | 2 |
-| **tcu_acordaos** — _Family A_ | ACÓRDÃO | acordao-completo-{ano}.csv | 143,133 | ✅ Raw + typed | data_sessao, colegiado, has_relatorio | 2 |
-| **tcu_acordaos** — _Family A_ | DECISÃO | acordao-completo-{ano}.csv | 19,502 | ✅ Raw + typed | data_sessao, colegiado | 2 |
-| **tcu_acordaos** — _Family B_ | JURISPRUDÊNCIA SELECIONADA | jurisprudencia-selecionada.csv | 17,016 | ✅ Raw + typed | data_sessao, area, tema, enunciado_hash | 2 |
-| **tcu_acordaos** — _Family B_ | BOLETIM (jurisprudência) | boletim-jurisprudencia.csv | 5,828 | ✅ Raw + typed | colegiado, area, enunciado_hash | 2 |
-| **tcu_acordaos** — _Family B_ | BOLETIM (informativo LC) | boletim-informativo-lc.csv | 1,977 | ✅ Raw + typed | area, enunciado_hash | 2 |
-| **tcu_acordaos** — _Family B_ | BOLETIM (pessoal) | boletim-pessoal.csv | 1,500 | ✅ Raw + typed | area, numero_referencia, enunciado_hash | 2 |
-| **tcu_acordaos** — _Family B_ | RESPOSTA A CONSULTA | resposta-consulta.csv | 522 | ✅ Raw + typed | data_sessao, colegiado, area, enunciado_hash | 2 |
-| **tcu_acordaos** — _Family B_ | SÚMULA | sumula.csv | 294 | ✅ Raw + typed | area, vigente, numero_referencia, enunciado_hash | 2 |
-| **tcu_normas** | Portaria, IN, Resolução, DN, Res. Administrativa | normas.csv | 16,413 | ✅ Raw JSONB | data_inicio_vigencia, vigente, tipo_norma | 2 |
-| **tcu_btcu** | Controle Externo, Administrativo, Deliberações, Especial | (scraped, not CSV) | 223,515 | ✅ Raw JSONB | caderno, section_type, data_publicacao, tema | 2 |
-| **tcu_publicacoes** | livro, revista, caderno temático, cartilha, relatório, sumário executivo | (scraped, not CSV) | 667 | ✅ Raw JSONB | pub_type, pub_date, page_count, pdf_urls | 2 |
+Convenção de tabelas raw:
+- TCU CSV: `raw.<nome_source_tcu>_raw`
+- DOU: `raw.<nome_source_dou>_raw`
+- TCU não-CSV: `raw.<nome_source_tcu>_raw` (mesma convenção)
+
+| Source (logical dataset) | Origem | Raw table alvo | Rows (aprox.) | Status Sprint 1 | Parser Sprint |
+|---|---|---|---:|---|---:|
+| `dou_documents` | INLABS/Liferay | `raw.dou_documents_raw` | 15,853,837 | ✅ Raw dump | 2 |
+| `tcu_acordao_completo` | `acordao-completo-{ano}.csv` | `raw.tcu_acordao_completo_raw` | 520,353 | ✅ (fisicamente hoje em `raw.tcu_acordaos_raw_data`) | 2 |
+| `tcu_jurisprudencia_selecionada` | `jurisprudencia-selecionada.csv` | `raw.tcu_jurisprudencia_selecionada_raw` | 17,016 | ✅ (fisicamente hoje em `raw.tcu_acordaos_raw_data`) | 2 |
+| `tcu_resposta_consulta` | `resposta-consulta.csv` | `raw.tcu_resposta_consulta_raw` | 522 | ✅ (fisicamente hoje em `raw.tcu_acordaos_raw_data`) | 2 |
+| `tcu_sumula` | `sumula.csv` | `raw.tcu_sumula_raw` | 294 | ✅ (fisicamente hoje em `raw.tcu_acordaos_raw_data`) | 2 |
+| `tcu_boletim_jurisprudencia` | `boletim-jurisprudencia.csv` | `raw.tcu_boletim_jurisprudencia_raw` | 5,828 | ✅ (fisicamente hoje em `raw.tcu_acordaos_raw_data`) | 2 |
+| `tcu_boletim_pessoal` | `boletim-pessoal.csv` | `raw.tcu_boletim_pessoal_raw` | 1,500 | ✅ (fisicamente hoje em `raw.tcu_acordaos_raw_data`) | 2 |
+| `tcu_boletim_informativo_lc` | `boletim-informativo-lc.csv` | `raw.tcu_boletim_informativo_lc_raw` | 1,977 | ✅ (fisicamente hoje em `raw.tcu_acordaos_raw_data`) | 2 |
+| `tcu_normas` | `normas.csv` | `raw.tcu_normas_raw` | 16,413 | ✅ Raw JSONB | 2 |
+| `tcu_btcu` | Scraped (não CSV) | `raw.tcu_btcu_raw` | 223,515 | ✅ Raw JSONB | 2 |
+| `tcu_publicacoes` | Scraped (não CSV) | `raw.tcu_publicacoes_raw` | 667 | ✅ Raw JSONB | 2 |
 
 **Total: ~16.6M documentos**
 
-### Family A vs Family B — Typed Column Mapping
+Observação de transição:
+- No estado atual, os 7 CSV de jurisprudência/acórdãos TCU ainda compartilham a tabela física `raw.tcu_acordaos_raw_data`.
+- A diretriz deste SPEC passa a ser: separar fisicamente em tabelas raw por source (`raw.<nome_source_tcu>_raw`).
 
-| Column | Family A (acordao-completo) | Family B (jurisprudencia/boletim/sumula/resposta) |
-|--------|----|----|
-| `raw_text_hash` | SHA256(`acordao_texto`) | SHA256(`enunciado`) |
-| `has_relatorio` | ✅ | null |
-| `has_voto` | ✅ | null |
-| `relator` | ✅ | null |
-| `situacao` | ✅ | null |
-| `tipoprocesso` | ✅ | null |
-| `area` | null | ✅ |
-| `tema` | null | ✅ |
-| `subtema` | null | ✅ |
-| `numero_referencia` | null | ✅ (número da súmula/boletim) |
-| `vigente` | null | ✅ (súmulas only) |
-| `autortese` | null | ✅ (jurisprudência selecionada) |
-| `source_type` | `tcu_acordao` | `tcu_jurisprudencia` / `tcu_sumula` / `tcu_boletim_*` / `tcu_resposta_consulta` |
-
-Todas as sources guardam Mongo _id em `raw.{source}_raw_data.id`, mais JSONB completo em `all_fields`.
+Todas as sources guardam `id` e `all_fields` (JSONB completo) no raw.
 
 Todos os tipos têm:
 - `pub_date` ou `data_*` (para ordering recente)
@@ -150,11 +140,17 @@ Seções por tipo de documento:
 **TCU Decisão** (19K):
 <EMENTA> (aberta) + <ACORDAO> (aberto)
 
-**TCU Jurisprudência Selecionada** (17K) — `source: tcu_jurisprudencia`:
+**TCU Jurisprudência Selecionada** (17K) — `source: tcu_jurisprudencia_selecionada`:
 <ENUNCIADO> (aberto) + <EXCERTO> (aberto, se presente) — fields: area, tema, autortese
 
-**TCU Boletim** (9.3K = jurisprudência 5.8K + informativo LC 2K + pessoal 1.5K) — `source: tcu_boletim_*`:
-<ENUNCIADO> (aberto) + <TEXTO_ACORDAO> (colapsada, se presente) — fields: num, area, caderno
+**TCU Boletim Jurisprudência** (5.8K) — `source: tcu_boletim_jurisprudencia`:
+<ENUNCIADO> (aberto) + <TEXTO_ACORDAO> (colapsada, se presente)
+
+**TCU Boletim Pessoal** (1.5K) — `source: tcu_boletim_pessoal`:
+<ENUNCIADO> (aberto) + <TEXTO_ACORDAO> (colapsada, se presente) + <NUMERO>
+
+**TCU Informativo de Licitações e Contratos** (2.0K) — `source: tcu_boletim_informativo_lc`:
+<ENUNCIADO> (aberto) + <TEXTO_INFO> (aberto) + <TEXTO_ACORDAO> (colapsada)
 
 **TCU Resposta a Consulta** (522) — `source: tcu_resposta_consulta`:
 <ENUNCIADO> (aberto) + <EXCERTO> (aberto, se presente) — fields: area, colegiado, data_sessao
@@ -295,24 +291,27 @@ S2	Seção de origem	ResultCard	Badge "encontrado em RELATÓRIO" (Sprint 2)
 ✅ **Implemented:**
 - All 4 Mongo collections → Postgres raw tables (+ documents/DOU)
 - DOU typed layer (Sprint 1: raw dump complete, ~15.8M rows)
-- TCU acórdãos: **two-family typed schema** (Family A: acordao-completo; Family B: jurisprudencia/boletim/sumula/resposta)
-	- `raw_text_hash` correctly maps SHA256(`acordao_texto`) for Family A, SHA256(`enunciado`) for Family B
-	- Family B empty-hash rows resolved: `0` across all subtypes
-	- New typed columns: `source_type`, `area`, `tema`, `subtema`, `numero_referencia`, `vigente`, `autortese`, `relator`, `situacao`, `tipoprocesso`
+- TCU acórdãos/jurisprudência: hash semântico corrigido por source de texto
+	- `tcu_acordao_completo`: SHA256(`acordao_texto`)
+	- `tcu_jurisprudencia_selecionada`, `tcu_resposta_consulta`, `tcu_sumula`, `tcu_boletim_*`: SHA256(`enunciado`)
+	- Empty-hash para sources baseadas em enunciado: `0`
 - tcu_normas / tcu_btcu / tcu_publicacoes raw JSONB dumps
 - Hash-based validation (~15.8M DOU + 547,490 TCU acordaos parity verified)
 
 📋 **Mapped (but not yet parsed — Sprint 2):**
 
-| Collection | Sub-tipos | Parser needed |
-|-----------|-----------|--------------|
-| tcu_acordaos | Family A: ACÓRDÃO, ACÓRDÃO DE RELAÇÃO, DECISÃO | 1 parser (shared fields: acordao_texto, relatorio, voto) |
-| tcu_acordaos | Family B: JURISPRUDÊNCIA SELECIONADA, RESPOSTA A CONSULTA | 1 parser (enunciado + excerto) |
-| tcu_acordaos | Family B: BOLETIM (3 sub-sources) | 1 parser (enunciado + texto_acordao) |
-| tcu_acordaos | Family B: SÚMULA | 1 parser (enunciado, vigente badge) |
-| tcu_normas | Portaria, IN, Resolução, DN, Resolução Administrativa | 1 parser |
-| tcu_btcu | Controle Externo, Administrativo, Deliberações, Especial | 1 parser |
-| tcu_publicacoes | livro, revista, caderno temático, cartilha, relatório, sumário executivo | 1 parser |
-| dou_documents | extrato, normativo, licitação, resultado, retificação, fallback | 5 parsers |
+| Source | Parser needed |
+|-----------|--------------|
+| dou_documents | 5 parsers (extrato, normativo, licitação, resultado, fallback) |
+| tcu_acordao_completo | 1 parser |
+| tcu_jurisprudencia_selecionada | 1 parser |
+| tcu_resposta_consulta | 1 parser |
+| tcu_sumula | 1 parser |
+| tcu_boletim_jurisprudencia | 1 parser |
+| tcu_boletim_pessoal | 1 parser |
+| tcu_boletim_informativo_lc | 1 parser |
+| tcu_normas | 1 parser |
+| tcu_btcu | 1 parser |
+| tcu_publicacoes | 1 parser |
 
-⏳ **Sprint 2 scope: 12 document types across 5 parsers (or fewer, grouping compatible tipos)**
+⏳ **Sprint 2 scope (source-separated): 11 datasets independentes, parser e validação por source**
