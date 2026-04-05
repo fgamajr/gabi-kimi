@@ -1,0 +1,23 @@
+# TCU CSV → Postgres raw colunar (reingest direto)
+# Ajustar paths e POSTGRES_URL ao ambiente (ex.: container backend, /workspace).
+#
+# Sugestão de frequência (ficheiros mudam em ritmos diferentes):
+#   - acordao-completo-YYYY.csv: diário (ano corrente) + semanal (range completo)
+#   - jurisprudencia-selecionada.csv (~100MB+): diário com --skip-unchanged
+#     (HEAD ETag se disponível; senão GET + SHA256 em raw.tcu_csv_fetch_meta)
+#   - sumula, resposta-consulta, boletins, norma.csv: diário com --skip-unchanged
+#
+# Não inclui: tcu_btcu, tcu_publicacoes (scraping — pipelines separados).
+#
+# Exemplo: só meta + DDL na primeira vez
+#   0 3 * * * cd /workspace && POSTGRES_URL=postgresql://gabi:gabi@postgres:5432/gabi \
+#     python -m src.backend.ingest.tcu_csv_postgres_ingest --ddl-only
+#
+# Exemplo: ingest diário (cache persistente em volume)
+#   30 4 * * * cd /workspace && POSTGRES_URL=postgresql://gabi:gabi@postgres:5432/gabi \
+#     python -m src.backend.ingest.tcu_csv_postgres_ingest --all --year-from 1992 --year-to 2026 \
+#     --cache-dir /data/gabi_dou/tcu_csv_cache --skip-unchanged
+#
+# Validação (CI ou weekly)
+#   0 6 * * 0 cd /workspace && python ops/validate_tcu_csv_postgres.py --headers-only
+#   15 6 * * 0 cd /workspace && python ops/validate_tcu_csv_postgres.py --counts-only

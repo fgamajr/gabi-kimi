@@ -1,0 +1,151 @@
+{
+  "schema": "raw",
+  "database": "gabi",
+  "generated_at": "2026-04-05",
+  "nodes": [
+    {
+      "id": "dou_documents",
+      "label": "raw.dou_documents",
+      "type": "typed_table",
+      "rows_est": 15649937,
+      "size": "89 GB",
+      "criticality": "critical",
+      "primary_key": "id",
+      "source": "DOU/INLABS via MongoDB"
+    },
+    {
+      "id": "tcu_acordaos",
+      "label": "raw.tcu_acordaos",
+      "type": "typed_table",
+      "rows_est": 547490,
+      "size": "11 GB",
+      "criticality": "critical",
+      "primary_key": "id",
+      "source": "TCU Dados Abertos CSVs"
+    },
+    {
+      "id": "tcu_acordaos_raw_data",
+      "label": "raw.tcu_acordaos_raw_data",
+      "type": "raw_dump",
+      "rows_est": 547490,
+      "size": "6.1 GB",
+      "criticality": "legacy",
+      "primary_key": "id",
+      "source": "MongoDB tcu_acordaos dump",
+      "note": "CANDIDATE FOR DROP — 100% overlap with tcu_acordaos"
+    },
+    {
+      "id": "tcu_btcu_raw_data",
+      "label": "raw.tcu_btcu_raw_data",
+      "type": "raw_dump",
+      "rows_est": 223515,
+      "size": "822 MB",
+      "criticality": "active",
+      "primary_key": "id",
+      "source": "MongoDB tcu_btcu dump"
+    },
+    {
+      "id": "tcu_normas_raw_data",
+      "label": "raw.tcu_normas_raw_data",
+      "type": "raw_dump",
+      "rows_est": 16413,
+      "size": "90 MB",
+      "criticality": "active",
+      "primary_key": "id",
+      "source": "MongoDB tcu_normas dump"
+    },
+    {
+      "id": "tcu_publicacoes_raw_data",
+      "label": "raw.tcu_publicacoes_raw_data",
+      "type": "raw_dump",
+      "rows_est": 667,
+      "size": "39 MB",
+      "criticality": "active",
+      "primary_key": "id",
+      "source": "MongoDB tcu_publicacoes dump"
+    },
+    {
+      "id": "migration_log",
+      "label": "raw.migration_log",
+      "type": "meta_table",
+      "rows_est": 10,
+      "size": "32 kB",
+      "criticality": "meta",
+      "primary_key": "id (serial)",
+      "source": "Internal — ingest pipeline"
+    }
+  ],
+  "edges": [
+    {
+      "from": "tcu_acordaos",
+      "to": "tcu_acordaos_raw_data",
+      "type": "implicit_identity",
+      "via": "id",
+      "overlap": "100%",
+      "note": "Same 547490 IDs in both tables. tcu_acordaos is the typed materialization of tcu_acordaos_raw_data."
+    },
+    {
+      "from": "tcu_btcu_raw_data",
+      "to": "tcu_acordaos",
+      "type": "implicit_reference",
+      "via": "all_fields->>'acordaos_citados'",
+      "cardinality": "many-to-many",
+      "note": "BTCU documents cite acórdãos by ID in the acordaos_citados JSON array"
+    },
+    {
+      "from": "tcu_normas_raw_data",
+      "to": "dou_documents",
+      "type": "implicit_reference",
+      "via": "all_fields->>'num_dou' + all_fields->>'secao_dou' + all_fields->>'data_dou'",
+      "cardinality": "many-to-one",
+      "note": "Normas may reference their DOU publication via section+date+page"
+    },
+    {
+      "from": "migration_log",
+      "to": "dou_documents",
+      "type": "audit",
+      "via": "collection='dou_documents'",
+      "note": "Tracks ingest operations for dou_documents"
+    },
+    {
+      "from": "migration_log",
+      "to": "tcu_acordaos",
+      "type": "audit",
+      "via": "collection='tcu_acordaos'",
+      "note": "Tracks ingest operations for tcu_acordaos (raw_dump + typed_materialization)"
+    },
+    {
+      "from": "migration_log",
+      "to": "tcu_btcu_raw_data",
+      "type": "audit",
+      "via": "collection='tcu_btcu'",
+      "note": "Tracks ingest operations for tcu_btcu"
+    },
+    {
+      "from": "migration_log",
+      "to": "tcu_normas_raw_data",
+      "type": "audit",
+      "via": "collection='tcu_normas'",
+      "note": "Tracks ingest operations for tcu_normas"
+    },
+    {
+      "from": "migration_log",
+      "to": "tcu_publicacoes_raw_data",
+      "type": "audit",
+      "via": "collection='tcu_publicacoes'",
+      "note": "Tracks ingest operations for tcu_publicacoes"
+    }
+  ],
+  "notes": {
+    "no_physical_fks": true,
+    "all_relationships": "implicit",
+    "id_format": {
+      "dou_documents": "MD5 hash (32 hex chars)",
+      "tcu_acordaos": "ACORDAO-COMPLETO-{number}",
+      "tcu_acordaos_raw_data": "ACORDAO-COMPLETO-{number}",
+      "tcu_btcu_raw_data": "BTCU-{number}",
+      "tcu_normas_raw_data": "NORMA-{number}",
+      "tcu_publicacoes_raw_data": "tcu-pub-{sha256 hash}"
+    }
+  }
+}

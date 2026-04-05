@@ -194,6 +194,41 @@ docker compose exec backend python -m src.backend.ingest.es_indexer backfill
 docker compose exec backend python -m src.backend.ingest.es_indexer stats
 ```
 
+### TCU CSV → Postgres (raw colunar)
+
+Reingest direto dos CSV do [portal de dados abertos do TCU](https://sites.tcu.gov.br/dados-abertos/) para tabelas `raw.*_raw` **colunares** (uma coluna por cabeçalho do CSV). Cobre acórdãos completos (por ano), jurisprudência selecionada, resposta a consulta, súmulas, três boletins e `norma.csv`. **Não** substitui ingest por scraping de BTCU ou publicações institucionais.
+
+Defina `POSTGRES_URL` (ex.: `postgresql://gabi:gabi@postgres:5432/gabi` no compose).
+
+```bash
+# DDL + tabela de meta (primeira vez)
+docker compose exec backend python -m src.backend.ingest.tcu_csv_postgres_ingest --ddl-only
+
+# Uma fonte (ex.: súmulas)
+docker compose exec backend python -m src.backend.ingest.tcu_csv_postgres_ingest --source sumula
+
+# Todas as fontes CSV + acórdãos por ano (cache persistente recomendado em volume)
+docker compose exec backend python -m src.backend.ingest.tcu_csv_postgres_ingest \
+  --all --year-from 1992 --year-to 2026 --skip-unchanged \
+  --cache-dir /data/gabi_dou/tcu_csv_cache
+
+# Validar cabeçalhos dos CSV contra o catálogo (deteção de drift do TCU)
+docker compose exec backend python ops/validate_tcu_csv_postgres.py --headers-only
+
+# Contagens no Postgres vs valores esperados (~tolerância 2%)
+docker compose exec backend python ops/validate_tcu_csv_postgres.py --counts-only
+```
+
+**Schema antigo:** se `raw.tcu_*_raw` tiver sido criada só com `(id, all_fields, …)`, `CREATE TABLE IF NOT EXISTS` **não** altera colunas — é preciso `DROP TABLE` dessas tabelas antes da primeira carga colunar (ou outro nome de tabela).
+
+**Testes unitários (no container):**
+
+```bash
+docker compose exec backend python -m pytest tests/unit/test_tcu_csv_raw.py -v
+```
+
+Exemplo de cron: [`ops/cron/tcu_csv_postgres.cron.example`](ops/cron/tcu_csv_postgres.cron.example).
+
 ### Search Baseline (S0-1)
 
 Run the search-only baseline against `/api/search` and write a versioned JSON artifact:
@@ -282,6 +317,7 @@ docker compose up -d --build
 | `INLABS_USER` | — | INLABS login email |
 | `INLABS_PWD` | — | INLABS password |
 | `INLABS_PROXY` | — | Residential proxy URL (`http://user:pass@host:port`) to bypass INLABS WAF on Hetzner |
+| `POSTGRES_URL` | `postgresql://gabi:gabi@postgres:5432/gabi` | Postgres (raw archive / TCU CSV reingest) |
 
 ## Project Structure
 
@@ -298,6 +334,8 @@ src/
       dou_processor.py      # XML parsing → documents
       es_indexer.py          # MongoDB → ES sync
       es_reconcile.py        # ES ↔ Mongo consistency check
+      tcu_csv_postgres_ingest.py  # TCU open data CSV → Postgres raw (colunar)
+      tcu_csv_raw_catalog.py   # URLs + colunas esperadas por CSV
     pdf/
       template.py           # DOU-style HTML template
       generator.py          # weasyprint HTML→PDF
@@ -324,6 +362,9 @@ ops/
     mac_daily_ingest.sh     # Mac→server ingest relay
     run_daily_ingest.sh     # Server-side daily cron
     update_homepage_cache.sh # Refresh homepage trending + editorial cache
+  validate_tcu_csv_postgres.py  # Headers / counts vs catalog (TCU CSV raw)
+  cron/
+    tcu_csv_postgres.cron.example  # Cron sugerido p/ reingest CSV → Postgres
   container/
     frontend-prod.sh        # npm build + preview
     backend-prod.sh         # uvicorn production
