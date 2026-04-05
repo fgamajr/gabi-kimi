@@ -38,6 +38,54 @@ Texto plano para LLM	Parsing estruturado com tags XML por tipo de documento
 Sem resumos	Enriquecimento LLM com <RESUMO> para docs elegíveis
 5 Sprints: 0 ✅ Decisões → 1 ETL raw → 2 Parsers → 3 LLM Enrichment → 4 Embeddings + Query v2 → 5 Cutover
 
+## 1.1 Sources & Metadata
+
+Cada source tem metadata padrão, plus campos específicos:
+
+| Collection | Sub-tipo (`tipo`) | Source CSV | Rows | Sprint 1 Status | Key Metadata | Parser Sprint |
+|-----------|-------------------|-----------|------|-----------------|--------------|------|
+| **DOU (documents)** | — | INLABS/Liferay | ~15.8M | ✅ Raw dump | pub_date, section, art_type | 2 |
+| **tcu_acordaos** — _Family A_ | ACÓRDÃO DE RELAÇÃO | acordao-completo-{ano}.csv | 357,718 | ✅ Raw + typed | data_sessao, colegiado, relator | 2 |
+| **tcu_acordaos** — _Family A_ | ACÓRDÃO | acordao-completo-{ano}.csv | 143,133 | ✅ Raw + typed | data_sessao, colegiado, has_relatorio | 2 |
+| **tcu_acordaos** — _Family A_ | DECISÃO | acordao-completo-{ano}.csv | 19,502 | ✅ Raw + typed | data_sessao, colegiado | 2 |
+| **tcu_acordaos** — _Family B_ | JURISPRUDÊNCIA SELECIONADA | jurisprudencia-selecionada.csv | 17,016 | ✅ Raw + typed | data_sessao, area, tema, enunciado_hash | 2 |
+| **tcu_acordaos** — _Family B_ | BOLETIM (jurisprudência) | boletim-jurisprudencia.csv | 5,828 | ✅ Raw + typed | colegiado, area, enunciado_hash | 2 |
+| **tcu_acordaos** — _Family B_ | BOLETIM (informativo LC) | boletim-informativo-lc.csv | 1,977 | ✅ Raw + typed | area, enunciado_hash | 2 |
+| **tcu_acordaos** — _Family B_ | BOLETIM (pessoal) | boletim-pessoal.csv | 1,500 | ✅ Raw + typed | area, numero_referencia, enunciado_hash | 2 |
+| **tcu_acordaos** — _Family B_ | RESPOSTA A CONSULTA | resposta-consulta.csv | 522 | ✅ Raw + typed | data_sessao, colegiado, area, enunciado_hash | 2 |
+| **tcu_acordaos** — _Family B_ | SÚMULA | sumula.csv | 294 | ✅ Raw + typed | area, vigente, numero_referencia, enunciado_hash | 2 |
+| **tcu_normas** | Portaria, IN, Resolução, DN, Res. Administrativa | normas.csv | 16,413 | ✅ Raw JSONB | data_inicio_vigencia, vigente, tipo_norma | 2 |
+| **tcu_btcu** | Controle Externo, Administrativo, Deliberações, Especial | (scraped, not CSV) | 223,515 | ✅ Raw JSONB | caderno, section_type, data_publicacao, tema | 2 |
+| **tcu_publicacoes** | livro, revista, caderno temático, cartilha, relatório, sumário executivo | (scraped, not CSV) | 667 | ✅ Raw JSONB | pub_type, pub_date, page_count, pdf_urls | 2 |
+
+**Total: ~16.6M documentos**
+
+### Family A vs Family B — Typed Column Mapping
+
+| Column | Family A (acordao-completo) | Family B (jurisprudencia/boletim/sumula/resposta) |
+|--------|----|----|
+| `raw_text_hash` | SHA256(`acordao_texto`) | SHA256(`enunciado`) |
+| `has_relatorio` | ✅ | null |
+| `has_voto` | ✅ | null |
+| `relator` | ✅ | null |
+| `situacao` | ✅ | null |
+| `tipoprocesso` | ✅ | null |
+| `area` | null | ✅ |
+| `tema` | null | ✅ |
+| `subtema` | null | ✅ |
+| `numero_referencia` | null | ✅ (número da súmula/boletim) |
+| `vigente` | null | ✅ (súmulas only) |
+| `autortese` | null | ✅ (jurisprudência selecionada) |
+| `source_type` | `tcu_acordao` | `tcu_jurisprudencia` / `tcu_sumula` / `tcu_boletim_*` / `tcu_resposta_consulta` |
+
+Todas as sources guardam Mongo _id em `raw.{source}_raw_data.id`, mais JSONB completo em `all_fields`.
+
+Todos os tipos têm:
+- `pub_date` ou `data_*` (para ordering recente)
+- `source_type` (metadado universal)
+- `search_all` (texto indexável)
+- Determinista hash para parity validation
+
 2. PÁGINAS
 2.1 HomePage (/)
 Mudança no rebuild: Nenhuma estrutural. Backend troca internamente.
@@ -85,26 +133,58 @@ Media	Imagens/PDF trailing
 Ações	Compartilhar, copiar, PDF
 Seções por tipo de documento:
 
-TCU Acórdão Completo:
+**TCU Acórdão Completo** (143K):
 
-Seção	Tag	Default
-Ementa	<EMENTA>	Aberta
-Assunto	<ASSUNTO>	Colapsada
-Relatório	<RELATORIO>	Colapsada (até 48K chars)
-Voto	<VOTO>	Colapsada
-Acórdão	<ACORDAO>	Aberta
-Quórum	<QUORUM>	Colapsada
-TCU Acórdão de Relação: Ementa (aberta) + Acórdão (aberto)
+| Seção | Tag | Default |
+|-------|-----|---------|
+| Ementa | <EMENTA> | Aberta |
+| Assunto | <ASSUNTO> | Colapsada |
+| Relatório | <RELATORIO> | Colapsada (até 48K chars, lazy render) |
+| Voto | <VOTO> | Colapsada |
+| Acórdão | <ACORDAO> | Aberta |
+| Quórum | <QUORUM> | Colapsada |
 
-DOU Extrato (~4.7M): <PARTES> <OBJETO> <VALOR> <VIGENCIA> <FUNDAMENTO>
+**TCU Acórdão de Relação** (357K):
+<EMENTA> (aberta) + <ACORDAO> (aberto)
 
-DOU Normativo (~3.9M): <EMENTA> <CONSIDERANDOS> <ARTIGOS>
+**TCU Decisão** (19K):
+<EMENTA> (aberta) + <ACORDAO> (aberto)
 
-DOU Licitação (~2.3M): <OBJETO> <MODALIDADE> <ORGAO> <DATAS> <CONDICOES>
+**TCU Jurisprudência Selecionada** (17K) — `source: tcu_jurisprudencia`:
+<ENUNCIADO> (aberto) + <EXCERTO> (aberto, se presente) — fields: area, tema, autortese
 
-DOU Resultado (~0.7M): <REFERENCIA> <VENCEDOR> <VALOR>
+**TCU Boletim** (9.3K = jurisprudência 5.8K + informativo LC 2K + pessoal 1.5K) — `source: tcu_boletim_*`:
+<ENUNCIADO> (aberto) + <TEXTO_ACORDAO> (colapsada, se presente) — fields: num, area, caderno
 
-DOU Genérico (fallback): <EMENTA> <CORPO>
+**TCU Resposta a Consulta** (522) — `source: tcu_resposta_consulta`:
+<ENUNCIADO> (aberto) + <EXCERTO> (aberto, se presente) — fields: area, colegiado, data_sessao
+
+**TCU Súmula** (294) — `source: tcu_sumula`:
+<ENUNCIADO> (aberto) — fields: numero_referencia, area, vigente (badge Vigente/Revogada)
+
+**TCU Norma** (16K, sub-tipos: Portaria, IN, Resolução, DN):
+<TITULO> (aberto) + <METADATA> (tipo_norma, vigente, vigência) + <TEXTO_NORMA> (aberto) + <RELACIONADAS> (colapsada)
+
+**TCU BTCU — Boletim de Jurisprudência** (223K, cadernos: Controle Externo, Administrativo, Deliberações):
+<SECTION_TITLE> (aberto) + <TEMA> (aberto) + <TEXTO_COMPLETO> (aberto) + <ACORDAOS_CITADOS> (colapsada)
+
+**TCU Publicações** (667, tipos: livro, revista, caderno temático, cartilha, relatório, sumário executivo):
+<TITLE> (aberto) + <PUB_TYPE> (aberto) + <BODY_PLAIN> (aberto) + link PDF se houver
+
+**DOU Extrato** (~4.7M):
+<PARTES> <OBJETO> <VALOR> <VIGENCIA> <FUNDAMENTO>
+
+**DOU Normativo** (~3.9M):
+<EMENTA> <CONSIDERANDOS> <ARTIGOS>
+
+**DOU Licitação** (~2.3M):
+<OBJETO> <MODALIDADE> <ORGAO> <DATAS> <CONDICOES>
+
+**DOU Resultado** (~0.7M):
+<REFERENCIA> <VENCEDOR> <VALOR>
+
+**DOU Genérico (fallback):**
+<EMENTA> <CORPO>
 
 2.4 Admin/Ops Dashboard
 Decisão: NÃO CRIAR. Time de 1 pessoa. Monitoramento via CLI, logs Docker, raw.migration_log, scripts em ops, MCP tools.
@@ -198,11 +278,41 @@ D10	Disclaimer IA	LlmSummaryCard	Texto fixo sempre visível
 S1	Modo busca indicado	SearchModeIndicator	Badge "Textual"/"Híbrida" (Sprint 4)
 S2	Seção de origem	ResultCard	Badge "encontrado em RELATÓRIO" (Sprint 2)
 5. PERGUNTAS ABERTAS
-#	Pergunta	Sprint
-1	Gemini Flash vs Qwen local para <RESUMO>?	3
-2	tcu_normas/publicacoes/btcu — que campos têm?	2
-3	~3.6M DOU sem cluster — que tipos?	2
-4	Threshold de discordância para cutover?	5
-5	Canonicalização HTML antes do hash?	1
-6	Validação estratificada vs aleatória?	1
-Esse é o documento completo no formato Overview → Páginas → Componentes → Comportamentos. Quando as ferramentas de escrita voltarem, colo em specs/SPEC.md. Quer que eu ajuste algo?
+
+| # | Pergunta | Sprint |
+|----|----------|--------|
+| 1 | Gemini Flash vs Qwen local para <RESUMO>? | 3 |
+| 2 | Parser para tcu_normas/btcu/publicacoes — prioridade com DOU clusters? | 2 |
+| 3 | ~3.6M DOU sem cluster — que tipos dominam (extratos não-licitação, retificações)? | 2 |
+| 4 | Threshold de discordância para cutover? | 5 |
+| 5 | Canonicalização HTML antes do hash? | 1 |
+| 6 | Validação estratificada vs aleatória? | 1 |
+| 7 | TCU BTCU: agrupar por `section_type` ou parser monolítico? | 2 |
+| 8 | TCU Publicações: suportar PDF parsing além de body_plain? | 2 |
+
+## INVENTORY: Sprint 1 Complete
+
+✅ **Implemented:**
+- All 4 Mongo collections → Postgres raw tables (+ documents/DOU)
+- DOU typed layer (Sprint 1: raw dump complete, ~15.8M rows)
+- TCU acórdãos: **two-family typed schema** (Family A: acordao-completo; Family B: jurisprudencia/boletim/sumula/resposta)
+	- `raw_text_hash` correctly maps SHA256(`acordao_texto`) for Family A, SHA256(`enunciado`) for Family B
+	- Family B empty-hash rows resolved: `0` across all subtypes
+	- New typed columns: `source_type`, `area`, `tema`, `subtema`, `numero_referencia`, `vigente`, `autortese`, `relator`, `situacao`, `tipoprocesso`
+- tcu_normas / tcu_btcu / tcu_publicacoes raw JSONB dumps
+- Hash-based validation (~15.8M DOU + 547,490 TCU acordaos parity verified)
+
+📋 **Mapped (but not yet parsed — Sprint 2):**
+
+| Collection | Sub-tipos | Parser needed |
+|-----------|-----------|--------------|
+| tcu_acordaos | Family A: ACÓRDÃO, ACÓRDÃO DE RELAÇÃO, DECISÃO | 1 parser (shared fields: acordao_texto, relatorio, voto) |
+| tcu_acordaos | Family B: JURISPRUDÊNCIA SELECIONADA, RESPOSTA A CONSULTA | 1 parser (enunciado + excerto) |
+| tcu_acordaos | Family B: BOLETIM (3 sub-sources) | 1 parser (enunciado + texto_acordao) |
+| tcu_acordaos | Family B: SÚMULA | 1 parser (enunciado, vigente badge) |
+| tcu_normas | Portaria, IN, Resolução, DN, Resolução Administrativa | 1 parser |
+| tcu_btcu | Controle Externo, Administrativo, Deliberações, Especial | 1 parser |
+| tcu_publicacoes | livro, revista, caderno temático, cartilha, relatório, sumário executivo | 1 parser |
+| dou_documents | extrato, normativo, licitação, resultado, retificação, fallback | 5 parsers |
+
+⏳ **Sprint 2 scope: 12 document types across 5 parsers (or fewer, grouping compatible tipos)**
