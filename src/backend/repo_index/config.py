@@ -116,5 +116,14 @@ class Settings:
     scoring_profiles_path: Path = LEDGER_ROOT / "scoring_profiles.json"
     scoring_feedback_path: Path = LEDGER_ROOT / "scoring_feedback.jsonl"
 
+    def __post_init__(self) -> None:
+        import os as _os
+
+        # EMBED_API_KEY > OPENAI_API_KEY (fallback)
+        self.embedding_api_key = _os.getenv(
+            "EMBED_API_KEY",
+            _os.getenv("OPENAI_API_KEY", ""),
+        )
+
 
 settings = Settings()
