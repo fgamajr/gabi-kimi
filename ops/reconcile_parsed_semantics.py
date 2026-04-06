@@ -33,6 +33,15 @@ def _normalize_pub_date(value: str | None) -> str | None:
     return str(value).strip()[:10] or None
 
 
+def _load_raw_pub_date(conn: psycopg.Connection, raw_id: str) -> str | None:
+    with conn.cursor() as cur:
+        cur.execute("SELECT all_fields->>'pub_date' FROM raw.dou_documents_raw WHERE id = %s", (raw_id,))
+        row = cur.fetchone()
+    if not row:
+        return None
+    return _normalize_pub_date(row[0])
+
+
 def _coerce_topics(source_type: str, topics: list[str] | None, text: str, structured: dict[str, object]) -> list[str]:
     out = [str(x).strip() for x in topics or [] if str(x).strip() and str(x).strip() != source_type]
     if out:
@@ -97,6 +106,8 @@ def main() -> None:
                     pub_date = _normalize_pub_date(
                         structured.get("pub_date") or structured.get("data_publicacao") or structured.get("data_dou")
                     )
+                    if pub_date is None:
+                        pub_date = _load_raw_pub_date(conn, raw_id)
 
                 with conn.cursor() as cur:
                     cur.execute(

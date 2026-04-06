@@ -24,6 +24,7 @@ def main() -> None:
     with psycopg.connect(args.postgres_url) as conn:
         with conn.cursor() as cur:
             for source_type in SOURCE_TYPES:
+                cur.execute(f"UPDATE parsed.{source_type} SET enrichment_status = 'done_partial' WHERE enrichment_status = 'done'")
                 cur.execute(
                     """
                     SELECT c.conname
