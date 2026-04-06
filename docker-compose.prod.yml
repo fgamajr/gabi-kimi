@@ -22,28 +22,6 @@ services:
     networks:
       - internal
 
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.4
-    container_name: gabi-kimi-elasticsearch
-    restart: unless-stopped
-    environment:
-      discovery.type: single-node
-      xpack.security.enabled: "false"
-      ES_JAVA_OPTS: -Xms${ES_JAVA_HEAP:-4g} -Xmx${ES_JAVA_HEAP:-4g}
-      cluster.routing.allocation.disk.threshold_enabled: "false"
-    volumes:
-      - ${GABI_HOST_DATA_ROOT:-/mnt/HC_Volume_105154890}/elastic_data:/usr/share/elasticsearch/data
-    expose:
-      - "9200"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9200/_cluster/health >/dev/null"]
-      interval: 15s
-      timeout: 10s
-      retries: 20
-      start_period: 20s
-    networks:
-      - internal
-
   backend:
     build:
       context: .
@@ -54,17 +32,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      elasticsearch:
-        condition: service_healthy
     env_file:
       - .env
     environment:
       BACKEND_INTERNAL_PORT: 8000
       PYTHONPATH: /opt/app
       POSTGRES_URL: ${POSTGRES_URL:-postgresql://gabi:gabi@postgres:5432/gabi}
-      ES_URL: ${ES_URL:-http://elasticsearch:9200}
-      ES_INDEX: ${ES_INDEX:-gabi_documents_v3}
-      ES_ALIAS: ${ES_ALIAS:-gabi_documents}
       GABI_ALLOWED_HOSTS: ${GABI_ALLOWED_HOSTS:-gabidou.top,www.gabidou.top,localhost,127.0.0.1,backend}
       GABI_CORS_ORIGINS: ${GABI_CORS_ORIGINS:-https://gabidou.top,https://www.gabidou.top}
       GABI_CORS_ALLOW_CREDENTIALS: ${GABI_CORS_ALLOW_CREDENTIALS:-false}
@@ -93,34 +66,6 @@ services:
       start_period: 20s
     networks:
       - edge
-      - internal
-
-  worker:
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
-    image: gabi-kimi-backend
-    container_name: gabi-kimi-worker
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-      elasticsearch:
-        condition: service_healthy
-    env_file:
-      - .env
-    environment:
-      PYTHONPATH: /opt/app
-      POSTGRES_URL: ${POSTGRES_URL:-postgresql://gabi:gabi@postgres:5432/gabi}
-      ES_URL: ${ES_URL:-http://elasticsearch:9200}
-      ES_INDEX: ${ES_INDEX:-gabi_documents_v3}
-      ES_ALIAS: ${ES_ALIAS:-gabi_documents}
-      RERANKER_URL: ${RERANKER_URL:-http://reranker:8902}
-    working_dir: /opt/app
-    command: ["sh", "/opt/container-scripts/worker-prod.sh"]
-    volumes:
-      - ${GABI_HOST_DATA_ROOT:-/mnt/HC_Volume_105154890}/dou_data:/data/gabi_dou
-    networks:
       - internal
 
   dev-converge-api:

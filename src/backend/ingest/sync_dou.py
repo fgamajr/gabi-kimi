@@ -7,7 +7,6 @@ Orchestrator for downloading and ingesting DOU data into Postgres.
 
 import sys
 import os
-import hashlib
 import json
 import shutil
 import logging
@@ -73,7 +72,7 @@ def _ensure_disk_space(target_path: Path) -> None:
 
 
 def ingest_documents(documents: List[DouDocument]) -> None:
-    """Bulk upsert documents to Postgres (raw.dou_documents_raw_data).
+    """Bulk upsert documents to Postgres (raw.dou_documents_raw).
 
     Uses ON CONFLICT (id) DO NOTHING — the id IS the MD5 of content_html,
     so if a row with the same id exists the content is identical.
@@ -86,30 +85,15 @@ def ingest_documents(documents: List[DouDocument]) -> None:
         doc_dict = doc.model_dump(by_alias=True, exclude_none=True)
         doc_dict.setdefault("embedding_status", "pending")
         doc_dict.setdefault("embedding_attempts", 0)
-        raw_html = doc.content_html or ""
-        raw_hash = hashlib.sha256(raw_html.encode()).hexdigest()
         all_fields_json = json.dumps(doc_dict, default=str, ensure_ascii=False)
-        tuples.append(
-            (
-                doc.id,
-                doc.pub_date.date() if doc.pub_date else None,
-                doc.section,
-                doc.source_zip,
-                doc.art_type,
-                raw_html,
-                raw_hash,
-                all_fields_json,
-            )
-        )
+        tuples.append((doc.id, all_fields_json))
 
     try:
         with psycopg.connect(_pg_url()) as conn:
             with conn.cursor() as cur:
                 cur.executemany(
-                    """INSERT INTO raw.dou_documents_raw_data
-                       (id, pub_date, section, source_zip, art_type,
-                        content_html, raw_html_hash, all_fields, migrated_at)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, NOW())
+                    """INSERT INTO raw.dou_documents_raw (id, all_fields, source_type, dumped_at)
+                       VALUES (%s, %s::jsonb, 'dou_documents', NOW())
                        ON CONFLICT (id) DO NOTHING""",
                     tuples,
                 )

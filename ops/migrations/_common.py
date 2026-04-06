@@ -10,12 +10,20 @@ from typing import Any
 
 
 VALID_TABLES = {
-    "raw.dou_documents_raw_data",
-    "raw.tcu_acordaos_raw_data",
-    "raw.tcu_acordaos",
-    "raw.tcu_normas_raw_data",
-    "raw.tcu_btcu_raw_data",
-    "raw.tcu_publicacoes_raw_data",
+    # 11 canonical source-separated raw tables
+    "raw.dou_documents_raw",
+    "raw.tcu_acordao_completo_raw",
+    "raw.tcu_jurisprudencia_selecionada_raw",
+    "raw.tcu_resposta_consulta_raw",
+    "raw.tcu_sumula_raw",
+    "raw.tcu_boletim_jurisprudencia_raw",
+    "raw.tcu_boletim_pessoal_raw",
+    "raw.tcu_boletim_informativo_lc_raw",
+    "raw.tcu_normas_raw",
+    "raw.tcu_btcu_raw",
+    "raw.tcu_publicacoes_raw",
+    # metadata table (not a document source)
+    "raw.tcu_csv_fetch_meta",
 }
 MAX_SPOT_CHECK_SIZE = 10000
 
@@ -116,7 +124,9 @@ def clamp_spot_check_size(sample_size: int) -> int:
     if sample_size <= 0:
         return 0
     if sample_size > MAX_SPOT_CHECK_SIZE:
-        print(f"[warn] spot_check_size capped at {MAX_SPOT_CHECK_SIZE} (requested={sample_size})")
+        print(
+            f"[warn] spot_check_size capped at {MAX_SPOT_CHECK_SIZE} (requested={sample_size})"
+        )
         return MAX_SPOT_CHECK_SIZE
     return sample_size
 
@@ -126,7 +136,9 @@ def _validate_table_name(table_name: str) -> None:
         raise ValueError(f"Unsupported table name: {table_name}")
 
 
-def iter_batches(mongo_collection: Any, batch_size: int, limit: int | None = None) -> Any:
+def iter_batches(
+    mongo_collection: Any, batch_size: int, limit: int | None = None
+) -> Any:
     cursor = mongo_collection.find({}, no_cursor_timeout=True).batch_size(batch_size)
     yielded = 0
     try:
@@ -230,13 +242,22 @@ def run_simple_raw_collection(
     ddl_only: bool,
 ) -> None:
     if ddl_only:
-        print(json.dumps({"collection": collection_name, "stage": "ddl_only", "status": "ok"}, ensure_ascii=False))
+        print(
+            json.dumps(
+                {"collection": collection_name, "stage": "ddl_only", "status": "ok"},
+                ensure_ascii=False,
+            )
+        )
         return
 
     mongo_collection = mongo_db[collection_name]
     source_count = mongo_collection.estimated_document_count()
-    effective_source_count = min(source_count, limit) if limit is not None else source_count
-    print(f"[{collection_name}] source_count={source_count} effective={effective_source_count}")
+    effective_source_count = (
+        min(source_count, limit) if limit is not None else source_count
+    )
+    print(
+        f"[{collection_name}] source_count={source_count} effective={effective_source_count}"
+    )
 
     raw_start = time.perf_counter()
     raw_seen = 0
@@ -258,7 +279,11 @@ def run_simple_raw_collection(
         hash_errors=0,
         duration_s=raw_elapsed,
         status=raw_status,
-        details={"batch_size": batch_size, "limit": limit, "inserted_this_run": raw_seen},
+        details={
+            "batch_size": batch_size,
+            "limit": limit,
+            "inserted_this_run": raw_seen,
+        },
     )
 
     print(

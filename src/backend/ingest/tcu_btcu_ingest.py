@@ -1,4 +1,4 @@
-"""Ingest TCU BTCU (Boletins) — scrape portal, download PDFs, chunk, index.
+"""Ingest TCU BTCU (Boletins) — scrape portal, download PDFs, chunk, store in Postgres.
 
 Usage:
   python -m src.backend.ingest.tcu_btcu_ingest --ingest           # Full scrape (all pages)
@@ -34,21 +34,13 @@ from src.backend.ingest.tcu_btcu_processor import btcu_chunk_to_es_doc
 # Config
 # ---------------------------------------------------------------------------
 
-_BTCU_INDEX = "gabi_tcu_btcu_v1"
-_BTCU_MAPPING_PATH = (
-    Path(__file__).resolve().parent.parent / "search" / "es_tcu_btcu_mapping.json"
-)
-_PG_TABLE = "raw.tcu_btcu_raw_data"
+_PG_TABLE = "raw.tcu_btcu_raw"
 _CURSOR_PATH = Path(__file__).resolve().parent.parent / "data" / "btcu_sync_cursor.json"
 _CONTAINER_CURSOR_PATH = Path("/data/gabi_dou/btcu_sync_cursor.json")
 
 
 def _log(msg: str) -> None:
     print(f"[tcu-btcu] {msg}", flush=True)
-
-
-def _es_url() -> str:
-    return os.getenv("ES_URL", "http://elasticsearch:9200").rstrip("/")
 
 
 def _pg_url() -> str:
@@ -135,59 +127,14 @@ def _pg_check_parent(conn: psycopg.Connection, parent_id: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# ES helpers
-# ---------------------------------------------------------------------------
-
-
-def _ensure_index(es_client: httpx.Client) -> None:
-    """Create BTCU index if it doesn't exist."""
-    index = os.getenv("TCU_BTCU_INDEX", _BTCU_INDEX)
-    url = _es_url()
-    resp = es_client.head(f"{url}/{index}")
-    if resp.status_code == 404:
-        with _BTCU_MAPPING_PATH.open("r", encoding="utf-8") as f:
-            mapping = json.load(f)
-        _log(f"creating index {index}")
-        resp = es_client.put(f"{url}/{index}", json=mapping)
-        resp.raise_for_status()
-    es_client.get(f"{url}/_cluster/health/{index}?wait_for_status=yellow&timeout=60s")
-
-
-def _es_bulk(docs: list[dict], es_client: httpx.Client) -> tuple[int, int]:
-    """Bulk index documents to ES."""
-    index = os.getenv("TCU_BTCU_INDEX", _BTCU_INDEX)
-    lines: list[str] = []
-    for doc in docs:
-        doc_id = doc.get("doc_id")
-        lines.append(
-            json.dumps({"index": {"_index": index, "_id": doc_id}}, ensure_ascii=False)
-        )
-        lines.append(json.dumps(doc, ensure_ascii=False))
-    body = "\n".join(lines) + "\n"
-    resp = es_client.post(
-        f"{_es_url()}/_bulk",
-        data=body.encode("utf-8"),
-        headers={"Content-Type": "application/x-ndjson"},
-        timeout=120,
-    )
-    resp.raise_for_status()
-    items = resp.json().get("items", [])
-    ok = sum(1 for i in items if 200 <= i.get("index", {}).get("status", 500) < 300)
-    return ok, len(items) - ok
-
-
-# ---------------------------------------------------------------------------
 # Main ingest
 # ---------------------------------------------------------------------------
 
 
 def run_ingest(*, recent_only: bool = False, cache_dir: str | None = None) -> None:
-    """Full ingest pipeline: scrape → download → chunk → Postgres + ES."""
+    """Full ingest pipeline: scrape → download → chunk → Postgres."""
     cache = cache_dir or "/tmp/tcu_btcu_pdf"
     os.makedirs(cache, exist_ok=True)
-
-    es_client = httpx.Client(timeout=60)
-    _ensure_index(es_client)
 
     pg_conn = psycopg.connect(_pg_url())
 
@@ -204,7 +151,6 @@ def run_ingest(*, recent_only: bool = False, cache_dir: str | None = None) -> No
     entries = scrape_all_listings(since_date=since_date)
     if not entries:
         _log("no entries found")
-        es_client.close()
         pg_conn.close()
         return
 
@@ -216,7 +162,7 @@ def run_ingest(*, recent_only: bool = False, cache_dir: str | None = None) -> No
         timeout=120, follow_redirects=True, headers={"User-Agent": _USER_AGENT}
     )
     t0 = time.time()
-    stats = {"entries": 0, "chunks": 0, "indexed": 0, "failed": 0, "skipped": 0}
+    stats = {"entries": 0, "chunks": 0, "failed": 0, "skipped": 0}
     batch: list[dict] = []
 
     for i, entry in enumerate(entries):
@@ -259,13 +205,10 @@ def run_ingest(*, recent_only: bool = False, cache_dir: str | None = None) -> No
 
             pg_conn.commit()
 
-            # Bulk index when batch is full
+            # Log progress periodically
             if len(batch) >= 200:
-                ok, failed = _es_bulk(batch, es_client)
-                stats["indexed"] += ok
-                stats["failed"] += failed
                 _log(
-                    f"  progress: {stats['entries']}/{len(entries)} entries, {stats['chunks']} chunks, {stats['indexed']} indexed"
+                    f"  progress: {stats['entries']}/{len(entries)} entries, {stats['chunks']} chunks"
                 )
                 batch = []
 
@@ -282,24 +225,17 @@ def run_ingest(*, recent_only: bool = False, cache_dir: str | None = None) -> No
                 f"  progress: {stats['entries']}/{len(entries)} entries, {elapsed:.0f}s"
             )
 
-    # Flush remaining batch
-    if batch:
-        ok, failed = _es_bulk(batch, es_client)
-        stats["indexed"] += ok
-        stats["failed"] += failed
-
     # Save cursor
     if latest_date:
         _save_cursor(latest_date)
 
     pdf_client.close()
-    es_client.close()
     pg_conn.close()
 
     elapsed = time.time() - t0
     _log(
         f"DONE in {elapsed:.0f}s — entries={stats['entries']} chunks={stats['chunks']} "
-        f"indexed={stats['indexed']} failed={stats['failed']} skipped={stats['skipped']}"
+        f"failed={stats['failed']} skipped={stats['skipped']}"
     )
 
 

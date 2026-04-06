@@ -16,7 +16,6 @@ from starlette.requests import Request as StarletteRequest
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from src.backend.core.config import settings
-from src.backend.search.hybrid import hybrid_search
 from src.backend.search.reranker import rerank
 from src.backend.search.trending import (
     FALLBACK_TOPICS,
@@ -37,44 +36,46 @@ from src.backend.seo import (
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# ES async client (created once at startup)
-# ---------------------------------------------------------------------------
-
-_es: httpx.AsyncClient | None = None
-
-
-def _es_url(path: str) -> str:
-    return f"{settings.ES_URL}{path}"
-
-
-async def es_request(method: str, path: str, json: dict | None = None) -> dict:
-    assert _es is not None
-    resp = await _es.request(method, _es_url(path), json=json, timeout=30)
-    resp.raise_for_status()
-    return resp.json()
-
-
-# ---------------------------------------------------------------------------
 # Lifespan
 # ---------------------------------------------------------------------------
+
+_SEARCH_UNAVAILABLE = JSONResponse(
+    status_code=503,
+    content={
+        "detail": "Search layer under reconstruction — Postgres/pgvector rebuild in progress"
+    },
+)
+
+
+# Stubs — ES and hybrid search removed. All callers return 503.
+async def es_request(method: str, path: str, json: dict | None = None) -> dict:
+    from fastapi import HTTPException
+
+    raise HTTPException(
+        status_code=503,
+        detail="Search layer under reconstruction — Postgres/pgvector rebuild in progress",
+    )
+
+
+async def hybrid_search(*args, **kwargs):
+    from fastapi import HTTPException
+
+    raise HTTPException(
+        status_code=503,
+        detail="Search layer under reconstruction — Postgres/pgvector rebuild in progress",
+    )
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _es
-    _es = httpx.AsyncClient()
     load_spa_template()
-    logger.info(
-        "GABI API started — ES=%s, index=%s", settings.ES_URL, settings.es_target_index
-    )
+    logger.info("GABI API started — search layer offline (Postgres raw data only)")
     if _mcp_http_session_mgr is not None:
         async with _mcp_http_session_mgr.run():
             logger.info("MCP Streamable HTTP session manager started")
             yield
     else:
         yield
-    if _es:
-        await _es.aclose()
 
 
 app = FastAPI(
@@ -606,17 +607,17 @@ async def _get_openai_query_embedding(query: str) -> list[float] | None:
     if not api_key or not settings.VECTOR_SEARCH_ENABLED:
         return None
     try:
-        assert _es is not None
-        resp = await _es.post(
-            "https://api.openai.com/v1/embeddings",
-            headers={"Authorization": f"Bearer {api_key}"},
-            json={
-                "model": _OPENAI_EMBED_MODEL,
-                "input": [query],
-                "dimensions": _OPENAI_EMBED_DIMS,
-            },
-            timeout=10,
-        )
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://api.openai.com/v1/embeddings",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={
+                    "model": _OPENAI_EMBED_MODEL,
+                    "input": [query],
+                    "dimensions": _OPENAI_EMBED_DIMS,
+                },
+                timeout=10,
+            )
         resp.raise_for_status()
         data = resp.json()
         return data["data"][0]["embedding"]
@@ -1059,7 +1060,6 @@ async def search(
             from_=es_from,
             source_fields=_SOURCE_FIELDS,
             highlight_spec=_HIGHLIGHT_SPEC,
-            client=_es,
             is_trending=is_trending,
             intent=intent,
         )
@@ -1080,7 +1080,7 @@ async def search(
     intent_data = data.get("_intent")
 
     if use_reranker and hits:
-        hits = await rerank(q, hits, top_k=settings.RERANKER_TOP_K, client=_es)
+        hits = await rerank(q, hits, top_k=settings.RERANKER_TOP_K)
         page_hits = hits[offset : offset + max]
         results = [_hit_to_result(h) for h in page_hits]
     else:

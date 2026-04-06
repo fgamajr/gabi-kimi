@@ -1,38 +1,4 @@
 services:
-  mongo:
-    image: mongo:7
-    container_name: gabi-kimi-mongo
-    restart: unless-stopped
-    command: ["mongod", "--bind_ip_all"]
-    volumes:
-      - mongo_data:/data/db
-    ports:
-      - "27017:27017"
-    healthcheck:
-      test: ["CMD-SHELL", "mongosh --quiet mongodb://127.0.0.1:27017/admin --eval 'db.runCommand({ ping: 1 }).ok' | grep 1 >/dev/null"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
-
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.4
-    container_name: gabi-kimi-elasticsearch
-    restart: unless-stopped
-    environment:
-      discovery.type: single-node
-      xpack.security.enabled: "false"
-      ES_JAVA_OPTS: -Xms${ES_JAVA_HEAP:-1g} -Xmx${ES_JAVA_HEAP:-1g}
-      cluster.routing.allocation.disk.threshold_enabled: "false"
-    volumes:
-      - elastic_data:/usr/share/elasticsearch/data
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9200/_cluster/health >/dev/null"]
-      interval: 15s
-      timeout: 10s
-      retries: 20
-      start_period: 20s
-
   backend:
     build:
       context: .
@@ -40,23 +6,12 @@ services:
     image: gabi-kimi-backend
     container_name: gabi-kimi-backend
     restart: unless-stopped
-    depends_on:
-      mongo:
-        condition: service_healthy
-      elasticsearch:
-        condition: service_healthy
     env_file:
       - .env
     environment:
       BACKEND_INTERNAL_PORT: 8000
       PYTHONPATH: /workspace
       WATCHFILES_FORCE_POLLING: "true"
-      MONGO_STRING: mongodb://mongo:27017/gabi_dou
-      DB_NAME: gabi_dou
-      ES_URL: http://elasticsearch:9200
-      ES_INDEX: gabi_documents_v3
-      ES_ALIAS: gabi_documents
-      ES_SYNC_CURSOR_PATH: /data/gabi_dou/es_sync_cursor.json
       PIPELINE_TMP: /data/gabi_dou/pipeline
       DOU_DATA_PATH: /data/gabi_dou
       ICLOUD_DATA_PATH: /data/gabi_dou
@@ -77,73 +32,6 @@ services:
       - frontend_dist:/shared/dist:ro
     ports:
       - "${BACKEND_PORT:-8001}:8000"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/live', timeout=5).read()"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 20s
-
-  worker:
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
-    image: gabi-kimi-backend
-    container_name: gabi-kimi-worker
-    restart: unless-stopped
-    depends_on:
-      mongo:
-        condition: service_healthy
-      elasticsearch:
-        condition: service_healthy
-    env_file:
-      - .env
-    environment:
-      PYTHONPATH: /workspace
-      MONGO_STRING: mongodb://mongo:27017/gabi_dou
-      DB_NAME: gabi_dou
-      ES_URL: http://elasticsearch:9200
-      ES_INDEX: gabi_documents_v3
-      ES_ALIAS: gabi_documents
-      ES_SYNC_CURSOR_PATH: /data/gabi_dou/es_sync_cursor.json
-      PIPELINE_TMP: /data/gabi_dou/pipeline
-      DOU_DATA_PATH: /data/gabi_dou
-      ICLOUD_DATA_PATH: /data/gabi_dou
-      WORKER_BATCH_SIZE: ${WORKER_BATCH_SIZE:-1000}
-      WORKER_POLL_INTERVAL_SEC: ${WORKER_POLL_INTERVAL_SEC:-30}
-    working_dir: /workspace
-    command: ["sh", "/opt/container-scripts/worker-dev.sh"]
-    volumes:
-      - .:/workspace
-      - dou_data:/data/gabi_dou
-
-  dev-converge-api:
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
-    image: gabi-kimi-backend
-    container_name: gabi-kimi-dev-converge-api
-    restart: unless-stopped
-    depends_on:
-      mongo:
-        condition: service_healthy
-    env_file:
-      - .env
-    environment:
-      DEV_CONVERGE_INTERNAL_PORT: 8000
-      PYTHONPATH: /workspace
-      DEV_CONVERGE_MONGO_STRING: mongodb://mongo:27017/gabi_dou
-      DEV_CONVERGE_DB_NAME: gabi_dou
-      DEV_CONVERGE_DATA_ROOT: /data/dev_converge
-      DEV_CONVERGE_SITE_URL: ${DEV_CONVERGE_SITE_URL:-https://converge.gabidou.top}
-      DEV_CONVERGE_ALLOWED_HOSTS: ${DEV_CONVERGE_ALLOWED_HOSTS:-localhost,127.0.0.1,dev-converge-api}
-    working_dir: /workspace
-    command: ["sh", "/workspace/ops/container/dev-converge-api-dev.sh"]
-    volumes:
-      - .:/workspace
-      - dev_converge_data:/data/dev_converge
-    ports:
-      - "${DEV_CONVERGE_PORT:-8011}:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/live', timeout=5).read()"]
       interval: 15s
@@ -183,9 +71,6 @@ services:
       start_period: 20s
 
 volumes:
-  mongo_data:
-  elastic_data:
   dou_data:
-  dev_converge_data:
   frontend_node_modules:
   frontend_dist:
