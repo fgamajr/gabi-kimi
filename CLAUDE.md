@@ -59,7 +59,14 @@ docker compose exec frontend sh -c "cd /workspace/src/frontend/app && npm run li
 - **Worker service** runs a continuous ES sync loop (30s polling); don't confuse with backend
 - **MCP server** is a separate process at `ops/bin/mcp_es_server.py`, not part of the FastAPI app
 - **SSR + SPA hybrid** — FastAPI serves SSR HTML for SEO at `/documento/` paths
-- **Repo is fully indexed** — use `mcp__gabi-repo__repo_query` to search the entire codebase; use `mcp__gabi-repo__repo_file` to read any file by path. This MCP server is configured in `.mcp.json`.
+- **Repo index (gabi-repo MCP)** — developer/agent tooling on **your machine**, not the production API. `src.backend.repo_index` writes `.ai/repo_index.db` and should index the **full clone** (`specs/`, `ops/`, etc.). Canonical flow: **host Python** — venv at repo root + `PYTHONPATH` = repo root:
+  ```bash
+  cd /path/to/gabi-kimi
+  python3 -m venv .venv && .venv/bin/pip install -r src/backend/requirements.txt
+  PYTHONPATH="$(pwd)" .venv/bin/python -m src.backend.repo_index build
+  ```
+  Add `--with-embeddings` when `OPENAI_API_KEY` / `EMBED_*` are set. Do **not** treat this as “run inside the production backend container”: the prod image only contains what `Dockerfile.backend` copies into `/opt/app`, not the whole working tree your editor sees. A dev `docker compose` bind-mount (`.:/workspace`) can run the same command for convenience, but the purpose is local MCP support, not the production backend process.
+- **Cursor / MCP** — use `mcp__gabi-repo__repo_query` / `repo_file` when `ops/bin/mcp_repo_server.py` is running against that index; client config lives in `.mcp.json` (local, gitignored).
 
 ## Subdirectory Instructions
 

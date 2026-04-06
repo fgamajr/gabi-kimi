@@ -1,3 +1,10 @@
+"""Legacy entrypoint: MongoDB → Postgres *raw_data* tables.
+
+Canonical SoT is the 11 ``raw.*`` tables fed by ``src.backend.ingest`` (``sync_dou``,
+``tcu_csv_postgres_ingest``, ``tcu_btcu_ingest``, ``tcu_publicacoes_ingest``, …).
+This runner is opt-in only: set ``GABI_ALLOW_LEGACY_MONGO_MIGRATION=1``.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -10,16 +17,31 @@ from ops.migrations._registry import COLLECTION_SPECS, resolve_specs
 
 
 def main() -> None:
+    if os.environ.get("GABI_ALLOW_LEGACY_MONGO_MIGRATION", "").strip() != "1":
+        raise SystemExit(
+            "Legacy Mongo→Postgres migrations are disabled. SoT: 11 canonical raw.* tables "
+            "(ingest under src/backend/ingest). For one-off legacy runs set "
+            "GABI_ALLOW_LEGACY_MONGO_MIGRATION=1."
+        )
+
     all_names = ", ".join(COLLECTION_SPECS)
-    parser = argparse.ArgumentParser(description="Server-side MongoDB -> Postgres raw migrations")
-    parser.add_argument("--mongo-uri", default=os.getenv("MONGO_STRING", "mongodb://mongo:27017/gabi_dou"))
+    parser = argparse.ArgumentParser(
+        description="Server-side MongoDB -> Postgres raw migrations"
+    )
+    parser.add_argument(
+        "--mongo-uri",
+        default=os.getenv("MONGO_STRING", "mongodb://mongo:27017/gabi_dou"),
+    )
     parser.add_argument("--mongo-db", default=os.getenv("DB_NAME", "gabi_dou"))
     parser.add_argument(
         "--collections",
         default="all",
         help=f"Comma-separated collection names to migrate, or 'all'. Known: {all_names}",
     )
-    parser.add_argument("--postgres-dsn", default=os.getenv("POSTGRES_URL", "postgresql://gabi:gabi@postgres:5432/gabi"))
+    parser.add_argument(
+        "--postgres-dsn",
+        default=os.getenv("POSTGRES_URL", "postgresql://gabi:gabi@postgres:5432/gabi"),
+    )
     parser.add_argument("--batch-size", type=int, default=250)
     parser.add_argument("--typed-page-size", type=int, default=5000)
     parser.add_argument("--spot-check-size", type=int, default=1000)

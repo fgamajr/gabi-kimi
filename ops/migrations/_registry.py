@@ -1,3 +1,8 @@
+"""Registry of legacy Mongo → Postgres migration modules (*_raw_data / tcu_acordaos).
+
+Opt-in via ``GABI_ALLOW_LEGACY_MONGO_MIGRATION=1`` when invoking ``ops.migrations.run``.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

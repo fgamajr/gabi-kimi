@@ -64,11 +64,13 @@ Convenção de tabelas raw:
 
 **Total: ~16.6M documentos**
 
-Observação de transição:
-- No estado atual, os 7 CSV de jurisprudência/acórdãos TCU ainda compartilham a tabela física `raw.tcu_acordaos_raw_data`.
-- A diretriz deste SPEC passa a ser: separar fisicamente em tabelas raw por source (`raw.<nome_source_tcu>_raw`).
+**SoT canónico (11 tabelas `raw.*`):** ingest em [`src/backend/ingest`](../src/backend/ingest) — `sync_dou` → `raw.dou_documents_raw`; `tcu_csv_postgres_ingest` → oito tabelas TCU CSV (layout **colunar** TEXT por cabeçalho); `tcu_btcu_ingest` / `tcu_publicacoes_ingest` → envelope JSONB nas tabelas homónimas. Migração legado Mongo: [`ops/migrations/run.py`](../ops/migrations/run.py) só com `GABI_ALLOW_LEGACY_MONGO_MIGRATION=1`. Backfill/arquivo: [`ops/migrations/source_separate_raw.py`](../ops/migrations/source_separate_raw.py), [`ops/migrations/raw_legacy_archive.sql`](../ops/migrations/raw_legacy_archive.sql).
 
-Todas as sources guardam `id` e `all_fields` (JSONB completo) no raw.
+Observação de transição:
+- Tabelas `*_raw_data` e `raw.tcu_acordaos` (tipada) são **legado**; arquivar após paridade com as 11 canónicas.
+- TCU CSV pode estar **colunar** (sem coluna `all_fields`); nesse caso o backfill envelope em `source_separate_raw` ignora esses alvos — usar re-ingest CSV.
+
+Todas as sources **canónicas** expõem `id` + payload (JSONB em `all_fields` para DOU/BTCU/publicações; colunas TEXT espelhando CSV para as oito fontes TCU CSV).
 
 Todos os tipos têm:
 - `pub_date` ou `data_*` (para ordering recente)

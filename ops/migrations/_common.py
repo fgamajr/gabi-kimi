@@ -9,22 +9,35 @@ from decimal import Decimal
 from typing import Any
 
 
-VALID_TABLES = {
-    # 11 canonical source-separated raw tables
-    "raw.dou_documents_raw",
-    "raw.tcu_acordao_completo_raw",
-    "raw.tcu_jurisprudencia_selecionada_raw",
-    "raw.tcu_resposta_consulta_raw",
-    "raw.tcu_sumula_raw",
-    "raw.tcu_boletim_jurisprudencia_raw",
-    "raw.tcu_boletim_pessoal_raw",
-    "raw.tcu_boletim_informativo_lc_raw",
-    "raw.tcu_normas_raw",
-    "raw.tcu_btcu_raw",
-    "raw.tcu_publicacoes_raw",
-    # metadata table (not a document source)
-    "raw.tcu_csv_fetch_meta",
-}
+CANONICAL_RAW_TABLES: frozenset[str] = frozenset(
+    {
+        "raw.dou_documents_raw",
+        "raw.tcu_acordao_completo_raw",
+        "raw.tcu_jurisprudencia_selecionada_raw",
+        "raw.tcu_resposta_consulta_raw",
+        "raw.tcu_sumula_raw",
+        "raw.tcu_boletim_jurisprudencia_raw",
+        "raw.tcu_boletim_pessoal_raw",
+        "raw.tcu_boletim_informativo_lc_raw",
+        "raw.tcu_normas_raw",
+        "raw.tcu_btcu_raw",
+        "raw.tcu_publicacoes_raw",
+        "raw.tcu_csv_fetch_meta",
+    }
+)
+
+LEGACY_RAW_TABLES: frozenset[str] = frozenset(
+    {
+        "raw.dou_documents_raw_data",
+        "raw.tcu_acordaos_raw_data",
+        "raw.tcu_acordaos",
+        "raw.tcu_normas_raw_data",
+        "raw.tcu_btcu_raw_data",
+        "raw.tcu_publicacoes_raw_data",
+    }
+)
+
+VALID_TABLES = CANONICAL_RAW_TABLES | LEGACY_RAW_TABLES
 MAX_SPOT_CHECK_SIZE = 10000
 
 

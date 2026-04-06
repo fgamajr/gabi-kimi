@@ -27,75 +27,66 @@
 
 ## Resumo de Tabelas
 
-| Tabela | Schema | Linhas (exato) | Tamanho | Fonte | Criticidade |
-|--------|--------|--------------|---------|-------|-------------|
-| [`dou_documents`](databases/gabi/tables/dou_documents.md) | raw | **15.853.837** | 89 GB | DOU/INLABS | 🔴 CRÍTICA |
-| [`tcu_acordaos`](databases/gabi/tables/tcu_acordaos.md) | raw | **547.490** | 11 GB | TCU Dados Abertos (CSVs) | 🔴 CRÍTICA |
-| [`tcu_acordaos_raw_data`](databases/gabi/tables/tcu_acordaos_raw_data.md) | raw | **547.490** | 6,1 GB | TCU Dados Abertos (CSVs) — JSONB | 🟡 LEGADO |
-| [`tcu_btcu_raw_data`](databases/gabi/tables/tcu_btcu_raw_data.md) | raw | **223.515** | 822 MB | BTCU API | 🟢 ATIVA |
-| [`tcu_normas_raw_data`](databases/gabi/tables/tcu_normas_raw_data.md) | raw | **16.413** | 90 MB | TCU Normas CSV | 🟢 ATIVA |
-| [`tcu_publicacoes_raw_data`](databases/gabi/tables/tcu_publicacoes_raw_data.md) | raw | **667** | 39 MB | Portal TCU (scraping) | 🟢 ATIVA |
-| [`migration_log`](databases/gabi/tables/migration_log.md) | raw | 10 | 32 kB | Interna — auditoria de ingestão | ⚪ META |
+### Canónicas (SoT — ingest actual)
 
-**Total de documentos únicos:** ~16.641.822  
-**Tamanho total do banco:** 107 GB
+| Tabela | Schema | Linhas (aprox.) | Fonte | Notas |
+|--------|--------|-----------------|-------|--------|
+| `dou_documents_raw` | raw | ~15,9M | DOU/INLABS | JSONB `all_fields`; ingest [`sync_dou`](../../src/backend/ingest/sync_dou.py) |
+| `tcu_acordao_completo_raw` … `tcu_boletim_informativo_lc_raw` (8) | raw | ver catálogo CSV | TCU CSV | Layout **colunar** via `tcu_csv_postgres_ingest` |
+| `tcu_normas_raw` | raw | ~16,4k | norma.csv | Colunar ou envelope conforme deploy |
+| `tcu_btcu_raw` | raw | ~223k | BTCU scrape | JSONB envelope |
+| `tcu_publicacoes_raw` | raw | ~667 | Portal TCU | JSONB envelope |
+| `tcu_csv_fetch_meta` | raw | — | — | Metadados de fetch |
 
-> **Nota sobre contagem:** O valor de `dou_documents` (15.853.837) é a contagem exata validada pelo migration_log. O estimador do PostgreSQL (`reltuples`) retorna 15.649.937 por falta de `ANALYZE` — não representa perda de dados.
+### Legado (arquivar após paridade)
 
----
+| Tabela | Schema | Estado |
+|--------|--------|--------|
+| `dou_documents_raw_data` | raw | Substituída por `dou_documents_raw` |
+| `tcu_acordaos` / `tcu_acordaos_raw_data` | raw | Tipada + JSONB consolidado |
+| `tcu_btcu_raw_data` / `tcu_normas_raw_data` / `tcu_publicacoes_raw_data` | raw | Substituídas pelas tabelas `*_raw` homónimas |
+| [`migration_log`](databases/gabi/tables/migration_log.md) | raw | Auditoria migrações legadas |
 
-## ⚠️ Sprint 2 — Tabelas Source-Separated (Planejadas)
+Ver [`ops/migrations/raw_legacy_archive.sql`](../../ops/migrations/raw_legacy_archive.sql) para renomear legado.
 
-O Sprint 2 prevê a substituição de `raw.tcu_acordaos` e `raw.tcu_acordaos_raw_data` por **tabelas colunar separadas por fonte**, cada uma com as colunas exatas dos CSVs TCU (sem JSONB). Estas tabelas **ainda não existem no banco em produção** (verificado em 2026-04-05).
-
-| Tabela planejada | Linhas esperadas | Fonte CSV |
-|-----------------|-----------------|-----------|
-| `raw.tcu_acordao_completo_raw` | 520.353 | acordao-completo-{year}.csv |
-| `raw.tcu_jurisprudencia_selecionada_raw` | 17.016 | jurisprudencia.csv |
-| `raw.tcu_resposta_consulta_raw` | 522 | resposta-consulta.csv |
-| `raw.tcu_sumula_raw` | 294 | sumula.csv |
-| `raw.tcu_boletim_jurisprudencia_raw` | 5.828 | boletim-jurisprudencia.csv |
-| `raw.tcu_boletim_pessoal_raw` | 1.500 | boletim-pessoal.csv |
-| `raw.tcu_boletim_informativo_lc_raw` | 1.977 | boletim-lc.csv |
-| `raw.tcu_normas_raw` | 16.413 | norma.csv |
-
-Também será criada `raw.tcu_csv_fetch_meta` (tabela de metadados de fetch por fonte/ano).
-
-**Quando o Sprint 2 for executado, este catálogo deve ser atualizado** para refletir o novo schema columnar.
+**Tamanho total do banco (snapshot anterior):** ~107 GB — revalidar após cutover.
 
 ---
 
-## Arquitetura de Dados
+## Onze fontes raw alinhadas ao código
+
+| Tabela | Fonte |
+|--------|--------|
+| `raw.dou_documents_raw` | INLABS/Liferay |
+| `raw.tcu_acordao_completo_raw` | acordao-completo-{ano}.csv |
+| `raw.tcu_jurisprudencia_selecionada_raw` | jurisprudencia-selecionada.csv |
+| `raw.tcu_resposta_consulta_raw` | resposta-consulta.csv |
+| `raw.tcu_sumula_raw` | sumula.csv |
+| `raw.tcu_boletim_jurisprudencia_raw` | boletim-jurisprudencia.csv |
+| `raw.tcu_boletim_pessoal_raw` | boletim-pessoal.csv |
+| `raw.tcu_boletim_informativo_lc_raw` | boletim-informativo-lc.csv |
+| `raw.tcu_normas_raw` | norma.csv |
+| `raw.tcu_btcu_raw` | BTCU (scrape) |
+| `raw.tcu_publicacoes_raw` | Publicações TCU (scrape) |
+
+---
+
+## Arquitetura de Dados (alvo)
 
 ```
-Fontes externas                                    PostgreSQL raw.*
-├── DOU/INLABS (HTML/ZIP) ─────────────────────→ raw.dou_documents (15.9M)
-├── TCU Dados Abertos (CSV) ───────────────────→ raw.tcu_acordaos (547K)  ← tipada
-│   ├── acordao-completo-{year}.csv                  (source_type: tcu_acordao)
-│   ├── jurisprudencia.csv                           (source_type: tcu_jurisprudencia)
-│   ├── sumula.csv                                   (source_type: tcu_sumula)
-│   ├── resposta-consulta.csv                        (source_type: tcu_resposta_consulta)
-│   └── boletim-*.csv                                (source_type: tcu_boletim_*)
-│                                              → raw.tcu_acordaos_raw_data (547K) ← JSONB/legado
-├── BTCU API ──────────────────────────────────→ raw.tcu_btcu_raw_data (223K)
-├── TCU Normas CSV ────────────────────────────→ raw.tcu_normas_raw_data (16K)
-└── Portal TCU (scraping) ─────────────────────→ raw.tcu_publicacoes_raw_data (667)
+Fontes externas                         PostgreSQL raw.* (canónico)
+├── DOU/INLABS ───────────────────────→ raw.dou_documents_raw
+├── TCU CSV (8 ficheiros) ─────────────→ raw.tcu_*_raw (colunar)
+├── norma.csv ─────────────────────────→ raw.tcu_normas_raw
+├── BTCU scrape ───────────────────────→ raw.tcu_btcu_raw
+└── Publicações scrape ────────────────→ raw.tcu_publicacoes_raw
 ```
 
 ---
 
 ## Relacionamentos Lógicos
 
-Não existem **foreign keys físicas** no banco atual. Os relacionamentos são **implícitos via `id`**:
-
-```
-raw.tcu_acordaos.id  ←→  raw.tcu_acordaos_raw_data.id
-  (547.490 registros — sobreposição 100%)
-  
-tcu_acordaos        = tabela tipada (colunas explícitas + all_fields JSONB)
-tcu_acordaos_raw_data = tabela JSONB puro (all_fields apenas)
-Candidata a DROP após Sprint 2 — ver tabela de problemas.
-```
+Não existem **foreign keys físicas**. Entre **legado** `raw.tcu_acordaos` / `raw.tcu_acordaos_raw_data` os `id` alinhavam 1:1; o alvo de ingest é agora o conjunto de onze `raw.*_raw` canónicas (ver secção «Onze fontes» acima).
 
 Ver [`erd.json`](databases/gabi/erd.json) para grafo completo.
 

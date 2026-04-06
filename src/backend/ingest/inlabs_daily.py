@@ -273,12 +273,19 @@ class InlabsClient:
 
 
 def _pg_count_for_date(target_date: date) -> int:
-    """Count DOU docs in Postgres for a given pub_date."""
+    """Count DOU docs in Postgres for a given pub_date (canonical raw.dou_documents_raw).
+
+    pub_date lives inside all_fields JSON (ISO datetime string from DouDocument).
+    """
+    day = target_date.isoformat()
     with psycopg.connect(_pg_url()) as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT COUNT(*) FROM raw.dou_documents_raw_data WHERE pub_date = %s",
-                (target_date,),
+                """
+                SELECT COUNT(*) FROM raw.dou_documents_raw
+                WHERE left(all_fields->>'pub_date', 10) = %s
+                """,
+                (day,),
             )
             return cur.fetchone()[0]
 

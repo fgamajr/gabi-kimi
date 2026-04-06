@@ -29,13 +29,13 @@ TCU_ACORDAO_CSV_URL_TEMPLATE: Final[str] = (
 # Approximate expected row counts (parity checks) — see ops/migrations/source_separate_raw.py
 EXPECTED_ROW_COUNTS: Final[dict[str, int]] = {
     "raw.tcu_acordao_completo_raw": 520_353,
-    "raw.tcu_jurisprudencia_selecionada_raw": 17_016,
-    "raw.tcu_resposta_consulta_raw": 522,
+    "raw.tcu_jurisprudencia_selecionada_raw": 17_549,
+    "raw.tcu_resposta_consulta_raw": 523,
     "raw.tcu_sumula_raw": 294,
-    "raw.tcu_boletim_jurisprudencia_raw": 5_828,
+    "raw.tcu_boletim_jurisprudencia_raw": 5_837,
     "raw.tcu_boletim_pessoal_raw": 1_500,
     "raw.tcu_boletim_informativo_lc_raw": 1_977,
-    "raw.tcu_normas_raw": 16_413,
+    "raw.tcu_normas_raw": 16_443,
 }
 
 # Headers from live TCU CSVs — validate_csv_headers uses set equality; TCU drift → update catalog.
