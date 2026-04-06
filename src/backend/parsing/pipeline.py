@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import os
+import resource
+import time
 from typing import Any
 
 import psycopg
@@ -38,6 +40,44 @@ def _pg_url() -> str:
 
 def _parsed_table(source_type: str) -> str:
     return f"parsed.{source_type}"
+
+
+def _rss_mb() -> float:
+    # macOS reports bytes, Linux reports KB.
+    usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    if usage > 10_000_000:
+        return usage / (1024 * 1024)
+    return usage / 1024
+
+
+def _check_quality_gate_or_raise(
+    report_path: str | None,
+    *,
+    min_avg_score: float,
+    min_pass_rate: float,
+    max_span_error_rate: float,
+    max_low_coverage_rate: float,
+) -> None:
+    if not report_path:
+        return
+    with open(report_path, "r", encoding="utf-8") as f:
+        report = json.load(f)
+    avg_score = float(report.get("avg_score", 0.0))
+    pass_rate = float(report.get("pass_rate", 0.0))
+    span_error_rate = float(report.get("span_error_rate", 1.0))
+    low_coverage_rate = float(report.get("low_coverage_rate", 1.0))
+    gate_passed = (
+        avg_score >= min_avg_score
+        and pass_rate >= min_pass_rate
+        and span_error_rate <= max_span_error_rate
+        and low_coverage_rate <= max_low_coverage_rate
+    )
+    if not gate_passed:
+        raise SystemExit(
+            "H2 quality gate failed: "
+            f"avg_score={avg_score:.4f} pass_rate={pass_rate:.4f} "
+            f"span_error_rate={span_error_rate:.4f} low_coverage_rate={low_coverage_rate:.4f}"
+        )
 
 
 def _row_all_fields_sql(source_type: str, limit: int, offset: int) -> tuple[str, tuple[Any, ...]]:
@@ -337,7 +377,7 @@ def _update_enrichment(
         )
 
 
-def process_one_enrichment(worker_id: str, model: str) -> bool:
+def process_one_enrichment(worker_id: str, model: str, *, max_text_chars: int, max_spans: int) -> bool:
     with psycopg.connect(_pg_url()) as conn:
         item = _acquire_queue_item(conn, worker_id=worker_id)
         if item is None:
@@ -350,7 +390,7 @@ def process_one_enrichment(worker_id: str, model: str) -> bool:
             return True
 
         try:
-            text = parsed_doc.get("body_tagged_xml") or ""
+            text = (parsed_doc.get("body_tagged_xml") or "")[:max_text_chars]
             allowed = tags_for_source(item.source_type)
             if not text or not allowed:
                 _update_enrichment(
@@ -375,6 +415,8 @@ def process_one_enrichment(worker_id: str, model: str) -> bool:
             prompt = build_h2_prompt(text=text, allowed_tags=allowed, source_type=item.source_type)
             out = call_local_llm(prompt=prompt, model=model)
             spans_model = parse_spans(out.get("tag_spans", []))
+            if len(spans_model) > max_spans:
+                raise ValueError(f"too many spans: {len(spans_model)} > {max_spans}")
             validate_spans(text=text, spans=spans_model, allowed_tags=allowed)
             spans = [x.model_dump() for x in spans_model]
             tags = tags_flat(spans_model)
@@ -424,6 +466,28 @@ def main() -> None:
     p_worker.add_argument("--max-jobs", type=int, default=1)
     p_worker.add_argument("--worker-id", default=f"worker-{os.getpid()}")
     p_worker.add_argument("--model", default=os.getenv("H2_LLM_MODEL", "qwen3"))
+    p_worker.add_argument("--max-text-chars", type=int, default=12000)
+    p_worker.add_argument("--max-spans", type=int, default=120)
+    p_worker.add_argument("--max-rss-mb", type=float, default=0.0)
+    p_worker.add_argument("--quality-report", default="", help="Path to H2 quality report JSON gate")
+    p_worker.add_argument("--min-avg-score", type=float, default=0.75)
+    p_worker.add_argument("--min-pass-rate", type=float, default=0.90)
+    p_worker.add_argument("--max-span-error-rate", type=float, default=0.02)
+    p_worker.add_argument("--max-low-coverage-rate", type=float, default=0.10)
+
+    p_loop = sub.add_parser("h2-loop", help="Continuously process queue with backoff")
+    p_loop.add_argument("--worker-id", default=f"worker-{os.getpid()}")
+    p_loop.add_argument("--model", default=os.getenv("H2_LLM_MODEL", "qwen3"))
+    p_loop.add_argument("--max-text-chars", type=int, default=12000)
+    p_loop.add_argument("--max-spans", type=int, default=120)
+    p_loop.add_argument("--poll-interval-sec", type=float, default=2.0)
+    p_loop.add_argument("--max-idle-cycles", type=int, default=30)
+    p_loop.add_argument("--max-rss-mb", type=float, default=0.0)
+    p_loop.add_argument("--quality-report", default="", help="Path to H2 quality report JSON gate")
+    p_loop.add_argument("--min-avg-score", type=float, default=0.75)
+    p_loop.add_argument("--min-pass-rate", type=float, default=0.90)
+    p_loop.add_argument("--max-span-error-rate", type=float, default=0.02)
+    p_loop.add_argument("--max-low-coverage-rate", type=float, default=0.10)
 
     args = parser.parse_args()
     if args.cmd == "parse":
@@ -437,13 +501,67 @@ def main() -> None:
         print(json.dumps({"source": args.source, "parsed": count}, ensure_ascii=False))
         return
 
-    processed = 0
-    for _ in range(args.max_jobs):
-        had = process_one_enrichment(worker_id=args.worker_id, model=args.model)
-        if not had:
+    if args.cmd == "h2-worker":
+        _check_quality_gate_or_raise(
+            args.quality_report or None,
+            min_avg_score=args.min_avg_score,
+            min_pass_rate=args.min_pass_rate,
+            max_span_error_rate=args.max_span_error_rate,
+            max_low_coverage_rate=args.max_low_coverage_rate,
+        )
+        processed = 0
+        for _ in range(args.max_jobs):
+            if args.max_rss_mb > 0 and _rss_mb() >= args.max_rss_mb:
+                break
+            had = process_one_enrichment(
+                worker_id=args.worker_id,
+                model=args.model,
+                max_text_chars=args.max_text_chars,
+                max_spans=args.max_spans,
+            )
+            if not had:
+                break
+            processed += 1
+        print(
+            json.dumps(
+                {"processed": processed, "worker_id": args.worker_id, "rss_mb": round(_rss_mb(), 2)},
+                ensure_ascii=False,
+            )
+        )
+        return
+
+    processed_total = 0
+    idle_cycles = 0
+    _check_quality_gate_or_raise(
+        args.quality_report or None,
+        min_avg_score=args.min_avg_score,
+        min_pass_rate=args.min_pass_rate,
+        max_span_error_rate=args.max_span_error_rate,
+        max_low_coverage_rate=args.max_low_coverage_rate,
+    )
+    while True:
+        if args.max_rss_mb > 0 and _rss_mb() >= args.max_rss_mb:
             break
-        processed += 1
-    print(json.dumps({"processed": processed, "worker_id": args.worker_id}, ensure_ascii=False))
+        had = process_one_enrichment(
+            worker_id=args.worker_id,
+            model=args.model,
+            max_text_chars=args.max_text_chars,
+            max_spans=args.max_spans,
+        )
+        if had:
+            processed_total += 1
+            idle_cycles = 0
+            continue
+        idle_cycles += 1
+        if idle_cycles >= args.max_idle_cycles:
+            break
+        time.sleep(args.poll_interval_sec)
+    print(
+        json.dumps(
+            {"processed": processed_total, "worker_id": args.worker_id, "rss_mb": round(_rss_mb(), 2)},
+            ensure_ascii=False,
+        )
+    )
 
 
 if __name__ == "__main__":
