@@ -94,11 +94,11 @@ def main() -> None:
                 if not summary_short:
                     summary_short = build_summary_short(source_type, text, structured, topics)
 
-                used_fallback = False
+                used_fallback = str(row.get("enrichment_status") or "") == "done_fallback"
                 if isinstance(row.get("summary_structured"), dict):
                     used_fallback = str(row["summary_structured"].get("mode") or row["summary_structured"].get("modo") or "").startswith(
                         "fallback"
-                    ) or str(row["summary_structured"].get("modo") or "") == "preview_fallback"
+                    ) or str(row["summary_structured"].get("modo") or "") == "preview_fallback" or used_fallback
                 status = classify_enrichment_status(
                     source_type,
                     used_fallback=used_fallback,
