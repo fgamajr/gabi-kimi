@@ -31,6 +31,7 @@ def main() -> None:
     with psycopg.connect(args.postgres_url) as conn:
         with conn.cursor() as cur:
             for source_type in SOURCE_TYPES:
+                cur.execute(f"ALTER TABLE parsed.{source_type} DROP CONSTRAINT IF EXISTS {source_type}_enrichment_status_check")
                 cur.execute(
                     """
                     SELECT c.conname
