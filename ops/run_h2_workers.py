@@ -18,6 +18,7 @@ def main() -> None:
     parser.add_argument("--max-rss-mb", type=float, default=2048)
     parser.add_argument("--poll-interval-sec", type=float, default=2.0)
     parser.add_argument("--max-idle-cycles", type=int, default=30)
+    parser.add_argument("--h2-mode", choices=["fast", "deep"], default=os.getenv("H2_MODE", "fast"))
     parser.add_argument("--min-avg-score", type=float, default=0.75)
     parser.add_argument("--min-pass-rate", type=float, default=0.90)
     parser.add_argument("--max-span-error-rate", type=float, default=0.02)
@@ -48,6 +49,8 @@ def main() -> None:
             str(args.poll_interval_sec),
             "--max-idle-cycles",
             str(args.max_idle_cycles),
+            "--h2-mode",
+            args.h2_mode,
             "--min-avg-score",
             str(args.min_avg_score),
             "--min-pass-rate",

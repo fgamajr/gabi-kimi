@@ -43,23 +43,54 @@ def call_local_llm(
     prompt: str,
     model: str = "qwen3",
     timeout_sec: float = 120.0,
+    mode: str = "fast",
 ) -> dict[str, Any]:
-    base_url = os.getenv("H2_LLM_BASE_URL", "http://qwen-embed:8900").rstrip("/")
+    base_url = os.getenv("H2_LLM_BASE_URL", "http://llm:11434").rstrip("/")
     api_key = os.getenv("H2_LLM_API_KEY", "not-required")
-    url = f"{base_url}/v1/chat/completions"
-    payload = {
+    max_tokens = int(os.getenv("H2_LLM_MAX_TOKENS_DEEP", "900")) if mode == "deep" else int(
+        os.getenv("H2_LLM_MAX_TOKENS", "512")
+    )
+    temperature = float(os.getenv("H2_LLM_TEMPERATURE", "0.0"))
+    top_p = float(os.getenv("H2_LLM_TOP_P", "0.9"))
+    repeat_penalty = float(os.getenv("H2_LLM_REPEAT_PENALTY", "1.1"))
+
+    common_messages = [
+        {"role": "system", "content": "Você responde apenas JSON válido."},
+        {"role": "user", "content": prompt},
+    ]
+
+    openai_url = f"{base_url}/v1/chat/completions"
+    openai_payload = {
         "model": model,
-        "temperature": 0.0,
+        "temperature": temperature,
+        "top_p": top_p,
+        "max_tokens": max_tokens,
         "response_format": {"type": "json_object"},
-        "messages": [
-            {"role": "system", "content": "Você responde apenas JSON válido."},
-            {"role": "user", "content": prompt},
-        ],
+        "messages": common_messages,
     }
+
+    ollama_url = f"{base_url}/api/chat"
+    ollama_payload = {
+        "model": model,
+        "stream": False,
+        "options": {
+            "temperature": temperature,
+            "top_p": top_p,
+            "repeat_penalty": repeat_penalty,
+            "num_predict": max_tokens,
+        },
+        "messages": common_messages,
+    }
+
     headers = {"Authorization": f"Bearer {api_key}"}
     with httpx.Client(timeout=timeout_sec) as client:
-        response = client.post(url, json=payload, headers=headers)
-        response.raise_for_status()
-        data = response.json()
-    content = data["choices"][0]["message"]["content"]
+        response = client.post(openai_url, json=openai_payload, headers=headers)
+        if response.status_code >= 400:
+            response = client.post(ollama_url, json=ollama_payload, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            content = (data.get("message") or {}).get("content", "")
+        else:
+            data = response.json()
+            content = data["choices"][0]["message"]["content"]
     return _extract_json_block(content)

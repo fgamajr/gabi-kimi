@@ -377,7 +377,14 @@ def _update_enrichment(
         )
 
 
-def process_one_enrichment(worker_id: str, model: str, *, max_text_chars: int, max_spans: int) -> bool:
+def process_one_enrichment(
+    worker_id: str,
+    model: str,
+    *,
+    max_text_chars: int,
+    max_spans: int,
+    h2_mode: str,
+) -> bool:
     with psycopg.connect(_pg_url()) as conn:
         item = _acquire_queue_item(conn, worker_id=worker_id)
         if item is None:
@@ -413,7 +420,7 @@ def process_one_enrichment(worker_id: str, model: str, *, max_text_chars: int, m
                 return True
 
             prompt = build_h2_prompt(text=text, allowed_tags=allowed, source_type=item.source_type)
-            out = call_local_llm(prompt=prompt, model=model)
+            out = call_local_llm(prompt=prompt, model=model, mode=h2_mode)
             spans_model = parse_spans(out.get("tag_spans", []))
             if len(spans_model) > max_spans:
                 raise ValueError(f"too many spans: {len(spans_model)} > {max_spans}")
@@ -469,6 +476,7 @@ def main() -> None:
     p_worker.add_argument("--max-text-chars", type=int, default=12000)
     p_worker.add_argument("--max-spans", type=int, default=120)
     p_worker.add_argument("--max-rss-mb", type=float, default=0.0)
+    p_worker.add_argument("--h2-mode", choices=["fast", "deep"], default=os.getenv("H2_MODE", "fast"))
     p_worker.add_argument("--quality-report", default="", help="Path to H2 quality report JSON gate")
     p_worker.add_argument("--min-avg-score", type=float, default=0.75)
     p_worker.add_argument("--min-pass-rate", type=float, default=0.90)
@@ -483,6 +491,7 @@ def main() -> None:
     p_loop.add_argument("--poll-interval-sec", type=float, default=2.0)
     p_loop.add_argument("--max-idle-cycles", type=int, default=30)
     p_loop.add_argument("--max-rss-mb", type=float, default=0.0)
+    p_loop.add_argument("--h2-mode", choices=["fast", "deep"], default=os.getenv("H2_MODE", "fast"))
     p_loop.add_argument("--quality-report", default="", help="Path to H2 quality report JSON gate")
     p_loop.add_argument("--min-avg-score", type=float, default=0.75)
     p_loop.add_argument("--min-pass-rate", type=float, default=0.90)
@@ -518,6 +527,7 @@ def main() -> None:
                 model=args.model,
                 max_text_chars=args.max_text_chars,
                 max_spans=args.max_spans,
+                h2_mode=args.h2_mode,
             )
             if not had:
                 break
@@ -547,6 +557,7 @@ def main() -> None:
             model=args.model,
             max_text_chars=args.max_text_chars,
             max_spans=args.max_spans,
+            h2_mode=args.h2_mode,
         )
         if had:
             processed_total += 1

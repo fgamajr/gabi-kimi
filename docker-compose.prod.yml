@@ -45,6 +45,9 @@ services:
       GABI_PUBLIC_HEALTH_DETAILS: ${GABI_PUBLIC_HEALTH_DETAILS:-false}
       RERANKER_URL: ${RERANKER_URL:-http://reranker:8902}
       EMBED_SERVER_URL: ${EMBED_SERVER_URL:-http://qwen-embed:8900}
+      H2_LLM_BASE_URL: ${H2_LLM_BASE_URL:-http://llm:11434}
+      H2_LLM_MODEL: ${H2_LLM_MODEL:-qwen2.5:7b-instruct}
+      H2_MODE: ${H2_MODE:-fast}
       EMBED_DIMS: ${EMBED_DIMS:-384}
       # RAG / answering (see docs/RAG_14DAY_RUNBOOK.md — set RAG_ENABLED=true in server .env)
       RAG_ENABLED: ${RAG_ENABLED:-false}
@@ -67,6 +70,37 @@ services:
     networks:
       - edge
       - internal
+
+  llm:
+    image: ollama/ollama:latest
+    container_name: gabi-kimi-llm
+    restart: unless-stopped
+    environment:
+      OLLAMA_HOST: 0.0.0.0
+      OLLAMA_KEEP_ALIVE: 30m
+      OLLAMA_NUM_PARALLEL: 2
+      OLLAMA_MAX_LOADED_MODELS: 1
+    volumes:
+      - ${GABI_HOST_DATA_ROOT:-/mnt/HC_Volume_105154890}/ollama:/root/.ollama
+    command: >
+      sh -lc "ollama serve &
+      sleep 3 &&
+      ollama pull ${H2_LLM_MODEL:-qwen2.5:7b-instruct} &&
+      wait"
+    expose:
+      - "11434"
+    ports:
+      - "127.0.0.1:11434:11434"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - internal
+    profiles:
+      - llm
 
   dev-converge-api:
     build:
