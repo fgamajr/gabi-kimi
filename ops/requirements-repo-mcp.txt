@@ -1,0 +1,5 @@
+# Local MCP gabi-repo (ops/bin/mcp_repo_server.py) + repo_index CLI.
+# Lighter than src/backend/requirements.txt — no FastAPI/WeasyPrint/Mongo.
+mcp
+typer
+watchdog

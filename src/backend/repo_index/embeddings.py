@@ -8,6 +8,18 @@ from typing import Protocol
 
 from src.backend.repo_index.config import settings
 
+# OpenAI embedding models cap inputs at 8192 tokens; long XML/code chunks can exceed that.
+_MAX_EMBED_CHARS = 16_000
+
+
+def _prepare_embed_text(text: str) -> str:
+    t = text.replace("\x00", "")
+    if t.startswith("\ufeff"):
+        t = t.lstrip("\ufeff")
+    if len(t) <= _MAX_EMBED_CHARS:
+        return t
+    return t[:_MAX_EMBED_CHARS]
+
 
 class EmbeddingProvider(Protocol):
     def embed(self, texts: list[str]) -> list[list[float]]: ...
@@ -22,7 +34,8 @@ class OpenAICompatibleEmbeddingProvider:
             )
 
     def embed(self, texts: list[str]) -> list[list[float]]:
-        payload: dict = {"input": texts, "model": settings.embedding_model}
+        prepared = [_prepare_embed_text(t) for t in texts]
+        payload: dict = {"input": prepared, "model": settings.embedding_model}
         if settings.embedding_dims:
             payload["dimensions"] = settings.embedding_dims
         body = json.dumps(payload).encode("utf-8")
