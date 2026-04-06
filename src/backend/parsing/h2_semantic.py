@@ -30,10 +30,23 @@ class TagSpan(BaseModel):
 
 def parse_spans(payload: list[dict[str, Any]]) -> list[TagSpan]:
     try:
-        spans = [TagSpan.model_validate(item) for item in payload]
+        spans = [TagSpan.model_validate(_normalize_span_item(item)) for item in payload]
     except ValidationError as exc:
         raise ValueError(str(exc)) from exc
     return sorted(spans, key=lambda x: (x.start_char, x.end_char, x.tag))
+
+
+def parse_spans_tolerant(payload: list[dict[str, Any]]) -> tuple[list[TagSpan], list[str]]:
+    spans: list[TagSpan] = []
+    issues: list[str] = []
+    for idx, item in enumerate(payload):
+        try:
+            normalized = _normalize_span_item(item)
+            spans.append(TagSpan.model_validate(normalized))
+        except Exception as exc:
+            issues.append(f"invalid_span[{idx}]: {exc}")
+    spans = sorted(spans, key=lambda x: (x.start_char, x.end_char, x.tag))
+    return spans, issues
 
 
 TAG_MAP: dict[str, str] = {
@@ -57,6 +70,21 @@ def canonicalize_tag(value: str) -> str:
     raw = "".join(ch for ch in raw if not unicodedata.combining(ch))
     raw = re.sub(r"[^a-z0-9_]+", "_", raw).strip("_")
     return TAG_MAP.get(raw, raw)
+
+
+def _normalize_span_item(item: dict[str, Any]) -> dict[str, Any]:
+    tag = item.get("tag") or item.get("tag_name") or item.get("label") or item.get("section")
+    start = item.get("start_char")
+    if start is None:
+        start = item.get("start") or item.get("start_idx") or item.get("begin") or item.get("from")
+    end = item.get("end_char")
+    if end is None:
+        end = item.get("end") or item.get("end_idx") or item.get("finish") or item.get("to")
+    confidence = item.get("confidence")
+    out = {"tag": tag, "start_char": start, "end_char": end}
+    if confidence is not None:
+        out["confidence"] = confidence
+    return out
 
 
 def validate_spans(text: str, spans: list[TagSpan], allowed_tags: tuple[str, ...]) -> None:

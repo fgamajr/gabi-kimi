@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.backend.parsing.h2_semantic import parse_spans, render_tagged_xml, validate_spans
+from src.backend.parsing.h2_semantic import parse_spans, parse_spans_tolerant, render_tagged_xml, validate_spans
 
 
 def test_validate_spans_ok() -> None:
@@ -33,3 +33,17 @@ def test_render_tagged_xml_deterministic() -> None:
     spans = parse_spans([{"tag": "ementa", "start_char": 0, "end_char": 8}])
     xml = render_tagged_xml(text, spans)
     assert xml == "<ementa>PORTARIA</ementa>"
+
+
+def test_parse_spans_tolerant_accepts_aliases_and_skips_invalid() -> None:
+    spans, issues = parse_spans_tolerant(
+        [
+            {"tag_name": "Ementa", "start": 0, "end": 7, "confidence": 0.8},
+            {"section": "corpo", "start_idx": 8, "end_idx": 12},
+            {"foo": "bar"},
+        ]
+    )
+    assert len(spans) == 2
+    assert spans[0].tag == "ementa"
+    assert spans[1].tag == "corpo"
+    assert len(issues) == 1

@@ -15,7 +15,7 @@ from psycopg.rows import dict_row
 
 from src.backend.core.config import settings
 from src.backend.parsing.h2_llm import build_h2_prompt, call_local_llm
-from src.backend.parsing.h2_semantic import parse_spans, render_tagged_xml, tags_flat, validate_spans
+from src.backend.parsing.h2_semantic import parse_spans_tolerant, render_tagged_xml, tags_flat, validate_spans
 from src.backend.parsing.h2_vocab import ALLOWED_TAGS_VERSION, tags_for_source
 from src.backend.parsing.source_parsers import PARSER_REGISTRY, SOURCE_TYPES
 
@@ -93,6 +93,18 @@ def _simplified_prompt(text: str, allowed_tags: tuple[str, ...], source_type: st
         "Sem comentários."
         f"\nTexto:\n{text[:4000]}"
     )
+
+
+def _fallback_h2_output(text: str, source_type: str, reason: str) -> dict[str, Any]:
+    return {
+        "tag_spans": [],
+        "summary_short": text[:320],
+        "summary_long": None,
+        "summary_structured": {"mode": "fallback", "reason": reason[:180], "source_type": source_type},
+        "legal_entities": [],
+        "topics": [source_type],
+        "chunk_summaries": [],
+    }
 
 
 def _row_all_fields_sql(source_type: str, limit: int, offset: int) -> tuple[str, tuple[Any, ...]]:
@@ -437,6 +449,7 @@ def process_one_enrichment(
             t0 = time.time()
             out: dict[str, Any] | None = None
             spans_model = []
+            span_issues: list[str] = []
             last_exc: Exception | None = None
             prompts = [
                 build_h2_prompt(text=text, allowed_tags=allowed, source_type=item.source_type),
@@ -445,22 +458,33 @@ def process_one_enrichment(
             for attempt, prompt in enumerate(prompts, start=1):
                 try:
                     out = call_local_llm(prompt=prompt, model=model, mode=h2_mode)
-                    spans_model = parse_spans(out.get("tag_spans", []))
+                    spans_model, span_issues = parse_spans_tolerant(out.get("tag_spans", []))
                     if len(spans_model) > max_spans:
                         raise ValueError(f"too many spans: {len(spans_model)} > {max_spans}")
-                    validate_spans(text=text, spans=spans_model, allowed_tags=allowed)
+                    try:
+                        validate_spans(text=text, spans=spans_model, allowed_tags=allowed)
+                    except Exception as span_exc:
+                        span_issues.append(str(span_exc))
+                        spans_model = []
                     break
                 except Exception as exc:
                     last_exc = exc
                     out = None
                     spans_model = []
                     if attempt >= len(prompts):
-                        raise
+                        out = _fallback_h2_output(text=text, source_type=item.source_type, reason=str(exc))
+                        spans_model = []
+                        break
             if out is None and last_exc is not None:
-                raise last_exc
+                out = _fallback_h2_output(text=text, source_type=item.source_type, reason=str(last_exc))
+                spans_model = []
             spans = [x.model_dump() for x in spans_model]
             tags = tags_flat(spans_model)
             tagged_xml = render_tagged_xml(text, spans_model)
+            summary_short = out.get("summary_short") or text[:320]
+            topics = out.get("topics")
+            if not isinstance(topics, list) or len(topics) == 0:
+                topics = [item.source_type]
             _update_enrichment(
                 conn,
                 item.source_type,
@@ -469,11 +493,11 @@ def process_one_enrichment(
                 spans=spans,
                 tags=tags,
                 tagged_xml=tagged_xml,
-                summary_short=out.get("summary_short"),
+                summary_short=summary_short,
                 summary_long=out.get("summary_long"),
                 summary_structured=out.get("summary_structured"),
                 legal_entities=out.get("legal_entities"),
-                topics=out.get("topics"),
+                topics=topics,
                 chunk_summaries=out.get("chunk_summaries"),
             )
             _mark_queue_done(conn, item.queue_id)
@@ -491,6 +515,7 @@ def process_one_enrichment(
                     "tokens_out": usage.get("completion_tokens"),
                     "tokens_total": usage.get("total_tokens"),
                     "provider": meta.get("provider"),
+                    "span_issues": span_issues,
                     "status": "done",
                 }
             )

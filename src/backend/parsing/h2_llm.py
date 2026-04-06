@@ -10,12 +10,28 @@ import httpx
 
 def _extract_json_block(content: str) -> dict[str, Any]:
     content = content.strip()
+    if content.startswith("```"):
+        content = re.sub(r"^```(?:json)?\s*", "", content, flags=re.IGNORECASE)
+        content = re.sub(r"\s*```$", "", content)
+        content = content.strip()
     if content.startswith("{") and content.endswith("}"):
         return json.loads(content)
-    match = re.search(r"\{.*\}", content, re.DOTALL)
-    if not match:
+    start = content.find("{")
+    if start < 0:
         raise ValueError("no JSON object found in LLM output")
-    return json.loads(match.group(0))
+    depth = 0
+    end = -1
+    for i, ch in enumerate(content[start:], start=start):
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                end = i
+                break
+    if end < 0:
+        raise ValueError("unterminated JSON object in LLM output")
+    return json.loads(content[start : end + 1])
 
 
 def build_h2_prompt(text: str, allowed_tags: tuple[str, ...], source_type: str) -> str:
@@ -84,8 +100,14 @@ def call_local_llm(
 
     headers = {"Authorization": f"Bearer {api_key}"}
     with httpx.Client(timeout=timeout_sec) as client:
-        response = client.post(openai_url, json=openai_payload, headers=headers)
-        if response.status_code >= 400:
+        try:
+            response = client.post(openai_url, json=openai_payload, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            content = data["choices"][0]["message"]["content"]
+            usage = data.get("usage") or {}
+            provider = "openai_compat"
+        except Exception:
             response = client.post(ollama_url, json=ollama_payload, headers=headers)
             response.raise_for_status()
             data = response.json()
@@ -96,11 +118,6 @@ def call_local_llm(
                 "total_tokens": (data.get("prompt_eval_count") or 0) + (data.get("eval_count") or 0),
             }
             provider = "ollama"
-        else:
-            data = response.json()
-            content = data["choices"][0]["message"]["content"]
-            usage = data.get("usage") or {}
-            provider = "openai_compat"
     out = _extract_json_block(content)
     out["__meta"] = {"provider": provider, "usage": usage}
     return out
