@@ -32,20 +32,6 @@ def main() -> None:
         with conn.cursor() as cur:
             for source_type in SOURCE_TYPES:
                 cur.execute(f"ALTER TABLE parsed.{source_type} DROP CONSTRAINT IF EXISTS {source_type}_enrichment_status_check")
-                cur.execute(
-                    """
-                    SELECT c.conname
-                    FROM pg_constraint c
-                    JOIN pg_class t ON t.oid = c.conrelid
-                    JOIN pg_namespace n ON n.oid = t.relnamespace
-                    WHERE n.nspname = 'parsed'
-                      AND t.relname = %s
-                      AND pg_get_constraintdef(c.oid) ILIKE '%%enrichment_status%%'
-                    """,
-                    (source_type,),
-                )
-                for row in cur.fetchall():
-                    cur.execute(f'ALTER TABLE parsed.{source_type} DROP CONSTRAINT IF EXISTS "{row[0]}"')
                 for old_status, new_status in LEGACY_STATUS_MAP.items():
                     cur.execute(
                         f"UPDATE parsed.{source_type} SET enrichment_status = %s WHERE enrichment_status = %s",
