@@ -5,6 +5,8 @@ from src.backend.parsing.h2_postprocess import (
     classify_enrichment_status,
     clean_text,
     derive_topics,
+    normalize_topics,
+    validate_summary_structured,
 )
 
 
@@ -12,10 +14,19 @@ def test_clean_text_removes_markup() -> None:
     assert clean_text("<ementa>PORTARIA</ementa> <corpo>Nomeia servidor.</corpo>") == "PORTARIA Nomeia servidor."
 
 
+def test_clean_text_unescapes_html_entities() -> None:
+    assert clean_text("&lt;p&gt;Relatório:&lt;/p&gt;") == "Relatório:"
+
+
 def test_derive_topics_never_uses_source_name() -> None:
     topics = derive_topics("dou_documents", "PORTARIA que nomeia servidor", {"art_type": "portaria"})
     assert "dou_documents" not in topics
     assert "pessoal" in topics or "normativo" in topics
+
+
+def test_normalize_topics_enforces_taxonomy() -> None:
+    topics = normalize_topics("dou_documents", ["dou_documents", "saude", "tema_invalido"], "ANVISA publicou portaria", {})
+    assert topics == ["saude_publica"]
 
 
 def test_classify_done_fallback() -> None:
@@ -35,3 +46,8 @@ def test_classify_done_fallback() -> None:
 def test_build_summary_short_is_clean_text() -> None:
     summary = build_summary_short("dou_documents", "<identifica>PORTARIA</identifica> <corpo>Nomeia servidor.</corpo>", {}, ["pessoal"])
     assert "<" not in summary
+
+
+def test_validate_summary_structured_rejects_extra_keys() -> None:
+    summary = validate_summary_structured("tcu_sumula", {"numero": "123", "tema": "licitacao", "extra": "x"})
+    assert summary is None

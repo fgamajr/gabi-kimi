@@ -22,8 +22,10 @@ from src.backend.parsing.h2_postprocess import (
     classify_enrichment_status,
     clean_text,
     derive_legal_entities,
-    derive_topics,
     fallback_tags,
+    normalize_topics,
+    validate_legal_entities,
+    validate_summary_structured,
 )
 from src.backend.parsing.h2_semantic import parse_spans_tolerant, render_tagged_xml, tags_flat, validate_spans
 from src.backend.parsing.h2_vocab import ALLOWED_TAGS_VERSION, tags_for_source
@@ -505,15 +507,16 @@ def process_one_enrichment(
             llm_entities = out.get("legal_entities")
             llm_structured = out.get("summary_structured")
             clean_source_text = clean_text(text)
-            topics = [str(x).strip() for x in llm_topics or [] if str(x).strip() and str(x).strip() != item.source_type]
-            if not topics:
-                topics = derive_topics(item.source_type, clean_source_text, structured)
-            legal_entities = llm_entities if isinstance(llm_entities, list) and llm_entities else derive_legal_entities(clean_source_text, structured)
-            summary_structured = (
-                llm_structured
-                if isinstance(llm_structured, dict) and llm_structured
-                else build_summary_structured(item.source_type, clean_source_text, structured, topics, legal_entities)
+            topics = normalize_topics(item.source_type, llm_topics if isinstance(llm_topics, list) else None, clean_source_text, structured)
+            legal_entities = validate_legal_entities(llm_entities if isinstance(llm_entities, list) else None)
+            if not legal_entities:
+                legal_entities = derive_legal_entities(clean_source_text, structured)
+            summary_structured = validate_summary_structured(
+                item.source_type,
+                llm_structured if isinstance(llm_structured, dict) else None,
             )
+            if not summary_structured:
+                summary_structured = build_summary_structured(item.source_type, clean_source_text, structured, topics, legal_entities)
             summary_short = clean_text(llm_summary_short) if llm_summary_short else ""
             if not summary_short:
                 summary_short = build_summary_short(item.source_type, clean_source_text, structured, topics)

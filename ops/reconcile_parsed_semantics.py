@@ -17,6 +17,9 @@ from src.backend.parsing.h2_postprocess import (
     derive_legal_entities,
     derive_topics,
     fallback_tags,
+    normalize_topics,
+    validate_legal_entities,
+    validate_summary_structured,
 )
 from src.backend.parsing.h2_semantic import parse_spans_tolerant, tags_flat
 from src.backend.parsing.h2_vocab import ALLOWED_TAGS_VERSION, tags_for_source
@@ -43,9 +46,9 @@ def _load_raw_pub_date(conn: psycopg.Connection, raw_id: str) -> str | None:
 
 
 def _coerce_topics(source_type: str, topics: list[str] | None, text: str, structured: dict[str, object]) -> list[str]:
-    out = [str(x).strip() for x in topics or [] if str(x).strip() and str(x).strip() != source_type]
-    if out:
-        return out[:8]
+    normalized = normalize_topics(source_type, topics, text, structured)
+    if normalized:
+        return normalized[:8]
     return derive_topics(source_type, text, structured)
 
 
@@ -77,9 +80,15 @@ def main() -> None:
                 span_tags = tags_flat(spans_model)
                 tags = span_tags or fallback_tags(allowed, row.get("section_map") or {})
                 topics = _coerce_topics(source_type, row.get("topics"), text, structured)
-                legal_entities = row.get("legal_entities") or derive_legal_entities(text, structured)
+                legal_entities = validate_legal_entities(row.get("legal_entities"))
+                if not legal_entities:
+                    legal_entities = derive_legal_entities(text, structured)
                 summary_structured = row.get("summary_structured")
-                if not isinstance(summary_structured, dict) or summary_structured.get("modo") == "preview_fallback":
+                summary_structured = validate_summary_structured(
+                    source_type,
+                    summary_structured if isinstance(summary_structured, dict) else None,
+                )
+                if not summary_structured:
                     summary_structured = build_summary_structured(source_type, text, structured, topics, legal_entities)
                 summary_short = clean_text(row.get("summary_short") or "")
                 if not summary_short:

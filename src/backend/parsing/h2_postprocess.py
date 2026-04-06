@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import html
 import re
 from typing import Any
+
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 
 H2_ENRICHMENT_VERSION = "1.1.0"
@@ -14,7 +17,28 @@ TOPIC_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("normativo", re.compile(r"\bportaria\b|\bresolu[cç][aã]o\b|\blei\b|\bdecreto\b|\binstru[cç][aã]o normativa\b", re.IGNORECASE)),
     ("consulta", re.compile(r"\bconsulta\b|\bresposta\b", re.IGNORECASE)),
     ("jurisprudencia", re.compile(r"\benunciado\b|\bexcerto\b|\bs[uú]mula\b|\bjurisprud[eê]ncia\b", re.IGNORECASE)),
+    ("saude_publica", re.compile(r"\banvisa\b|\bsa[uú]de\b|\bmedicamento\b|\bhospital\b|\bsanit[aá]ri", re.IGNORECASE)),
+    ("energia", re.compile(r"\banp\b|\bpetr[oó]leo\b|\bg[aá]s natural\b|\bcombust[ií]vel\b|\beletric", re.IGNORECASE)),
+    ("infraestrutura", re.compile(r"\brodovia\b|\bferrovia\b|\baeroporto\b|\bporto\b|\binfraestrutura\b", re.IGNORECASE)),
+    ("orcamento", re.compile(r"\bor[cç]ament[aá]ri[oa]\b|\bdota[cç][aã]o\b|\bcr[eé]dito adicional\b", re.IGNORECASE)),
+    ("educacao", re.compile(r"\beduca[cç][aã]o\b|\buniversidade\b|\bprofessor\b|\bbolsa\b", re.IGNORECASE)),
+    ("meio_ambiente", re.compile(r"\bambiental\b|\bmeio ambiente\b|\blicenciamento\b|\bibama\b", re.IGNORECASE)),
+    ("tributario", re.compile(r"\btribut[aá]ri[oa]\b|\bimposto\b|\breceita federal\b|\bpis\b|\bcofins\b", re.IGNORECASE)),
+    ("previdencia", re.compile(r"\baposentadoria\b|\bpens[aã]o\b|\binss\b|\bprevid", re.IGNORECASE)),
+    ("servidor_publico", re.compile(r"\bservidor\b|\bquadro de pessoal\b|\bcargo efetivo\b", re.IGNORECASE)),
 )
+TOPIC_TAXONOMY: tuple[str, ...] = tuple(topic for topic, _ in TOPIC_RULES) + ("administrativo",)
+TOPIC_ALIASES: dict[str, str] = {
+    "licitacoes": "licitacao",
+    "licitacao_publica": "licitacao",
+    "rh": "pessoal",
+    "recursos_humanos": "pessoal",
+    "saude": "saude_publica",
+    "saude_sanitaria": "saude_publica",
+    "orcamentario": "orcamento",
+    "ambiental": "meio_ambiente",
+    "previdenciario": "previdencia",
+}
 
 LEGAL_REFERENCE_RE = re.compile(
     r"\b(?:Lei|Decreto|Portaria|Resolu[cç][aã]o|Instru[cç][aã]o Normativa)\s*(?:n[º°\.]?\s*)?[\d./-]+",
@@ -26,6 +50,7 @@ ORG_SUFFIX_RE = re.compile(
 )
 TAG_RE = re.compile(r"<[^>]+>")
 SPACE_RE = re.compile(r"\s+")
+SOURCE_NAME_RE = re.compile(r"^(dou_documents|tcu_[a-z0-9_]+)$", re.IGNORECASE)
 
 SOURCE_SCHEMA_KEYS: dict[str, tuple[str, ...]] = {
     "dou_documents": ("tipo_ato", "subtipo_ato", "objeto", "fundamento_legal", "efeito_principal", "vigencia"),
@@ -42,8 +67,205 @@ SOURCE_SCHEMA_KEYS: dict[str, tuple[str, ...]] = {
 }
 
 
+class LegalEntityModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: str
+    value: str
+
+
+class DouSummaryStructured(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    tipo_ato: str | None = None
+    subtipo_ato: str | None = None
+    objeto: str | None = None
+    fundamento_legal: list[str] = []
+    efeito_principal: str | None = None
+    vigencia: str | None = None
+
+
+class TcuAcordaoSummaryStructured(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    numero: str | None = None
+    colegiado: str | None = None
+    relator: str | None = None
+    tipo_processo: str | None = None
+    objeto: str | None = None
+    decisao_principal: str | None = None
+
+
+class TcuJurisprudenciaSummaryStructured(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    area: str | None = None
+    tema: str | None = None
+    subtema: str | None = None
+    tese_central: str | None = None
+
+
+class TcuRespostaConsultaSummaryStructured(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    area: str | None = None
+    tema: str | None = None
+    pergunta: str | None = None
+    resposta_curta: str | None = None
+
+
+class TcuSumulaSummaryStructured(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    numero: str | None = None
+    tema: str | None = None
+    tese_central: str | None = None
+    vigente: str | None = None
+
+
+class TcuBoletimJurisprudenciaSummaryStructured(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    titulo: str | None = None
+    tema: str | None = None
+    tese_central: str | None = None
+
+
+class TcuBoletimPessoalSummaryStructured(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    titulo: str | None = None
+    tema: str | None = None
+    efeito_administrativo: str | None = None
+
+
+class TcuBoletimInformativoLcSummaryStructured(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    titulo: str | None = None
+    tema: str | None = None
+    ponto_principal: str | None = None
+
+
+class TcuNormasSummaryStructured(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    tipo_norma: str | None = None
+    numero: str | None = None
+    ano: str | None = None
+    assunto: str | None = None
+    vigencia: str | None = None
+
+
+class TcuBtcuSummaryStructured(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    section_title: str | None = None
+    assunto: str | None = None
+    base_legal: str | None = None
+    decisao_principal: str | None = None
+
+
+class TcuPublicacoesSummaryStructured(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str | None = None
+    pub_type: str | None = None
+    assunto: str | None = None
+    ponto_principal: str | None = None
+
+
+SUMMARY_MODEL_BY_SOURCE: dict[str, type[BaseModel]] = {
+    "dou_documents": DouSummaryStructured,
+    "tcu_acordao_completo": TcuAcordaoSummaryStructured,
+    "tcu_jurisprudencia_selecionada": TcuJurisprudenciaSummaryStructured,
+    "tcu_resposta_consulta": TcuRespostaConsultaSummaryStructured,
+    "tcu_sumula": TcuSumulaSummaryStructured,
+    "tcu_boletim_jurisprudencia": TcuBoletimJurisprudenciaSummaryStructured,
+    "tcu_boletim_pessoal": TcuBoletimPessoalSummaryStructured,
+    "tcu_boletim_informativo_lc": TcuBoletimInformativoLcSummaryStructured,
+    "tcu_normas": TcuNormasSummaryStructured,
+    "tcu_btcu": TcuBtcuSummaryStructured,
+    "tcu_publicacoes": TcuPublicacoesSummaryStructured,
+}
+
+
+def _normalize_string(value: Any) -> str | None:
+    if value in (None, "", [], {}):
+        return None
+    return clean_text(str(value)) or None
+
+
+def _normalize_string_list(values: Any) -> list[str]:
+    out: list[str] = []
+    for value in values or []:
+        cleaned = _normalize_string(value)
+        if cleaned and cleaned not in out:
+            out.append(cleaned)
+    return out
+
+
+def _normalize_topic(value: str | None) -> str | None:
+    cleaned = _normalize_string(value)
+    if not cleaned:
+        return None
+    normalized = cleaned.lower().replace("-", "_").replace(" ", "_")
+    normalized = re.sub(r"[^a-z0-9_]+", "", normalized)
+    normalized = TOPIC_ALIASES.get(normalized, normalized)
+    if normalized not in TOPIC_TAXONOMY:
+        return None
+    return normalized
+
+
+def normalize_topics(source_type: str, topics: list[str] | None, text: str, structured: dict[str, Any]) -> list[str]:
+    out: list[str] = []
+    for topic in topics or []:
+        normalized = _normalize_topic(topic)
+        if not normalized:
+            continue
+        if SOURCE_NAME_RE.match(normalized):
+            continue
+        if normalized not in out:
+            out.append(normalized)
+    if out:
+        return out[:8]
+    return derive_topics(source_type, text, structured)
+
+
+def validate_summary_structured(source_type: str, payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(payload, dict) or not payload:
+        return None
+    model_cls = SUMMARY_MODEL_BY_SOURCE.get(source_type)
+    if model_cls is None:
+        return None
+    normalized: dict[str, Any] = {}
+    for key, value in payload.items():
+        if isinstance(value, list):
+            normalized[key] = _normalize_string_list(value)
+            continue
+        normalized[key] = _normalize_string(value)
+    try:
+        model = model_cls.model_validate(normalized)
+    except ValidationError:
+        return None
+    return model.model_dump()
+
+
+def validate_legal_entities(payload: list[dict[str, Any]] | None) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in payload or []:
+        try:
+            model = LegalEntityModel.model_validate(item)
+        except ValidationError:
+            continue
+        entity_type = _normalize_string(model.type)
+        entity_value = _normalize_string(model.value)
+        if not entity_type or not entity_value:
+            continue
+        key = (entity_type, entity_value)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"type": entity_type, "value": entity_value})
+    return out[:16]
+
+
 def clean_text(value: str | None) -> str:
-    text = TAG_RE.sub(" ", value or "")
+    text = value or ""
+    previous = None
+    while previous != text:
+        previous = text
+        text = html.unescape(text)
+    text = TAG_RE.sub(" ", text)
     return SPACE_RE.sub(" ", text).strip()
 
 
@@ -72,6 +294,11 @@ def derive_topics(source_type: str, text: str, structured: dict[str, Any]) -> li
             topics.append(topic)
     if source_type.startswith("tcu_") and "controle_externo" not in topics:
         topics.append("controle_externo")
+    orgao = clean_text(str(structured.get("orgao_emissor") or ""))
+    if re.search(r"\banvisa\b|\bsa[uú]de\b", orgao, re.IGNORECASE) and "saude_publica" not in topics:
+        topics.append("saude_publica")
+    if re.search(r"\banp\b|\bpetr[oó]leo\b|\bg[aá]s\b", orgao, re.IGNORECASE) and "energia" not in topics:
+        topics.append("energia")
     if not topics:
         topics.append("administrativo")
     return topics[:8]
