@@ -80,6 +80,21 @@ def _check_quality_gate_or_raise(
         )
 
 
+def _log_h2_event(payload: dict[str, Any]) -> None:
+    print(json.dumps(payload, ensure_ascii=False), flush=True)
+
+
+def _simplified_prompt(text: str, allowed_tags: tuple[str, ...], source_type: str) -> str:
+    tags = ", ".join(allowed_tags)
+    return (
+        f"Extração H2 simplificada para {source_type}. "
+        f"Tags permitidas: [{tags}]. "
+        "Responda SOMENTE JSON com tag_spans, summary_short, summary_structured e topics. "
+        "Sem comentários."
+        f"\nTexto:\n{text[:4000]}"
+    )
+
+
 def _row_all_fields_sql(source_type: str, limit: int, offset: int) -> tuple[str, tuple[Any, ...]]:
     table = RAW_TABLE_BY_SOURCE[source_type]
     if source_type in {"dou_documents", "tcu_btcu", "tcu_publicacoes"}:
@@ -419,12 +434,30 @@ def process_one_enrichment(
                 conn.commit()
                 return True
 
-            prompt = build_h2_prompt(text=text, allowed_tags=allowed, source_type=item.source_type)
-            out = call_local_llm(prompt=prompt, model=model, mode=h2_mode)
-            spans_model = parse_spans(out.get("tag_spans", []))
-            if len(spans_model) > max_spans:
-                raise ValueError(f"too many spans: {len(spans_model)} > {max_spans}")
-            validate_spans(text=text, spans=spans_model, allowed_tags=allowed)
+            t0 = time.time()
+            out: dict[str, Any] | None = None
+            spans_model = []
+            last_exc: Exception | None = None
+            prompts = [
+                build_h2_prompt(text=text, allowed_tags=allowed, source_type=item.source_type),
+                _simplified_prompt(text=text, allowed_tags=allowed, source_type=item.source_type),
+            ]
+            for attempt, prompt in enumerate(prompts, start=1):
+                try:
+                    out = call_local_llm(prompt=prompt, model=model, mode=h2_mode)
+                    spans_model = parse_spans(out.get("tag_spans", []))
+                    if len(spans_model) > max_spans:
+                        raise ValueError(f"too many spans: {len(spans_model)} > {max_spans}")
+                    validate_spans(text=text, spans=spans_model, allowed_tags=allowed)
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    out = None
+                    spans_model = []
+                    if attempt >= len(prompts):
+                        raise
+            if out is None and last_exc is not None:
+                raise last_exc
             spans = [x.model_dump() for x in spans_model]
             tags = tags_flat(spans_model)
             tagged_xml = render_tagged_xml(text, spans_model)
@@ -445,6 +478,22 @@ def process_one_enrichment(
             )
             _mark_queue_done(conn, item.queue_id)
             conn.commit()
+            meta = out.get("__meta") or {}
+            usage = meta.get("usage") or {}
+            _log_h2_event(
+                {
+                    "event": "h2_processed",
+                    "raw_id": item.raw_id,
+                    "source_type": item.source_type,
+                    "h2_mode": h2_mode,
+                    "latency_ms": int((time.time() - t0) * 1000),
+                    "tags_count": len(tags),
+                    "tokens_out": usage.get("completion_tokens"),
+                    "tokens_total": usage.get("total_tokens"),
+                    "provider": meta.get("provider"),
+                    "status": "done",
+                }
+            )
             return True
         except Exception as exc:
             _mark_queue_failed(conn, item.queue_id, str(exc))
@@ -455,6 +504,16 @@ def process_one_enrichment(
                     (item.raw_id,),
                 )
             conn.commit()
+            _log_h2_event(
+                {
+                    "event": "h2_processed",
+                    "raw_id": item.raw_id,
+                    "source_type": item.source_type,
+                    "h2_mode": h2_mode,
+                    "status": "failed",
+                    "error": str(exc)[:500],
+                }
+            )
             return True
 
 

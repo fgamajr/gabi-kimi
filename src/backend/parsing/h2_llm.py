@@ -90,7 +90,17 @@ def call_local_llm(
             response.raise_for_status()
             data = response.json()
             content = (data.get("message") or {}).get("content", "")
+            usage = {
+                "prompt_tokens": data.get("prompt_eval_count"),
+                "completion_tokens": data.get("eval_count"),
+                "total_tokens": (data.get("prompt_eval_count") or 0) + (data.get("eval_count") or 0),
+            }
+            provider = "ollama"
         else:
             data = response.json()
             content = data["choices"][0]["message"]["content"]
-    return _extract_json_block(content)
+            usage = data.get("usage") or {}
+            provider = "openai_compat"
+    out = _extract_json_block(content)
+    out["__meta"] = {"provider": provider, "usage": usage}
+    return out

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import re
+import unicodedata
 from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
@@ -16,7 +17,7 @@ class TagSpan(BaseModel):
     @field_validator("tag")
     @classmethod
     def _normalize_tag(cls, value: str) -> str:
-        return value.strip().lower()
+        return canonicalize_tag(value)
 
     @field_validator("end_char")
     @classmethod
@@ -33,6 +34,29 @@ def parse_spans(payload: list[dict[str, Any]]) -> list[TagSpan]:
     except ValidationError as exc:
         raise ValueError(str(exc)) from exc
     return sorted(spans, key=lambda x: (x.start_char, x.end_char, x.tag))
+
+
+TAG_MAP: dict[str, str] = {
+    "licitacao": "licitacao",
+    "licitações": "licitacao",
+    "licitacoes": "licitacao",
+    "processo_licitatorio": "licitacao",
+    "processo_licitatório": "licitacao",
+    "fundamentacao_legal": "base_legal",
+    "fundamentacao": "fundamentacao",
+    "decisao": "decisao",
+    "decisão": "decisao",
+    "texto_acordao": "texto_acordao",
+    "texto_acórdão": "texto_acordao",
+}
+
+
+def canonicalize_tag(value: str) -> str:
+    raw = value.strip().lower()
+    raw = unicodedata.normalize("NFKD", raw)
+    raw = "".join(ch for ch in raw if not unicodedata.combining(ch))
+    raw = re.sub(r"[^a-z0-9_]+", "_", raw).strip("_")
+    return TAG_MAP.get(raw, raw)
 
 
 def validate_spans(text: str, spans: list[TagSpan], allowed_tags: tuple[str, ...]) -> None:
