@@ -31,7 +31,9 @@ _CSV_URL_TEMPLATE = (
 )
 
 _TCU_INDEX_NAME = "gabi_tcu_acordaos_v1"
-_TCU_MAPPING_PATH = Path(__file__).resolve().parent.parent / "search" / "es_tcu_mapping.json"
+_TCU_MAPPING_PATH = (
+    Path(__file__).resolve().parent.parent / "search" / "es_tcu_mapping.json"
+)
 _MONGO_COLLECTION = "tcu_acordaos"
 
 
@@ -91,7 +93,11 @@ class ESClient:
             doc_id = doc.get("doc_id")
             if not doc_id:
                 raise RuntimeError("Document missing doc_id")
-            lines.append(json.dumps({"index": {"_index": self.index, "_id": doc_id}}, ensure_ascii=False))
+            lines.append(
+                json.dumps(
+                    {"index": {"_index": self.index, "_id": doc_id}}, ensure_ascii=False
+                )
+            )
             lines.append(json.dumps(doc, ensure_ascii=False))
         body = "\n".join(lines) + "\n"
 
@@ -114,12 +120,17 @@ class ESClient:
             resp.raise_for_status()
             data = resp.json()
             items = data.get("items", [])
-            ok = sum(1 for i in items if 200 <= i.get("index", {}).get("status", 500) < 300)
+            ok = sum(
+                1 for i in items if 200 <= i.get("index", {}).get("status", 500) < 300
+            )
             failed = len(items) - ok
             if failed > 0:
                 first_err = next(
-                    (i.get("index", {}).get("error") for i in items
-                     if i.get("index", {}).get("status", 500) >= 300),
+                    (
+                        i.get("index", {}).get("error")
+                        for i in items
+                        if i.get("index", {}).get("status", 500) >= 300
+                    ),
                     None,
                 )
                 _log(f"bulk: ok={ok} failed={failed} first_error={first_err}")
@@ -200,12 +211,14 @@ def ingest_year(
             try:
                 dlq_collection.update_one(
                     {"_id": doc_key},
-                    {"$set": {
-                        "error": str(exc),
-                        "traceback": traceback.format_exc(),
-                        "failed_at": datetime.now(timezone.utc),
-                        "year": year,
-                    }},
+                    {
+                        "$set": {
+                            "error": str(exc),
+                            "traceback": traceback.format_exc(),
+                            "failed_at": datetime.now(timezone.utc),
+                            "year": year,
+                        }
+                    },
                     upsert=True,
                 )
             except Exception:
@@ -250,14 +263,26 @@ def ingest_year(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Ingest TCU Acórdãos from CSV open data")
+    parser = argparse.ArgumentParser(
+        description="Ingest TCU Acórdãos from CSV open data"
+    )
     parser.add_argument("--year", type=int, action="append", help="Year(s) to ingest")
-    parser.add_argument("--range", nargs=2, type=int, metavar=("FROM", "TO"), help="Year range (inclusive)")
+    parser.add_argument(
+        "--range",
+        nargs=2,
+        type=int,
+        metavar=("FROM", "TO"),
+        help="Year range (inclusive)",
+    )
     parser.add_argument("--batch-size", type=int, default=500)
-    parser.add_argument("--cache-dir", type=str, default=None, help="Directory to cache downloaded CSVs")
+    parser.add_argument(
+        "--cache-dir", type=str, default=None, help="Directory to cache downloaded CSVs"
+    )
     parser.add_argument("--recreate-index", action="store_true")
     parser.add_argument("--yes-destroy", action="store_true")
-    parser.add_argument("--skip-mongo", action="store_true", help="Skip MongoDB upsert (ES only)")
+    parser.add_argument(
+        "--skip-mongo", action="store_true", help="Skip MongoDB upsert (ES only)"
+    )
     args = parser.parse_args()
 
     if args.recreate_index and not args.yes_destroy:
@@ -278,13 +303,15 @@ def main() -> None:
     es = ESClient()
     es.ensure_index(recreate=args.recreate_index)
 
-    client, db = _mongo_client()
-    collection = db[_MONGO_COLLECTION]
-    dlq = db["dlq_tcu_ingest"]
-
-    # Ensure index on updated_at for incremental sync
-    collection.create_index([("updated_at", 1), ("_id", 1)])
-    collection.create_index("ano_acordao")
+    client = None
+    collection = None
+    dlq = None
+    if not args.skip_mongo:
+        client, db = _mongo_client()
+        collection = db[_MONGO_COLLECTION]
+        dlq = db["dlq_tcu_ingest"]
+        collection.create_index([("updated_at", 1), ("_id", 1)])
+        collection.create_index("ano_acordao")
 
     cache_dir = args.cache_dir
     if cache_dir:
@@ -307,7 +334,8 @@ def main() -> None:
             for k in totals:
                 totals[k] += year_stats.get(k, 0)
     finally:
-        client.close()
+        if client is not None:
+            client.close()
 
     es.refresh()
     elapsed = time.time() - t0
