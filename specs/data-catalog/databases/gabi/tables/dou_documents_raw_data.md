@@ -1,11 +1,11 @@
-# Tabela: `raw.dou_documents`
+# Tabela: `raw.dou_documents_raw_data`
 
 **Criticidade:** 🔴 CRÍTICA — Maior tabela do banco, fonte primária de documentos DOU  
-**Linhas (exato):** 15.853.837 (~15.9M) — confirmado pelo migration_log e `COUNT(*)`  
+**Linhas (live):** 15.835.274  
 **Tamanho total:** 89 GB  
 **Cobertura temporal:** 2002-01-02 → 2026-03-30  
 **Origem:** DOU/INLABS — pipeline `sync_dou.py` + `inlabs_daily.py`  
-**Última ingestão:** 2026-04-04 (migration_log: 15.853.837 docs confirmados)
+**Última ingestão:** 2026-04-04
 
 ---
 
@@ -17,17 +17,17 @@ Repositório central de publicações do **Diário Oficial da União (DOU)**, Se
 
 ## Colunas
 
-| # | Coluna | Tipo | Nullable | PK | Default | Descrição |
-|---|--------|------|----------|-----|---------|-----------|
-| 1 | `id` | `text` | NO | ✅ | — | Hash MD5 do HTML original — identificador determinístico único |
-| 2 | `pub_date` | `date` | YES | — | — | Data de publicação no DOU |
-| 3 | `section` | `text` | YES | — | — | Seção do DOU: DO1, DO2, DO3, DO1E, DO2E, DO3E, DO1A, etc. |
-| 4 | `source_zip` | `text` | YES | — | — | Nome do arquivo ZIP de origem (ex: `S02012002.zip`) |
-| 5 | `art_type` | `text` | YES | — | — | Tipo do ato: PORTARIA, EXTRATO, AVISO, EDITAL, etc. |
-| 6 | `content_html` | `text` | YES | — | — | HTML bruto do documento conforme publicado |
-| 7 | `raw_html_hash` | `text` | NO | — | — | Hash SHA do HTML — usado para dedup em reprocessamento |
-| 8 | `all_fields` | `jsonb` | NO | — | — | Todos os campos enriquecidos pelo pipeline de ingestão |
-| 9 | `migrated_at` | `timestamptz` | NO | — | `now()` | Timestamp da inserção no PostgreSQL |
+| # | Coluna | Tipo | Nullable | PK | Descrição |
+|---|--------|------|----------|-----|-----------|
+| 1 | `id` | `text` | NO | ✅ | Hash MD5 do HTML original — identificador determinístico único |
+| 2 | `pub_date` | `date` | YES | — | Data de publicação no DOU |
+| 3 | `section` | `text` | YES | — | Seção do DOU: DO1, DO2, DO3, DO1E, DO2E, DO3E, DO1A, etc. |
+| 4 | `source_zip` | `text` | YES | — | Nome do arquivo ZIP de origem (ex: `S02012002.zip`) |
+| 5 | `art_type` | `text` | YES | — | Tipo do ato: PORTARIA, EXTRATO, AVISO, EDITAL, etc. |
+| 6 | `content_html` | `text` | YES | — | HTML bruto do documento conforme publicado |
+| 7 | `raw_html_hash` | `text` | NO | — | Hash SHA do HTML — usado para dedup em reprocessamento |
+| 8 | `all_fields` | `jsonb` | NO | — | Todos os campos enriquecidos pelo pipeline de ingestão |
+| 9 | `migrated_at` | `timestamptz` | NO | — | Timestamp da inserção no PostgreSQL |
 
 ---
 
@@ -85,24 +85,22 @@ Repositório central de publicações do **Diário Oficial da União (DOU)**, Se
 
 ## Índices
 
-| Índice | Tipo | Coluna | Uso |
-|--------|------|--------|-----|
-| `dou_documents_pkey` | UNIQUE BTREE | `id` | Lookup por ID hash |
-| `ix_raw_dou_documents_pub_date` | BTREE | `pub_date` | Filtragem por data |
-| `ix_raw_dou_documents_art_type` | BTREE | `art_type` | Filtragem por tipo |
-| `ix_raw_dou_documents_raw_html_hash` | BTREE | `raw_html_hash` | Deduplicação |
+| Índice | Tipo | Coluna |
+|--------|------|--------|
+| `dou_documents_raw_data_pkey` | UNIQUE BTREE | `id` |
+| `ix_raw_dou_documents_raw_data_pub_date` | BTREE | `pub_date` |
+| `ix_raw_dou_documents_raw_data_art_type` | BTREE | `art_type` |
+| `ix_raw_dou_documents_raw_data_raw_html_hash` | BTREE | `raw_html_hash` |
 
 ---
 
 ## Problemas / Notas
 
-- ⚠️ `pub_date` é **nullable** — 0 nulos hoje, mas sem restrição; considerar `NOT NULL`
-- ℹ️ Contagem exata (15.853.837) > estimativa do planner (15.649.937): diferença devida à ausência de `ANALYZE` — executar `ANALYZE raw.dou_documents` para corrigir
+- ⚠️ `pub_date` é nullable — 0 nulos hoje, mas sem restrição
 - ⚠️ `art_type` tem inconsistência de case (`PORTARIA` vs `Portaria`) — considerar normalizar
 - ℹ️ `content_html` é o maior contribuinte de espaço em disco (~60–70 GB estimados)
-- ℹ️ Candidata a **chunking** para RAG — usar `all_fields->>'search_all'` como campo base
-- ⚠️ Sem índice em `all_fields->>'issuing_organ'` (filtro natural do usuário) — considerar coluna extraída ou GIN index em `all_fields` para queries `issuing_organ`
-- 🔍 Campo `all_fields->>'embedding_status'` indica pipeline de embeddings pendente
+- ℹ️ Candidata a chunking para RAG — usar `all_fields->>'search_all'` como campo base
+- ⚠️ Sem índice em `all_fields->>'issuing_organ'` — considerar coluna extraída ou GIN index
 
 ---
 

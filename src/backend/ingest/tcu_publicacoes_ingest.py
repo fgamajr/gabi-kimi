@@ -15,11 +15,11 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 import httpx
-import pymongo
+import psycopg
 
+from src.backend.core.config import settings
 from src.backend.ingest.tcu_publicacoes_processor import pub_to_es_doc
 from src.backend.ingest.tcu_publicacoes_scraper import scrape_all
 
@@ -29,7 +29,7 @@ _MAPPING_PATH = (
     / "search"
     / "es_tcu_publicacoes_mapping.json"
 )
-_MONGO_COLLECTION = "tcu_publicacoes"
+_PG_TABLE = "raw.tcu_publicacoes_raw_data"
 _PDF_CACHE_SUBDIR = "tcu_publicacoes_cache"
 _CURSOR_FILENAME = "tcu_publicacoes_cursor.json"
 _ES_BATCH_SIZE = 50
@@ -41,7 +41,7 @@ def _log(msg: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Infrastructure helpers (same pattern as tcu_btcu_ingest.py)
+# Infrastructure helpers
 # ---------------------------------------------------------------------------
 
 
@@ -53,11 +53,8 @@ def _pub_index() -> str:
     return os.getenv("TCU_PUBLICACOES_INDEX", _PUB_INDEX)
 
 
-def _mongo_client() -> tuple[pymongo.MongoClient, Any]:
-    uri = os.getenv("MONGO_STRING", "mongodb://mongo:27017/gabi_dou")
-    db_name = os.getenv("DB_NAME", "gabi_dou")
-    client = pymongo.MongoClient(uri)
-    return client, client[db_name]
+def _pg_url() -> str:
+    return os.getenv("POSTGRES_URL", settings.POSTGRES_URL)
 
 
 def _cursor_path() -> Path:
@@ -142,6 +139,41 @@ def _es_bulk(docs: list[dict], es_client: httpx.Client) -> tuple[int, int]:
 
 
 # ---------------------------------------------------------------------------
+# Postgres helpers
+# ---------------------------------------------------------------------------
+
+
+def _pg_fetch_hash(conn: psycopg.Connection, doc_id: str) -> str | None:
+    """Fetch deterministic_hash from Postgres for dedup."""
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT all_fields->>'deterministic_hash' FROM {_PG_TABLE} WHERE id = %s",
+            (doc_id,),
+        )
+        row = cur.fetchone()
+    return row[0] if row else None
+
+
+def _pg_upsert(conn: psycopg.Connection, doc: dict) -> None:
+    """Upsert a single publication doc into Postgres."""
+    doc_id = doc["doc_id"]
+    all_fields = json.dumps(
+        {**doc, "updated_at": datetime.now(timezone.utc).isoformat()},
+        default=str,
+        ensure_ascii=False,
+    )
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""INSERT INTO {_PG_TABLE} (id, all_fields, dumped_at)
+               VALUES (%s, %s::jsonb, NOW())
+               ON CONFLICT (id) DO UPDATE SET
+                   all_fields = EXCLUDED.all_fields,
+                   dumped_at = NOW()""",
+            (doc_id, all_fields),
+        )
+
+
+# ---------------------------------------------------------------------------
 # PDF download + extraction
 # ---------------------------------------------------------------------------
 
@@ -197,10 +229,7 @@ def run_ingest(recent_only: bool = False) -> None:
 
     _log(f"processing {len(entries)} publications")
 
-    mongo_client, db = _mongo_client()
-    collection = db[_MONGO_COLLECTION]
-    collection.create_index("doc_id", unique=True, background=True)
-
+    pg_conn = psycopg.connect(_pg_url())
     cache_dir = _pdf_cache_dir()
 
     stats: dict[str, int] = {
@@ -237,12 +266,13 @@ def run_ingest(recent_only: bool = False) -> None:
                     doc = pub_to_es_doc(
                         entry, body_plain="", pdf_url="", page_count=0, pdf_index=0
                     )
-                    _mongo_upsert(collection, doc)
+                    _pg_upsert(pg_conn, doc)
+                    pg_conn.commit()
                     batch.append(doc)
                     newly_processed.add(entry.slug)
                 else:
                     for pdf_index, pdf_url in enumerate(entry.pdf_urls):
-                        from src.backend.ingest.tcu_publicacoes_processor import (  # noqa: PLC0415
+                        from src.backend.ingest.tcu_publicacoes_processor import (
                             _sha256,
                         )
 
@@ -279,7 +309,8 @@ def run_ingest(recent_only: bool = False) -> None:
                                     page_count=page_count,
                                     pdf_index=0,
                                 )
-                                _mongo_upsert(collection, doc)
+                                _pg_upsert(pg_conn, doc)
+                                pg_conn.commit()
                                 batch.append(doc)
                             continue
 
@@ -291,18 +322,13 @@ def run_ingest(recent_only: bool = False) -> None:
                             pdf_index=pdf_index,
                         )
 
-                        # Dedup check
-                        existing = collection.find_one(
-                            {"_id": doc["doc_id"]}, {"deterministic_hash": 1}
-                        )
-                        if (
-                            existing
-                            and existing.get("deterministic_hash")
-                            == doc["deterministic_hash"]
-                        ):
+                        # Dedup check against Postgres
+                        existing_hash = _pg_fetch_hash(pg_conn, doc["doc_id"])
+                        if existing_hash and existing_hash == doc["deterministic_hash"]:
                             stats["skipped_dedup"] += 1
                         else:
-                            _mongo_upsert(collection, doc)
+                            _pg_upsert(pg_conn, doc)
+                            pg_conn.commit()
                             batch.append(doc)
 
                     newly_processed.add(entry.slug)
@@ -319,6 +345,7 @@ def run_ingest(recent_only: bool = False) -> None:
 
             except Exception as exc:
                 _log(f"  ERROR on {entry.slug}: {exc}")
+                pg_conn.rollback()
                 stats["failed"] += 1
                 continue
 
@@ -336,15 +363,7 @@ def run_ingest(recent_only: bool = False) -> None:
     for k, v in stats.items():
         _log(f"  {k}: {v}")
 
-    mongo_client.close()
-
-
-def _mongo_upsert(collection: Any, doc: dict) -> None:
-    collection.update_one(
-        {"_id": doc["doc_id"]},
-        {"$set": {**doc, "updated_at": datetime.now(timezone.utc)}},
-        upsert=True,
-    )
+    pg_conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -353,10 +372,11 @@ def _mongo_upsert(collection: Any, doc: dict) -> None:
 
 
 def cmd_stats() -> None:
-    mongo_client, db = _mongo_client()
-    collection = db[_MONGO_COLLECTION]
-    mongo_count = collection.count_documents({})
-    _log(f"MongoDB tcu_publicacoes: {mongo_count} documents")
+    with psycopg.connect(_pg_url()) as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT COUNT(*) FROM {_PG_TABLE}")
+            pg_count = cur.fetchone()[0]
+    _log(f"Postgres {_PG_TABLE}: {pg_count} documents")
 
     cursor = _load_cursor()
     _log(f"Cursor: {len(cursor)} slugs processed")
@@ -374,8 +394,6 @@ def cmd_stats() -> None:
                 )
         except Exception as exc:
             _log(f"Elasticsearch unreachable: {exc}")
-
-    mongo_client.close()
 
 
 # ---------------------------------------------------------------------------

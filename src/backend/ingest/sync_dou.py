@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
-GABI DOU Sync Script (v2.0)
+GABI DOU Sync Script (v3.0)
 ---------------------------
-Orchestrator for downloading and ingesting DOU data into MongoDB.
+Orchestrator for downloading and ingesting DOU data into Postgres.
 """
 
 import sys
 import os
+import hashlib
+import json
 import shutil
 import logging
 import argparse
@@ -14,9 +16,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
-from pymongo import UpdateOne
+
+import psycopg
+
 from src.backend.core.config import settings
-from src.backend.data.db import MongoDB
 from src.backend.ingest.downloader import DouDownloader
 from src.backend.ingest.dou_processor import DouProcessor
 from src.backend.data.models.document import DouDocument
@@ -24,16 +27,14 @@ from src.backend.data.models.document import DouDocument
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger(__name__)
 
 
-def _documents_collection_name() -> str:
-    return os.getenv("MONGO_COLLECTION", "documents")
+def _pg_url() -> str:
+    return os.getenv("POSTGRES_URL", settings.POSTGRES_URL)
 
 
 def _raw_cache_roots() -> list[Path]:
@@ -66,49 +67,60 @@ def _ensure_disk_space(target_path: Path) -> None:
     disk_target.mkdir(parents=True, exist_ok=True)
     free_gb = shutil.disk_usage(disk_target).free / (1024**3)
     if free_gb < 2:
-        raise RuntimeError(f"Low disk space in pipeline workspace: {free_gb:.1f}GB free at {disk_target}")
+        raise RuntimeError(
+            f"Low disk space in pipeline workspace: {free_gb:.1f}GB free at {disk_target}"
+        )
 
 
-def ingest_documents(documents: List[DouDocument]):
-    """Bulk upsert documents to MongoDB."""
+def ingest_documents(documents: List[DouDocument]) -> None:
+    """Bulk upsert documents to Postgres (raw.dou_documents_raw_data).
+
+    Uses ON CONFLICT (id) DO NOTHING — the id IS the MD5 of content_html,
+    so if a row with the same id exists the content is identical.
+    """
     if not documents:
         return
 
-    db = MongoDB.get_db()
-    collection = db[_documents_collection_name()]
-    
-    operations = []
-    
+    tuples: list[tuple] = []
     for doc in documents:
-        # Convert Pydantic model to dict, exclude None for cleaner DB
         doc_dict = doc.model_dump(by_alias=True, exclude_none=True)
         doc_dict.setdefault("embedding_status", "pending")
         doc_dict.setdefault("embedding_attempts", 0)
-
-        operations.append(
-            UpdateOne(
-                {"_id": doc.id},
-                {"$set": doc_dict},
-                upsert=True
+        raw_html = doc.content_html or ""
+        raw_hash = hashlib.sha256(raw_html.encode()).hexdigest()
+        all_fields_json = json.dumps(doc_dict, default=str, ensure_ascii=False)
+        tuples.append(
+            (
+                doc.id,
+                doc.pub_date.date() if doc.pub_date else None,
+                doc.section,
+                doc.source_zip,
+                doc.art_type,
+                raw_html,
+                raw_hash,
+                all_fields_json,
             )
         )
-    
-    if operations:
-        try:
-            result = collection.bulk_write(operations)
-            logger.info(
-                "Upserted %s documents into %s (Matched: %s)",
-                result.upserted_count + result.modified_count,
-                _documents_collection_name(),
-                result.matched_count,
-            )
-        except Exception as e:
-            logger.error(f"Bulk write failed: {e}")
-            
-    # Cleanup logic:
-    # 1. Raw ZIPs are archived to the host-backed storage volume.
-    # 2. Extracted XMLs are deleted after ingestion to control disk usage.
-    pass
+
+    try:
+        with psycopg.connect(_pg_url()) as conn:
+            with conn.cursor() as cur:
+                cur.executemany(
+                    """INSERT INTO raw.dou_documents_raw_data
+                       (id, pub_date, section, source_zip, art_type,
+                        content_html, raw_html_hash, all_fields, migrated_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, NOW())
+                       ON CONFLICT (id) DO NOTHING""",
+                    tuples,
+                )
+            conn.commit()
+        logger.info(
+            "Upserted %s documents into Postgres (skipped existing)", len(documents)
+        )
+    except Exception as e:
+        logger.error("Postgres bulk write failed: %s", e)
+        raise
+
 
 def _cleanup_extracted(extract_base: str | None, zip_filename: str) -> None:
     if not extract_base or not zip_filename:
@@ -120,10 +132,14 @@ def _cleanup_extracted(extract_base: str | None, zip_filename: str) -> None:
         logger.info(f"Cleaned extracted XMLs: {target_dir}")
 
 
-def _process_zip_file(folder_id: str, filename: str, *, extract_xmls: bool) -> tuple[str, int, bool]:
+def _process_zip_file(
+    folder_id: str, filename: str, *, extract_xmls: bool
+) -> tuple[str, int, bool]:
     downloader = DouDownloader()
     processor = DouProcessor()
-    extract_to = os.path.join(settings.PIPELINE_TMP, "extracted") if extract_xmls else None
+    extract_to = (
+        os.path.join(settings.PIPELINE_TMP, "extracted") if extract_xmls else None
+    )
 
     cached_zip = _cached_zip_path(filename)
     if cached_zip is not None:
@@ -134,7 +150,9 @@ def _process_zip_file(folder_id: str, filename: str, *, extract_xmls: bool) -> t
         save_path = _cache_destination(filename)
         _ensure_disk_space(save_path)
         logger.info(f"Downloading {filename}...")
-        zip_content = downloader.download_file(str(folder_id), filename, save_path=str(save_path))
+        zip_content = downloader.download_file(
+            str(folder_id), filename, save_path=str(save_path)
+        )
         if not zip_content:
             raise RuntimeError(f"Failed to download {filename}")
         from_cache = False
@@ -147,7 +165,9 @@ def _process_zip_file(folder_id: str, filename: str, *, extract_xmls: bool) -> t
     return filename, len(documents), from_cache
 
 
-def _process_month(folder_id: str, files: list[str], *, extract_xmls: bool, parallelism: int) -> dict[str, int]:
+def _process_month(
+    folder_id: str, files: list[str], *, extract_xmls: bool, parallelism: int
+) -> dict[str, int]:
     zip_files = [filename for filename in files if filename.lower().endswith(".zip")]
     if not zip_files:
         return {"zip_count": 0, "doc_count": 0, "cache_hits": 0}
@@ -157,17 +177,25 @@ def _process_month(folder_id: str, files: list[str], *, extract_xmls: bool, para
         total_docs = 0
         cache_hits = 0
         for filename in zip_files:
-            _, doc_count, from_cache = _process_zip_file(folder_id, filename, extract_xmls=extract_xmls)
+            _, doc_count, from_cache = _process_zip_file(
+                folder_id, filename, extract_xmls=extract_xmls
+            )
             total_docs += doc_count
             cache_hits += 1 if from_cache else 0
-        return {"zip_count": len(zip_files), "doc_count": total_docs, "cache_hits": cache_hits}
+        return {
+            "zip_count": len(zip_files),
+            "doc_count": total_docs,
+            "cache_hits": cache_hits,
+        }
 
     failures: list[str] = []
     total_docs = 0
     cache_hits = 0
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {
-            pool.submit(_process_zip_file, folder_id, filename, extract_xmls=extract_xmls): filename
+            pool.submit(
+                _process_zip_file, folder_id, filename, extract_xmls=extract_xmls
+            ): filename
             for filename in zip_files
         }
         for future in as_completed(futures):
@@ -188,10 +216,16 @@ def _process_month(folder_id: str, files: list[str], *, extract_xmls: bool, para
 
     if failures:
         raise RuntimeError(f"Failed ZIPs for month: {', '.join(sorted(failures))}")
-    return {"zip_count": len(zip_files), "doc_count": total_docs, "cache_hits": cache_hits}
+    return {
+        "zip_count": len(zip_files),
+        "doc_count": total_docs,
+        "cache_hits": cache_hits,
+    }
 
 
-def sync_month(year: int, month: int, *, extract_xmls: bool, parallelism: int) -> dict[str, int]:
+def sync_month(
+    year: int, month: int, *, extract_xmls: bool, parallelism: int
+) -> dict[str, int]:
     downloader = DouDownloader()
     logger.info("Processing %s-%02d...", year, month)
     data = downloader.get_month_data(year, month)
@@ -225,8 +259,16 @@ def main():
     parser = argparse.ArgumentParser(description="GABI DOU Sync")
     parser.add_argument("--year", type=int, default=2002, help="Year to sync")
     parser.add_argument("--month", type=int, help="Specific month to sync (optional)")
-    parser.add_argument("--skip-es-sync", action="store_true", help="Skip incremental ES sync at the end of the run")
-    parser.add_argument("--extract-xmls", action="store_true", help="Extract XMLs to disk while processing ZIPs")
+    parser.add_argument(
+        "--skip-es-sync",
+        action="store_true",
+        help="Skip incremental ES sync at the end of the run",
+    )
+    parser.add_argument(
+        "--extract-xmls",
+        action="store_true",
+        help="Extract XMLs to disk while processing ZIPs",
+    )
     parser.add_argument(
         "--parallelism",
         type=int,
@@ -236,12 +278,10 @@ def main():
     args = parser.parse_args()
 
     logger.info(f"Starting GABI DOU Sync for {args.year}")
-    
-    MongoDB.connect()
-    
+
     # Determine months to process
     months = [args.month] if args.month else range(1, 13)
-    
+
     for month in months:
         sync_month(
             args.year,
@@ -250,19 +290,8 @@ def main():
             parallelism=args.parallelism,
         )
 
-    if args.skip_es_sync:
-        logger.info("Skipping ES incremental sync (--skip-es-sync)")
-    else:
-        # Incremental ES indexing — picks up only new docs via cursor
-        logger.info("Running ES incremental sync...")
-        try:
-            from src.backend.ingest.es_indexer import _run_sync, _DEFAULT_CURSOR_PATH
+    logger.info("Sync complete. ES sync must be triggered separately.")
 
-            _run_sync(reset_cursor=False, recreate_index=False, batch_size=2000, cursor_path=_DEFAULT_CURSOR_PATH)
-        except Exception as e:
-            logger.warning(f"ES sync failed (non-fatal): {e}")
-
-    logger.info("Sync complete.")
 
 if __name__ == "__main__":
     main()

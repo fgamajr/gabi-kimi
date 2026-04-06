@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Iterable
 from urllib.parse import parse_qs, urljoin, urlparse
 
+import psycopg
 import requests
 from dotenv import load_dotenv
 from lxml import html
@@ -20,9 +21,8 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from src.backend.core.config import settings
-from src.backend.data.db import MongoDB
 from src.backend.ingest.dou_processor import DouProcessor
-from src.backend.ingest.sync_dou import ingest_documents
+from src.backend.ingest.sync_dou import _pg_url, ingest_documents
 
 
 logger = logging.getLogger(__name__)
@@ -206,7 +206,9 @@ class InlabsClient:
             href = anchor.get("href") or ""
             absolute_url = urljoin(_INLABS_BASE_URL, href.replace("&amp;", "&"))
             query = parse_qs(urlparse(absolute_url).query)
-            filename = (query.get("dl") or [None])[0] or " ".join(anchor.itertext()).strip()
+            filename = (query.get("dl") or [None])[0] or " ".join(
+                anchor.itertext()
+            ).strip()
             if not filename.lower().endswith(".zip"):
                 continue
             if target_date.isoformat() not in filename:
@@ -270,8 +272,18 @@ class InlabsClient:
         return saved_paths
 
 
+def _pg_count_for_date(target_date: date) -> int:
+    """Count DOU docs in Postgres for a given pub_date."""
+    with psycopg.connect(_pg_url()) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM raw.dou_documents_raw_data WHERE pub_date = %s",
+                (target_date,),
+            )
+            return cur.fetchone()[0]
+
+
 def process_daily_zips(zip_paths: list[Path]) -> int:
-    MongoDB.connect()
     processor = DouProcessor()
     total_docs = 0
     for zip_path in zip_paths:
@@ -287,14 +299,10 @@ def process_daily_zips(zip_paths: list[Path]) -> int:
 def ingest_single_day(
     target_date: date, download_dir: Path | None = None, *, skip_counts: bool = False
 ) -> dict[str, int]:
-    MongoDB.connect()
-    collection = MongoDB.get_db()[os.getenv("MONGO_COLLECTION", "documents")]
-    start = datetime(target_date.year, target_date.month, target_date.day)
-    end = start + timedelta(days=1)
     before_count = -1
     after_count = -1
     if not skip_counts:
-        before_count = collection.count_documents({"pub_date": {"$gte": start, "$lt": end}})
+        before_count = _pg_count_for_date(target_date)
 
     client = InlabsClient()
     client.login()
@@ -302,15 +310,15 @@ def ingest_single_day(
     processed_docs = process_daily_zips(zip_paths)
 
     if not skip_counts:
-        after_count = collection.count_documents({"pub_date": {"$gte": start, "$lt": end}})
+        after_count = _pg_count_for_date(target_date)
         inserted_delta = max(0, after_count - before_count)
     else:
         inserted_delta = processed_docs
     return {
         "zip_count": len(zip_paths),
         "processed_docs": processed_docs,
-        "mongo_before": before_count,
-        "mongo_after": after_count,
+        "pg_before": before_count,
+        "pg_after": after_count,
         "inserted_delta": inserted_delta,
     }
 
@@ -318,7 +326,6 @@ def ingest_single_day(
 def ingest_month_to_date(
     year: int, month: int, *, end_date: date | None = None
 ) -> dict[str, int]:
-    MongoDB.connect()
     today = end_date or _today_utc()
     if year != today.year or month != today.month:
         raise ValueError(
@@ -344,16 +351,9 @@ def ingest_month_to_date(
                 totals["days_failed"] += 1
                 continue
 
-            collection = MongoDB.get_db()[os.getenv("MONGO_COLLECTION", "documents")]
-            start_dt = datetime(current_date.year, current_date.month, current_date.day)
-            end_dt = start_dt + timedelta(days=1)
-            before_count = collection.count_documents(
-                {"pub_date": {"$gte": start_dt, "$lt": end_dt}}
-            )
+            before_count = _pg_count_for_date(current_date)
             processed_docs = process_daily_zips(zip_paths)
-            after_count = collection.count_documents(
-                {"pub_date": {"$gte": start_dt, "$lt": end_dt}}
-            )
+            after_count = _pg_count_for_date(current_date)
 
             totals["days_ok"] += 1
             totals["zip_count"] += len(zip_paths)
@@ -414,13 +414,13 @@ def main() -> None:
         target_date = date.fromisoformat(args.date)
         result = ingest_single_day(target_date, skip_counts=args.skip_counts)
         logger.info(
-            "INLABS day complete date=%s zip_count=%s processed_docs=%s inserted_delta=%s mongo_before=%s mongo_after=%s",
+            "INLABS day complete date=%s zip_count=%s processed_docs=%s inserted_delta=%s pg_before=%s pg_after=%s",
             args.date,
             result["zip_count"],
             result["processed_docs"],
             result["inserted_delta"],
-            result["mongo_before"],
-            result["mongo_after"],
+            result["pg_before"],
+            result["pg_after"],
         )
     elif args.year and args.month:
         result = ingest_month_to_date(args.year, args.month)

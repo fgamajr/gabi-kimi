@@ -15,13 +15,12 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 import httpx
-import pymongo
+import psycopg
 
+from src.backend.core.config import settings
 from src.backend.ingest.tcu_btcu_scraper import (
-    BtcuEntry,
     chunk_pdf_text,
     download_pdf,
     extract_pdf_text,
@@ -36,8 +35,10 @@ from src.backend.ingest.tcu_btcu_processor import btcu_chunk_to_es_doc
 # ---------------------------------------------------------------------------
 
 _BTCU_INDEX = "gabi_tcu_btcu_v1"
-_BTCU_MAPPING_PATH = Path(__file__).resolve().parent.parent / "search" / "es_tcu_btcu_mapping.json"
-_MONGO_COLLECTION = "tcu_btcu"
+_BTCU_MAPPING_PATH = (
+    Path(__file__).resolve().parent.parent / "search" / "es_tcu_btcu_mapping.json"
+)
+_PG_TABLE = "raw.tcu_btcu_raw_data"
 _CURSOR_PATH = Path(__file__).resolve().parent.parent / "data" / "btcu_sync_cursor.json"
 _CONTAINER_CURSOR_PATH = Path("/data/gabi_dou/btcu_sync_cursor.json")
 
@@ -50,11 +51,8 @@ def _es_url() -> str:
     return os.getenv("ES_URL", "http://elasticsearch:9200").rstrip("/")
 
 
-def _mongo_client():
-    uri = os.getenv("MONGO_STRING", "mongodb://mongo:27017/gabi_dou")
-    db_name = os.getenv("DB_NAME", "gabi_dou")
-    client = pymongo.MongoClient(uri)
-    return client, client[db_name]
+def _pg_url() -> str:
+    return os.getenv("POSTGRES_URL", settings.POSTGRES_URL)
 
 
 def _cursor_path() -> Path:
@@ -80,13 +78,66 @@ def _save_cursor(date_str: str) -> None:
     """Save last sync date."""
     path = _cursor_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"last_date": date_str, "updated_at": datetime.now(timezone.utc).isoformat()}))
+    path.write_text(
+        json.dumps(
+            {
+                "last_date": date_str,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+    )
     _log(f"cursor saved: {date_str}")
+
+
+# ---------------------------------------------------------------------------
+# Postgres helpers
+# ---------------------------------------------------------------------------
+
+
+def _pg_fetch_hash(conn: psycopg.Connection, doc_id: str) -> str | None:
+    """Fetch deterministic_hash from Postgres for dedup."""
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT all_fields->>'deterministic_hash' FROM {_PG_TABLE} WHERE id = %s",
+            (doc_id,),
+        )
+        row = cur.fetchone()
+    return row[0] if row else None
+
+
+def _pg_upsert(conn: psycopg.Connection, doc: dict) -> None:
+    """Upsert a single BTCU chunk into Postgres."""
+    doc_id = doc["doc_id"]
+    all_fields = json.dumps(
+        {**doc, "updated_at": datetime.now(timezone.utc).isoformat()},
+        default=str,
+        ensure_ascii=False,
+    )
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""INSERT INTO {_PG_TABLE} (id, all_fields, dumped_at)
+               VALUES (%s, %s::jsonb, NOW())
+               ON CONFLICT (id) DO UPDATE SET
+                   all_fields = EXCLUDED.all_fields,
+                   dumped_at = NOW()""",
+            (doc_id, all_fields),
+        )
+
+
+def _pg_check_parent(conn: psycopg.Connection, parent_id: str) -> bool:
+    """Check if any chunk for this parent BTCU already exists."""
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT 1 FROM {_PG_TABLE} WHERE all_fields->>'parent_btcu_id' = %s LIMIT 1",
+            (parent_id,),
+        )
+        return cur.fetchone() is not None
 
 
 # ---------------------------------------------------------------------------
 # ES helpers
 # ---------------------------------------------------------------------------
+
 
 def _ensure_index(es_client: httpx.Client) -> None:
     """Create BTCU index if it doesn't exist."""
@@ -108,7 +159,9 @@ def _es_bulk(docs: list[dict], es_client: httpx.Client) -> tuple[int, int]:
     lines: list[str] = []
     for doc in docs:
         doc_id = doc.get("doc_id")
-        lines.append(json.dumps({"index": {"_index": index, "_id": doc_id}}, ensure_ascii=False))
+        lines.append(
+            json.dumps({"index": {"_index": index, "_id": doc_id}}, ensure_ascii=False)
+        )
         lines.append(json.dumps(doc, ensure_ascii=False))
     body = "\n".join(lines) + "\n"
     resp = es_client.post(
@@ -127,17 +180,16 @@ def _es_bulk(docs: list[dict], es_client: httpx.Client) -> tuple[int, int]:
 # Main ingest
 # ---------------------------------------------------------------------------
 
+
 def run_ingest(*, recent_only: bool = False, cache_dir: str | None = None) -> None:
-    """Full ingest pipeline: scrape → download → chunk → Mongo + ES."""
+    """Full ingest pipeline: scrape → download → chunk → Postgres + ES."""
     cache = cache_dir or "/tmp/tcu_btcu_pdf"
     os.makedirs(cache, exist_ok=True)
 
     es_client = httpx.Client(timeout=60)
     _ensure_index(es_client)
 
-    mongo_client, db = _mongo_client()
-    collection = db[_MONGO_COLLECTION]
-    collection.create_index("doc_id", unique=True, background=True)
+    pg_conn = psycopg.connect(_pg_url())
 
     # Determine cursor for incremental sync
     since_date = None
@@ -153,14 +205,16 @@ def run_ingest(*, recent_only: bool = False, cache_dir: str | None = None) -> No
     if not entries:
         _log("no entries found")
         es_client.close()
-        mongo_client.close()
+        pg_conn.close()
         return
 
     # Track latest date for cursor
     latest_date = entries[0].data_publicacao
 
     # Phase 2: Download PDFs, chunk, process, index
-    pdf_client = httpx.Client(timeout=120, follow_redirects=True, headers={"User-Agent": _USER_AGENT})
+    pdf_client = httpx.Client(
+        timeout=120, follow_redirects=True, headers={"User-Agent": _USER_AGENT}
+    )
     t0 = time.time()
     stats = {"entries": 0, "chunks": 0, "indexed": 0, "failed": 0, "skipped": 0}
     batch: list[dict] = []
@@ -170,7 +224,7 @@ def run_ingest(*, recent_only: bool = False, cache_dir: str | None = None) -> No
 
         # Check if already ingested (by parent doc_id)
         parent_id = f"BTCU-{entry.doc_id}"
-        existing = collection.find_one({"parent_btcu_id": parent_id}, {"deterministic_hash": 1})
+        parent_exists = _pg_check_parent(pg_conn, parent_id)
 
         try:
             # Download PDF
@@ -191,42 +245,42 @@ def run_ingest(*, recent_only: bool = False, cache_dir: str | None = None) -> No
             for chunk in chunks:
                 doc = btcu_chunk_to_es_doc(entry, chunk, page_count)
 
-                # Dedup check
-                if existing:
-                    existing_chunk = collection.find_one(
-                        {"_id": doc["doc_id"]},
-                        {"deterministic_hash": 1},
-                    )
-                    if existing_chunk and existing_chunk.get("deterministic_hash") == doc["deterministic_hash"]:
+                # Dedup check against Postgres
+                if parent_exists:
+                    existing_hash = _pg_fetch_hash(pg_conn, doc["doc_id"])
+                    if existing_hash and existing_hash == doc.get("deterministic_hash"):
                         stats["skipped"] += 1
                         continue
 
-                # Upsert to Mongo
-                collection.update_one(
-                    {"_id": doc["doc_id"]},
-                    {"$set": {**doc, "updated_at": datetime.now(timezone.utc)}},
-                    upsert=True,
-                )
+                # Upsert to Postgres
+                _pg_upsert(pg_conn, doc)
                 batch.append(doc)
                 stats["chunks"] += 1
+
+            pg_conn.commit()
 
             # Bulk index when batch is full
             if len(batch) >= 200:
                 ok, failed = _es_bulk(batch, es_client)
                 stats["indexed"] += ok
                 stats["failed"] += failed
-                _log(f"  progress: {stats['entries']}/{len(entries)} entries, {stats['chunks']} chunks, {stats['indexed']} indexed")
+                _log(
+                    f"  progress: {stats['entries']}/{len(entries)} entries, {stats['chunks']} chunks, {stats['indexed']} indexed"
+                )
                 batch = []
 
         except Exception as exc:
             _log(f"  error processing {entry.doc_id}: {exc}")
+            pg_conn.rollback()
             stats["failed"] += 1
             continue
 
         # Progress log
         if stats["entries"] % 50 == 0:
             elapsed = time.time() - t0
-            _log(f"  progress: {stats['entries']}/{len(entries)} entries, {elapsed:.0f}s")
+            _log(
+                f"  progress: {stats['entries']}/{len(entries)} entries, {elapsed:.0f}s"
+            )
 
     # Flush remaining batch
     if batch:
@@ -240,48 +294,62 @@ def run_ingest(*, recent_only: bool = False, cache_dir: str | None = None) -> No
 
     pdf_client.close()
     es_client.close()
-    mongo_client.close()
+    pg_conn.close()
 
     elapsed = time.time() - t0
-    _log(f"DONE in {elapsed:.0f}s — entries={stats['entries']} chunks={stats['chunks']} "
-         f"indexed={stats['indexed']} failed={stats['failed']} skipped={stats['skipped']}")
+    _log(
+        f"DONE in {elapsed:.0f}s — entries={stats['entries']} chunks={stats['chunks']} "
+        f"indexed={stats['indexed']} failed={stats['failed']} skipped={stats['skipped']}"
+    )
 
 
 # ---------------------------------------------------------------------------
 # Stats
 # ---------------------------------------------------------------------------
 
+
 def cmd_stats() -> None:
     """Show BTCU ingest stats."""
-    mongo_client, db = _mongo_client()
-    collection = db[_MONGO_COLLECTION]
+    with psycopg.connect(_pg_url()) as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT COUNT(*) FROM {_PG_TABLE}")
+            total = cur.fetchone()[0]
 
-    total = collection.count_documents({})
-    by_caderno = list(collection.aggregate([
-        {"$group": {"_id": "$caderno", "count": {"$sum": 1}}},
-    ]))
-    by_status = list(collection.aggregate([
-        {"$group": {"_id": "$embedding_status", "count": {"$sum": 1}}},
-    ]))
+            cur.execute(
+                f"SELECT all_fields->>'caderno' AS caderno, COUNT(*) FROM {_PG_TABLE} GROUP BY 1"
+            )
+            by_caderno = {row[0]: row[1] for row in cur.fetchall()}
 
-    mongo_client.close()
+            cur.execute(
+                f"SELECT all_fields->>'embedding_status' AS status, COUNT(*) FROM {_PG_TABLE} GROUP BY 1"
+            )
+            by_status = {row[0]: row[1] for row in cur.fetchall()}
 
-    print(json.dumps({
-        "total_chunks": total,
-        "by_caderno": {r["_id"]: r["count"] for r in by_caderno},
-        "embedding_status": {r["_id"]: r["count"] for r in by_status},
-        "cursor": _load_cursor(),
-    }, indent=2, ensure_ascii=False))
+    print(
+        json.dumps(
+            {
+                "total_chunks": total,
+                "by_caderno": by_caderno,
+                "embedding_status": by_status,
+                "cursor": _load_cursor(),
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Ingest TCU BTCU (Boletins)")
     parser.add_argument("--ingest", action="store_true", help="Run ingest pipeline")
-    parser.add_argument("--recent", action="store_true", help="Only new editions since cursor")
+    parser.add_argument(
+        "--recent", action="store_true", help="Only new editions since cursor"
+    )
     parser.add_argument("--stats", action="store_true", help="Show stats")
     parser.add_argument("--cache-dir", default=None, help="PDF cache directory")
     args = parser.parse_args()

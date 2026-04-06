@@ -4,22 +4,28 @@
 **Owner:** gabi  
 **Encoding:** UTF8  
 **Collation:** en_US.utf8  
-**Tamanho total:** 107 GB  
+**Tamanho total:** ~95 GB (2026-04-05, pós-limpeza Sprint 2)  
 **Schemas:** `public` (vazio), `raw` (dados)
 
 ---
 
 ## Schema `raw` — Tabelas
 
-| Tabela | Linhas (est.) | Tamanho | Última ingestão | Tipo |
-|--------|--------------|---------|-----------------|------|
-| [dou_documents](tables/dou_documents.md) | 15.853.837 | 89 GB | 2026-04-04 | Tipada |
-| [tcu_acordaos](tables/tcu_acordaos.md) | 547.490 | 11 GB | 2026-04-05 | Tipada (CSV TCU) |
-| [tcu_acordaos_raw_data](tables/tcu_acordaos_raw_data.md) | 547.490 | 6,1 GB | 2026-04-05 | JSONB puro |
-| [tcu_btcu_raw_data](tables/tcu_btcu_raw_data.md) | 223.515 | 822 MB | 2026-04-04 | JSONB puro |
-| [tcu_normas_raw_data](tables/tcu_normas_raw_data.md) | 16.413 | 90 MB | 2026-04-04 | JSONB puro |
-| [tcu_publicacoes_raw_data](tables/tcu_publicacoes_raw_data.md) | 667 | 39 MB | 2026-04-04 | JSONB puro |
-| [migration_log](tables/migration_log.md) | 10 | 32 kB | 2026-04-05 | Meta / Auditoria |
+| Tabela | Linhas (live) | Tamanho | Tipo | Origem |
+|--------|--------------|---------|------|--------|
+| [dou_documents_raw_data](tables/dou_documents_raw_data.md) | 15.835.274 | 89 GB | Colunar + JSONB | DOU/INLABS |
+| [tcu_acordao_completo_raw](tables/tcu_acordao_completo_raw.md) | 520.595 | 4,0 GB | Colunar (CSV headers) | TCU Dados Abertos |
+| [tcu_btcu_raw_data](tables/tcu_btcu_raw_data.md) | 223.515 | 822 MB | JSONB | BTCU API |
+| [tcu_normas_raw](tables/tcu_normas_raw.md) | 16.443 | 98 MB | Colunar (CSV headers) | TCU Dados Abertos |
+| [tcu_jurisprudencia_selecionada_raw](tables/tcu_jurisprudencia_selecionada_raw.md) | 17.549 | 75 MB | Colunar (CSV headers) | TCU Dados Abertos |
+| [tcu_publicacoes_raw_data](tables/tcu_publicacoes_raw_data.md) | 667 | 39 MB | JSONB | Portal TCU (scraping) |
+| [tcu_boletim_informativo_lc_raw](tables/tcu_boletim_informativo_lc_raw.md) | 1.977 | 6 MB | Colunar (CSV headers) | TCU Dados Abertos |
+| [tcu_boletim_jurisprudencia_raw](tables/tcu_boletim_jurisprudencia_raw.md) | 5.837 | 5 MB | Colunar (CSV headers) | TCU Dados Abertos |
+| [tcu_resposta_consulta_raw](tables/tcu_resposta_consulta_raw.md) | 523 | 4 MB | Colunar (CSV headers) | TCU Dados Abertos |
+| [tcu_boletim_pessoal_raw](tables/tcu_boletim_pessoal_raw.md) | 1.500 | 1,4 MB | Colunar (CSV headers) | TCU Dados Abertos |
+| [tcu_sumula_raw](tables/tcu_sumula_raw.md) | 294 | 720 kB | Colunar (CSV headers) | TCU Dados Abertos |
+| [tcu_csv_fetch_meta](tables/tcu_csv_fetch_meta.md) | 42 | 64 kB | Meta / Controle | Pipeline interno |
+| [migration_log](tables/migration_log.md) | 10 | 32 kB | Meta / Auditoria | Pipeline interno |
 
 ---
 
@@ -27,22 +33,32 @@
 
 | Índice | Tabela | Tipo | Coluna(s) |
 |--------|--------|------|-----------|
-| `dou_documents_pkey` | dou_documents | UNIQUE BTREE | id |
-| `ix_raw_dou_documents_art_type` | dou_documents | BTREE | art_type |
-| `ix_raw_dou_documents_pub_date` | dou_documents | BTREE | pub_date |
-| `ix_raw_dou_documents_raw_html_hash` | dou_documents | BTREE | raw_html_hash |
-| `migration_log_pkey` | migration_log | UNIQUE BTREE | id |
-| `tcu_acordaos_pkey` | tcu_acordaos | UNIQUE BTREE | id |
-| `ix_raw_tcu_acordaos_area` | tcu_acordaos | BTREE | area |
-| `ix_raw_tcu_acordaos_data_sessao` | tcu_acordaos | BTREE | data_sessao |
-| `ix_raw_tcu_acordaos_source_type` | tcu_acordaos | BTREE | source_type |
-| `ix_raw_tcu_acordaos_tipo` | tcu_acordaos | BTREE | tipo |
-| `tcu_acordaos_raw_data_pkey` | tcu_acordaos_raw_data | UNIQUE BTREE | id |
+| `dou_documents_raw_data_pkey` | dou_documents_raw_data | UNIQUE BTREE | id |
+| `ix_raw_dou_documents_raw_data_pub_date` | dou_documents_raw_data | BTREE | pub_date |
+| `ix_raw_dou_documents_raw_data_art_type` | dou_documents_raw_data | BTREE | art_type |
+| `ix_raw_dou_documents_raw_data_raw_html_hash` | dou_documents_raw_data | BTREE | raw_html_hash |
+| `tcu_acordao_completo_raw_pkey` | tcu_acordao_completo_raw | UNIQUE BTREE | id |
+| `ix_raw_tcu_acordao_completo_raw_dumped_at` | tcu_acordao_completo_raw | BTREE | dumped_at DESC |
 | `tcu_btcu_raw_data_pkey` | tcu_btcu_raw_data | UNIQUE BTREE | id |
-| `tcu_normas_raw_data_pkey` | tcu_normas_raw_data | UNIQUE BTREE | id |
+| `tcu_normas_raw_pkey` | tcu_normas_raw | UNIQUE BTREE | id |
+| `ix_raw_tcu_normas_raw_dumped_at` | tcu_normas_raw | BTREE | dumped_at DESC |
+| `tcu_jurisprudencia_selecionada_raw_pkey` | tcu_jurisprudencia_selecionada_raw | UNIQUE BTREE | id |
+| `ix_raw_tcu_jurisprudencia_selecionada_raw_dumped_at` | tcu_jurisprudencia_selecionada_raw | BTREE | dumped_at DESC |
 | `tcu_publicacoes_raw_data_pkey` | tcu_publicacoes_raw_data | UNIQUE BTREE | id |
+| `tcu_boletim_informativo_lc_raw_pkey` | tcu_boletim_informativo_lc_raw | UNIQUE BTREE | id |
+| `ix_raw_tcu_boletim_informativo_lc_raw_dumped_at` | tcu_boletim_informativo_lc_raw | BTREE | dumped_at DESC |
+| `tcu_boletim_jurisprudencia_raw_pkey` | tcu_boletim_jurisprudencia_raw | UNIQUE BTREE | id |
+| `ix_raw_tcu_boletim_jurisprudencia_raw_dumped_at` | tcu_boletim_jurisprudencia_raw | BTREE | dumped_at DESC |
+| `tcu_resposta_consulta_raw_pkey` | tcu_resposta_consulta_raw | UNIQUE BTREE | id |
+| `ix_raw_tcu_resposta_consulta_raw_dumped_at` | tcu_resposta_consulta_raw | BTREE | dumped_at DESC |
+| `tcu_boletim_pessoal_raw_pkey` | tcu_boletim_pessoal_raw | UNIQUE BTREE | id |
+| `ix_raw_tcu_boletim_pessoal_raw_dumped_at` | tcu_boletim_pessoal_raw | BTREE | dumped_at DESC |
+| `tcu_sumula_raw_pkey` | tcu_sumula_raw | UNIQUE BTREE | id |
+| `ix_raw_tcu_sumula_raw_dumped_at` | tcu_sumula_raw | BTREE | dumped_at DESC |
+| `tcu_csv_fetch_meta_pkey` | tcu_csv_fetch_meta | UNIQUE BTREE | url |
+| `migration_log_pkey` | migration_log | UNIQUE BTREE | id |
 
-**Nota:** Tabelas `tcu_btcu_raw_data`, `tcu_normas_raw_data` e `tcu_publicacoes_raw_data` possuem apenas PK. Sem índices de busca em campos do JSONB.
+**Nota:** Tabelas `tcu_btcu_raw_data` e `tcu_publicacoes_raw_data` possuem apenas PK. Sem índices em campos do JSONB.
 
 ---
 
@@ -50,25 +66,25 @@
 
 **Nenhuma FK física definida.** Relacionamentos são implícitos:
 
-- `tcu_acordaos.id` ↔ `tcu_acordaos_raw_data.id` (100% sobreposição, mesmo conjunto de IDs)
+| De | Para | Via |
+|----|------|-----|
+| `tcu_jurisprudencia_selecionada_raw` | `tcu_acordao_completo_raw` | `NUMACORDAO` + `ANOACORDAO` |
+| `tcu_resposta_consulta_raw` | `tcu_acordao_completo_raw` | `NUMACORDAO` + `ANOACORDAO` |
+| `tcu_sumula_raw` | `tcu_acordao_completo_raw` | `NUMAPROVACAO` + `ANOAPROVACAO` |
+| `tcu_boletim_jurisprudencia_raw` | `tcu_acordao_completo_raw` | `REFERENCIA` |
+| `tcu_boletim_pessoal_raw` | `tcu_acordao_completo_raw` | `REFERENCIA` |
+| `tcu_normas_raw` | `dou_documents_raw_data` | `NUMDOU` + `NUMSECAODOU` + `DATADOU` |
+| `tcu_btcu_raw_data` | `tcu_acordao_completo_raw` | `all_fields->>'acordaos_citados'` |
 
 ---
 
-## Sprint 2 — Tabelas Planejadas (não criadas ainda)
+## Tabelas removidas (histórico)
 
-As tabelas abaixo serão criadas pelo pipeline `tcu_csv_raw_pg.py` quando o Sprint 2 for executado:
-
-| Tabela | Linhas esperadas | Schema |
-|--------|-----------------|--------|
-| `raw.tcu_acordao_completo_raw` | 520.353 | Colunar (CSV headers) |
-| `raw.tcu_jurisprudencia_selecionada_raw` | 17.016 | Colunar (CSV headers) |
-| `raw.tcu_resposta_consulta_raw` | 522 | Colunar (CSV headers) |
-| `raw.tcu_sumula_raw` | 294 | Colunar (CSV headers) |
-| `raw.tcu_boletim_jurisprudencia_raw` | 5.828 | Colunar (CSV headers) |
-| `raw.tcu_boletim_pessoal_raw` | 1.500 | Colunar (CSV headers) |
-| `raw.tcu_boletim_informativo_lc_raw` | 1.977 | Colunar (CSV headers) |
-| `raw.tcu_normas_raw` | 16.413 | Colunar (CSV headers) |
-| `raw.tcu_csv_fetch_meta` | — | Meta de fetch por fonte/ano |
+| Tabela | Removida em | Motivo |
+|--------|------------|--------|
+| `tcu_acordaos` | 2026-04-05 | Typed Sprint 1 — substituída por `tcu_acordao_completo_raw` |
+| `tcu_acordaos_raw_data` | 2026-04-05 | JSONB legacy — subconjunto de `tcu_acordao_completo_raw`; continha 27.137 linhas contaminadas (BOLETIM, JURISPRUDÊNCIA SELECIONADA, RESPOSTA A CONSULTA, SÚMULA) |
+| `tcu_normas_raw_data` | 2026-04-05 | JSONB legacy — subconjunto de `tcu_normas_raw` |
 
 ---
 
