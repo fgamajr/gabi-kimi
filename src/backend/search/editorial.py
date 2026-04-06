@@ -14,31 +14,58 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from src.backend.core.config import settings
-from src.backend.data.db import MongoDB
 
 logger = logging.getLogger(__name__)
 
-_COLLECTION = "editorial_highlights"
-_CACHE_DOC_ID = "latest"
+_CACHE_KEY = "editorial_highlights"
 _BRT = ZoneInfo("America/Sao_Paulo")
 
 _SOURCE_FIELDS = [
-    "doc_id", "identifica", "ementa", "art_type", "art_type_normalized",
-    "pub_date", "section", "edition_section", "edition_number", "page_number",
-    "issuing_organ", "organization_path",
+    "doc_id",
+    "identifica",
+    "ementa",
+    "art_type",
+    "art_type_normalized",
+    "pub_date",
+    "section",
+    "edition_section",
+    "edition_number",
+    "page_number",
+    "issuing_organ",
+    "organization_path",
 ]
 
 _TCU_INDEX = settings.TCU_ES_INDEX
 _TCU_SOURCE_FIELDS = [
-    "doc_id", "titulo", "sumario", "tipo", "colegiado", "tipo_processo",
-    "relator", "data_sessao", "numero_acordao", "ano_acordao",
-    "entidade", "dispositivo_tipo", "dispositivo_resumo", "source_type",
+    "doc_id",
+    "titulo",
+    "sumario",
+    "tipo",
+    "colegiado",
+    "tipo_processo",
+    "relator",
+    "data_sessao",
+    "numero_acordao",
+    "ano_acordao",
+    "entidade",
+    "dispositivo_tipo",
+    "dispositivo_resumo",
+    "source_type",
 ]
 
 _NORMAS_INDEX = settings.TCU_NORMAS_INDEX
 _NORMAS_SOURCE_FIELDS = [
-    "doc_id", "titulo", "assunto", "tipo_norma", "numero_norma", "ano_norma",
-    "situacao", "vigente", "data_inicio_vigencia", "origem", "source_type",
+    "doc_id",
+    "titulo",
+    "assunto",
+    "tipo_norma",
+    "numero_norma",
+    "ano_norma",
+    "situacao",
+    "vigente",
+    "data_inicio_vigencia",
+    "origem",
+    "source_type",
 ]
 
 # ---------------------------------------------------------------------------
@@ -52,10 +79,17 @@ CATEGORIES: dict[str, dict[str, Any]] = {
             "bool": {
                 "should": [
                     {"terms": {"section": ["DO1", "do1"]}},
-                    {"terms": {"art_type_normalized": [
-                        "decreto", "lei", "medida-provisoria", "resolucao",
-                        "instrucao-normativa",
-                    ]}},
+                    {
+                        "terms": {
+                            "art_type_normalized": [
+                                "decreto",
+                                "lei",
+                                "medida-provisoria",
+                                "resolucao",
+                                "instrucao-normativa",
+                            ]
+                        }
+                    },
                 ],
                 "minimum_should_match": 1,
             }
@@ -65,16 +99,20 @@ CATEGORIES: dict[str, dict[str, Any]] = {
         "badge": "EM ALTA",
         "query": {
             "bool": {
-                "must": [{"bool": {
-                    "should": [
-                        {"term": {"art_type_normalized": "edital"}},
-                        {"match": {"identifica": "concurso"}},
-                        {"match": {"ementa": "concurso"}},
-                        {"match": {"ementa": "vagas"}},
-                        {"match": {"identifica": "seleção"}},
-                    ],
-                    "minimum_should_match": 1,
-                }}],
+                "must": [
+                    {
+                        "bool": {
+                            "should": [
+                                {"term": {"art_type_normalized": "edital"}},
+                                {"match": {"identifica": "concurso"}},
+                                {"match": {"ementa": "concurso"}},
+                                {"match": {"ementa": "vagas"}},
+                                {"match": {"identifica": "seleção"}},
+                            ],
+                            "minimum_should_match": 1,
+                        }
+                    }
+                ],
             }
         },
     },
@@ -82,17 +120,33 @@ CATEGORIES: dict[str, dict[str, Any]] = {
         "badge": "ECONOMIA",
         "query": {
             "bool": {
-                "must": [{"bool": {
-                    "should": [
-                        {"match_phrase": {"issuing_organ": "Ministério da Fazenda"}},
-                        {"match_phrase": {"issuing_organ": "Banco Central"}},
-                        {"match_phrase": {"issuing_organ": "Receita Federal"}},
-                        {"match_phrase": {"issuing_organ": "Secretaria da Receita Federal"}},
-                        {"match_phrase": {"issuing_organ": "CVM"}},
-                        {"match": {"ementa": "fiscal tributário orçamento imposto taxa arrecadação"}},
-                    ],
-                    "minimum_should_match": 1,
-                }}],
+                "must": [
+                    {
+                        "bool": {
+                            "should": [
+                                {
+                                    "match_phrase": {
+                                        "issuing_organ": "Ministério da Fazenda"
+                                    }
+                                },
+                                {"match_phrase": {"issuing_organ": "Banco Central"}},
+                                {"match_phrase": {"issuing_organ": "Receita Federal"}},
+                                {
+                                    "match_phrase": {
+                                        "issuing_organ": "Secretaria da Receita Federal"
+                                    }
+                                },
+                                {"match_phrase": {"issuing_organ": "CVM"}},
+                                {
+                                    "match": {
+                                        "ementa": "fiscal tributário orçamento imposto taxa arrecadação"
+                                    }
+                                },
+                            ],
+                            "minimum_should_match": 1,
+                        }
+                    }
+                ],
             }
         },
     },
@@ -100,13 +154,29 @@ CATEGORIES: dict[str, dict[str, Any]] = {
         "badge": "POLÍTICA",
         "query": {
             "bool": {
-                "must": [{"bool": {
-                    "should": [
-                        {"match_phrase": {"issuing_organ": "Presidência da República"}},
-                        {"terms": {"art_type_normalized": ["decreto", "lei", "medida-provisoria"]}},
-                    ],
-                    "minimum_should_match": 1,
-                }}],
+                "must": [
+                    {
+                        "bool": {
+                            "should": [
+                                {
+                                    "match_phrase": {
+                                        "issuing_organ": "Presidência da República"
+                                    }
+                                },
+                                {
+                                    "terms": {
+                                        "art_type_normalized": [
+                                            "decreto",
+                                            "lei",
+                                            "medida-provisoria",
+                                        ]
+                                    }
+                                },
+                            ],
+                            "minimum_should_match": 1,
+                        }
+                    }
+                ],
                 "should": [
                     {"terms": {"section": ["DO1", "do1"]}},
                 ],
@@ -124,24 +194,50 @@ CATEGORIES: dict[str, dict[str, Any]] = {
 # ---------------------------------------------------------------------------
 
 _NOISE_TERMS = {
-    "nomeacao", "nomeação", "nomeacoes", "nomeações",
-    "exoneracao", "exoneração", "designacao", "designação",
-    "aposentadoria", "pensao", "pensão", "ferias", "férias",
-    "licenca", "licença", "substituicao", "substituição",
-    "portaria de pessoal", "extrato", "apostila", "cessao", "cessão",
+    "nomeacao",
+    "nomeação",
+    "nomeacoes",
+    "nomeações",
+    "exoneracao",
+    "exoneração",
+    "designacao",
+    "designação",
+    "aposentadoria",
+    "pensao",
+    "pensão",
+    "ferias",
+    "férias",
+    "licenca",
+    "licença",
+    "substituicao",
+    "substituição",
+    "portaria de pessoal",
+    "extrato",
+    "apostila",
+    "cessao",
+    "cessão",
 }
 
 _ART_TYPE_BOOSTS: dict[str, float] = {
-    "edital": 7.0, "resolucao": 6.0, "instrucao-normativa": 6.0,
-    "decreto": 5.5, "lei": 5.0, "medida-provisoria": 5.0,
-    "aviso": 3.0, "portaria": 1.5,
+    "edital": 7.0,
+    "resolucao": 6.0,
+    "instrucao-normativa": 6.0,
+    "decreto": 5.5,
+    "lei": 5.0,
+    "medida-provisoria": 5.0,
+    "aviso": 3.0,
+    "portaria": 1.5,
 }
 
 # Category-specific extra boosts
 _CATEGORY_BOOSTS: dict[str, dict[str, float]] = {
     "destaque": {
-        "presidencia": 10.0, "ministerio": 5.0, "decreto": 6.0,
-        "medida provisoria": 8.0, "lei": 7.0, "regulamenta": 4.0,
+        "presidencia": 10.0,
+        "ministerio": 5.0,
+        "decreto": 6.0,
+        "medida provisoria": 8.0,
+        "lei": 7.0,
+        "regulamenta": 4.0,
     },
     "concursos": {"concurso": 8.0, "vagas": 5.0, "seleção": 5.0, "selecao": 5.0},
     "economia": {"fiscal": 5.0, "tributario": 5.0, "orcamento": 5.0, "imposto": 4.0},
@@ -155,17 +251,24 @@ _CONCURSO_NOISE = {"credenciamento": -6.0}
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _normalize(text: str) -> str:
     lowered = text.lower().strip()
     normalized = unicodedata.normalize("NFD", lowered)
-    return re.sub(r"\s+", " ", "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn"))
+    return re.sub(
+        r"\s+",
+        " ",
+        "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn"),
+    )
 
 
 def _section_fe(es_val: str | None) -> str:
     if not es_val:
         return ""
     mapping = {"DO1": "1", "DO2": "2", "DO3": "3", "DOE": "e", "DO1a": "e"}
-    return mapping.get(es_val.upper(), es_val.upper().replace("DO", "").lower() or es_val)
+    return mapping.get(
+        es_val.upper(), es_val.upper().replace("DO", "").lower() or es_val
+    )
 
 
 def _post_search(es_client: httpx.Client, body: dict[str, Any]) -> dict[str, Any]:
@@ -199,6 +302,7 @@ def _days_since(pub_date: str, latest: str) -> int:
 # ---------------------------------------------------------------------------
 # Scoring
 # ---------------------------------------------------------------------------
+
 
 def _score_candidate(hit: dict[str, Any], category: str, latest_pub_date: str) -> float:
     src = hit.get("_source", {})
@@ -241,7 +345,10 @@ def _score_candidate(hit: dict[str, Any], category: str, latest_pub_date: str) -
 
     # Organ boost (high-impact organs)
     organ_norm = _normalize(organ)
-    if any(p in organ_norm for p in ("presidencia", "ministerio", "banco central", "congresso")):
+    if any(
+        p in organ_norm
+        for p in ("presidencia", "ministerio", "banco central", "congresso")
+    ):
         score += 4
 
     # Noise penalty
@@ -272,6 +379,7 @@ def _score_candidate(hit: dict[str, Any], category: str, latest_pub_date: str) -
 # Candidate selection
 # ---------------------------------------------------------------------------
 
+
 def _fetch_candidates(
     es_client: httpx.Client,
     category: str,
@@ -282,10 +390,14 @@ def _fetch_candidates(
         "bool": {
             **cat_config["query"].get("bool", {}),
             "filter": [
-                {"range": {"pub_date": {
-                    "gte": f"{latest_pub_date}||-{settings.EDITORIAL_LOOKBACK_DAYS}d/d",
-                    "lte": latest_pub_date,
-                }}},
+                {
+                    "range": {
+                        "pub_date": {
+                            "gte": f"{latest_pub_date}||-{settings.EDITORIAL_LOOKBACK_DAYS}d/d",
+                            "lte": latest_pub_date,
+                        }
+                    }
+                },
             ],
         }
     }
@@ -310,14 +422,35 @@ def _fetch_tcu_candidates(es_client: httpx.Client) -> list[dict[str, Any]]:
         "query": {
             "bool": {
                 "filter": [
-                    {"range": {"data_sessao": {"gte": f"now-{settings.EDITORIAL_LOOKBACK_DAYS * 2}d/d"}}},
+                    {
+                        "range": {
+                            "data_sessao": {
+                                "gte": f"now-{settings.EDITORIAL_LOOKBACK_DAYS * 2}d/d"
+                            }
+                        }
+                    },
                 ],
                 "should": [
                     # Prioritize Plenário, irregular, multa, high-impact
                     {"term": {"colegiado": {"value": "Plenário", "boost": 3}}},
-                    {"term": {"dispositivo_resumo": {"value": "irregular", "boost": 5}}},
-                    {"term": {"dispositivo_resumo": {"value": "aplicar_multa", "boost": 3}}},
-                    {"term": {"dispositivo_resumo": {"value": "imputar_debito", "boost": 4}}},
+                    {
+                        "term": {
+                            "dispositivo_resumo": {"value": "irregular", "boost": 5}
+                        }
+                    },
+                    {
+                        "term": {
+                            "dispositivo_resumo": {"value": "aplicar_multa", "boost": 3}
+                        }
+                    },
+                    {
+                        "term": {
+                            "dispositivo_resumo": {
+                                "value": "imputar_debito",
+                                "boost": 4,
+                            }
+                        }
+                    },
                     {"term": {"tipo": {"value": "ACÓRDÃO", "boost": 2}}},
                 ],
             },
@@ -414,12 +547,26 @@ def _fetch_normas_candidates(es_client: httpx.Client) -> list[dict[str, Any]]:
             "bool": {
                 "filter": [
                     {"term": {"vigente": True}},
-                    {"range": {"data_inicio_vigencia": {"gte": f"now-{settings.EDITORIAL_LOOKBACK_DAYS * 2}d/d"}}},
+                    {
+                        "range": {
+                            "data_inicio_vigencia": {
+                                "gte": f"now-{settings.EDITORIAL_LOOKBACK_DAYS * 2}d/d"
+                            }
+                        }
+                    },
                 ],
                 "should": [
                     {"term": {"tipo_norma": {"value": "Resolução", "boost": 5}}},
-                    {"term": {"tipo_norma": {"value": "Instrução Normativa", "boost": 4}}},
-                    {"term": {"tipo_norma": {"value": "Decisão Normativa", "boost": 4}}},
+                    {
+                        "term": {
+                            "tipo_norma": {"value": "Instrução Normativa", "boost": 4}
+                        }
+                    },
+                    {
+                        "term": {
+                            "tipo_norma": {"value": "Decisão Normativa", "boost": 4}
+                        }
+                    },
                     {"term": {"tipo_norma": {"value": "Portaria", "boost": 1}}},
                 ],
             },
@@ -531,17 +678,13 @@ def _select_best_per_category(
 
     # TCU destaque: fetch and score TCU candidates
     tcu_hits = _fetch_tcu_candidates(es_client)
-    tcu_scored = [(
-        _score_tcu_candidate(h), h
-    ) for h in tcu_hits]
+    tcu_scored = [(_score_tcu_candidate(h), h) for h in tcu_hits]
     tcu_scored.sort(key=lambda x: x[0], reverse=True)
     results["tcu_destaque"] = tcu_scored[0][1] if tcu_scored else None
 
     # Normas destaque: fetch and score TCU normas
     normas_hits = _fetch_normas_candidates(es_client)
-    normas_scored = [(
-        _score_normas_candidate(h), h
-    ) for h in normas_hits]
+    normas_scored = [(_score_normas_candidate(h), h) for h in normas_hits]
     normas_scored.sort(key=lambda x: x[0], reverse=True)
     results["normas_destaque"] = normas_scored[0][1] if normas_scored else None
 
@@ -709,16 +852,16 @@ def _apply_fallback(categories: dict[str, dict[str, Any] | None]) -> None:
 # Cache operations
 # ---------------------------------------------------------------------------
 
-def get_cached_editorial(mongo_db: Any) -> dict[str, Any] | None:
-    doc = mongo_db[_COLLECTION].find_one({"_id": _CACHE_DOC_ID})
+
+def get_cached_editorial() -> dict[str, Any] | None:
+    doc = cache_get(_CACHE_KEY)
     if not doc:
         return None
-    doc.pop("_id", None)
     doc.pop("generated_at", None)
     return doc
 
 
-def update_editorial_cache(es_client: httpx.Client, mongo_db: Any) -> dict[str, Any]:
+def update_editorial_cache(es_client: httpx.Client) -> dict[str, Any]:
     latest_pub_date = _get_latest_pub_date(es_client)
     if not latest_pub_date:
         logger.warning("No documents in ES index, cannot generate editorial highlights")
@@ -754,16 +897,17 @@ def update_editorial_cache(es_client: httpx.Client, mongo_db: Any) -> dict[str, 
 
     today_brt = datetime.now(_BRT).strftime("%Y-%m-%d")
     payload = {
-        "_id": _CACHE_DOC_ID,
         "generated_for": today_brt,
-        "generated_at": datetime.now(timezone.utc),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "llm_used": llm_used,
         "categories": {k: v for k, v in categories.items() if v is not None},
     }
-    mongo_db[_COLLECTION].replace_one({"_id": _CACHE_DOC_ID}, payload, upsert=True)
+    cache_set(_CACHE_KEY, payload)
 
     filled = sum(1 for v in categories.values() if v)
-    logger.info("Editorial highlights updated: %d/4 categories, llm_used=%s", filled, llm_used)
+    logger.info(
+        "Editorial highlights updated: %d/4 categories, llm_used=%s", filled, llm_used
+    )
     return payload
 
 
@@ -771,18 +915,24 @@ def update_editorial_cache(es_client: httpx.Client, mongo_db: Any) -> dict[str, 
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    parser = argparse.ArgumentParser(description="Compute and cache GABI DOU editorial highlights.")
-    parser.add_argument("--update", action="store_true", help="Compute highlights and write Mongo cache")
+    logging.basicConfig(
+        level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
+    )
+    parser = argparse.ArgumentParser(
+        description="Compute and cache GABI DOU editorial highlights."
+    )
+    parser.add_argument(
+        "--update", action="store_true", help="Compute highlights and write Mongo cache"
+    )
     args = parser.parse_args()
 
     if not args.update:
         raise SystemExit("Use --update to compute and cache editorial highlights.")
 
-    mongo_db = MongoDB.get_db()
     with httpx.Client() as client:
-        update_editorial_cache(client, mongo_db)
+        update_editorial_cache(client)
 
 
 if __name__ == "__main__":

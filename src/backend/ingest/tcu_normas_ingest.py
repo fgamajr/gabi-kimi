@@ -14,15 +14,20 @@ import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 import httpx
 import pymongo
 
-from src.backend.ingest.tcu_normas_processor import NORMA_URL, iter_csv_rows, norma_to_es_doc
+from src.backend.ingest.tcu_normas_processor import (
+    NORMA_URL,
+    iter_csv_rows,
+    norma_to_es_doc,
+)
 
 _NORMAS_INDEX = "gabi_tcu_normas_v1"
-_NORMAS_MAPPING_PATH = Path(__file__).resolve().parent.parent / "search" / "es_tcu_normas_mapping.json"
+_NORMAS_MAPPING_PATH = (
+    Path(__file__).resolve().parent.parent / "search" / "es_tcu_normas_mapping.json"
+)
 _MONGO_COLLECTION = "tcu_normas"
 
 
@@ -73,7 +78,9 @@ def _es_bulk(docs: list[dict], es_client: httpx.Client) -> tuple[int, int]:
     lines: list[str] = []
     for doc in docs:
         doc_id = doc.get("doc_id")
-        lines.append(json.dumps({"index": {"_index": index, "_id": doc_id}}, ensure_ascii=False))
+        lines.append(
+            json.dumps({"index": {"_index": index, "_id": doc_id}}, ensure_ascii=False)
+        )
         lines.append(json.dumps(doc, ensure_ascii=False))
     body = "\n".join(lines) + "\n"
     resp = es_client.post(
@@ -92,6 +99,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Ingest TCU Normas")
     parser.add_argument("--ingest", action="store_true")
     parser.add_argument("--cache-dir", default=None)
+    parser.add_argument(
+        "--skip-mongo", action="store_true", help="Skip MongoDB upsert (ES only)"
+    )
     args = parser.parse_args()
 
     if not args.ingest:
@@ -104,8 +114,11 @@ def main() -> None:
     es_client = httpx.Client(timeout=60)
     _ensure_index(es_client)
 
-    mongo_client, db = _mongo_client()
-    collection = db[_MONGO_COLLECTION]
+    mongo_client = None
+    collection = None
+    if not args.skip_mongo:
+        mongo_client, db = _mongo_client()
+        collection = db[_MONGO_COLLECTION]
 
     filepath = _download_csv(NORMA_URL, cache_dir)
     csv_filename = os.path.basename(filepath)
@@ -123,14 +136,15 @@ def main() -> None:
             _log(f"skip: {row.get('KEY', '?')}: {exc}")
             continue
 
-        try:
-            collection.update_one(
-                {"_id": doc["doc_id"]},
-                {"$set": {**doc, "updated_at": datetime.now(timezone.utc)}},
-                upsert=True,
-            )
-        except Exception as exc:
-            _log(f"mongo error: {doc['doc_id']}: {exc}")
+        if collection is not None:
+            try:
+                collection.update_one(
+                    {"_id": doc["doc_id"]},
+                    {"$set": {**doc, "updated_at": datetime.now(timezone.utc)}},
+                    upsert=True,
+                )
+            except Exception as exc:
+                _log(f"mongo error: {doc['doc_id']}: {exc}")
 
         batch.append(doc)
         if len(batch) >= 500:
@@ -146,10 +160,13 @@ def main() -> None:
         stats["failed"] += failed
 
     es_client.close()
-    mongo_client.close()
+    if mongo_client is not None:
+        mongo_client.close()
 
     elapsed = time.time() - t0
-    _log(f"DONE in {elapsed:.0f}s — total={stats['total']} indexed={stats['indexed']} failed={stats['failed']} skipped={stats['skipped']}")
+    _log(
+        f"DONE in {elapsed:.0f}s — total={stats['total']} indexed={stats['indexed']} failed={stats['failed']} skipped={stats['skipped']}"
+    )
 
 
 if __name__ == "__main__":

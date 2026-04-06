@@ -8,7 +8,7 @@ compose_file="${COMPOSE_FILE:-docker-compose.prod.yml}"
 
 cd "${repo_root}"
 
-docker compose -f "${compose_file}" up -d mongo elasticsearch backend >/dev/null
+docker compose -f "${compose_file}" up -d elasticsearch backend postgres >/dev/null
 
 docker compose -f "${compose_file}" exec -T backend \
   python -m src.backend.search.trending --update

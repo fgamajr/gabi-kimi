@@ -18,9 +18,7 @@ import os
 import sys
 import tempfile
 import time
-import traceback
 from datetime import datetime, timezone
-from typing import Any
 
 import httpx
 import pymongo
@@ -35,7 +33,6 @@ from src.backend.ingest.tcu_jurisprudencia_processor import (
     boletim_juris_to_es_doc,
     boletim_lc_to_es_doc,
     boletim_pessoal_to_es_doc,
-    enunciado_hash,
     iter_csv_rows,
     jurisprudencia_to_es_doc,
     resposta_consulta_to_es_doc,
@@ -112,7 +109,9 @@ def _es_bulk(docs: list[dict], es_client: httpx.Client) -> tuple[int, int]:
     lines: list[str] = []
     for doc in docs:
         doc_id = doc.get("doc_id")
-        lines.append(json.dumps({"index": {"_index": index, "_id": doc_id}}, ensure_ascii=False))
+        lines.append(
+            json.dumps({"index": {"_index": index, "_id": doc_id}}, ensure_ascii=False)
+        )
         lines.append(json.dumps(doc, ensure_ascii=False))
     body = "\n".join(lines) + "\n"
     resp = es_client.post(
@@ -152,15 +151,15 @@ def ingest_csv(
             _log(f"skip: {row.get('KEY', '?')}: {exc}")
             continue
 
-        # Mongo upsert
-        try:
-            mongo_collection.update_one(
-                {"_id": doc["doc_id"]},
-                {"$set": {**doc, "updated_at": datetime.now(timezone.utc)}},
-                upsert=True,
-            )
-        except Exception as exc:
-            _log(f"mongo error: {doc['doc_id']}: {exc}")
+        if mongo_collection is not None:
+            try:
+                mongo_collection.update_one(
+                    {"_id": doc["doc_id"]},
+                    {"$set": {**doc, "updated_at": datetime.now(timezone.utc)}},
+                    upsert=True,
+                )
+            except Exception as exc:
+                _log(f"mongo error: {doc['doc_id']}: {exc}")
 
         batch.append(doc)
         if len(batch) >= batch_size:
@@ -174,22 +173,37 @@ def ingest_csv(
         stats["indexed"] += ok
         stats["failed"] += failed
 
-    _log(f"{csv_filename}: total={stats['total']} indexed={stats['indexed']} failed={stats['failed']} skipped={stats['skipped']}")
+    _log(
+        f"{csv_filename}: total={stats['total']} indexed={stats['indexed']} failed={stats['failed']} skipped={stats['skipped']}"
+    )
     return stats
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Ingest TCU Súmulas + Jurisprudência + Respostas + Boletins")
+    parser = argparse.ArgumentParser(
+        description="Ingest TCU Súmulas + Jurisprudência + Respostas + Boletins"
+    )
     parser.add_argument("--all", action="store_true", help="Ingest all CSVs")
     parser.add_argument("--sumulas", action="store_true")
     parser.add_argument("--jurisprudencia", action="store_true")
     parser.add_argument("--respostas", action="store_true")
-    parser.add_argument("--boletins", action="store_true", help="Ingest 3 boletins (jurisprudência, pessoal, LC)")
+    parser.add_argument(
+        "--boletins",
+        action="store_true",
+        help="Ingest 3 boletins (jurisprudência, pessoal, LC)",
+    )
     parser.add_argument("--cache-dir", default=None)
+    parser.add_argument(
+        "--skip-mongo", action="store_true", help="Skip MongoDB upsert (ES only)"
+    )
     args = parser.parse_args()
 
-    if not any([args.all, args.sumulas, args.jurisprudencia, args.respostas, args.boletins]):
-        _log("ERROR: specify --all or --sumulas/--jurisprudencia/--respostas/--boletins")
+    if not any(
+        [args.all, args.sumulas, args.jurisprudencia, args.respostas, args.boletins]
+    ):
+        _log(
+            "ERROR: specify --all or --sumulas/--jurisprudencia/--respostas/--boletins"
+        )
         sys.exit(1)
 
     cache_dir = args.cache_dir or tempfile.mkdtemp(prefix="tcu_juris_")
@@ -198,8 +212,12 @@ def main() -> None:
     # Update ES mapping first
     _update_mapping()
 
-    mongo_client, db = _mongo_client()
-    collection = db[_MONGO_COLLECTION]
+    mongo_client = None
+    collection = None
+    if not args.skip_mongo:
+        mongo_client, db = _mongo_client()
+        collection = db[_MONGO_COLLECTION]
+
     es_client = httpx.Client(timeout=60)
 
     t0 = time.time()
@@ -210,18 +228,25 @@ def main() -> None:
         if args.all or args.sumulas:
             tasks.append(("Súmulas", SUMULA_URL, sumula_to_es_doc))
         if args.all or args.jurisprudencia:
-            tasks.append(("Jurisprudência", JURISPRUDENCIA_URL, jurisprudencia_to_es_doc))
+            tasks.append(
+                ("Jurisprudência", JURISPRUDENCIA_URL, jurisprudencia_to_es_doc)
+            )
         if args.all or args.respostas:
             tasks.append(("Respostas", RESPOSTA_URL, resposta_consulta_to_es_doc))
         if args.all or args.boletins:
-            tasks.append(("Boletim Jurisprudência", BOLETIM_JURIS_URL, boletim_juris_to_es_doc))
-            tasks.append(("Boletim Pessoal", BOLETIM_PESSOAL_URL, boletim_pessoal_to_es_doc))
+            tasks.append(
+                ("Boletim Jurisprudência", BOLETIM_JURIS_URL, boletim_juris_to_es_doc)
+            )
+            tasks.append(
+                ("Boletim Pessoal", BOLETIM_PESSOAL_URL, boletim_pessoal_to_es_doc)
+            )
             tasks.append(("Boletim LC", BOLETIM_LC_URL, boletim_lc_to_es_doc))
 
         for label, url, converter in tasks:
             _log(f"--- {label} ---")
             stats = ingest_csv(
-                url, converter,
+                url,
+                converter,
                 mongo_collection=collection,
                 es_client=es_client,
                 cache_dir=cache_dir,
@@ -230,10 +255,13 @@ def main() -> None:
                 totals[k] += stats.get(k, 0)
     finally:
         es_client.close()
-        mongo_client.close()
+        if mongo_client is not None:
+            mongo_client.close()
 
     elapsed = time.time() - t0
-    _log(f"ALL DONE in {elapsed:.0f}s — total={totals['total']} indexed={totals['indexed']} failed={totals['failed']} skipped={totals['skipped']}")
+    _log(
+        f"ALL DONE in {elapsed:.0f}s — total={totals['total']} indexed={totals['indexed']} failed={totals['failed']} skipped={totals['skipped']}"
+    )
 
 
 if __name__ == "__main__":

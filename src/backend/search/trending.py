@@ -12,12 +12,10 @@ from typing import Any
 import httpx
 
 from src.backend.core.config import settings
-from src.backend.data.db import MongoDB
 
 logger = logging.getLogger(__name__)
 
-_COLLECTION_NAME = "trending_topics"
-_CACHE_DOC_ID = "latest"
+_CACHE_KEY = "trending_topics"
 _MIN_RECENT_DOCS = 50
 _RECENT_WINDOWS = (7, 14, 30)
 _BASELINE_DAYS = 90
@@ -84,7 +82,14 @@ TOPIC_PROFILES: tuple[TopicProfile, ...] = (
     TopicProfile(
         label="Licitações",
         query="licitacao",
-        aliases=("licitacao", "licitacoes", "licitação", "licitações", "pregao", "pregão"),
+        aliases=(
+            "licitacao",
+            "licitacoes",
+            "licitação",
+            "licitações",
+            "pregao",
+            "pregão",
+        ),
         icon="hammer",
         art_types=("edital", "aviso"),
     ),
@@ -112,7 +117,11 @@ TOPIC_PROFILES: tuple[TopicProfile, ...] = (
 )
 
 _ART_TYPE_SIGNAL_TO_TOPIC: dict[str, dict[str, str]] = {
-    "edital": {"label": "Concursos e Editais", "icon": "clipboard", "query": "edital concurso"},
+    "edital": {
+        "label": "Concursos e Editais",
+        "icon": "clipboard",
+        "query": "edital concurso",
+    },
     "resolucao": {"label": "Novas Resoluções", "icon": "scale", "query": "resolucao"},
     "decreto": {"label": "Decretos Recentes", "icon": "scroll", "query": "decreto"},
     "decreto-lei": {"label": "Decretos Recentes", "icon": "scroll", "query": "decreto"},
@@ -122,25 +131,65 @@ _ART_TYPE_SIGNAL_TO_TOPIC: dict[str, dict[str, str]] = {
         "query": "instrucao normativa",
     },
     "lei": {"label": "Novas Leis", "icon": "book", "query": "lei"},
-    "portaria": {"label": "Portarias em Destaque", "icon": "document", "query": "portaria"},
-    "aviso": {"label": "Avisos e Chamamentos", "icon": "megaphone", "query": "aviso chamamento"},
+    "portaria": {
+        "label": "Portarias em Destaque",
+        "icon": "document",
+        "query": "portaria",
+    },
+    "aviso": {
+        "label": "Avisos e Chamamentos",
+        "icon": "megaphone",
+        "query": "aviso chamamento",
+    },
 }
 
 _ORGAN_SIGNAL_TO_TOPIC: dict[str, dict[str, str]] = {
-    "anpd": {"label": "Proteção de Dados (ANPD)", "icon": "shield", "query": "ANPD proteção dados"},
-    "banco central": {"label": "Banco Central", "icon": "bank", "query": "banco central"},
+    "anpd": {
+        "label": "Proteção de Dados (ANPD)",
+        "icon": "shield",
+        "query": "ANPD proteção dados",
+    },
+    "banco central": {
+        "label": "Banco Central",
+        "icon": "bank",
+        "query": "banco central",
+    },
     "anvisa": {"label": "Regulação Sanitária", "icon": "health", "query": "ANVISA"},
     "aneel": {"label": "Energia Elétrica", "icon": "bolt", "query": "ANEEL"},
     "cvm": {"label": "Mercado de Capitais", "icon": "chart", "query": "CVM"},
-    "ministerio da educacao": {"label": "Educação (MEC)", "icon": "graduation", "query": "MEC educação"},
-    "ministerio da saude": {"label": "Saúde Pública", "icon": "health", "query": "saúde pública"},
-    "ministerio da fazenda": {"label": "Fazenda", "icon": "bank", "query": "Ministério da Fazenda"},
-    "presidencia da republica": {"label": "Atos da Presidência", "icon": "scroll", "query": "presidência da república"},
+    "ministerio da educacao": {
+        "label": "Educação (MEC)",
+        "icon": "graduation",
+        "query": "MEC educação",
+    },
+    "ministerio da saude": {
+        "label": "Saúde Pública",
+        "icon": "health",
+        "query": "saúde pública",
+    },
+    "ministerio da fazenda": {
+        "label": "Fazenda",
+        "icon": "bank",
+        "query": "Ministério da Fazenda",
+    },
+    "presidencia da republica": {
+        "label": "Atos da Presidência",
+        "icon": "scroll",
+        "query": "presidência da república",
+    },
     "tcu": {"label": "Controle Externo (TCU)", "icon": "scale", "query": "TCU"},
 }
 
 FALLBACK_TOPICS: list[dict[str, Any]] = [
-    asdict(TrendingTopic(label=profile.label, query=profile.query, doc_count_7d=0, trend_score=1.0, icon=profile.icon))
+    asdict(
+        TrendingTopic(
+            label=profile.label,
+            query=profile.query,
+            doc_count_7d=0,
+            trend_score=1.0,
+            icon=profile.icon,
+        )
+    )
     for profile in TOPIC_PROFILES
 ]
 
@@ -165,7 +214,14 @@ def _normalize_text(value: str) -> str:
 
 
 def _range_clause(latest_pub_date: str, days: int) -> dict[str, Any]:
-    return {"range": {"pub_date": {"gte": f"{latest_pub_date}||-{days}d/d", "lte": latest_pub_date}}}
+    return {
+        "range": {
+            "pub_date": {
+                "gte": f"{latest_pub_date}||-{days}d/d",
+                "lte": latest_pub_date,
+            }
+        }
+    }
 
 
 def _post_search(es_client: httpx.Client, body: dict[str, Any]) -> dict[str, Any]:
@@ -189,7 +245,9 @@ def _get_latest_pub_date(es_client: httpx.Client) -> str | None:
     return hits[0].get("_source", {}).get("pub_date")
 
 
-def _count_docs_in_window(es_client: httpx.Client, latest_pub_date: str, days: int) -> int:
+def _count_docs_in_window(
+    es_client: httpx.Client, latest_pub_date: str, days: int
+) -> int:
     data = _post_search(
         es_client,
         {
@@ -201,7 +259,9 @@ def _count_docs_in_window(es_client: httpx.Client, latest_pub_date: str, days: i
     return int(data.get("hits", {}).get("total", {}).get("value", 0))
 
 
-def _choose_recent_window(es_client: httpx.Client, latest_pub_date: str) -> tuple[int, int]:
+def _choose_recent_window(
+    es_client: httpx.Client, latest_pub_date: str
+) -> tuple[int, int]:
     chosen_days = _RECENT_WINDOWS[-1]
     chosen_count = 0
     for days in _RECENT_WINDOWS:
@@ -242,7 +302,11 @@ def _match_signal_mapping(
     normalized = _normalize_text(signal_key)
     if signal_type == "art_type":
         for key, mapping in _ART_TYPE_SIGNAL_TO_TOPIC.items():
-            if normalized == key or normalized.startswith(f"{key}-") or key in normalized:
+            if (
+                normalized == key
+                or normalized.startswith(f"{key}-")
+                or key in normalized
+            ):
                 return key, mapping
     else:
         for key, mapping in _ORGAN_SIGNAL_TO_TOPIC.items():
@@ -339,19 +403,35 @@ def _ratio_fallback_topics(
             "aggs": {
                 "recent_types": {
                     "filter": _range_clause(latest_pub_date, recent_days),
-                    "aggs": {"buckets": {"terms": {"field": "art_type_normalized", "size": 50}}},
+                    "aggs": {
+                        "buckets": {
+                            "terms": {"field": "art_type_normalized", "size": 50}
+                        }
+                    },
                 },
                 "baseline_types": {
                     "filter": _range_clause(latest_pub_date, _BASELINE_DAYS),
-                    "aggs": {"buckets": {"terms": {"field": "art_type_normalized", "size": 50}}},
+                    "aggs": {
+                        "buckets": {
+                            "terms": {"field": "art_type_normalized", "size": 50}
+                        }
+                    },
                 },
                 "recent_organs": {
                     "filter": _range_clause(latest_pub_date, recent_days),
-                    "aggs": {"buckets": {"terms": {"field": "issuing_organ.keyword", "size": 50}}},
+                    "aggs": {
+                        "buckets": {
+                            "terms": {"field": "issuing_organ.keyword", "size": 50}
+                        }
+                    },
                 },
                 "baseline_organs": {
                     "filter": _range_clause(latest_pub_date, _BASELINE_DAYS),
-                    "aggs": {"buckets": {"terms": {"field": "issuing_organ.keyword", "size": 50}}},
+                    "aggs": {
+                        "buckets": {
+                            "terms": {"field": "issuing_organ.keyword", "size": 50}
+                        }
+                    },
                 },
             },
         },
@@ -437,7 +517,11 @@ def _dedupe_topics(topics: list[TrendingTopic], top_n: int) -> list[TrendingTopi
     for topic in dynamic_topics:
         if topic.label in seen_labels:
             continue
-        if topic.signal_type and topic.signal_key and (topic.signal_type, topic.signal_key) in seen_signals:
+        if (
+            topic.signal_type
+            and topic.signal_key
+            and (topic.signal_type, topic.signal_key) in seen_signals
+        ):
             continue
         ordered.append(topic)
         seen_labels.add(topic.label)
@@ -465,7 +549,11 @@ def get_topic_metadata(query: str) -> dict[str, Any] | None:
 
     for profile in TOPIC_PROFILES:
         norm_aliases = [_normalize_text(alias) for alias in profile.aliases]
-        if norm == _normalize_text(profile.query) or norm in norm_aliases or any(norm in alias for alias in norm_aliases):
+        if (
+            norm == _normalize_text(profile.query)
+            or norm in norm_aliases
+            or any(norm in alias for alias in norm_aliases)
+        ):
             return {
                 "label": profile.label,
                 "query": profile.query,
@@ -481,12 +569,21 @@ def compute_trending(es_client: httpx.Client, top_n: int = 8) -> list[TrendingTo
         return _dedupe_topics([], top_n)
 
     recent_days, recent_count = _choose_recent_window(es_client, latest_pub_date)
-    logger.info("trending latest_pub_date=%s recent_window=%sd recent_count=%d", latest_pub_date, recent_days, recent_count)
+    logger.info(
+        "trending latest_pub_date=%s recent_window=%sd recent_count=%d",
+        latest_pub_date,
+        recent_days,
+        recent_count,
+    )
 
     topics = _significant_terms_topics(es_client, latest_pub_date, recent_days)
     if len(topics) < 4:
         ratio_topics = _ratio_fallback_topics(es_client, latest_pub_date, recent_days)
-        topics.extend(ratio_topic for ratio_topic in ratio_topics if ratio_topic.label not in {topic.label for topic in topics})
+        topics.extend(
+            ratio_topic
+            for ratio_topic in ratio_topics
+            if ratio_topic.label not in {topic.label for topic in topics}
+        )
 
     deduped = _dedupe_topics(topics, top_n)
     result: list[TrendingTopic] = []
@@ -510,8 +607,8 @@ def compute_trending(es_client: httpx.Client, top_n: int = 8) -> list[TrendingTo
     return result[:top_n]
 
 
-def get_cached_trending(mongo_db: Any) -> list[dict[str, Any]]:
-    doc = mongo_db[_COLLECTION_NAME].find_one({"_id": _CACHE_DOC_ID}, {"topics": 1})
+def get_cached_trending() -> list[dict[str, Any]]:
+    doc = cache_get(_CACHE_KEY)
     topics = (doc or {}).get("topics")
     if isinstance(topics, list) and topics:
         return topics
@@ -520,7 +617,6 @@ def get_cached_trending(mongo_db: Any) -> list[dict[str, Any]]:
 
 def update_trending_cache(
     es_client: httpx.Client,
-    mongo_db: Any,
     *,
     top_n: int = 8,
 ) -> list[dict[str, Any]]:
@@ -531,20 +627,25 @@ def update_trending_cache(
 
     topics = [topic.to_dict() for topic in compute_trending(es_client, top_n=top_n)]
     payload = {
-        "_id": _CACHE_DOC_ID,
         "topics": topics,
         "latest_pub_date": latest_pub_date,
         "recent_window_days": recent_days,
         "baseline_days": _BASELINE_DAYS,
-        "updated_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
-    mongo_db[_COLLECTION_NAME].replace_one({"_id": _CACHE_DOC_ID}, payload, upsert=True)
+    cache_set(_CACHE_KEY, payload)
     return topics
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Compute and cache trending GABI DOU topics.")
-    parser.add_argument("--update", action="store_true", help="Compute trending topics and write Mongo cache")
+    parser = argparse.ArgumentParser(
+        description="Compute and cache trending GABI DOU topics."
+    )
+    parser.add_argument(
+        "--update",
+        action="store_true",
+        help="Compute trending topics and write Mongo cache",
+    )
     parser.add_argument("--top-n", type=int, default=8, help="Number of topics to keep")
     return parser
 
@@ -554,9 +655,8 @@ def main() -> None:
     if not args.update:
         raise SystemExit("Use --update to compute and cache trending topics.")
 
-    mongo_db = MongoDB.get_db()
     with httpx.Client() as client:
-        topics = update_trending_cache(client, mongo_db, top_n=args.top_n)
+        topics = update_trending_cache(client, top_n=args.top_n)
     logger.info("Updated %d trending topics", len(topics))
 
 

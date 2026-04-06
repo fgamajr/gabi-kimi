@@ -30,7 +30,7 @@ PY
 
 log "Starting rolling ingest window (${rolling_window_days} days)"
 cd "${repo_root}"
-docker compose -f "${compose_file}" up -d mongo elasticsearch backend >>"${log_file}" 2>&1
+docker compose -f "${compose_file}" up -d elasticsearch backend postgres >>"${log_file}" 2>&1
 
 # Ensure a working Webshare proxy is set before DOU sync
 log "Checking/updating INLABS proxy..."
@@ -53,21 +53,28 @@ else
 fi
 
 # ── TCU sync: acórdãos (current year) + súmulas/jurisprudência ──
-log "TCU sync: re-ingesting current year acórdãos..."
+log "TCU sync: re-ingesting current year acórdãos → Postgres raw + ES..."
 CURRENT_YEAR=$(date -u '+%Y')
 docker compose -f "${compose_file}" exec -T backend \
   python -m src.backend.ingest.tcu_ingest --year "${CURRENT_YEAR}" \
-  --cache-dir /data/gabi_dou/tcu-csv >>"${log_file}" 2>&1 || log "TCU acórdãos sync failed (non-fatal)"
+  --cache-dir /data/gabi_dou/tcu-csv --skip-mongo >>"${log_file}" 2>&1 || log "TCU acórdãos sync failed (non-fatal)"
+docker compose -f "${compose_file}" exec -T backend \
+  python -m src.backend.ingest.tcu_csv_postgres_ingest --source acordao \
+  --year-from "${CURRENT_YEAR}" >>"${log_file}" 2>&1 || log "TCU acórdãos Postgres ingest failed (non-fatal)"
 
-log "TCU sync: súmulas + jurisprudência + respostas + boletins..."
+log "TCU sync: súmulas + jurisprudência + respostas + boletins → Postgres raw + ES..."
 docker compose -f "${compose_file}" exec -T backend \
   python -m src.backend.ingest.tcu_jurisprudencia_ingest --all \
-  --cache-dir /data/gabi_dou/tcu-csv >>"${log_file}" 2>&1 || log "TCU jurisprudência sync failed (non-fatal)"
+  --cache-dir /data/gabi_dou/tcu-csv --skip-mongo >>"${log_file}" 2>&1 || log "TCU jurisprudência sync failed (non-fatal)"
+docker compose -f "${compose_file}" exec -T backend \
+  python -m src.backend.ingest.tcu_csv_postgres_ingest \
+  --source sumula --source jurisprudencia_selecionada --source resposta_consulta \
+  --source boletim_jurisprudencia --source boletim_pessoal --source boletim_lc >>"${log_file}" 2>&1 || log "TCU jurisprudência Postgres ingest failed (non-fatal)"
 
-log "TCU sync: normas..."
+log "TCU sync: normas → ES..."
 docker compose -f "${compose_file}" exec -T backend \
   python -m src.backend.ingest.tcu_normas_ingest --ingest \
-  --cache-dir /data/gabi_dou/tcu-csv >>"${log_file}" 2>&1 || log "TCU normas sync failed (non-fatal)"
+  --cache-dir /data/gabi_dou/tcu-csv --skip-mongo >>"${log_file}" 2>&1 || log "TCU normas sync failed (non-fatal)"
 
 # ── BTCU sync: scrape recent boletins ──
 log "TCU sync: BTCU (boletins PDF)..."
@@ -93,10 +100,6 @@ docker compose -f "${compose_file}" exec -T backend \
 log "TCU embeddings: publicações..."
 docker compose -f "${compose_file}" exec -T backend \
   python -m src.backend.ingest.tcu_embed --source publicacoes sync >>"${log_file}" 2>&1 || log "TCU publicações embeddings failed (non-fatal)"
-
-log "Syncing Elasticsearch from Mongo before homepage refresh..."
-docker compose -f "${compose_file}" exec -T backend \
-  python -m src.backend.ingest.es_indexer sync >>"${log_file}" 2>&1 || log "ES sync failed before homepage refresh (non-fatal)"
 
 log "Refreshing homepage caches (trending + editorial)..."
 bash "${script_dir}/update_homepage_cache.sh" >>"${log_file}" 2>&1 || log "Homepage cache refresh failed (non-fatal)"

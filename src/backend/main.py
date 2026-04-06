@@ -16,7 +16,6 @@ from starlette.requests import Request as StarletteRequest
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from src.backend.core.config import settings
-from src.backend.data.db import MongoDB
 from src.backend.search.hybrid import hybrid_search
 from src.backend.search.reranker import rerank
 from src.backend.search.trending import (
@@ -257,7 +256,6 @@ def _section_to_frontend(es_val: str | None) -> str:
 
 
 _SECTION_NAMES = {"1": "Seção 1", "2": "Seção 2", "3": "Seção 3", "e": "Extra"}
-_mongo_db = MongoDB.get_db()
 
 
 def _section_to_es(fe_val: str) -> str | None:
@@ -1460,13 +1458,13 @@ async def types():
 
 @app.get("/api/trending")
 async def trending():
-    cached = get_cached_trending(_mongo_db)
+    cached = get_cached_trending()
     if cached:
         return cached
 
     try:
         with httpx.Client() as client:
-            topics = update_trending_cache(client, _mongo_db, top_n=8)
+            topics = update_trending_cache(client, top_n=8)
         if topics:
             return topics
     except Exception:
@@ -1592,12 +1590,12 @@ async def suggested_topics():
 @app.get("/api/editorial-highlights")
 async def editorial_highlights():
     from zoneinfo import ZoneInfo
+    from src.backend.data.pg_cache import cache_get
 
     today = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d")
-    doc = _mongo_db["editorial_highlights"].find_one({"_id": "latest"})
+    doc = cache_get("editorial_highlights")
     if not doc:
         return {"date": today, "categories": {}}
-    doc.pop("_id", None)
     doc.pop("generated_at", None)
     return {"date": doc.get("generated_for", today), **doc}
 
