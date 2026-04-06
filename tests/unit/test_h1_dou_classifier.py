@@ -30,3 +30,15 @@ def test_classify_licitacao_edital() -> None:
 def test_classify_unknown_goes_pending() -> None:
     out = classify_dou_document({"texto": "texto sem padrão explícito"})
     assert out.status == "pending"
+
+
+def test_classify_retificacao() -> None:
+    out = classify_dou_document({"identifica": "RETIFICAÇÃO", "texto": "Retificação de resolução anterior."})
+    assert out.tipo == "CORRETIVO"
+    assert out.subtipo == "RETIFICACAO"
+
+
+def test_classify_despacho() -> None:
+    out = classify_dou_document({"identifica": "DESPACHO Nº 12/2026", "texto": "Despacho decisório do órgão."})
+    assert out.tipo == "DECISORIO"
+    assert out.subtipo == "DESPACHO"

@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal, Protocol
 
-EnrichmentStatus = Literal["pending", "running", "done", "failed", "skipped"]
+EnrichmentStatus = Literal["pending", "running", "done_full", "done_partial", "done_fallback", "failed", "skipped"]
 
 
 @dataclass(frozen=True)

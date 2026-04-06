@@ -7,6 +7,8 @@ from typing import Any
 
 import httpx
 
+from src.backend.parsing.h2_postprocess import SOURCE_SCHEMA_KEYS
+
 
 def _extract_json_block(content: str) -> dict[str, Any]:
     content = content.strip()
@@ -36,9 +38,11 @@ def _extract_json_block(content: str) -> dict[str, Any]:
 
 def build_h2_prompt(text: str, allowed_tags: tuple[str, ...], source_type: str) -> str:
     tags = ", ".join(allowed_tags)
+    schema_keys = ", ".join(SOURCE_SCHEMA_KEYS.get(source_type, ("tema", "objeto", "ponto_principal")))
     return (
         f"Você é um extrator semântico para {source_type}.\n"
         f"Tags permitidas: [{tags}].\n"
+        f"Campos obrigatórios em summary_structured: [{schema_keys}].\n"
         "Retorne APENAS JSON com o formato:\n"
         "{"
         "\"tag_spans\":[{\"tag\":\"...\",\"start_char\":0,\"end_char\":10,\"confidence\":0.9}],"
@@ -49,7 +53,8 @@ def build_h2_prompt(text: str, allowed_tags: tuple[str, ...], source_type: str) 
         "\"topics\":[],"
         "\"chunk_summaries\":[]"
         "}\n"
-        "Restrições: não invente tags fora da lista, não sobreponha spans.\n"
+        "Restrições: não invente tags fora da lista, não sobreponha spans, não use o nome da fonte como topic, "
+        "summary_short deve ser texto limpo sem XML.\n"
         f"Texto:\n{text[:12000]}"
     )
 

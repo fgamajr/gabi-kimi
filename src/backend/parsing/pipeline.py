@@ -15,6 +15,16 @@ from psycopg.rows import dict_row
 
 from src.backend.core.config import settings
 from src.backend.parsing.h2_llm import build_h2_prompt, call_local_llm
+from src.backend.parsing.h2_postprocess import (
+    H2_ENRICHMENT_VERSION,
+    build_summary_short,
+    build_summary_structured,
+    classify_enrichment_status,
+    clean_text,
+    derive_legal_entities,
+    derive_topics,
+    fallback_tags,
+)
 from src.backend.parsing.h2_semantic import parse_spans_tolerant, render_tagged_xml, tags_flat, validate_spans
 from src.backend.parsing.h2_vocab import ALLOWED_TAGS_VERSION, tags_for_source
 from src.backend.parsing.source_parsers import PARSER_REGISTRY, SOURCE_TYPES
@@ -89,7 +99,8 @@ def _simplified_prompt(text: str, allowed_tags: tuple[str, ...], source_type: st
     return (
         f"Extração H2 simplificada para {source_type}. "
         f"Tags permitidas: [{tags}]. "
-        "Responda SOMENTE JSON com tag_spans, summary_short, summary_structured e topics. "
+        "Responda SOMENTE JSON com tag_spans, summary_short, summary_structured, legal_entities e topics. "
+        "Nao use o nome da fonte como topico. "
         "Sem comentários."
         f"\nTexto:\n{text[:4000]}"
     )
@@ -98,12 +109,13 @@ def _simplified_prompt(text: str, allowed_tags: tuple[str, ...], source_type: st
 def _fallback_h2_output(text: str, source_type: str, reason: str) -> dict[str, Any]:
     return {
         "tag_spans": [],
-        "summary_short": text[:320],
+        "summary_short": clean_text(text)[:320],
         "summary_long": None,
         "summary_structured": {"mode": "fallback", "reason": reason[:180], "source_type": source_type},
         "legal_entities": [],
-        "topics": [source_type],
+        "topics": [],
         "chunk_summaries": [],
+        "__fallback": True,
     }
 
 
@@ -398,7 +410,7 @@ def _update_enrichment(
                 json.dumps(legal_entities, ensure_ascii=False) if legal_entities is not None else None,
                 topics,
                 json.dumps(chunk_summaries, ensure_ascii=False) if chunk_summaries is not None else None,
-                ALLOWED_TAGS_VERSION,
+                H2_ENRICHMENT_VERSION,
                 raw_id,
             ),
         )
@@ -425,6 +437,8 @@ def process_one_enrichment(
 
         try:
             text = (parsed_doc.get("body_tagged_xml") or "")[:max_text_chars]
+            structured = parsed_doc.get("structured_fields") or {}
+            section_map = parsed_doc.get("section_map") or {}
             allowed = tags_for_source(item.source_type)
             if not text or not allowed:
                 _update_enrichment(
@@ -451,6 +465,7 @@ def process_one_enrichment(
             spans_model = []
             span_issues: list[str] = []
             last_exc: Exception | None = None
+            used_fallback = False
             prompts = [
                 build_h2_prompt(text=text, allowed_tags=allowed, source_type=item.source_type),
                 _simplified_prompt(text=text, allowed_tags=allowed, source_type=item.source_type),
@@ -473,30 +488,57 @@ def process_one_enrichment(
                     spans_model = []
                     if attempt >= len(prompts):
                         out = _fallback_h2_output(text=text, source_type=item.source_type, reason=str(exc))
+                        used_fallback = True
                         spans_model = []
                         break
             if out is None and last_exc is not None:
                 out = _fallback_h2_output(text=text, source_type=item.source_type, reason=str(last_exc))
+                used_fallback = True
                 spans_model = []
             spans = [x.model_dump() for x in spans_model]
             tags = tags_flat(spans_model)
+            if not tags:
+                tags = fallback_tags(allowed, section_map)
             tagged_xml = render_tagged_xml(text, spans_model)
-            summary_short = out.get("summary_short") or text[:320]
-            topics = out.get("topics")
-            if not isinstance(topics, list) or len(topics) == 0:
-                topics = [item.source_type]
+            llm_summary_short = out.get("summary_short")
+            llm_topics = out.get("topics")
+            llm_entities = out.get("legal_entities")
+            llm_structured = out.get("summary_structured")
+            clean_source_text = clean_text(text)
+            topics = [str(x).strip() for x in llm_topics or [] if str(x).strip() and str(x).strip() != item.source_type]
+            if not topics:
+                topics = derive_topics(item.source_type, clean_source_text, structured)
+            legal_entities = llm_entities if isinstance(llm_entities, list) and llm_entities else derive_legal_entities(clean_source_text, structured)
+            summary_structured = (
+                llm_structured
+                if isinstance(llm_structured, dict) and llm_structured
+                else build_summary_structured(item.source_type, clean_source_text, structured, topics, legal_entities)
+            )
+            summary_short = clean_text(llm_summary_short) if llm_summary_short else ""
+            if not summary_short:
+                summary_short = build_summary_short(item.source_type, clean_source_text, structured, topics)
+            status = classify_enrichment_status(
+                item.source_type,
+                used_fallback=used_fallback or bool(out.get("__fallback")),
+                spans_count=len(spans),
+                tags_count=len(tags),
+                summary_short=summary_short,
+                summary_structured=summary_structured,
+                topics=topics,
+                legal_entities=legal_entities,
+            )
             _update_enrichment(
                 conn,
                 item.source_type,
                 item.raw_id,
-                status="done",
+                status=status,
                 spans=spans,
                 tags=tags,
                 tagged_xml=tagged_xml,
                 summary_short=summary_short,
                 summary_long=out.get("summary_long"),
-                summary_structured=out.get("summary_structured"),
-                legal_entities=out.get("legal_entities"),
+                summary_structured=summary_structured,
+                legal_entities=legal_entities,
                 topics=topics,
                 chunk_summaries=out.get("chunk_summaries"),
             )
@@ -516,7 +558,7 @@ def process_one_enrichment(
                     "tokens_total": usage.get("total_tokens"),
                     "provider": meta.get("provider"),
                     "span_issues": span_issues,
-                    "status": "done",
+                    "status": status,
                 }
             )
             return True
@@ -525,8 +567,8 @@ def process_one_enrichment(
             table = _parsed_table(item.source_type)
             with conn.cursor() as cur:
                 cur.execute(
-                    f"UPDATE {table} SET enrichment_status = 'failed', updated_at = NOW() WHERE raw_id = %s",
-                    (item.raw_id,),
+                    f"UPDATE {table} SET enrichment_status = 'failed', enrichment_error = %s, updated_at = NOW() WHERE raw_id = %s",
+                    (str(exc)[:2000], item.raw_id),
                 )
             conn.commit()
             _log_h2_event(

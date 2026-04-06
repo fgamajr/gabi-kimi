@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS {table} (
     h2_version TEXT,
     prompt_version TEXT,
     enrichment_status TEXT NOT NULL DEFAULT 'pending'
-        CHECK (enrichment_status IN ('pending', 'running', 'done', 'failed', 'skipped')),
+        CHECK (enrichment_status IN ('pending', 'running', 'done_full', 'done_partial', 'done_fallback', 'failed', 'skipped')),
     enrichment_error TEXT,
     content_hash TEXT NOT NULL,
     enrichment_input_hash TEXT,

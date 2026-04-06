@@ -30,7 +30,12 @@ def _to_date(value: Any) -> str | None:
     raw = _norm(value)
     if not raw:
         return None
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d/%m/%Y %H:%M:%S"):
+    raw = raw.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(raw).strftime("%Y-%m-%d")
+    except ValueError:
+        pass
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d/%m/%Y %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
         try:
             return datetime.strptime(raw, fmt).strftime("%Y-%m-%d")
         except ValueError:
@@ -130,6 +135,7 @@ class GenericSourceParser(SourceParser):
             "section": _norm(row.get("section_normalized") or row.get("section")),
             "art_type": _norm(row.get("art_type_normalized") or row.get("art_type")),
             "orgao_emissor": _norm(row.get("issuing_organ") or row.get("orgao")),
+            "data_text": _norm(row.get("data_text")),
             "edition": _to_int(row.get("edition")),
             "page": _to_int(row.get("page")),
         }

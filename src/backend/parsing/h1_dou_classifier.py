@@ -20,6 +20,8 @@ class H1Classification:
 
 
 _RULES: Final[tuple[tuple[str, str, re.Pattern[str]], ...]] = (
+    ("CORRETIVO", "RETIFICACAO", re.compile(r"\bretifica[cç][aã]o\b", re.IGNORECASE)),
+    ("DECISORIO", "DESPACHO", re.compile(r"\bdespacho\b", re.IGNORECASE)),
     ("NORMATIVO", "LEI", re.compile(r"\blei\s+(?:n[º°\.]?\s*)?\d+", re.IGNORECASE)),
     ("NORMATIVO", "DECRETO", re.compile(r"\bdecreto(?:-lei)?\b", re.IGNORECASE)),
     (
