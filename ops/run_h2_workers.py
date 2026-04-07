@@ -12,6 +12,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run multiple H2 workers in parallel")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--model", default=os.getenv("H2_LLM_MODEL", "qwen3"))
+    parser.add_argument("--source-filter", action="append", default=[])
+    parser.add_argument("--llm-source", action="append", default=[])
     parser.add_argument("--quality-report", required=True, help="Gate report from eval_h2_semantic_quality")
     parser.add_argument("--max-text-chars", type=int, default=12000)
     parser.add_argument("--max-spans", type=int, default=120)
@@ -60,6 +62,10 @@ def main() -> None:
             "--max-low-coverage-rate",
             str(args.max_low_coverage_rate),
         ]
+        for source_filter in args.source_filter:
+            cmd.extend(["--source-filter", source_filter])
+        for llm_source in args.llm_source:
+            cmd.extend(["--llm-source", llm_source])
         procs.append(subprocess.Popen(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE))
         time.sleep(0.2)
 

@@ -61,6 +61,38 @@ def _parsed_table(source_type: str) -> str:
     return f"parsed.{source_type}"
 
 
+def _split_csv_values(value: str | None) -> tuple[str, ...]:
+    if not value:
+        return ()
+    return tuple(part.strip() for part in value.split(",") if part.strip())
+
+
+def _normalize_source_filters(source_filters: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
+    if not source_filters:
+        return ()
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for value in source_filters:
+        for item in _split_csv_values(value):
+            if item in SOURCE_TYPES and item not in seen:
+                ordered.append(item)
+                seen.add(item)
+    return tuple(ordered)
+
+
+def _llm_allowed_for_source(
+    source_type: str,
+    llm_source_filters: list[str] | tuple[str, ...] | None = None,
+) -> bool:
+    configured = _normalize_source_filters(llm_source_filters)
+    if configured:
+        return source_type in configured
+    env_configured = _normalize_source_filters(_split_csv_values(os.getenv("H2_LLM_SOURCE_ALLOWLIST")))
+    if env_configured:
+        return source_type in env_configured
+    return True
+
+
 def _rss_mb() -> float:
     # macOS reports bytes, Linux reports KB.
     usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
@@ -327,7 +359,17 @@ class QueueItem:
     input_hash: str
 
 
-def _acquire_queue_item(conn: psycopg.Connection, worker_id: str) -> QueueItem | None:
+def _acquire_queue_item(
+    conn: psycopg.Connection,
+    worker_id: str,
+    *,
+    source_filters: tuple[str, ...] = (),
+) -> QueueItem | None:
+    source_clause = "AND source_type = ANY(%s)" if source_filters else ""
+    params: list[Any] = []
+    if source_filters:
+        params.append(list(source_filters))
+    params.append(worker_id)
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
             """
@@ -338,6 +380,9 @@ def _acquire_queue_item(conn: psycopg.Connection, worker_id: str) -> QueueItem |
                     (status = 'pending' AND next_retry_at <= NOW())
                     OR (status = 'running' AND locked_at < NOW() - INTERVAL '10 minutes')
                 )
+                """
+            + source_clause
+            + """
                 ORDER BY priority ASC, next_retry_at ASC, id ASC
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
@@ -348,7 +393,7 @@ def _acquire_queue_item(conn: psycopg.Connection, worker_id: str) -> QueueItem |
             WHERE q.id = candidate.id
             RETURNING q.id, q.source_type, q.raw_id, q.h2_version, q.prompt_version, q.input_hash;
             """,
-            (worker_id,),
+            params,
         )
         row = cur.fetchone()
     if not row:
@@ -481,9 +526,15 @@ def process_one_enrichment(
     max_text_chars: int,
     max_spans: int,
     h2_mode: str,
+    source_filters: tuple[str, ...] = (),
+    llm_source_filters: tuple[str, ...] = (),
 ) -> bool:
     with psycopg.connect(_pg_url()) as conn:
-        item = _acquire_queue_item(conn, worker_id=worker_id)
+        item = _acquire_queue_item(
+            conn,
+            worker_id=worker_id,
+            source_filters=source_filters,
+        )
         if item is None:
             conn.commit()
             return False
@@ -528,49 +579,56 @@ def process_one_enrichment(
             span_issues: list[str] = []
             last_exc: Exception | None = None
             used_fallback = False
-            prompts = [
-                build_h2_prompt(
-                    text=text, allowed_tags=allowed, source_type=item.source_type
-                ),
-                _simplified_prompt(
-                    text=text, allowed_tags=allowed, source_type=item.source_type
-                ),
-            ]
-            for attempt, prompt in enumerate(prompts, start=1):
-                try:
-                    out = call_local_llm(prompt=prompt, model=model, mode=h2_mode)
-                    spans_model, span_issues = parse_spans_tolerant(
-                        out.get("tag_spans", [])
-                    )
-                    if len(spans_model) > max_spans:
-                        raise ValueError(
-                            f"too many spans: {len(spans_model)} > {max_spans}"
-                        )
+            llm_allowed = _llm_allowed_for_source(
+                item.source_type,
+                llm_source_filters=llm_source_filters,
+            )
+            if llm_allowed:
+                prompts = [
+                    build_h2_prompt(
+                        text=text, allowed_tags=allowed, source_type=item.source_type
+                    ),
+                    _simplified_prompt(
+                        text=text, allowed_tags=allowed, source_type=item.source_type
+                    ),
+                ]
+                for attempt, prompt in enumerate(prompts, start=1):
                     try:
-                        validate_spans(
-                            text=text, spans=spans_model, allowed_tags=allowed
+                        out = call_local_llm(prompt=prompt, model=model, mode=h2_mode)
+                        spans_model, span_issues = parse_spans_tolerant(
+                            out.get("tag_spans", [])
                         )
-                    except Exception as span_exc:
-                        span_issues.append(str(span_exc))
-                        spans_model = []
-                    break
-                except Exception as exc:
-                    last_exc = exc
-                    out = None
-                    spans_model = []
-                    if attempt >= len(prompts):
-                        out = _fallback_h2_output(
-                            text=text, source_type=item.source_type, reason=str(exc)
-                        )
-                        used_fallback = True
-                        spans_model = []
+                        if len(spans_model) > max_spans:
+                            raise ValueError(
+                                f"too many spans: {len(spans_model)} > {max_spans}"
+                            )
+                        try:
+                            validate_spans(
+                                text=text, spans=spans_model, allowed_tags=allowed
+                            )
+                        except Exception as span_exc:
+                            span_issues.append(str(span_exc))
+                            spans_model = []
                         break
-            if out is None and last_exc is not None:
-                out = _fallback_h2_output(
-                    text=text, source_type=item.source_type, reason=str(last_exc)
-                )
-                used_fallback = True
-                spans_model = []
+                    except Exception as exc:
+                        last_exc = exc
+                        out = None
+                        spans_model = []
+                        if attempt >= len(prompts):
+                            out = _fallback_h2_output(
+                                text=text, source_type=item.source_type, reason=str(exc)
+                            )
+                            used_fallback = True
+                            spans_model = []
+                            break
+                if out is None and last_exc is not None:
+                    out = _fallback_h2_output(
+                        text=text, source_type=item.source_type, reason=str(last_exc)
+                    )
+                    used_fallback = True
+                    spans_model = []
+            else:
+                out = {}
             heuristic_spans = []
             if not spans_model:
                 heuristic_spans = derive_heuristic_spans(
@@ -674,6 +732,7 @@ def process_one_enrichment(
                     "raw_id": item.raw_id,
                     "source_type": item.source_type,
                     "h2_mode": h2_mode,
+                    "llm_allowed": llm_allowed,
                     "latency_ms": int((time.time() - t0) * 1000),
                     "tags_count": len(tags),
                     "tokens_out": usage.get("completion_tokens"),
@@ -701,11 +760,81 @@ def process_one_enrichment(
                     "raw_id": item.raw_id,
                     "source_type": item.source_type,
                     "h2_mode": h2_mode,
+                    "llm_allowed": _llm_allowed_for_source(
+                        item.source_type, llm_source_filters=llm_source_filters
+                    ),
                     "status": "failed",
                     "error": str(exc)[:500],
                 }
             )
             return True
+
+
+def prepare_llm_pilot_batch(
+    source_type: str,
+    *,
+    limit: int,
+    min_confidence: float,
+    allowed_statuses: tuple[str, ...],
+    priority: int,
+) -> dict[str, Any]:
+    table = _parsed_table(source_type)
+    with psycopg.connect(_pg_url()) as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                f"""
+                SELECT raw_id, content_hash, COALESCE(h2_version, %s) AS h2_version,
+                       COALESCE(prompt_version, '1.0.0') AS prompt_version,
+                       enrichment_input_hash, enrichment_status,
+                       COALESCE((confidence_fields->>'overall')::double precision, 0.0) AS overall
+                FROM {table}
+                WHERE enrichment_status = ANY(%s)
+                  AND COALESCE((confidence_fields->>'overall')::double precision, 0.0) >= %s
+                  AND enrichment_input_hash IS NOT NULL
+                ORDER BY overall DESC, updated_at DESC, raw_id ASC
+                LIMIT %s
+                """,
+                (H2_ENRICHMENT_VERSION, list(allowed_statuses), min_confidence, limit),
+            )
+            rows = cur.fetchall()
+            selected = [row["raw_id"] for row in rows]
+            for row in rows:
+                cur.execute(
+                    """
+                    INSERT INTO parsed.enrichment_queue (
+                        source_type, raw_id, content_hash, h2_version, prompt_version, input_hash,
+                        status, next_retry_at, attempts, priority, last_error, locked_by, locked_at, created_at, updated_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, 'pending', NOW(), 0, %s, NULL, NULL, NULL, NOW(), NOW())
+                    ON CONFLICT (source_type, raw_id, h2_version, prompt_version, input_hash)
+                    DO UPDATE SET
+                        status = 'pending',
+                        next_retry_at = NOW(),
+                        attempts = 0,
+                        priority = EXCLUDED.priority,
+                        last_error = NULL,
+                        locked_by = NULL,
+                        locked_at = NULL,
+                        updated_at = NOW()
+                    """,
+                    (
+                        source_type,
+                        row["raw_id"],
+                        row["content_hash"],
+                        row["h2_version"],
+                        row["prompt_version"],
+                        row["enrichment_input_hash"],
+                        priority,
+                    ),
+                )
+        conn.commit()
+    return {
+        "source_type": source_type,
+        "selected": len(selected),
+        "raw_ids": selected,
+        "min_confidence": min_confidence,
+        "allowed_statuses": list(allowed_statuses),
+        "priority": priority,
+    }
 
 
 def main() -> None:
@@ -725,6 +854,8 @@ def main() -> None:
     p_worker.add_argument("--max-jobs", type=int, default=1)
     p_worker.add_argument("--worker-id", default=f"worker-{os.getpid()}")
     p_worker.add_argument("--model", default=os.getenv("H2_LLM_MODEL", "qwen3"))
+    p_worker.add_argument("--source-filter", action="append", default=[])
+    p_worker.add_argument("--llm-source", action="append", default=[])
     p_worker.add_argument("--max-text-chars", type=int, default=12000)
     p_worker.add_argument("--max-spans", type=int, default=120)
     p_worker.add_argument("--max-rss-mb", type=float, default=0.0)
@@ -742,6 +873,8 @@ def main() -> None:
     p_loop = sub.add_parser("h2-loop", help="Continuously process queue with backoff")
     p_loop.add_argument("--worker-id", default=f"worker-{os.getpid()}")
     p_loop.add_argument("--model", default=os.getenv("H2_LLM_MODEL", "qwen3"))
+    p_loop.add_argument("--source-filter", action="append", default=[])
+    p_loop.add_argument("--llm-source", action="append", default=[])
     p_loop.add_argument("--max-text-chars", type=int, default=12000)
     p_loop.add_argument("--max-spans", type=int, default=120)
     p_loop.add_argument("--poll-interval-sec", type=float, default=2.0)
@@ -758,6 +891,13 @@ def main() -> None:
     p_loop.add_argument("--max-span-error-rate", type=float, default=0.02)
     p_loop.add_argument("--max-low-coverage-rate", type=float, default=0.10)
 
+    p_prepare = sub.add_parser("prepare-llm-pilot", help="Select and reprioritize a pilot batch for one source")
+    p_prepare.add_argument("--source", choices=list(SOURCE_TYPES), required=True)
+    p_prepare.add_argument("--limit", type=int, default=100)
+    p_prepare.add_argument("--min-confidence", type=float, default=0.78)
+    p_prepare.add_argument("--status", action="append", default=[])
+    p_prepare.add_argument("--priority", type=int, default=10)
+
     args = parser.parse_args()
     if args.cmd == "parse":
         count = run_parse(
@@ -770,7 +910,24 @@ def main() -> None:
         print(json.dumps({"source": args.source, "parsed": count}, ensure_ascii=False))
         return
 
+    if args.cmd == "prepare-llm-pilot":
+        print(
+            json.dumps(
+                prepare_llm_pilot_batch(
+                    args.source,
+                    limit=args.limit,
+                    min_confidence=args.min_confidence,
+                    allowed_statuses=tuple(args.status) or ("done_full",),
+                    priority=args.priority,
+                ),
+                ensure_ascii=False,
+            )
+        )
+        return
+
     if args.cmd == "h2-worker":
+        source_filters = _normalize_source_filters(args.source_filter)
+        llm_source_filters = _normalize_source_filters(args.llm_source)
         _check_quality_gate_or_raise(
             args.quality_report or None,
             min_avg_score=args.min_avg_score,
@@ -788,6 +945,8 @@ def main() -> None:
                 max_text_chars=args.max_text_chars,
                 max_spans=args.max_spans,
                 h2_mode=args.h2_mode,
+                source_filters=source_filters,
+                llm_source_filters=llm_source_filters,
             )
             if not had:
                 break
@@ -806,6 +965,8 @@ def main() -> None:
 
     processed_total = 0
     idle_cycles = 0
+    source_filters = _normalize_source_filters(args.source_filter)
+    llm_source_filters = _normalize_source_filters(args.llm_source)
     _check_quality_gate_or_raise(
         args.quality_report or None,
         min_avg_score=args.min_avg_score,
@@ -822,6 +983,8 @@ def main() -> None:
             max_text_chars=args.max_text_chars,
             max_spans=args.max_spans,
             h2_mode=args.h2_mode,
+            source_filters=source_filters,
+            llm_source_filters=llm_source_filters,
         )
         if had:
             processed_total += 1
