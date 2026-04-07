@@ -5,6 +5,8 @@ from src.backend.parsing.h2_postprocess import (
     classify_enrichment_mode,
     classify_enrichment_status,
     clean_text,
+    derive_heuristic_spans,
+    derive_legal_entities,
     derive_topics,
     normalize_topics,
     validate_summary_structured,
@@ -64,3 +66,39 @@ def test_build_summary_short_is_clean_text() -> None:
 def test_validate_summary_structured_rejects_extra_keys() -> None:
     summary = validate_summary_structured("tcu_sumula", {"numero": "123", "tema": "licitacao", "extra": "x"})
     assert summary is None
+
+
+def test_derive_legal_entities_extracts_cpf_and_processo() -> None:
+    entities = derive_legal_entities(
+        "Processo nº 12345.678901/2024-11 referente ao CPF 123.456.789-10.",
+        {},
+    )
+    entity_pairs = {(item["type"], item["value"]) for item in entities}
+    assert ("processo", "Processo nº 12345.678901/2024-11") in entity_pairs
+    assert ("cpf", "123.456.789-10") in entity_pairs
+
+
+def test_derive_heuristic_spans_uses_section_map_and_regex() -> None:
+    text = (
+        "<identifica>PORTARIA Nº 10</identifica>\n"
+        "<corpo>Processo nº 12345.678901/2024-11. JOAO DA SILVA Diretor.</corpo>\n"
+        "<fundamento_legal>Lei 8.666/1993</fundamento_legal>"
+    )
+    section_map = {
+        "identifica": {"start": 0, "len": len("<identifica>PORTARIA Nº 10</identifica>")},
+        "fundamento_legal": {
+            "start": text.index("<fundamento_legal>"),
+            "len": len("<fundamento_legal>Lei 8.666/1993</fundamento_legal>"),
+        },
+    }
+    spans = derive_heuristic_spans(
+        source_type="dou_documents",
+        text=text,
+        section_map=section_map,
+        allowed_tags=("identifica", "fundamento_legal", "processo", "assinatura"),
+    )
+    tags = [item["tag"] for item in spans]
+    assert "identifica" in tags
+    assert "fundamento_legal" in tags
+    assert "processo" in tags
+    assert "assinatura" in tags

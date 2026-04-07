@@ -129,6 +129,15 @@ LEGAL_REFERENCE_RE = re.compile(
     re.IGNORECASE,
 )
 CNPJ_RE = re.compile(r"\b\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}\b")
+CPF_RE = re.compile(r"\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b")
+PROCESSO_RE = re.compile(
+    r"\b(?:Processo|Proc\.?|TC)\s*(?:n[º°o.]?\s*)?(?:[A-Z]{1,4}\s*)?[\d./-]{7,}\b",
+    re.IGNORECASE,
+)
+SIGNATURE_RE = re.compile(
+    r"\b[A-ZÁÉÍÓÚÂÊÔÃÕÇ]{2,}(?:\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ]{2,}){1,6}\b(?=[^<\n]{0,120}\b(?:MINISTRO|SECRET[ÁA]RIO|DIRETOR(?:A)?|PRESIDENTE|RELATOR|PROCURADOR|SUPERINTENDENTE|COORDENADOR|GERENTE|CHEFE)\b)",
+    re.IGNORECASE,
+)
 ORG_SUFFIX_RE = re.compile(
     r"\b[A-Z][A-Z0-9 .,&/-]{4,}\s(?:LTDA|S/A|SA|EIRELI|ME|MINIST[EÉ]RIO|AG[EÊ]NCIA|TRIBUNAL|SECRETARIA)\b"
 )
@@ -440,6 +449,19 @@ def derive_legal_entities(
             seen.add(item)
             entities.append({"type": "cnpj", "value": match})
 
+    for match in CPF_RE.findall(cleaned):
+        item = ("cpf", match)
+        if item not in seen:
+            seen.add(item)
+            entities.append({"type": "cpf", "value": match})
+
+    for match in PROCESSO_RE.findall(cleaned):
+        value = clean_text(match)
+        item = ("processo", value)
+        if value and item not in seen:
+            seen.add(item)
+            entities.append({"type": "processo", "value": value})
+
     for match in LEGAL_REFERENCE_RE.findall(cleaned):
         item = ("base_legal", match)
         if item not in seen:
@@ -453,6 +475,97 @@ def derive_legal_entities(
             entities.append({"type": "organizacao", "value": match})
 
     return entities[:16]
+
+
+def _add_span(
+    spans: list[dict[str, Any]],
+    *,
+    tag: str,
+    start: int,
+    end: int,
+    text_len: int,
+) -> None:
+    start = max(0, start)
+    end = min(end, text_len)
+    if end <= start:
+        return
+    for span in spans:
+        if start < span["end_char"] and end > span["start_char"]:
+            return
+    spans.append(
+        {
+            "tag": tag,
+            "start_char": start,
+            "end_char": end,
+            "confidence": 1.0,
+        }
+    )
+
+
+def _inner_section_bounds(
+    text: str, start: int, length: int
+) -> tuple[int, int] | None:
+    chunk_end = min(len(text), start + length)
+    open_end = text.find(">", start, chunk_end)
+    close_start = text.rfind("</", start, chunk_end)
+    if open_end == -1 or close_start == -1 or close_start <= open_end:
+        return None
+    return open_end + 1, close_start
+
+
+def _source_legal_tag(allowed_tags: tuple[str, ...]) -> str | None:
+    for candidate in ("fundamento_legal", "referencia_legal", "base_legal"):
+        if candidate in allowed_tags:
+            return candidate
+    return None
+
+
+def derive_heuristic_spans(
+    *,
+    source_type: str,
+    text: str,
+    section_map: dict[str, Any] | None,
+    allowed_tags: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    del source_type
+    spans: list[dict[str, Any]] = []
+    text_len = len(text)
+    section_map = section_map or {}
+
+    for tag in ("identifica", _source_legal_tag(allowed_tags)):
+        if not tag or tag not in allowed_tags:
+            continue
+        meta = section_map.get(tag)
+        if not isinstance(meta, dict):
+            continue
+        start = int(meta.get("start") or 0)
+        length = int(meta.get("len") or 0)
+        bounds = _inner_section_bounds(text, start, length)
+        if not bounds:
+            continue
+        _add_span(spans, tag=tag, start=bounds[0], end=bounds[1], text_len=text_len)
+
+    if "processo" in allowed_tags:
+        for match in PROCESSO_RE.finditer(text):
+            _add_span(
+                spans,
+                tag="processo",
+                start=match.start(),
+                end=match.end(),
+                text_len=text_len,
+            )
+
+    if "assinatura" in allowed_tags:
+        for match in SIGNATURE_RE.finditer(text):
+            _add_span(
+                spans,
+                tag="assinatura",
+                start=match.start(),
+                end=match.end(),
+                text_len=text_len,
+            )
+
+    return sorted(spans, key=lambda item: (item["start_char"], item["end_char"], item["tag"]))
 
 
 def build_summary_structured(

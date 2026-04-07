@@ -14,6 +14,7 @@ from src.backend.parsing.h2_postprocess import (
     build_summary_structured,
     classify_enrichment_status,
     clean_text,
+    derive_heuristic_spans,
     derive_legal_entities,
     derive_topics,
     fallback_tags,
@@ -77,6 +78,14 @@ def main() -> None:
                 text = clean_text(body)
                 allowed = tags_for_source(source_type)
                 spans_model, _ = parse_spans_tolerant(row.get("tag_spans") or [])
+                if not spans_model:
+                    heuristic_spans = derive_heuristic_spans(
+                        source_type=source_type,
+                        text=body,
+                        section_map=row.get("section_map") or {},
+                        allowed_tags=allowed,
+                    )
+                    spans_model, _ = parse_spans_tolerant(heuristic_spans)
                 span_tags = tags_flat(spans_model)
                 tags = span_tags or fallback_tags(allowed, row.get("section_map") or {})
                 topics = _coerce_topics(source_type, row.get("topics"), text, structured)
@@ -130,6 +139,7 @@ def main() -> None:
                             enrichment_status = %s,
                             enrichment_version = %s,
                             h2_version = %s,
+                            tag_spans = %s::jsonb,
                             tags_flat = %s,
                             summary_short = %s,
                             summary_structured = %s::jsonb,
@@ -144,6 +154,7 @@ def main() -> None:
                             status,
                             H2_ENRICHMENT_VERSION,
                             ALLOWED_TAGS_VERSION,
+                            json.dumps([span.model_dump() for span in spans_model], ensure_ascii=False),
                             tags,
                             summary_short,
                             json.dumps(summary_structured, ensure_ascii=False),

@@ -55,7 +55,7 @@ TAG_MAP: dict[str, str] = {
     "licitacoes": "licitacao",
     "processo_licitatorio": "licitacao",
     "processo_licitatório": "licitacao",
-    "fundamentacao_legal": "base_legal",
+    "fundamentacao_legal": "fundamento_legal",
     "fundamentacao": "fundamentacao",
     "decisao": "decisao",
     "decisão": "decisao",

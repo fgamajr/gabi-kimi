@@ -21,6 +21,7 @@ from src.backend.parsing.h2_postprocess import (
     classify_enrichment_mode,
     classify_enrichment_status,
     clean_text,
+    derive_heuristic_spans,
     derive_legal_entities,
     derive_topics,
     fallback_tags,
@@ -389,7 +390,7 @@ def _mark_queue_failed(conn: psycopg.Connection, queue_id: int, error: str) -> N
             """
             UPDATE parsed.enrichment_queue
             SET
-                status = CASE WHEN attempts + 1 >= 5 THEN 'failed' ELSE 'pending' END,
+                status = CASE WHEN attempts + 1 >= 3 THEN 'failed' ELSE 'pending' END,
                 attempts = attempts + 1,
                 next_retry_at = NOW() + ((attempts + 1) * INTERVAL '2 minutes'),
                 last_error = %s,
@@ -564,11 +565,21 @@ def process_one_enrichment(
                 )
                 used_fallback = True
                 spans_model = []
+            heuristic_spans = []
+            if not spans_model:
+                heuristic_spans = derive_heuristic_spans(
+                    source_type=item.source_type,
+                    text=text,
+                    section_map=section_map,
+                    allowed_tags=allowed,
+                )
+                spans_model, heuristic_span_issues = parse_spans_tolerant(heuristic_spans)
+                span_issues.extend(heuristic_span_issues)
             spans = [x.model_dump() for x in spans_model]
             tags = tags_flat(spans_model)
             if not tags:
                 tags = fallback_tags(allowed, section_map)
-            tagged_xml = render_tagged_xml(text, spans_model)
+            tagged_xml = render_tagged_xml(text, spans_model) if not heuristic_spans else ""
             llm_summary_short = out.get("summary_short")
             llm_topics = out.get("topics")
             llm_entities = out.get("legal_entities")
@@ -613,7 +624,7 @@ def process_one_enrichment(
                 llm_structured_used=llm_structured_used,
                 llm_topics_used=llm_topics_used,
                 llm_entities_used=llm_entities_used,
-                llm_spans_used=bool(spans),
+                llm_spans_used=bool(spans) and not bool(heuristic_spans),
             )
             status = classify_enrichment_status(
                 item.source_type,
