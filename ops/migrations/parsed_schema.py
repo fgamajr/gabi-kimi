@@ -57,6 +57,8 @@ CREATE TABLE IF NOT EXISTS {table} (
     enrichment_version TEXT,
     h2_version TEXT,
     prompt_version TEXT,
+    enrichment_mode TEXT
+        CHECK (enrichment_mode IN ('llm', 'heuristic', 'fallback')),
     enrichment_status TEXT NOT NULL DEFAULT 'pending'
         CHECK (enrichment_status IN ('pending', 'running', 'done_full', 'done_partial', 'done_fallback', 'failed', 'skipped')),
     enrichment_error TEXT,

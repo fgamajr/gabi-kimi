@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from src.backend.parsing.h2_postprocess import (
     build_summary_short,
+    classify_enrichment_mode,
     classify_enrichment_status,
     clean_text,
     derive_topics,
@@ -41,6 +42,18 @@ def test_classify_done_fallback() -> None:
         legal_entities=[],
     )
     assert status == "done_fallback"
+
+
+def test_classify_enrichment_mode_heuristic() -> None:
+    mode = classify_enrichment_mode(
+        used_fallback=False,
+        llm_summary_used=False,
+        llm_structured_used=False,
+        llm_topics_used=False,
+        llm_entities_used=False,
+        llm_spans_used=False,
+    )
+    assert mode == "heuristic"
 
 
 def test_build_summary_short_is_clean_text() -> None:

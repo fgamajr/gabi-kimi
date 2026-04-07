@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Literal, Protocol
 
 EnrichmentStatus = Literal["pending", "running", "done_full", "done_partial", "done_fallback", "failed", "skipped"]
+EnrichmentMode = Literal["llm", "heuristic", "fallback"] | None
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,7 @@ class EnrichmentPayload:
 @dataclass(frozen=True)
 class EnrichmentResult:
     enrichment_status: EnrichmentStatus
+    enrichment_mode: EnrichmentMode
     h2_version: str
     prompt_version: str
     tag_spans: list[dict[str, Any]]

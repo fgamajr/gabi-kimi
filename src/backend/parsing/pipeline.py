@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -19,15 +18,22 @@ from src.backend.parsing.h2_postprocess import (
     H2_ENRICHMENT_VERSION,
     build_summary_short,
     build_summary_structured,
+    classify_enrichment_mode,
     classify_enrichment_status,
     clean_text,
     derive_legal_entities,
+    derive_topics,
     fallback_tags,
     normalize_topics,
     validate_legal_entities,
     validate_summary_structured,
 )
-from src.backend.parsing.h2_semantic import parse_spans_tolerant, render_tagged_xml, tags_flat, validate_spans
+from src.backend.parsing.h2_semantic import (
+    parse_spans_tolerant,
+    render_tagged_xml,
+    tags_flat,
+    validate_spans,
+)
 from src.backend.parsing.h2_vocab import ALLOWED_TAGS_VERSION, tags_for_source
 from src.backend.parsing.source_parsers import PARSER_REGISTRY, SOURCE_TYPES
 
@@ -96,7 +102,9 @@ def _log_h2_event(payload: dict[str, Any]) -> None:
     print(json.dumps(payload, ensure_ascii=False), flush=True)
 
 
-def _simplified_prompt(text: str, allowed_tags: tuple[str, ...], source_type: str) -> str:
+def _simplified_prompt(
+    text: str, allowed_tags: tuple[str, ...], source_type: str
+) -> str:
     tags = ", ".join(allowed_tags)
     return (
         f"Extração H2 simplificada para {source_type}. "
@@ -111,9 +119,13 @@ def _simplified_prompt(text: str, allowed_tags: tuple[str, ...], source_type: st
 def _fallback_h2_output(text: str, source_type: str, reason: str) -> dict[str, Any]:
     return {
         "tag_spans": [],
-        "summary_short": clean_text(text)[:320],
+        "summary_short": build_summary_short(source_type, text, {}, []),
         "summary_long": None,
-        "summary_structured": {"mode": "fallback", "reason": reason[:180], "source_type": source_type},
+        "summary_structured": {
+            "modo": "fallback",
+            "source_type": source_type,
+            "reason": reason[:120],
+        },
         "legal_entities": [],
         "topics": [],
         "chunk_summaries": [],
@@ -121,7 +133,9 @@ def _fallback_h2_output(text: str, source_type: str, reason: str) -> dict[str, A
     }
 
 
-def _row_all_fields_sql(source_type: str, limit: int, offset: int) -> tuple[str, tuple[Any, ...]]:
+def _row_all_fields_sql(
+    source_type: str, limit: int, offset: int
+) -> tuple[str, tuple[Any, ...]]:
     table = RAW_TABLE_BY_SOURCE[source_type]
     if source_type in {"dou_documents", "tcu_btcu", "tcu_publicacoes"}:
         sql = f"""
@@ -140,12 +154,20 @@ def _row_all_fields_sql(source_type: str, limit: int, offset: int) -> tuple[str,
     return sql, (limit, offset)
 
 
-def _enrichment_input_hash(source_type: str, body_tagged_xml: str, content_hash: str, h2_version: str) -> str:
+def _enrichment_input_hash(
+    source_type: str, body_tagged_xml: str, content_hash: str, h2_version: str
+) -> str:
     payload = f"{source_type}|{content_hash}|{h2_version}|{body_tagged_xml}"
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _upsert_parsed(conn: psycopg.Connection, source_type: str, parsed: Any, prompt_version: str, h2_version: str) -> None:
+def _upsert_parsed(
+    conn: psycopg.Connection,
+    source_type: str,
+    parsed: Any,
+    prompt_version: str,
+    h2_version: str,
+) -> None:
     table = _parsed_table(source_type)
     s = parsed.structured_fields
     h1 = parsed.h1
@@ -159,7 +181,9 @@ def _upsert_parsed(conn: psycopg.Connection, source_type: str, parsed: Any, prom
     orgao_emissor = s.get("orgao_emissor")
     art_type = s.get("art_type")
     tipo_norma = s.get("tipo_norma")
-    enrichment_input_hash = _enrichment_input_hash(source_type, parsed.body_tagged_xml, parsed.content_hash, h2_version)
+    enrichment_input_hash = _enrichment_input_hash(
+        source_type, parsed.body_tagged_xml, parsed.content_hash, h2_version
+    )
 
     with conn.cursor() as cur:
         cur.execute(
@@ -169,11 +193,11 @@ def _upsert_parsed(conn: psycopg.Connection, source_type: str, parsed: Any, prom
                 numero_norma, ano_norma, colegiado, orgao_emissor, art_type, tipo_norma,
                 structured_fields, section_map, body_tagged_xml, content_hash, parser_version,
                 h1_tipo, h1_subtipo, h1_confidence, h1_method, h1_version, h1_status,
-                enrichment_status, h2_version, prompt_version, enrichment_input_hash,
+                enrichment_mode, enrichment_status, h2_version, prompt_version, enrichment_input_hash,
                 parsed_at, updated_at
             ) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s, 'pending', %s, %s, %s, NOW(), NOW()
+                %s, %s, %s, %s, %s, %s, NULL, 'pending', %s, %s, %s, NOW(), NOW()
             )
             ON CONFLICT (raw_id) DO UPDATE SET
                 pub_date = EXCLUDED.pub_date,
@@ -197,6 +221,13 @@ def _upsert_parsed(conn: psycopg.Connection, source_type: str, parsed: Any, prom
                 h1_method = EXCLUDED.h1_method,
                 h1_version = EXCLUDED.h1_version,
                 h1_status = EXCLUDED.h1_status,
+                enrichment_mode = CASE
+                    WHEN {table}.enrichment_input_hash = EXCLUDED.enrichment_input_hash
+                     AND {table}.h2_version = EXCLUDED.h2_version
+                     AND {table}.prompt_version = EXCLUDED.prompt_version
+                    THEN {table}.enrichment_mode
+                    ELSE NULL
+                END,
                 enrichment_status = CASE
                     WHEN {table}.enrichment_input_hash = EXCLUDED.enrichment_input_hash
                      AND {table}.h2_version = EXCLUDED.h2_version
@@ -261,7 +292,9 @@ def _upsert_parsed(conn: psycopg.Connection, source_type: str, parsed: Any, prom
         )
 
 
-def run_parse(source_type: str, *, limit: int, offset: int, prompt_version: str, h2_version: str) -> int:
+def run_parse(
+    source_type: str, *, limit: int, offset: int, prompt_version: str, h2_version: str
+) -> int:
     parser = PARSER_REGISTRY[source_type]
     sql, params = _row_all_fields_sql(source_type, limit, offset)
     parsed_count = 0
@@ -271,7 +304,13 @@ def run_parse(source_type: str, *, limit: int, offset: int, prompt_version: str,
             rows = cur.fetchall()
         for row in rows:
             parsed = parser.parse(raw_id=row["id"], raw_data=row["all_fields"] or {})
-            _upsert_parsed(conn, source_type, parsed, prompt_version=prompt_version, h2_version=h2_version)
+            _upsert_parsed(
+                conn,
+                source_type,
+                parsed,
+                prompt_version=prompt_version,
+                h2_version=h2_version,
+            )
             parsed_count += 1
         conn.commit()
     return parsed_count
@@ -323,7 +362,9 @@ def _acquire_queue_item(conn: psycopg.Connection, worker_id: str) -> QueueItem |
     )
 
 
-def _load_parsed_doc(conn: psycopg.Connection, source_type: str, raw_id: str) -> dict[str, Any] | None:
+def _load_parsed_doc(
+    conn: psycopg.Connection, source_type: str, raw_id: str
+) -> dict[str, Any] | None:
     table = _parsed_table(source_type)
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(f"SELECT * FROM {table} WHERE raw_id = %s", (raw_id,))
@@ -366,6 +407,7 @@ def _update_enrichment(
     source_type: str,
     raw_id: str,
     *,
+    mode: str | None,
     status: str,
     spans: list[dict[str, Any]],
     tags: list[str],
@@ -383,6 +425,7 @@ def _update_enrichment(
             f"""
             UPDATE {table}
             SET
+                enrichment_mode = %s,
                 enrichment_status = %s,
                 tag_spans = %s::jsonb,
                 tags_flat = %s,
@@ -401,6 +444,7 @@ def _update_enrichment(
             WHERE raw_id = %s
             """,
             (
+                mode,
                 status,
                 json.dumps(spans, ensure_ascii=False),
                 tags,
@@ -408,10 +452,16 @@ def _update_enrichment(
                 tagged_xml,
                 summary_short,
                 summary_long,
-                json.dumps(summary_structured, ensure_ascii=False) if summary_structured is not None else None,
-                json.dumps(legal_entities, ensure_ascii=False) if legal_entities is not None else None,
+                json.dumps(summary_structured, ensure_ascii=False)
+                if summary_structured is not None
+                else None,
+                json.dumps(legal_entities, ensure_ascii=False)
+                if legal_entities is not None
+                else None,
                 topics,
-                json.dumps(chunk_summaries, ensure_ascii=False) if chunk_summaries is not None else None,
+                json.dumps(chunk_summaries, ensure_ascii=False)
+                if chunk_summaries is not None
+                else None,
                 H2_ENRICHMENT_VERSION,
                 raw_id,
             ),
@@ -431,7 +481,9 @@ def process_one_enrichment(
         if item is None:
             conn.commit()
             return False
-        parsed_doc = _load_parsed_doc(conn, source_type=item.source_type, raw_id=item.raw_id)
+        parsed_doc = _load_parsed_doc(
+            conn, source_type=item.source_type, raw_id=item.raw_id
+        )
         if not parsed_doc:
             _mark_queue_failed(conn, item.queue_id, "parsed row missing")
             conn.commit()
@@ -447,6 +499,7 @@ def process_one_enrichment(
                     conn,
                     item.source_type,
                     item.raw_id,
+                    mode=None,
                     status="skipped",
                     spans=[],
                     tags=[],
@@ -469,17 +522,27 @@ def process_one_enrichment(
             last_exc: Exception | None = None
             used_fallback = False
             prompts = [
-                build_h2_prompt(text=text, allowed_tags=allowed, source_type=item.source_type),
-                _simplified_prompt(text=text, allowed_tags=allowed, source_type=item.source_type),
+                build_h2_prompt(
+                    text=text, allowed_tags=allowed, source_type=item.source_type
+                ),
+                _simplified_prompt(
+                    text=text, allowed_tags=allowed, source_type=item.source_type
+                ),
             ]
             for attempt, prompt in enumerate(prompts, start=1):
                 try:
                     out = call_local_llm(prompt=prompt, model=model, mode=h2_mode)
-                    spans_model, span_issues = parse_spans_tolerant(out.get("tag_spans", []))
+                    spans_model, span_issues = parse_spans_tolerant(
+                        out.get("tag_spans", [])
+                    )
                     if len(spans_model) > max_spans:
-                        raise ValueError(f"too many spans: {len(spans_model)} > {max_spans}")
+                        raise ValueError(
+                            f"too many spans: {len(spans_model)} > {max_spans}"
+                        )
                     try:
-                        validate_spans(text=text, spans=spans_model, allowed_tags=allowed)
+                        validate_spans(
+                            text=text, spans=spans_model, allowed_tags=allowed
+                        )
                     except Exception as span_exc:
                         span_issues.append(str(span_exc))
                         spans_model = []
@@ -489,12 +552,16 @@ def process_one_enrichment(
                     out = None
                     spans_model = []
                     if attempt >= len(prompts):
-                        out = _fallback_h2_output(text=text, source_type=item.source_type, reason=str(exc))
+                        out = _fallback_h2_output(
+                            text=text, source_type=item.source_type, reason=str(exc)
+                        )
                         used_fallback = True
                         spans_model = []
                         break
             if out is None and last_exc is not None:
-                out = _fallback_h2_output(text=text, source_type=item.source_type, reason=str(last_exc))
+                out = _fallback_h2_output(
+                    text=text, source_type=item.source_type, reason=str(last_exc)
+                )
                 used_fallback = True
                 spans_model = []
             spans = [x.model_dump() for x in spans_model]
@@ -507,19 +574,47 @@ def process_one_enrichment(
             llm_entities = out.get("legal_entities")
             llm_structured = out.get("summary_structured")
             clean_source_text = clean_text(text)
-            topics = normalize_topics(item.source_type, llm_topics if isinstance(llm_topics, list) else None, clean_source_text, structured)
-            legal_entities = validate_legal_entities(llm_entities if isinstance(llm_entities, list) else None)
+            heuristic_topics = derive_topics(item.source_type, clean_source_text, structured)
+            topics = normalize_topics(
+                item.source_type,
+                llm_topics if isinstance(llm_topics, list) else None,
+                clean_source_text,
+                structured,
+            )
+            llm_topics_used = bool(llm_topics) and topics != heuristic_topics
+            legal_entities = validate_legal_entities(
+                llm_entities if isinstance(llm_entities, list) else None
+            )
+            llm_entities_used = bool(legal_entities)
             if not legal_entities:
                 legal_entities = derive_legal_entities(clean_source_text, structured)
             summary_structured = validate_summary_structured(
                 item.source_type,
                 llm_structured if isinstance(llm_structured, dict) else None,
             )
+            llm_structured_used = summary_structured is not None
             if not summary_structured:
-                summary_structured = build_summary_structured(item.source_type, clean_source_text, structured, topics, legal_entities)
+                summary_structured = build_summary_structured(
+                    item.source_type,
+                    clean_source_text,
+                    structured,
+                    topics,
+                    legal_entities,
+                )
             summary_short = clean_text(llm_summary_short) if llm_summary_short else ""
+            llm_summary_used = bool(summary_short)
             if not summary_short:
-                summary_short = build_summary_short(item.source_type, clean_source_text, structured, topics)
+                summary_short = build_summary_short(
+                    item.source_type, clean_source_text, structured, topics
+                )
+            mode = classify_enrichment_mode(
+                used_fallback=used_fallback or bool(out.get("__fallback")),
+                llm_summary_used=llm_summary_used,
+                llm_structured_used=llm_structured_used,
+                llm_topics_used=llm_topics_used,
+                llm_entities_used=llm_entities_used,
+                llm_spans_used=bool(spans),
+            )
             status = classify_enrichment_status(
                 item.source_type,
                 used_fallback=used_fallback or bool(out.get("__fallback")),
@@ -534,6 +629,7 @@ def process_one_enrichment(
                 conn,
                 item.source_type,
                 item.raw_id,
+                mode=mode,
                 status=status,
                 spans=spans,
                 tags=tags,
@@ -560,6 +656,7 @@ def process_one_enrichment(
                     "tokens_out": usage.get("completion_tokens"),
                     "tokens_total": usage.get("total_tokens"),
                     "provider": meta.get("provider"),
+                    "mode": mode,
                     "span_issues": span_issues,
                     "status": status,
                 }
@@ -570,7 +667,7 @@ def process_one_enrichment(
             table = _parsed_table(item.source_type)
             with conn.cursor() as cur:
                 cur.execute(
-                    f"UPDATE {table} SET enrichment_status = 'failed', enrichment_error = %s, updated_at = NOW() WHERE raw_id = %s",
+                    f"UPDATE {table} SET enrichment_mode = NULL, enrichment_status = 'failed', enrichment_error = %s, updated_at = NOW() WHERE raw_id = %s",
                     (str(exc)[:2000], item.raw_id),
                 )
             conn.commit()
@@ -588,7 +685,9 @@ def process_one_enrichment(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Parsed pipeline (H1/H2) for source-separated raw tables")
+    parser = argparse.ArgumentParser(
+        description="Parsed pipeline (H1/H2) for source-separated raw tables"
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_parse = sub.add_parser("parse", help="Run raw -> parsed upsert for one source")
@@ -605,8 +704,12 @@ def main() -> None:
     p_worker.add_argument("--max-text-chars", type=int, default=12000)
     p_worker.add_argument("--max-spans", type=int, default=120)
     p_worker.add_argument("--max-rss-mb", type=float, default=0.0)
-    p_worker.add_argument("--h2-mode", choices=["fast", "deep"], default=os.getenv("H2_MODE", "fast"))
-    p_worker.add_argument("--quality-report", default="", help="Path to H2 quality report JSON gate")
+    p_worker.add_argument(
+        "--h2-mode", choices=["fast", "deep"], default=os.getenv("H2_MODE", "fast")
+    )
+    p_worker.add_argument(
+        "--quality-report", default="", help="Path to H2 quality report JSON gate"
+    )
     p_worker.add_argument("--min-avg-score", type=float, default=0.75)
     p_worker.add_argument("--min-pass-rate", type=float, default=0.90)
     p_worker.add_argument("--max-span-error-rate", type=float, default=0.02)
@@ -620,8 +723,12 @@ def main() -> None:
     p_loop.add_argument("--poll-interval-sec", type=float, default=2.0)
     p_loop.add_argument("--max-idle-cycles", type=int, default=30)
     p_loop.add_argument("--max-rss-mb", type=float, default=0.0)
-    p_loop.add_argument("--h2-mode", choices=["fast", "deep"], default=os.getenv("H2_MODE", "fast"))
-    p_loop.add_argument("--quality-report", default="", help="Path to H2 quality report JSON gate")
+    p_loop.add_argument(
+        "--h2-mode", choices=["fast", "deep"], default=os.getenv("H2_MODE", "fast")
+    )
+    p_loop.add_argument(
+        "--quality-report", default="", help="Path to H2 quality report JSON gate"
+    )
     p_loop.add_argument("--min-avg-score", type=float, default=0.75)
     p_loop.add_argument("--min-pass-rate", type=float, default=0.90)
     p_loop.add_argument("--max-span-error-rate", type=float, default=0.02)
@@ -663,7 +770,11 @@ def main() -> None:
             processed += 1
         print(
             json.dumps(
-                {"processed": processed, "worker_id": args.worker_id, "rss_mb": round(_rss_mb(), 2)},
+                {
+                    "processed": processed,
+                    "worker_id": args.worker_id,
+                    "rss_mb": round(_rss_mb(), 2),
+                },
                 ensure_ascii=False,
             )
         )
@@ -698,7 +809,11 @@ def main() -> None:
         time.sleep(args.poll_interval_sec)
     print(
         json.dumps(
-            {"processed": processed_total, "worker_id": args.worker_id, "rss_mb": round(_rss_mb(), 2)},
+            {
+                "processed": processed_total,
+                "worker_id": args.worker_id,
+                "rss_mb": round(_rss_mb(), 2),
+            },
             ensure_ascii=False,
         )
     )

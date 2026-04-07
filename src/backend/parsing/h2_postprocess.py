@@ -10,24 +10,108 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 H2_ENRICHMENT_VERSION = "1.1.0"
 
 TOPIC_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("licitacao", re.compile(r"\blicita[cç][aã]o\b|\bedital\b|\bpreg[aã]o\b|\bconcorr[eê]ncia\b", re.IGNORECASE)),
-    ("pessoal", re.compile(r"\bnomea[rd]?\b|\bexonera\b|\bdesigna\b|\bcargo\b", re.IGNORECASE)),
-    ("controle_externo", re.compile(r"\bac[oó]rd[aã]o\b|\bcolegiado\b|\brelator\b|\btcu\b", re.IGNORECASE)),
-    ("regulacao", re.compile(r"\banvisa\b|\bregistro\b|\bproduto\b|\bmedicamento\b|\bradiof[aá]rmaco\b", re.IGNORECASE)),
-    ("normativo", re.compile(r"\bportaria\b|\bresolu[cç][aã]o\b|\blei\b|\bdecreto\b|\binstru[cç][aã]o normativa\b", re.IGNORECASE)),
+    (
+        "licitacao",
+        re.compile(
+            r"\blicita[cç][aã]o\b|\bedital\b|\bpreg[aã]o\b|\bconcorr[eê]ncia\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "pessoal",
+        re.compile(r"\bnomea[rd]?\b|\bexonera\b|\bdesigna\b|\bcargo\b", re.IGNORECASE),
+    ),
+    (
+        "controle_externo",
+        re.compile(
+            r"\bac[oó]rd[aã]o\b|\bcolegiado\b|\brelator\b|\btcu\b", re.IGNORECASE
+        ),
+    ),
+    (
+        "regulacao",
+        re.compile(
+            r"\banvisa\b|\bregistro\b|\bproduto\b|\bmedicamento\b|\bradiof[aá]rmaco\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "normativo",
+        re.compile(
+            r"\bportaria\b|\bresolu[cç][aã]o\b|\blei\b|\bdecreto\b|\binstru[cç][aã]o normativa\b",
+            re.IGNORECASE,
+        ),
+    ),
     ("consulta", re.compile(r"\bconsulta\b|\bresposta\b", re.IGNORECASE)),
-    ("jurisprudencia", re.compile(r"\benunciado\b|\bexcerto\b|\bs[uú]mula\b|\bjurisprud[eê]ncia\b", re.IGNORECASE)),
-    ("saude_publica", re.compile(r"\banvisa\b|\bsa[uú]de\b|\bmedicamento\b|\bhospital\b|\bsanit[aá]ri", re.IGNORECASE)),
-    ("energia", re.compile(r"\banp\b|\bpetr[oó]leo\b|\bg[aá]s natural\b|\bcombust[ií]vel\b|\beletric", re.IGNORECASE)),
-    ("infraestrutura", re.compile(r"\brodovia\b|\bferrovia\b|\baeroporto\b|\bporto\b|\binfraestrutura\b", re.IGNORECASE)),
-    ("orcamento", re.compile(r"\bor[cç]ament[aá]ri[oa]\b|\bdota[cç][aã]o\b|\bcr[eé]dito adicional\b", re.IGNORECASE)),
-    ("educacao", re.compile(r"\beduca[cç][aã]o\b|\buniversidade\b|\bprofessor\b|\bbolsa\b", re.IGNORECASE)),
-    ("meio_ambiente", re.compile(r"\bambiental\b|\bmeio ambiente\b|\blicenciamento\b|\bibama\b", re.IGNORECASE)),
-    ("tributario", re.compile(r"\btribut[aá]ri[oa]\b|\bimposto\b|\breceita federal\b|\bpis\b|\bcofins\b", re.IGNORECASE)),
-    ("previdencia", re.compile(r"\baposentadoria\b|\bpens[aã]o\b|\binss\b|\bprevid", re.IGNORECASE)),
-    ("servidor_publico", re.compile(r"\bservidor\b|\bquadro de pessoal\b|\bcargo efetivo\b", re.IGNORECASE)),
+    (
+        "jurisprudencia",
+        re.compile(
+            r"\benunciado\b|\bexcerto\b|\bs[uú]mula\b|\bjurisprud[eê]ncia\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "saude_publica",
+        re.compile(
+            r"\banvisa\b|\bsa[uú]de\b|\bmedicamento\b|\bhospital\b|\bsanit[aá]ri",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "energia",
+        re.compile(
+            r"\banp\b|\bpetr[oó]leo\b|\bg[aá]s natural\b|\bcombust[ií]vel\b|\beletric",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "infraestrutura",
+        re.compile(
+            r"\brodovia\b|\bferrovia\b|\baeroporto\b|\bporto\b|\binfraestrutura\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "orcamento",
+        re.compile(
+            r"\bor[cç]ament[aá]ri[oa]\b|\bdota[cç][aã]o\b|\bcr[eé]dito adicional\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "educacao",
+        re.compile(
+            r"\beduca[cç][aã]o\b|\buniversidade\b|\bprofessor\b|\bbolsa\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "meio_ambiente",
+        re.compile(
+            r"\bambiental\b|\bmeio ambiente\b|\blicenciamento\b|\bibama\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "tributario",
+        re.compile(
+            r"\btribut[aá]ri[oa]\b|\bimposto\b|\breceita federal\b|\bpis\b|\bcofins\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "previdencia",
+        re.compile(r"\baposentadoria\b|\bpens[aã]o\b|\binss\b|\bprevid", re.IGNORECASE),
+    ),
+    (
+        "servidor_publico",
+        re.compile(
+            r"\bservidor\b|\bquadro de pessoal\b|\bcargo efetivo\b", re.IGNORECASE
+        ),
+    ),
 )
-TOPIC_TAXONOMY: tuple[str, ...] = tuple(topic for topic, _ in TOPIC_RULES) + ("administrativo",)
+TOPIC_TAXONOMY: tuple[str, ...] = tuple(topic for topic, _ in TOPIC_RULES) + (
+    "administrativo",
+)
 TOPIC_ALIASES: dict[str, str] = {
     "licitacoes": "licitacao",
     "licitacao_publica": "licitacao",
@@ -53,8 +137,22 @@ SPACE_RE = re.compile(r"\s+")
 SOURCE_NAME_RE = re.compile(r"^(dou_documents|tcu_[a-z0-9_]+)$", re.IGNORECASE)
 
 SOURCE_SCHEMA_KEYS: dict[str, tuple[str, ...]] = {
-    "dou_documents": ("tipo_ato", "subtipo_ato", "objeto", "fundamento_legal", "efeito_principal", "vigencia"),
-    "tcu_acordao_completo": ("numero", "colegiado", "relator", "tipo_processo", "objeto", "decisao_principal"),
+    "dou_documents": (
+        "tipo_ato",
+        "subtipo_ato",
+        "objeto",
+        "fundamento_legal",
+        "efeito_principal",
+        "vigencia",
+    ),
+    "tcu_acordao_completo": (
+        "numero",
+        "colegiado",
+        "relator",
+        "tipo_processo",
+        "objeto",
+        "decisao_principal",
+    ),
     "tcu_jurisprudencia_selecionada": ("area", "tema", "subtema", "tese_central"),
     "tcu_resposta_consulta": ("area", "tema", "pergunta", "resposta_curta"),
     "tcu_sumula": ("numero", "tema", "tese_central", "vigente"),
@@ -205,7 +303,9 @@ def _normalize_topic(value: str | None) -> str | None:
     return normalized
 
 
-def normalize_topics(source_type: str, topics: list[str] | None, text: str, structured: dict[str, Any]) -> list[str]:
+def normalize_topics(
+    source_type: str, topics: list[str] | None, text: str, structured: dict[str, Any]
+) -> list[str]:
     out: list[str] = []
     for topic in topics or []:
         normalized = _normalize_topic(topic)
@@ -220,7 +320,9 @@ def normalize_topics(source_type: str, topics: list[str] | None, text: str, stru
     return derive_topics(source_type, text, structured)
 
 
-def validate_summary_structured(source_type: str, payload: dict[str, Any] | None) -> dict[str, Any] | None:
+def validate_summary_structured(
+    source_type: str, payload: dict[str, Any] | None
+) -> dict[str, Any] | None:
     if not isinstance(payload, dict) or not payload:
         return None
     model_cls = SUMMARY_MODEL_BY_SOURCE.get(source_type)
@@ -239,7 +341,9 @@ def validate_summary_structured(source_type: str, payload: dict[str, Any] | None
     return model.model_dump()
 
 
-def validate_legal_entities(payload: list[dict[str, Any]] | None) -> list[dict[str, str]]:
+def validate_legal_entities(
+    payload: list[dict[str, Any]] | None,
+) -> list[dict[str, str]]:
     out: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
     for item in payload or []:
@@ -266,6 +370,7 @@ def clean_text(value: str | None) -> str:
         previous = text
         text = html.unescape(text)
     text = TAG_RE.sub(" ", text)
+    text = html.unescape(text)
     return SPACE_RE.sub(" ", text).strip()
 
 
@@ -273,7 +378,9 @@ def summarize_text(value: str | None, limit: int = 320) -> str:
     return clean_text(value)[:limit]
 
 
-def fallback_tags(allowed_tags: tuple[str, ...], section_map: dict[str, Any] | None) -> list[str]:
+def fallback_tags(
+    allowed_tags: tuple[str, ...], section_map: dict[str, Any] | None
+) -> list[str]:
     if not section_map:
         return []
     allowed = set(allowed_tags)
@@ -285,7 +392,9 @@ def derive_topics(source_type: str, text: str, structured: dict[str, Any]) -> li
         [
             source_type,
             clean_text(text),
-            " ".join(str(v) for v in structured.values() if v not in (None, "", [], {})),
+            " ".join(
+                str(v) for v in structured.values() if v not in (None, "", [], {})
+            ),
         ]
     )
     topics: list[str] = []
@@ -295,16 +404,24 @@ def derive_topics(source_type: str, text: str, structured: dict[str, Any]) -> li
     if source_type.startswith("tcu_") and "controle_externo" not in topics:
         topics.append("controle_externo")
     orgao = clean_text(str(structured.get("orgao_emissor") or ""))
-    if re.search(r"\banvisa\b|\bsa[uú]de\b", orgao, re.IGNORECASE) and "saude_publica" not in topics:
+    if (
+        re.search(r"\banvisa\b|\bsa[uú]de\b", orgao, re.IGNORECASE)
+        and "saude_publica" not in topics
+    ):
         topics.append("saude_publica")
-    if re.search(r"\banp\b|\bpetr[oó]leo\b|\bg[aá]s\b", orgao, re.IGNORECASE) and "energia" not in topics:
+    if (
+        re.search(r"\banp\b|\bpetr[oó]leo\b|\bg[aá]s\b", orgao, re.IGNORECASE)
+        and "energia" not in topics
+    ):
         topics.append("energia")
     if not topics:
         topics.append("administrativo")
     return topics[:8]
 
 
-def derive_legal_entities(text: str, structured: dict[str, Any]) -> list[dict[str, str]]:
+def derive_legal_entities(
+    text: str, structured: dict[str, Any]
+) -> list[dict[str, str]]:
     cleaned = clean_text(text)
     entities: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
@@ -353,7 +470,9 @@ def build_summary_structured(
             "tipo_ato": structured.get("h1_tipo") or structured.get("art_type"),
             "subtipo_ato": structured.get("h1_subtipo") or structured.get("art_type"),
             "objeto": first_sentence,
-            "fundamento_legal": [x["value"] for x in legal_entities if x["type"] == "base_legal"][:6],
+            "fundamento_legal": [
+                x["value"] for x in legal_entities if x["type"] == "base_legal"
+            ][:6],
             "efeito_principal": first_sentence,
             "vigencia": structured.get("data_text") or structured.get("pub_date"),
         }
@@ -393,30 +512,70 @@ def build_summary_structured(
             "numero": structured.get("numero_norma"),
             "ano": structured.get("ano_norma"),
             "assunto": structured.get("assunto") or first_sentence,
-            "vigencia": structured.get("data_inicio_vigencia") or structured.get("data_dou"),
+            "vigencia": structured.get("data_inicio_vigencia")
+            or structured.get("data_dou"),
         }
     key_a = next(iter(structured.keys()), None)
     key_b = next(iter(topics), None)
     return {
-        SOURCE_SCHEMA_KEYS.get(source_type, ("ponto_principal",))[0]: structured.get(key_a) or first_sentence,
+        SOURCE_SCHEMA_KEYS.get(source_type, ("ponto_principal",))[0]: structured.get(
+            key_a
+        )
+        or first_sentence,
         "tema": key_b,
         "ponto_principal": first_sentence,
     }
 
 
-def build_summary_short(source_type: str, text: str, structured: dict[str, Any], topics: list[str]) -> str:
-    cleaned = clean_text(text)
+def _first_sentence(text: str, max_len: int = 280) -> str:
+    text = clean_text(text)
+    if not text:
+        return ""
+    for sep in (". ", "! ", "? "):
+        if sep in text:
+            return text[: text.index(sep) + 2].strip()
+    return text[:max_len].strip()
+
+
+def build_summary_short(
+    source_type: str, text: str, structured: dict[str, Any], topics: list[str]
+) -> str:
+    first = _first_sentence(text)
     if source_type == "dou_documents":
         prefix = "DOU"
         detail = structured.get("h1_subtipo") or structured.get("art_type") or "ato"
-        return f"{prefix}: {detail}. {cleaned[:220]}".strip()
+        return f"{prefix}: {detail}. {first}".strip()
     if source_type == "tcu_acordao_completo":
         numero = structured.get("numero_acordao")
         colegiado = structured.get("colegiado") or "TCU"
-        return f"Acórdão {numero or ''} {colegiado}. {cleaned[:220]}".strip()
+        return f"Acórdão {numero or ''} {colegiado}. {first}".strip()
     label = source_type.replace("_", " ")
     topic_txt = ", ".join(topics[:2])
-    return f"{label}: {topic_txt}. {cleaned[:220]}".strip()
+    return f"{label}: {topic_txt}. {first}".strip()
+
+
+def classify_enrichment_mode(
+    *,
+    used_fallback: bool,
+    llm_summary_used: bool,
+    llm_structured_used: bool,
+    llm_topics_used: bool,
+    llm_entities_used: bool,
+    llm_spans_used: bool,
+) -> str:
+    if used_fallback:
+        return "fallback"
+    if any(
+        (
+            llm_summary_used,
+            llm_structured_used,
+            llm_topics_used,
+            llm_entities_used,
+            llm_spans_used,
+        )
+    ):
+        return "llm"
+    return "heuristic"
 
 
 def classify_enrichment_status(
@@ -433,14 +592,27 @@ def classify_enrichment_status(
     schema_keys = SOURCE_SCHEMA_KEYS.get(source_type, ())
     structured_score = 0
     if summary_structured:
-        structured_score = sum(1 for key in schema_keys if summary_structured.get(key) not in (None, "", [], {}))
+        structured_score = sum(
+            1
+            for key in schema_keys
+            if summary_structured.get(key) not in (None, "", [], {})
+        )
     has_topics = bool(topics)
     has_summary = bool((summary_short or "").strip())
     has_entities = bool(legal_entities)
     if used_fallback:
         return "done_fallback"
-    if has_summary and has_topics and structured_score >= max(1, min(3, len(schema_keys))) and spans_count > 0:
+    if (
+        has_summary
+        and has_topics
+        and structured_score >= max(1, min(3, len(schema_keys)))
+        and spans_count > 0
+    ):
         return "done_full"
-    if has_summary and has_topics and (structured_score > 0 or has_entities or tags_count > 0):
+    if (
+        has_summary
+        and has_topics
+        and (structured_score > 0 or has_entities or tags_count > 0)
+    ):
         return "done_partial"
     return "done_fallback"

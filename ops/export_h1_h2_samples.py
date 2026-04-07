@@ -91,6 +91,7 @@ def main() -> None:
                     SELECT
                         raw_id,
                         source_type,
+                        enrichment_mode,
                         enrichment_status,
                         enrichment_version,
                         h2_version,

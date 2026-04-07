@@ -107,10 +107,13 @@ def _render_samples(rows: list[dict[str, Any]], limit: int, *, parsed: bool) -> 
     for idx, row in enumerate(rows, start=1):
         pretty = html.escape(json.dumps(row, ensure_ascii=False, indent=2, default=str))
         status = str(row.get("enrichment_status") or "")
+        mode = str(row.get("enrichment_mode") or "")
         summary_bits = [f"Exemplo {idx}"]
         if row.get("raw_id"):
             summary_bits.append(f"raw_id={row['raw_id']}")
         badge = _status_badge(status) if parsed and status else ""
+        if parsed and mode:
+            summary_bits.append(f"mode={mode}")
         attrs = f" data-status='{html.escape(status)}'" if parsed and status else ""
         parts.append(
             f"<details class='sample' {attrs}>"
@@ -130,12 +133,14 @@ def _resolve_raw_table(conn: psycopg.Connection, source: str) -> str | None:
 
 def _parsed_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
     statuses = Counter(str(r.get("enrichment_status") or "null") for r in rows)
+    modes = Counter(str(r.get("enrichment_mode") or "null") for r in rows)
     tag_spans = sum(1 for r in rows if r.get("tag_spans"))
     structured = sum(1 for r in rows if isinstance(r.get("summary_structured"), dict) and r.get("summary_structured"))
     topics = sum(1 for r in rows if r.get("topics"))
     entities = sum(1 for r in rows if r.get("legal_entities"))
     return {
         "statuses": dict(statuses),
+        "modes": dict(modes),
         "tag_spans": tag_spans,
         "summary_structured": structured,
         "topics": topics,
@@ -145,9 +150,11 @@ def _parsed_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 def _render_metrics(metrics: dict[str, Any], sample_size: int) -> str:
     badges = " ".join(_status_badge(k) + f" <span class='metric-num'>{v}</span>" for k, v in metrics["statuses"].items())
+    mode_bits = " | ".join(f"{html.escape(k)}={v}" for k, v in metrics["modes"].items())
     return (
         "<div class='metrics'>"
         f"<div>{badges}</div>"
+        f"<div class='metric-line'>modes: {mode_bits}</div>"
         f"<div class='metric-line'>sample={sample_size} | summary_structured={metrics['summary_structured']} | "
         f"topics={metrics['topics']} | legal_entities={metrics['legal_entities']} | tag_spans={metrics['tag_spans']}</div>"
         "</div>"

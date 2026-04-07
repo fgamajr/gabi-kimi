@@ -99,6 +99,8 @@ def main() -> None:
                     used_fallback = str(row["summary_structured"].get("mode") or row["summary_structured"].get("modo") or "").startswith(
                         "fallback"
                     ) or str(row["summary_structured"].get("modo") or "") == "preview_fallback" or used_fallback
+                current_mode = str(row.get("enrichment_mode") or "").strip() or None
+                mode = "fallback" if used_fallback else (current_mode if current_mode == "llm" else "heuristic")
                 status = classify_enrichment_status(
                     source_type,
                     used_fallback=used_fallback,
@@ -124,6 +126,7 @@ def main() -> None:
                         UPDATE parsed.{source_type}
                         SET
                             pub_date = COALESCE(%s, pub_date),
+                            enrichment_mode = %s,
                             enrichment_status = %s,
                             enrichment_version = %s,
                             h2_version = %s,
@@ -137,6 +140,7 @@ def main() -> None:
                         """,
                         (
                             pub_date,
+                            mode,
                             status,
                             H2_ENRICHMENT_VERSION,
                             ALLOWED_TAGS_VERSION,
