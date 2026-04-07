@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from src.backend.parsing.h2_postprocess import (
+    build_confidence_fields,
     build_summary_short,
+    build_summary_structured,
     classify_enrichment_mode,
     classify_enrichment_status,
     clean_text,
@@ -9,6 +11,7 @@ from src.backend.parsing.h2_postprocess import (
     derive_legal_entities,
     derive_topics,
     normalize_topics,
+    validate_legal_entities,
     validate_summary_structured,
 )
 
@@ -36,12 +39,12 @@ def test_classify_done_fallback() -> None:
     status = classify_enrichment_status(
         "dou_documents",
         used_fallback=True,
-        spans_count=0,
-        tags_count=1,
+        tags=["identifica"],
         summary_short="Resumo limpo",
         summary_structured={"tipo_ato": "PORTARIA"},
         topics=["pessoal"],
         legal_entities=[],
+        confidence_fields={"overall": 0.0},
     )
     assert status == "done_fallback"
 
@@ -102,3 +105,62 @@ def test_derive_heuristic_spans_uses_section_map_and_regex() -> None:
     assert "fundamento_legal" in tags
     assert "processo" in tags
     assert "assinatura" in tags
+
+
+def test_classify_done_partial_when_only_assinatura() -> None:
+    confidence = build_confidence_fields(
+        "tcu_jurisprudencia_selecionada",
+        tags=["assinatura"],
+        summary_structured={"area": "Pessoal", "tema": "Aposentadoria", "subtema": "Revisão"},
+        topics=["pessoal"],
+        legal_entities=[{"type": "relator", "value": "MINISTRO X"}],
+    )
+    status = classify_enrichment_status(
+        "tcu_jurisprudencia_selecionada",
+        used_fallback=False,
+        tags=["assinatura"],
+        summary_short="Resumo válido",
+        summary_structured={"area": "Pessoal", "tema": "Aposentadoria", "subtema": "Revisão"},
+        topics=["pessoal"],
+        legal_entities=[{"type": "relator", "value": "MINISTRO X"}],
+        confidence_fields=confidence,
+    )
+    assert status == "done_partial"
+
+
+def test_build_summary_structured_dou_does_not_duplicate_fields() -> None:
+    summary = build_summary_structured(
+        "dou_documents",
+        "Primeira frase do ato. Segunda frase com efeito. Terceira frase.",
+        {"h1_tipo": "NORMATIVO", "h1_subtipo": "PORTARIA", "pub_date": "2026-01-01"},
+        ["normativo"],
+        [{"type": "base_legal", "value": "Lei 8.666/1993"}],
+    )
+    assert summary["objeto"] != summary["efeito_principal"]
+
+
+def test_build_confidence_fields_penalizes_signature_only() -> None:
+    confidence = build_confidence_fields(
+        "tcu_btcu",
+        tags=["assinatura", "assinatura"],
+        summary_structured={"section_title": "Resumo", "assunto": "Assunto"},
+        topics=["controle_externo"],
+        legal_entities=[],
+    )
+    assert confidence["tag_spans"] < 0.3
+    assert confidence["overall"] < 0.7
+
+
+def test_validate_legal_entities_deduplicates_by_casing() -> None:
+    entities = validate_legal_entities(
+        [
+            {"type": "base_legal", "value": "Lei 8.666/1993"},
+            {"type": "base_legal", "value": "lei 8.666/1993"},
+        ]
+    )
+    assert len(entities) == 1
+
+
+def test_derive_legal_entities_ignores_truncated_base_legal() -> None:
+    entities = derive_legal_entities("RESOLUÇÃO- Lei n. PORTARIA- Decreto-", {})
+    assert not any(item["type"] == "base_legal" for item in entities)

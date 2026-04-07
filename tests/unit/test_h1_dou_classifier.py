@@ -27,9 +27,10 @@ def test_classify_licitacao_edital() -> None:
     assert out.subtipo in {"EDITAL", "AVISO_LICITACAO"}
 
 
-def test_classify_unknown_goes_pending() -> None:
+def test_classify_unknown_goes_done_with_low_confidence() -> None:
     out = classify_dou_document({"texto": "texto sem padrão explícito"})
-    assert out.status == "pending"
+    assert out.status == "done"
+    assert out.confidence == 0.35
 
 
 def test_classify_retificacao() -> None:
@@ -42,3 +43,14 @@ def test_classify_despacho() -> None:
     out = classify_dou_document({"identifica": "DESPACHO Nº 12/2026", "texto": "Despacho decisório do órgão."})
     assert out.tipo == "DECISORIO"
     assert out.subtipo == "DESPACHO"
+
+
+def test_art_type_hint_stabilizes_status() -> None:
+    out = classify_dou_document(
+        {
+            "art_type": "portaria",
+            "texto": "Texto com referência cruzada a lei anterior, mas o ato é portaria.",
+        }
+    )
+    assert out.subtipo == "PORTARIA"
+    assert out.status == "done"

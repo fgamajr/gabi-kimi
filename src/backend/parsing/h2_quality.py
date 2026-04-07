@@ -72,8 +72,11 @@ def evaluate_h2_output(
         issues.append("missing_topics")
 
     unique_tags = tags_flat(spans)
+    useful_tags = [tag for tag in unique_tags if tag != "assinatura"]
     if not unique_tags:
         issues.append("missing_tags")
+    if unique_tags and not useful_tags:
+        issues.append("signature_only")
 
     score = 0.0
     if valid_schema:
@@ -86,8 +89,10 @@ def evaluate_h2_output(
         score += 0.15
     if topics_present:
         score += 0.1
-    if unique_tags:
+    if useful_tags:
         score += 0.05
+    if unique_tags and not useful_tags:
+        score = min(score, 0.55)
 
     return SemanticQualityReport(
         valid_schema=valid_schema,

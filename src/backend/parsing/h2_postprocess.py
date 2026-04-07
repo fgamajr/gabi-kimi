@@ -7,7 +7,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 
-H2_ENRICHMENT_VERSION = "1.1.0"
+H2_ENRICHMENT_VERSION = "1.2.0"
 
 TOPIC_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
@@ -125,17 +125,23 @@ TOPIC_ALIASES: dict[str, str] = {
 }
 
 LEGAL_REFERENCE_RE = re.compile(
-    r"\b(?:Lei|Decreto|Portaria|Resolu[cç][aã]o|Instru[cç][aã]o Normativa)\s*(?:n[º°\.]?\s*)?[\d./-]+",
+    r"\b(?:Lei(?:\s+Complementar)?|Decreto(?:-Lei)?|Portaria|Resolu[cç][aã]o|Instru[cç][aã]o Normativa)"
+    r"\s*(?:n[º°o.]?\s*)?\d[\d./-]*",
     re.IGNORECASE,
 )
 CNPJ_RE = re.compile(r"\b\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}\b")
 CPF_RE = re.compile(r"\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b")
 PROCESSO_RE = re.compile(
-    r"\b(?:Processo|Proc\.?|TC)\s*(?:n[º°o.]?\s*)?(?:[A-Z]{1,4}\s*)?[\d./-]{7,}\b",
+    r"\b(?:Processo|Proc\.?|TC)\s*(?:n[º°o.]?\s*)?(?:[A-Z]{1,4}\s*)?\d[\d./-]{6,}\b",
     re.IGNORECASE,
 )
-SIGNATURE_RE = re.compile(
-    r"\b[A-ZÁÉÍÓÚÂÊÔÃÕÇ]{2,}(?:\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ]{2,}){1,6}\b(?=[^<\n]{0,120}\b(?:MINISTRO|SECRET[ÁA]RIO|DIRETOR(?:A)?|PRESIDENTE|RELATOR|PROCURADOR|SUPERINTENDENTE|COORDENADOR|GERENTE|CHEFE)\b)",
+SIGNATURE_CANDIDATE_RE = re.compile(
+    r"\b[A-ZÁÉÍÓÚÂÊÔÃÕÇ]{2,}(?:\s+(?:DE|DA|DO|DAS|DOS|E|[A-ZÁÉÍÓÚÂÊÔÃÕÇ]{2,})){1,6}\b"
+)
+SIGNATURE_ROLE_RE = re.compile(
+    r"\b(?:ministro|secret[áa]ri[oa]|diretor(?:a)?(?:-geral)?|presidente|relator|procurador(?:a)?|"
+    r"superintendente|coordenador(?:a)?(?:-geral)?|gerente(?:-geral)?|chefe|auditor|conselheiro|"
+    r"juiz|desembargador|governador|prefeito|senador|deputado|reitor)\b",
     re.IGNORECASE,
 )
 ORG_SUFFIX_RE = re.compile(
@@ -144,6 +150,67 @@ ORG_SUFFIX_RE = re.compile(
 TAG_RE = re.compile(r"<[^>]+>")
 SPACE_RE = re.compile(r"\s+")
 SOURCE_NAME_RE = re.compile(r"^(dou_documents|tcu_[a-z0-9_]+)$", re.IGNORECASE)
+BAD_ORG_ENTITY_RE = re.compile(
+    r"\b(?:de|do|da|das|dos|para|com|que|fica|resolve|torna|disp[oõ]e|considerando|"
+    r"trata-se|homologo|nomeia|exonera|designa)\b",
+    re.IGNORECASE,
+)
+TRUNCATED_ENTITY_RE = re.compile(r"[-./:;,]$")
+ONLY_NUMBER_RE = re.compile(r"^\d+(?:[./-]\d+)*$")
+GENERIC_TOPICS = {"administrativo", "controle_externo", "normativo", "regulacao", "jurisprudencia"}
+SIGNATURE_MAX_SPANS = 5
+SIGNATURE_MAX_CHARS = 80
+ORGANIZACAO_MAX_CHARS = 60
+FORBIDDEN_SIGNATURE_TOKENS = {
+    "TRIBUNAL",
+    "MINISTERIO",
+    "MINISTÉRIO",
+    "AGENCIA",
+    "AGÊNCIA",
+    "SECRETARIA",
+    "SUPERINTENDENCIA",
+    "SUPERINTENDÊNCIA",
+    "COMISSAO",
+    "COMISSÃO",
+    "PARTIDO",
+    "CAMARA",
+    "CÂMARA",
+    "SENADO",
+    "COORDENACAO",
+    "COORDENAÇÃO",
+    "DIRETORIA",
+    "GERENCIA",
+    "GERÊNCIA",
+    "ANP",
+    "ANVISA",
+    "TCU",
+}
+SOURCE_STATUS_RULES: dict[str, dict[str, int | bool | float]] = {
+    "dou_documents": {"min_structured": 2, "min_useful_tags": 2, "require_entities": 0, "min_overall": 0.7},
+    "tcu_acordao_completo": {"min_structured": 3, "min_useful_tags": 2, "require_entities": 0, "min_overall": 0.72},
+    "tcu_jurisprudencia_selecionada": {"min_structured": 3, "min_useful_tags": 2, "require_entities": 0, "min_overall": 0.72},
+    "tcu_resposta_consulta": {"min_structured": 3, "min_useful_tags": 2, "require_entities": 0, "min_overall": 0.72},
+    "tcu_sumula": {"min_structured": 2, "min_useful_tags": 1, "require_entities": 0, "min_overall": 0.7},
+    "tcu_boletim_jurisprudencia": {"min_structured": 2, "min_useful_tags": 2, "require_entities": 0, "min_overall": 0.74},
+    "tcu_boletim_pessoal": {"min_structured": 2, "min_useful_tags": 1, "require_entities": 0, "min_overall": 0.72},
+    "tcu_boletim_informativo_lc": {"min_structured": 2, "min_useful_tags": 2, "require_entities": 0, "min_overall": 0.72},
+    "tcu_normas": {"min_structured": 3, "min_useful_tags": 1, "require_entities": 0, "min_overall": 0.72},
+    "tcu_btcu": {"min_structured": 2, "min_useful_tags": 2, "require_entities": 1, "min_overall": 0.76},
+    "tcu_publicacoes": {"min_structured": 2, "min_useful_tags": 2, "require_entities": 0, "min_overall": 0.74},
+}
+SECTION_TAGS_BY_SOURCE: dict[str, tuple[str, ...]] = {
+    "dou_documents": ("identifica", "fundamento_legal"),
+    "tcu_acordao_completo": ("sumario", "decisao", "referencia_legal"),
+    "tcu_jurisprudencia_selecionada": ("enunciado", "excerto", "referencia_legal", "indexacao"),
+    "tcu_resposta_consulta": ("pergunta", "resposta", "referencia_legal", "indexacao"),
+    "tcu_sumula": ("enunciado", "excerto", "referencia_legal"),
+    "tcu_boletim_jurisprudencia": ("titulo", "enunciado"),
+    "tcu_boletim_pessoal": ("titulo", "enunciado"),
+    "tcu_boletim_informativo_lc": ("titulo", "enunciado", "texto_info"),
+    "tcu_normas": ("titulo", "assunto", "normas_relacionadas"),
+    "tcu_btcu": ("section_title", "assunto", "base_legal"),
+    "tcu_publicacoes": ("title", "description"),
+}
 
 SOURCE_SCHEMA_KEYS: dict[str, tuple[str, ...]] = {
     "dou_documents": (
@@ -291,6 +358,44 @@ def _normalize_string(value: Any) -> str | None:
     return clean_text(str(value)) or None
 
 
+def _normalize_entity_value(value: Any) -> str | None:
+    cleaned = _normalize_string(value)
+    if not cleaned:
+        return None
+    cleaned = SPACE_RE.sub(" ", cleaned).strip(" \t\r\n-.,;:/")
+    if not cleaned or TRUNCATED_ENTITY_RE.search(cleaned):
+        return None
+    return cleaned
+
+
+def _canonical_entity_key(entity_type: str, value: str) -> str:
+    normalized = clean_text(value).lower()
+    normalized = re.sub(r"\s+", " ", normalized)
+    return f"{entity_type}:{normalized}"
+
+
+def _is_bad_organization(value: str) -> bool:
+    if len(value) > ORGANIZACAO_MAX_CHARS:
+        return True
+    if BAD_ORG_ENTITY_RE.search(value):
+        return True
+    if sum(1 for token in value.split() if token.isupper()) < 2:
+        return True
+    return False
+
+
+def _normalize_legal_reference(value: str) -> str | None:
+    match = LEGAL_REFERENCE_RE.search(value)
+    if not match:
+        return None
+    cleaned = clean_text(match.group(0))
+    cleaned = cleaned.replace(" n .", " nº ").replace(" n.", " nº ").replace(" n ", " nº ")
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -.,;:/")
+    if not re.search(r"\d", cleaned):
+        return None
+    return cleaned
+
+
 def _normalize_string_list(values: Any) -> list[str]:
     out: list[str] = []
     for value in values or []:
@@ -354,17 +459,23 @@ def validate_legal_entities(
     payload: list[dict[str, Any]] | None,
 ) -> list[dict[str, str]]:
     out: list[dict[str, str]] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[str] = set()
     for item in payload or []:
         try:
             model = LegalEntityModel.model_validate(item)
         except ValidationError:
             continue
         entity_type = _normalize_string(model.type)
-        entity_value = _normalize_string(model.value)
+        entity_value = _normalize_entity_value(model.value)
         if not entity_type or not entity_value:
             continue
-        key = (entity_type, entity_value)
+        if entity_type == "base_legal":
+            entity_value = _normalize_legal_reference(entity_value) or ""
+        if entity_type == "organizacao" and _is_bad_organization(entity_value):
+            continue
+        if not entity_value:
+            continue
+        key = _canonical_entity_key(entity_type, entity_value)
         if key in seen:
             continue
         seen.add(key)
@@ -412,6 +523,13 @@ def derive_topics(source_type: str, text: str, structured: dict[str, Any]) -> li
             topics.append(topic)
     if source_type.startswith("tcu_") and "controle_externo" not in topics:
         topics.append("controle_externo")
+    if source_type == "tcu_jurisprudencia_selecionada":
+        if structured.get("tema") and "jurisprudencia" not in topics:
+            topics.append("jurisprudencia")
+        tema = clean_text(str(structured.get("tema") or ""))
+        subtema = clean_text(str(structured.get("subtema") or ""))
+        if re.search(r"\blicita[cç][aã]o\b", f"{tema} {subtema}", re.IGNORECASE) and "licitacao" not in topics:
+            topics.append("licitacao")
     orgao = clean_text(str(structured.get("orgao_emissor") or ""))
     if (
         re.search(r"\banvisa\b|\bsa[uú]de\b", orgao, re.IGNORECASE)
@@ -433,46 +551,50 @@ def derive_legal_entities(
 ) -> list[dict[str, str]]:
     cleaned = clean_text(text)
     entities: list[dict[str, str]] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[str] = set()
 
     for key in ("orgao_emissor", "colegiado", "relator", "numero_processo"):
-        value = str(structured.get(key) or "").strip()
+        value = _normalize_entity_value(structured.get(key))
         if value:
-            item = ("campo", value)
+            item = _canonical_entity_key(key, value)
             if item not in seen:
                 seen.add(item)
                 entities.append({"type": key, "value": value})
 
     for match in CNPJ_RE.findall(cleaned):
-        item = ("cnpj", match)
+        item = _canonical_entity_key("cnpj", match)
         if item not in seen:
             seen.add(item)
             entities.append({"type": "cnpj", "value": match})
 
     for match in CPF_RE.findall(cleaned):
-        item = ("cpf", match)
+        item = _canonical_entity_key("cpf", match)
         if item not in seen:
             seen.add(item)
             entities.append({"type": "cpf", "value": match})
 
     for match in PROCESSO_RE.findall(cleaned):
-        value = clean_text(match)
-        item = ("processo", value)
+        value = _normalize_entity_value(match)
+        item = _canonical_entity_key("processo", value or "")
         if value and item not in seen:
             seen.add(item)
             entities.append({"type": "processo", "value": value})
 
     for match in LEGAL_REFERENCE_RE.findall(cleaned):
-        item = ("base_legal", match)
-        if item not in seen:
+        value = _normalize_legal_reference(match)
+        item = _canonical_entity_key("base_legal", value or "")
+        if value and item not in seen:
             seen.add(item)
-            entities.append({"type": "base_legal", "value": match})
+            entities.append({"type": "base_legal", "value": value})
 
     for match in ORG_SUFFIX_RE.findall(cleaned):
-        item = ("organizacao", match)
+        value = _normalize_entity_value(match)
+        if not value or _is_bad_organization(value):
+            continue
+        item = _canonical_entity_key("organizacao", value)
         if item not in seen:
             seen.add(item)
-            entities.append({"type": "organizacao", "value": match})
+            entities.append({"type": "organizacao", "value": value})
 
     return entities[:16]
 
@@ -520,6 +642,35 @@ def _source_legal_tag(allowed_tags: tuple[str, ...]) -> str | None:
     return None
 
 
+def _section_tags_for_source(source_type: str, allowed_tags: tuple[str, ...]) -> tuple[str, ...]:
+    preferred = SECTION_TAGS_BY_SOURCE.get(source_type, ())
+    return tuple(tag for tag in preferred if tag in allowed_tags)
+
+
+def _iter_signature_spans(text: str, text_len: int) -> list[dict[str, Any]]:
+    spans: list[dict[str, Any]] = []
+    for match in SIGNATURE_CANDIDATE_RE.finditer(text):
+        candidate = clean_text(match.group(0))
+        if len(candidate) > SIGNATURE_MAX_CHARS:
+            continue
+        upper_tokens = {token for token in candidate.split() if token not in {"DE", "DA", "DO", "DAS", "DOS", "E"}}
+        if upper_tokens & FORBIDDEN_SIGNATURE_TOKENS:
+            continue
+        context = text[match.end() : min(text_len, match.end() + 80)]
+        if not SIGNATURE_ROLE_RE.search(context):
+            continue
+        _add_span(
+            spans,
+            tag="assinatura",
+            start=match.start(),
+            end=match.end(),
+            text_len=text_len,
+        )
+        if len(spans) >= SIGNATURE_MAX_SPANS:
+            break
+    return spans
+
+
 def derive_heuristic_spans(
     *,
     source_type: str,
@@ -527,14 +678,11 @@ def derive_heuristic_spans(
     section_map: dict[str, Any] | None,
     allowed_tags: tuple[str, ...],
 ) -> list[dict[str, Any]]:
-    del source_type
     spans: list[dict[str, Any]] = []
     text_len = len(text)
     section_map = section_map or {}
 
-    for tag in ("identifica", _source_legal_tag(allowed_tags)):
-        if not tag or tag not in allowed_tags:
-            continue
+    for tag in _section_tags_for_source(source_type, allowed_tags):
         meta = section_map.get(tag)
         if not isinstance(meta, dict):
             continue
@@ -556,16 +704,31 @@ def derive_heuristic_spans(
             )
 
     if "assinatura" in allowed_tags:
-        for match in SIGNATURE_RE.finditer(text):
+        for span in _iter_signature_spans(text, text_len):
             _add_span(
                 spans,
-                tag="assinatura",
-                start=match.start(),
-                end=match.end(),
+                tag=span["tag"],
+                start=span["start_char"],
+                end=span["end_char"],
                 text_len=text_len,
             )
 
     return sorted(spans, key=lambda item: (item["start_char"], item["end_char"], item["tag"]))
+
+
+def _split_sentences(text: str) -> list[str]:
+    cleaned = clean_text(text)
+    if not cleaned:
+        return []
+    parts = re.split(r"(?<=[.!?])\s+", cleaned)
+    return [part.strip() for part in parts if part.strip()]
+
+
+def _meaningful_value(value: Any) -> str | None:
+    cleaned = _normalize_string(value)
+    if not cleaned or ONLY_NUMBER_RE.fullmatch(cleaned):
+        return None
+    return cleaned
 
 
 def build_summary_structured(
@@ -575,18 +738,20 @@ def build_summary_structured(
     topics: list[str],
     legal_entities: list[dict[str, str]],
 ) -> dict[str, Any]:
-    cleaned = clean_text(text)
-    first_sentence = cleaned.split(". ")[0][:220]
+    sentences = _split_sentences(text)
+    first_sentence = (sentences[0] if sentences else clean_text(text))[:220]
+    second_sentence = (sentences[1] if len(sentences) > 1 else "")[:220]
 
     if source_type == "dou_documents":
+        fundamento = [
+            x["value"] for x in legal_entities if x["type"] == "base_legal"
+        ][:6]
         return {
             "tipo_ato": structured.get("h1_tipo") or structured.get("art_type"),
             "subtipo_ato": structured.get("h1_subtipo") or structured.get("art_type"),
             "objeto": first_sentence,
-            "fundamento_legal": [
-                x["value"] for x in legal_entities if x["type"] == "base_legal"
-            ][:6],
-            "efeito_principal": first_sentence,
+            "fundamento_legal": fundamento,
+            "efeito_principal": second_sentence or None,
             "vigencia": structured.get("data_text") or structured.get("pub_date"),
         }
     if source_type == "tcu_acordao_completo":
@@ -630,13 +795,11 @@ def build_summary_structured(
         }
     key_a = next(iter(structured.keys()), None)
     key_b = next(iter(topics), None)
+    primary = _meaningful_value(structured.get(key_a)) if key_a else None
     return {
-        SOURCE_SCHEMA_KEYS.get(source_type, ("ponto_principal",))[0]: structured.get(
-            key_a
-        )
-        or first_sentence,
+        SOURCE_SCHEMA_KEYS.get(source_type, ("ponto_principal",))[0]: primary or first_sentence,
         "tema": key_b,
-        "ponto_principal": first_sentence,
+        "ponto_principal": second_sentence or first_sentence,
     }
 
 
@@ -691,17 +854,78 @@ def classify_enrichment_mode(
     return "heuristic"
 
 
+def useful_tags(tags: list[str]) -> list[str]:
+    return [tag for tag in tags if tag != "assinatura"]
+
+
+def build_confidence_fields(
+    source_type: str,
+    *,
+    tags: list[str],
+    summary_structured: dict[str, Any] | None,
+    topics: list[str] | None,
+    legal_entities: list[dict[str, str]] | None,
+) -> dict[str, float]:
+    schema_keys = SOURCE_SCHEMA_KEYS.get(source_type, ())
+    structured_score = 0
+    if summary_structured:
+        structured_score = sum(
+            1
+            for key in schema_keys
+            if summary_structured.get(key) not in (None, "", [], {})
+        )
+    unique_useful_tags = list(dict.fromkeys(useful_tags(tags)))
+    signature_count = max(0, len(tags) - len(unique_useful_tags))
+    topic_values = topics or []
+    specific_topics = [topic for topic in topic_values if topic not in GENERIC_TOPICS]
+    entity_values = legal_entities or []
+    entity_types = {item["type"] for item in entity_values}
+
+    tag_conf = 0.0
+    if unique_useful_tags:
+        tag_conf = min(0.9, 0.55 + 0.12 * min(len(unique_useful_tags), 3) - 0.05 * signature_count)
+    elif tags:
+        tag_conf = 0.2
+
+    structured_conf = 0.0
+    if schema_keys:
+        structured_conf = min(0.9, 0.35 + 0.55 * (structured_score / max(1, len(schema_keys))))
+    elif summary_structured:
+        structured_conf = 0.6
+
+    topics_conf = 0.0
+    if topic_values:
+        topics_conf = 0.45 if not specific_topics else min(0.85, 0.55 + 0.1 * min(len(specific_topics), 3))
+
+    entities_conf = 0.0
+    if entity_values:
+        entities_conf = min(0.9, 0.45 + 0.1 * min(len(entity_types), 3) + 0.05 * min(len(entity_values), 4))
+
+    overall = round(
+        (0.35 * tag_conf) + (0.25 * structured_conf) + (0.2 * entities_conf) + (0.2 * topics_conf),
+        3,
+    )
+    return {
+        "tag_spans": round(max(0.0, tag_conf), 3),
+        "summary_structured": round(max(0.0, structured_conf), 3),
+        "topics": round(max(0.0, topics_conf), 3),
+        "legal_entities": round(max(0.0, entities_conf), 3),
+        "overall": max(0.0, overall),
+    }
+
+
 def classify_enrichment_status(
     source_type: str,
     *,
     used_fallback: bool,
-    spans_count: int,
-    tags_count: int,
+    tags: list[str],
     summary_short: str | None,
     summary_structured: dict[str, Any] | None,
     topics: list[str] | None,
     legal_entities: list[dict[str, str]] | None,
+    confidence_fields: dict[str, float] | None,
 ) -> str:
+    rules = SOURCE_STATUS_RULES.get(source_type, SOURCE_STATUS_RULES["dou_documents"])
     schema_keys = SOURCE_SCHEMA_KEYS.get(source_type, ())
     structured_score = 0
     if summary_structured:
@@ -713,19 +937,26 @@ def classify_enrichment_status(
     has_topics = bool(topics)
     has_summary = bool((summary_short or "").strip())
     has_entities = bool(legal_entities)
+    useful = useful_tags(tags)
+    useful_tags_count = len(set(useful))
+    has_non_signature_spans = useful_tags_count > 0
+    overall = float((confidence_fields or {}).get("overall") or 0.0)
     if used_fallback:
         return "done_fallback"
     if (
         has_summary
         and has_topics
-        and structured_score >= max(1, min(3, len(schema_keys)))
-        and spans_count > 0
+        and has_non_signature_spans
+        and structured_score >= int(rules["min_structured"])
+        and useful_tags_count >= int(rules["min_useful_tags"])
+        and overall >= float(rules["min_overall"])
+        and (not bool(rules["require_entities"]) or has_entities)
     ):
         return "done_full"
     if (
         has_summary
         and has_topics
-        and (structured_score > 0 or has_entities or tags_count > 0)
+        and (structured_score > 0 or has_entities or useful_tags_count > 0 or bool(tags))
     ):
         return "done_partial"
     return "done_fallback"

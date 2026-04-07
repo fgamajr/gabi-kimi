@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS {table} (
     summary_structured JSONB,
     legal_entities JSONB,
     topics TEXT[],
+    confidence_fields JSONB,
     chunk_summaries JSONB,
 
     parser_version TEXT NOT NULL,

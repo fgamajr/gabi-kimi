@@ -103,6 +103,7 @@ def main() -> None:
                         summary_structured,
                         legal_entities,
                         topics,
+                        confidence_fields,
                         chunk_summaries,
                         updated_at
                     FROM {table}

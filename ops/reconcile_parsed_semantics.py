@@ -10,6 +10,7 @@ from psycopg.rows import dict_row
 from src.backend.core.config import settings
 from src.backend.parsing.h2_postprocess import (
     H2_ENRICHMENT_VERSION,
+    build_confidence_fields,
     build_summary_short,
     build_summary_structured,
     classify_enrichment_status,
@@ -17,7 +18,6 @@ from src.backend.parsing.h2_postprocess import (
     derive_heuristic_spans,
     derive_legal_entities,
     derive_topics,
-    fallback_tags,
     normalize_topics,
     validate_legal_entities,
     validate_summary_structured,
@@ -87,7 +87,7 @@ def main() -> None:
                     )
                     spans_model, _ = parse_spans_tolerant(heuristic_spans)
                 span_tags = tags_flat(spans_model)
-                tags = span_tags or fallback_tags(allowed, row.get("section_map") or {})
+                tags = span_tags
                 topics = _coerce_topics(source_type, row.get("topics"), text, structured)
                 legal_entities = validate_legal_entities(row.get("legal_entities"))
                 if not legal_entities:
@@ -110,15 +110,22 @@ def main() -> None:
                     ) or str(row["summary_structured"].get("modo") or "") == "preview_fallback" or used_fallback
                 current_mode = str(row.get("enrichment_mode") or "").strip() or None
                 mode = "fallback" if used_fallback else (current_mode if current_mode == "llm" else "heuristic")
+                confidence_fields = build_confidence_fields(
+                    source_type,
+                    tags=tags,
+                    summary_structured=summary_structured,
+                    topics=topics,
+                    legal_entities=legal_entities,
+                )
                 status = classify_enrichment_status(
                     source_type,
                     used_fallback=used_fallback,
-                    spans_count=len(spans_model),
-                    tags_count=len(tags),
+                    tags=tags,
                     summary_short=summary_short,
                     summary_structured=summary_structured,
                     topics=topics,
                     legal_entities=legal_entities,
+                    confidence_fields=confidence_fields,
                 )
 
                 pub_date = row.get("pub_date")
@@ -145,6 +152,7 @@ def main() -> None:
                             summary_structured = %s::jsonb,
                             legal_entities = %s::jsonb,
                             topics = %s,
+                            confidence_fields = %s::jsonb,
                             updated_at = NOW()
                         WHERE raw_id = %s
                         """,
@@ -160,6 +168,7 @@ def main() -> None:
                             json.dumps(summary_structured, ensure_ascii=False),
                             json.dumps(legal_entities, ensure_ascii=False),
                             topics,
+                            json.dumps(confidence_fields, ensure_ascii=False),
                             raw_id,
                         ),
                     )

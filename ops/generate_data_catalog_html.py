@@ -135,16 +135,33 @@ def _parsed_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
     statuses = Counter(str(r.get("enrichment_status") or "null") for r in rows)
     modes = Counter(str(r.get("enrichment_mode") or "null") for r in rows)
     tag_spans = sum(1 for r in rows if r.get("tag_spans"))
+    useful_spans = sum(
+        1
+        for r in rows
+        if any(str(span.get("tag") or "") != "assinatura" for span in (r.get("tag_spans") or []))
+    )
+    signature_spans = sum(
+        sum(1 for span in (r.get("tag_spans") or []) if str(span.get("tag") or "") == "assinatura")
+        for r in rows
+    )
     structured = sum(1 for r in rows if isinstance(r.get("summary_structured"), dict) and r.get("summary_structured"))
     topics = sum(1 for r in rows if r.get("topics"))
     entities = sum(1 for r in rows if r.get("legal_entities"))
+    confidence_values = [
+        float((r.get("confidence_fields") or {}).get("overall"))
+        for r in rows
+        if isinstance(r.get("confidence_fields"), dict) and (r.get("confidence_fields") or {}).get("overall") is not None
+    ]
     return {
         "statuses": dict(statuses),
         "modes": dict(modes),
         "tag_spans": tag_spans,
+        "useful_spans": useful_spans,
+        "signature_spans": signature_spans,
         "summary_structured": structured,
         "topics": topics,
         "legal_entities": entities,
+        "avg_confidence": round(sum(confidence_values) / len(confidence_values), 3) if confidence_values else None,
     }
 
 
@@ -156,7 +173,9 @@ def _render_metrics(metrics: dict[str, Any], sample_size: int) -> str:
         f"<div>{badges}</div>"
         f"<div class='metric-line'>modes: {mode_bits}</div>"
         f"<div class='metric-line'>sample={sample_size} | summary_structured={metrics['summary_structured']} | "
-        f"topics={metrics['topics']} | legal_entities={metrics['legal_entities']} | tag_spans={metrics['tag_spans']}</div>"
+        f"topics={metrics['topics']} | legal_entities={metrics['legal_entities']} | tag_spans={metrics['tag_spans']} | "
+        f"useful_span_docs={metrics['useful_spans']} | assinatura_spans={metrics['signature_spans']} | "
+        f"avg_confidence={metrics['avg_confidence']}</div>"
         "</div>"
     )
 

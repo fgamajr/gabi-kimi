@@ -29,3 +29,14 @@ def test_quality_invalid_tag_scores_low() -> None:
     report = evaluate_h2_output(text=text, allowed_tags=("ementa",), output=output)
     assert report.score < 0.6
     assert report.valid_spans is False
+
+
+def test_quality_signature_only_is_flagged() -> None:
+    text = "JOAO DA SILVA Diretor."
+    output = {
+        "tag_spans": [{"tag": "assinatura", "start_char": 0, "end_char": 14, "confidence": 0.4}],
+        "summary_short": "Assinatura isolada.",
+        "topics": ["administrativo"],
+    }
+    report = evaluate_h2_output(text=text, allowed_tags=("assinatura",), output=output)
+    assert "signature_only" in report.issues

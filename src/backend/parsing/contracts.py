@@ -56,6 +56,7 @@ class EnrichmentResult:
     summary_structured: dict[str, Any] | None
     legal_entities: list[dict[str, Any]] | None
     topics: list[str] | None
+    confidence_fields: dict[str, float] | None
     chunk_summaries: list[dict[str, Any]] | None
     enrichment_input_hash: str
     error: str | None = None

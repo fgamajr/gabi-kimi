@@ -16,6 +16,7 @@ from src.backend.core.config import settings
 from src.backend.parsing.h2_llm import build_h2_prompt, call_local_llm
 from src.backend.parsing.h2_postprocess import (
     H2_ENRICHMENT_VERSION,
+    build_confidence_fields,
     build_summary_short,
     build_summary_structured,
     classify_enrichment_mode,
@@ -24,7 +25,6 @@ from src.backend.parsing.h2_postprocess import (
     derive_heuristic_spans,
     derive_legal_entities,
     derive_topics,
-    fallback_tags,
     normalize_topics,
     validate_legal_entities,
     validate_summary_structured,
@@ -418,6 +418,7 @@ def _update_enrichment(
     summary_structured: dict[str, Any] | None,
     legal_entities: list[dict[str, Any]] | None,
     topics: list[str] | None,
+    confidence_fields: dict[str, float] | None,
     chunk_summaries: list[dict[str, Any]] | None,
 ) -> None:
     table = _parsed_table(source_type)
@@ -439,6 +440,7 @@ def _update_enrichment(
                 summary_structured = %s::jsonb,
                 legal_entities = %s::jsonb,
                 topics = %s,
+                confidence_fields = %s::jsonb,
                 chunk_summaries = %s::jsonb,
                 enrichment_version = %s,
                 updated_at = NOW()
@@ -460,6 +462,9 @@ def _update_enrichment(
                 if legal_entities is not None
                 else None,
                 topics,
+                json.dumps(confidence_fields, ensure_ascii=False)
+                if confidence_fields is not None
+                else None,
                 json.dumps(chunk_summaries, ensure_ascii=False)
                 if chunk_summaries is not None
                 else None,
@@ -510,6 +515,7 @@ def process_one_enrichment(
                     summary_structured=None,
                     legal_entities=None,
                     topics=None,
+                    confidence_fields=None,
                     chunk_summaries=None,
                 )
                 _mark_queue_done(conn, item.queue_id)
@@ -577,8 +583,6 @@ def process_one_enrichment(
                 span_issues.extend(heuristic_span_issues)
             spans = [x.model_dump() for x in spans_model]
             tags = tags_flat(spans_model)
-            if not tags:
-                tags = fallback_tags(allowed, section_map)
             tagged_xml = render_tagged_xml(text, spans_model) if not heuristic_spans else ""
             llm_summary_short = out.get("summary_short")
             llm_topics = out.get("topics")
@@ -618,6 +622,13 @@ def process_one_enrichment(
                 summary_short = build_summary_short(
                     item.source_type, clean_source_text, structured, topics
                 )
+            confidence_fields = build_confidence_fields(
+                item.source_type,
+                tags=tags,
+                summary_structured=summary_structured,
+                topics=topics,
+                legal_entities=legal_entities,
+            )
             mode = classify_enrichment_mode(
                 used_fallback=used_fallback or bool(out.get("__fallback")),
                 llm_summary_used=llm_summary_used,
@@ -629,12 +640,12 @@ def process_one_enrichment(
             status = classify_enrichment_status(
                 item.source_type,
                 used_fallback=used_fallback or bool(out.get("__fallback")),
-                spans_count=len(spans),
-                tags_count=len(tags),
+                tags=tags,
                 summary_short=summary_short,
                 summary_structured=summary_structured,
                 topics=topics,
                 legal_entities=legal_entities,
+                confidence_fields=confidence_fields,
             )
             _update_enrichment(
                 conn,
@@ -650,6 +661,7 @@ def process_one_enrichment(
                 summary_structured=summary_structured,
                 legal_entities=legal_entities,
                 topics=topics,
+                confidence_fields=confidence_fields,
                 chunk_summaries=out.get("chunk_summaries"),
             )
             _mark_queue_done(conn, item.queue_id)
@@ -670,6 +682,7 @@ def process_one_enrichment(
                     "mode": mode,
                     "span_issues": span_issues,
                     "status": status,
+                    "confidence_overall": confidence_fields.get("overall"),
                 }
             )
             return True

@@ -13,3 +13,4 @@ weasyprint
 pymupdf
 typer
 watchdog
+pytest
