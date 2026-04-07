@@ -192,11 +192,11 @@ SOURCE_STATUS_RULES: dict[str, dict[str, int | bool | float]] = {
     "tcu_jurisprudencia_selecionada": {"min_structured": 3, "min_useful_tags": 2, "require_entities": 0, "min_overall": 0.72},
     "tcu_resposta_consulta": {"min_structured": 3, "min_useful_tags": 2, "require_entities": 0, "min_overall": 0.72},
     "tcu_sumula": {"min_structured": 2, "min_useful_tags": 1, "require_entities": 0, "min_overall": 0.7},
-    "tcu_boletim_jurisprudencia": {"min_structured": 2, "min_useful_tags": 2, "require_entities": 0, "min_overall": 0.74},
-    "tcu_boletim_pessoal": {"min_structured": 2, "min_useful_tags": 1, "require_entities": 0, "min_overall": 0.72},
+    "tcu_boletim_jurisprudencia": {"min_structured": 2, "min_useful_tags": 2, "require_entities": 0, "min_overall": 0.74, "allow_done_full": 0},
+    "tcu_boletim_pessoal": {"min_structured": 2, "min_useful_tags": 1, "require_entities": 0, "min_overall": 0.72, "allow_done_full": 0},
     "tcu_boletim_informativo_lc": {"min_structured": 2, "min_useful_tags": 2, "require_entities": 0, "min_overall": 0.72},
     "tcu_normas": {"min_structured": 3, "min_useful_tags": 1, "require_entities": 0, "min_overall": 0.72},
-    "tcu_btcu": {"min_structured": 2, "min_useful_tags": 2, "require_entities": 1, "min_overall": 0.76},
+    "tcu_btcu": {"min_structured": 2, "min_useful_tags": 2, "require_entities": 1, "min_overall": 0.76, "allow_done_full": 0},
     "tcu_publicacoes": {"min_structured": 2, "min_useful_tags": 2, "require_entities": 0, "min_overall": 0.74},
 }
 SECTION_TAGS_BY_SOURCE: dict[str, tuple[str, ...]] = {
@@ -509,6 +509,11 @@ def summarize_text(value: str | None, limit: int = 320) -> str:
     punct_idx = max(text.rfind(sep, 0, limit) for sep in (". ", "! ", "? ", "; ", ": "))
     if punct_idx >= max(15, limit // 4):
         return text[: punct_idx + 1].strip()
+    lookahead_limit = min(len(text), limit + 120)
+    forward_candidates = [text.find(sep, limit, lookahead_limit) for sep in (". ", "! ", "? ", "; ")]
+    forward_idx = min((idx for idx in forward_candidates if idx != -1), default=-1)
+    if forward_idx != -1:
+        return text[: forward_idx + 1].strip()
     space_idx = text.rfind(" ", 0, limit)
     if space_idx >= max(15, limit // 4):
         return text[:space_idx].strip()
@@ -765,8 +770,11 @@ def _is_low_signal_sentence(value: str | None) -> bool:
     if not cleaned:
         return True
     return bool(
+        " ANEXO " in f" {cleaned.upper()} "
+        or
         re.match(r"^(?:art\.?|arts?\.?|\d+[ºo]?,?|§|inciso|al[ií]nea)\b", cleaned, re.IGNORECASE)
         or re.match(r"^\d+[./-]?\d*", cleaned)
+        or "NOME DA EMPRESA" in cleaned.upper()
     )
 
 
@@ -1048,6 +1056,7 @@ def classify_enrichment_status(
     if (
         has_summary
         and has_topics
+        and bool(rules.get("allow_done_full", 1))
         and has_non_signature_spans
         and structured_score >= int(rules["min_structured"])
         and useful_tags_count >= int(rules["min_useful_tags"])

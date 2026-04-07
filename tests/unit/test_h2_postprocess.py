@@ -175,6 +175,13 @@ def test_summarize_text_preserves_word_boundary() -> None:
     assert summary == "Primeira frase completa."
 
 
+def test_summarize_text_can_extend_to_sentence_boundary() -> None:
+    text = "Texto inicial sem ponto até perto do limite mas com sentido suficiente para continuar. Segunda frase curta."
+    summary = summarize_text(text, limit=50)
+    assert summary.endswith(".")
+    assert "Segunda frase curta" not in summary
+
+
 def test_build_summary_structured_btcu_has_dedicated_fields() -> None:
     summary = build_summary_structured(
         "tcu_btcu",
@@ -215,6 +222,37 @@ def test_build_confidence_fields_penalizes_generic_topics() -> None:
         legal_entities=[],
     )
     assert generic["topics"] < specific["topics"]
+
+
+def test_classify_btcu_never_promotes_done_full() -> None:
+    confidence = build_confidence_fields(
+        "tcu_btcu",
+        tags=["section_title", "assunto", "processo"],
+        summary_structured={
+            "section_title": "Portaria",
+            "assunto": "Pessoal",
+            "base_legal": "Lei 8.112/1990",
+            "decisao_principal": "Nomeia servidor.",
+        },
+        topics=["pessoal", "normativo"],
+        legal_entities=[{"type": "processo", "value": "TC 123/2025"}],
+    )
+    status = classify_enrichment_status(
+        "tcu_btcu",
+        used_fallback=False,
+        tags=["section_title", "assunto", "processo"],
+        summary_short="Resumo válido",
+        summary_structured={
+            "section_title": "Portaria",
+            "assunto": "Pessoal",
+            "base_legal": "Lei 8.112/1990",
+            "decisao_principal": "Nomeia servidor.",
+        },
+        topics=["pessoal", "normativo"],
+        legal_entities=[{"type": "processo", "value": "TC 123/2025"}],
+        confidence_fields=confidence,
+    )
+    assert status == "done_partial"
 
 
 def test_derive_heuristic_spans_uses_publicacoes_alias_tags() -> None:
