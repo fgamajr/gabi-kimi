@@ -210,7 +210,14 @@ SECTION_TAGS_BY_SOURCE: dict[str, tuple[str, ...]] = {
     "tcu_boletim_informativo_lc": ("titulo", "enunciado", "texto_info"),
     "tcu_normas": ("titulo", "assunto", "normas_relacionadas"),
     "tcu_btcu": ("section_title", "assunto", "base_legal"),
-    "tcu_publicacoes": ("title", "description"),
+    "tcu_publicacoes": ("titulo", "descricao"),
+}
+SECTION_TAG_ALIASES_BY_SOURCE: dict[str, dict[str, str]] = {
+    "tcu_publicacoes": {
+        "titulo": "title",
+        "descricao": "description",
+        "corpo": "body_plain",
+    }
 }
 
 SOURCE_SCHEMA_KEYS: dict[str, tuple[str, ...]] = {
@@ -496,7 +503,16 @@ def clean_text(value: str | None) -> str:
 
 
 def summarize_text(value: str | None, limit: int = 320) -> str:
-    return clean_text(value)[:limit]
+    text = clean_text(value)
+    if len(text) <= limit:
+        return text
+    punct_idx = max(text.rfind(sep, 0, limit) for sep in (". ", "! ", "? ", "; ", ": "))
+    if punct_idx >= max(15, limit // 4):
+        return text[: punct_idx + 1].strip()
+    space_idx = text.rfind(" ", 0, limit)
+    if space_idx >= max(15, limit // 4):
+        return text[:space_idx].strip()
+    return text[:limit].strip()
 
 
 def fallback_tags(
@@ -522,8 +538,6 @@ def derive_topics(source_type: str, text: str, structured: dict[str, Any]) -> li
     for topic, pattern in TOPIC_RULES:
         if pattern.search(haystack):
             topics.append(topic)
-    if source_type.startswith("tcu_") and "controle_externo" not in topics:
-        topics.append("controle_externo")
     if source_type == "tcu_jurisprudencia_selecionada":
         if structured.get("tema") and "jurisprudencia" not in topics:
             topics.append("jurisprudencia")
@@ -542,6 +556,8 @@ def derive_topics(source_type: str, text: str, structured: dict[str, Any]) -> li
         and "energia" not in topics
     ):
         topics.append("energia")
+    if source_type.startswith("tcu_") and not topics:
+        topics.append("controle_externo")
     if not topics:
         topics.append("administrativo")
     return topics[:8]
@@ -648,6 +664,22 @@ def _section_tags_for_source(source_type: str, allowed_tags: tuple[str, ...]) ->
     return tuple(tag for tag in preferred if tag in allowed_tags)
 
 
+def _section_value(
+    source_type: str,
+    section_map: dict[str, Any],
+    tag: str,
+) -> dict[str, Any] | None:
+    meta = section_map.get(tag)
+    if isinstance(meta, dict):
+        return meta
+    alias = SECTION_TAG_ALIASES_BY_SOURCE.get(source_type, {}).get(tag)
+    if alias:
+        aliased = section_map.get(alias)
+        if isinstance(aliased, dict):
+            return aliased
+    return None
+
+
 def _iter_signature_spans(text: str, text_len: int) -> list[dict[str, Any]]:
     spans: list[dict[str, Any]] = []
     min_start = max(0, text_len - 2500) if text_len > 5000 else 0
@@ -687,8 +719,8 @@ def derive_heuristic_spans(
     section_map = section_map or {}
 
     for tag in _section_tags_for_source(source_type, allowed_tags):
-        meta = section_map.get(tag)
-        if not isinstance(meta, dict):
+        meta = _section_value(source_type, section_map, tag)
+        if meta is None:
             continue
         start = int(meta.get("start") or 0)
         length = int(meta.get("len") or 0)
@@ -728,6 +760,33 @@ def _split_sentences(text: str) -> list[str]:
     return [part.strip() for part in parts if part.strip()]
 
 
+def _is_low_signal_sentence(value: str | None) -> bool:
+    cleaned = clean_text(value)
+    if not cleaned:
+        return True
+    return bool(
+        re.match(r"^(?:art\.?|arts?\.?|\d+[ºo]?,?|§|inciso|al[ií]nea)\b", cleaned, re.IGNORECASE)
+        or re.match(r"^\d+[./-]?\d*", cleaned)
+    )
+
+
+def _pick_best_sentence(sentences: list[str], *, skip_low_signal: bool = False) -> str | None:
+    for sentence in sentences:
+        summarized = summarize_text(sentence, limit=220)
+        if skip_low_signal and _is_low_signal_sentence(summarized):
+            continue
+        if summarized:
+            return summarized
+    return None
+
+
+def _first_specific_topic(topics: list[str]) -> str | None:
+    for topic in topics:
+        if topic not in GENERIC_TOPICS:
+            return topic
+    return topics[0] if topics else None
+
+
 def _meaningful_value(value: Any) -> str | None:
     cleaned = _normalize_string(value)
     if not cleaned or ONLY_NUMBER_RE.fullmatch(cleaned):
@@ -743,8 +802,8 @@ def build_summary_structured(
     legal_entities: list[dict[str, str]],
 ) -> dict[str, Any]:
     sentences = _split_sentences(text)
-    first_sentence = (sentences[0] if sentences else clean_text(text))[:220]
-    second_sentence = (sentences[1] if len(sentences) > 1 else "")[:220]
+    first_sentence = _pick_best_sentence(sentences) or summarize_text(text, limit=220)
+    second_sentence = _pick_best_sentence(sentences[1:], skip_low_signal=True)
 
     if source_type == "dou_documents":
         fundamento = [
@@ -778,32 +837,71 @@ def build_summary_structured(
         return {
             "area": structured.get("area"),
             "tema": structured.get("tema"),
-            "pergunta": structured.get("tema"),
-            "resposta_curta": first_sentence,
+            "pergunta": summarize_text(structured.get("tema") or first_sentence, limit=220),
+            "resposta_curta": summarize_text(first_sentence, limit=220),
         }
     if source_type == "tcu_sumula":
         return {
             "numero": structured.get("numero"),
             "tema": structured.get("tema"),
-            "tese_central": first_sentence,
+            "tese_central": summarize_text(first_sentence, limit=220),
             "vigente": structured.get("vigente"),
+        }
+    if source_type == "tcu_boletim_jurisprudencia":
+        return {
+            "titulo": summarize_text(structured.get("titulo"), limit=180) or first_sentence,
+            "tema": _first_specific_topic(topics) or "jurisprudencia",
+            "tese_central": summarize_text(first_sentence, limit=220),
+        }
+    if source_type == "tcu_boletim_pessoal":
+        return {
+            "titulo": summarize_text(structured.get("titulo"), limit=180) or first_sentence,
+            "tema": _first_specific_topic(topics) or "pessoal",
+            "efeito_administrativo": summarize_text(first_sentence, limit=220),
+        }
+    if source_type == "tcu_boletim_informativo_lc":
+        return {
+            "titulo": summarize_text(structured.get("titulo"), limit=180) or first_sentence,
+            "tema": _first_specific_topic(topics) or "licitacao",
+            "ponto_principal": summarize_text(first_sentence, limit=220),
         }
     if source_type == "tcu_normas":
         return {
             "tipo_norma": structured.get("tipo_norma"),
             "numero": structured.get("numero_norma"),
             "ano": structured.get("ano_norma"),
-            "assunto": structured.get("assunto") or first_sentence,
+            "assunto": summarize_text(structured.get("assunto") or first_sentence, limit=220),
             "vigencia": structured.get("data_inicio_vigencia")
             or structured.get("data_dou"),
+        }
+    if source_type == "tcu_btcu":
+        base_legal = next((x["value"] for x in legal_entities if x["type"] == "base_legal"), None)
+        return {
+            "section_title": summarize_text(
+                structured.get("section_title") or structured.get("section_type"),
+                limit=180,
+            )
+            or _first_specific_topic(topics)
+            or "btcu",
+            "assunto": summarize_text(structured.get("assunto") or first_sentence, limit=220),
+            "base_legal": base_legal,
+            "decisao_principal": summarize_text(second_sentence or first_sentence, limit=220),
+        }
+    if source_type == "tcu_publicacoes":
+        assunto = _first_specific_topic(topics) or structured.get("pub_type")
+        return {
+            "title": summarize_text(structured.get("title"), limit=180) or first_sentence,
+            "pub_type": structured.get("pub_type"),
+            "assunto": summarize_text(assunto, limit=120) if assunto else None,
+            "ponto_principal": summarize_text(first_sentence, limit=220),
         }
     key_a = next(iter(structured.keys()), None)
     key_b = next(iter(topics), None)
     primary = _meaningful_value(structured.get(key_a)) if key_a else None
     return {
-        SOURCE_SCHEMA_KEYS.get(source_type, ("ponto_principal",))[0]: primary or first_sentence,
+        SOURCE_SCHEMA_KEYS.get(source_type, ("ponto_principal",))[0]: summarize_text(primary or first_sentence, limit=220),
         "tema": key_b,
-        "ponto_principal": second_sentence or first_sentence,
+        "ponto_principal": summarize_text(second_sentence or first_sentence, limit=220),
     }
 
 
@@ -899,7 +997,7 @@ def build_confidence_fields(
 
     topics_conf = 0.0
     if topic_values:
-        topics_conf = 0.45 if not specific_topics else min(0.85, 0.55 + 0.1 * min(len(specific_topics), 3))
+        topics_conf = 0.3 if not specific_topics else min(0.85, 0.55 + 0.1 * min(len(specific_topics), 3))
 
     entities_conf = 0.0
     if entity_values:

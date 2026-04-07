@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Final
 
-ALLOWED_TAGS_VERSION: Final[str] = "1.1.0"
+ALLOWED_TAGS_VERSION: Final[str] = "1.2.0"
 
 # Source-of-truth stays in code for deterministic validation/versioning.
 SOURCE_ALLOWED_TAGS: Final[dict[str, tuple[str, ...]]] = {
@@ -94,9 +94,9 @@ SOURCE_ALLOWED_TAGS: Final[dict[str, tuple[str, ...]]] = {
         "assinatura",
     ),
     "tcu_publicacoes": (
-        "title",
-        "description",
-        "body_plain",
+        "titulo",
+        "descricao",
+        "corpo",
         "referencia_legal",
         "processo",
         "assinatura",

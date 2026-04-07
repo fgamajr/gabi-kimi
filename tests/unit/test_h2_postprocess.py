@@ -11,6 +11,7 @@ from src.backend.parsing.h2_postprocess import (
     derive_legal_entities,
     derive_topics,
     normalize_topics,
+    summarize_text,
     validate_legal_entities,
     validate_summary_structured,
 )
@@ -164,3 +165,69 @@ def test_validate_legal_entities_deduplicates_by_casing() -> None:
 def test_derive_legal_entities_ignores_truncated_base_legal() -> None:
     entities = derive_legal_entities("RESOLUÇÃO- Lei n. PORTARIA- Decreto-", {})
     assert not any(item["type"] == "base_legal" for item in entities)
+
+
+def test_summarize_text_preserves_word_boundary() -> None:
+    summary = summarize_text(
+        "Primeira frase completa. Segunda frase muito longa com varias palavras relevantes.",
+        limit=40,
+    )
+    assert summary == "Primeira frase completa."
+
+
+def test_build_summary_structured_btcu_has_dedicated_fields() -> None:
+    summary = build_summary_structured(
+        "tcu_btcu",
+        "Decisão principal do boletim. Segunda frase com contexto adicional.",
+        {"section_title": "Controle Externo", "assunto": "Pessoal"},
+        ["controle_externo", "pessoal"],
+        [{"type": "base_legal", "value": "Lei 8.112/1990"}],
+    )
+    assert summary["section_title"] == "Controle Externo"
+    assert summary["assunto"] == "Pessoal"
+    assert summary["base_legal"] == "Lei 8.112/1990"
+
+
+def test_build_summary_structured_publicacoes_uses_specific_topic() -> None:
+    summary = build_summary_structured(
+        "tcu_publicacoes",
+        "Fichas-Síntese sobre relações exteriores. Texto introdutório.",
+        {"title": "Fichas-Síntese Relações Exteriores", "pub_type": "ficha-sintese"},
+        ["controle_externo", "licitacao"],
+        [],
+    )
+    assert summary["assunto"] == "licitacao"
+
+
+def test_build_confidence_fields_penalizes_generic_topics() -> None:
+    generic = build_confidence_fields(
+        "tcu_acordao_completo",
+        tags=["sumario", "processo"],
+        summary_structured={"numero": "1", "colegiado": "Plenário", "relator": "X"},
+        topics=["controle_externo"],
+        legal_entities=[],
+    )
+    specific = build_confidence_fields(
+        "tcu_acordao_completo",
+        tags=["sumario", "processo"],
+        summary_structured={"numero": "1", "colegiado": "Plenário", "relator": "X"},
+        topics=["controle_externo", "licitacao"],
+        legal_entities=[],
+    )
+    assert generic["topics"] < specific["topics"]
+
+
+def test_derive_heuristic_spans_uses_publicacoes_alias_tags() -> None:
+    text = "<title>Fichas-Síntese</title><description>Resumo da publicação.</description>"
+    spans = derive_heuristic_spans(
+        source_type="tcu_publicacoes",
+        text=text,
+        section_map={
+            "title": {"start": 0, "len": 29},
+            "description": {"start": 29, "len": 47},
+        },
+        allowed_tags=("titulo", "descricao"),
+    )
+    tags = [item["tag"] for item in spans]
+    assert "titulo" in tags
+    assert "descricao" in tags
