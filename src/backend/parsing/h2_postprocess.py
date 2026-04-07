@@ -160,6 +160,7 @@ ONLY_NUMBER_RE = re.compile(r"^\d+(?:[./-]\d+)*$")
 GENERIC_TOPICS = {"administrativo", "controle_externo", "normativo", "regulacao", "jurisprudencia"}
 SIGNATURE_MAX_SPANS = 5
 SIGNATURE_MAX_CHARS = 80
+SIGNATURE_CONTEXT_CHARS = 60
 ORGANIZACAO_MAX_CHARS = 60
 FORBIDDEN_SIGNATURE_TOKENS = {
     "TRIBUNAL",
@@ -389,7 +390,7 @@ def _normalize_legal_reference(value: str) -> str | None:
     if not match:
         return None
     cleaned = clean_text(match.group(0))
-    cleaned = cleaned.replace(" n .", " nº ").replace(" n.", " nº ").replace(" n ", " nº ")
+    cleaned = re.sub(r"(?i)\bn[º°o.]?\s*", " ", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" -.,;:/")
     if not re.search(r"\d", cleaned):
         return None
@@ -649,14 +650,17 @@ def _section_tags_for_source(source_type: str, allowed_tags: tuple[str, ...]) ->
 
 def _iter_signature_spans(text: str, text_len: int) -> list[dict[str, Any]]:
     spans: list[dict[str, Any]] = []
+    min_start = max(0, text_len - 2500) if text_len > 5000 else 0
     for match in SIGNATURE_CANDIDATE_RE.finditer(text):
+        if match.start() < min_start:
+            continue
         candidate = clean_text(match.group(0))
         if len(candidate) > SIGNATURE_MAX_CHARS:
             continue
         upper_tokens = {token for token in candidate.split() if token not in {"DE", "DA", "DO", "DAS", "DOS", "E"}}
         if upper_tokens & FORBIDDEN_SIGNATURE_TOKENS:
             continue
-        context = text[match.end() : min(text_len, match.end() + 80)]
+        context = text[match.end() : min(text_len, match.end() + SIGNATURE_CONTEXT_CHARS)]
         if not SIGNATURE_ROLE_RE.search(context):
             continue
         _add_span(

@@ -77,8 +77,16 @@ def main() -> None:
                 body = row.get("body_tagged_xml") or ""
                 text = clean_text(body)
                 allowed = tags_for_source(source_type)
+                used_fallback = str(row.get("enrichment_status") or "") == "done_fallback"
+                if isinstance(row.get("summary_structured"), dict):
+                    used_fallback = str(row["summary_structured"].get("mode") or row["summary_structured"].get("modo") or "").startswith(
+                        "fallback"
+                    ) or str(row["summary_structured"].get("modo") or "") == "preview_fallback" or used_fallback
+                current_mode = str(row.get("enrichment_mode") or "").strip() or None
+                preserve_llm = current_mode == "llm" and not used_fallback
+
                 spans_model, _ = parse_spans_tolerant(row.get("tag_spans") or [])
-                if not spans_model:
+                if not preserve_llm or not spans_model:
                     heuristic_spans = derive_heuristic_spans(
                         source_type=source_type,
                         text=body,
@@ -89,26 +97,23 @@ def main() -> None:
                 span_tags = tags_flat(spans_model)
                 tags = span_tags
                 topics = _coerce_topics(source_type, row.get("topics"), text, structured)
-                legal_entities = validate_legal_entities(row.get("legal_entities"))
+                legal_entities = validate_legal_entities(row.get("legal_entities")) if preserve_llm else []
                 if not legal_entities:
                     legal_entities = derive_legal_entities(text, structured)
                 summary_structured = row.get("summary_structured")
-                summary_structured = validate_summary_structured(
-                    source_type,
-                    summary_structured if isinstance(summary_structured, dict) else None,
+                summary_structured = (
+                    validate_summary_structured(
+                        source_type,
+                        summary_structured if isinstance(summary_structured, dict) else None,
+                    )
+                    if preserve_llm
+                    else None
                 )
                 if not summary_structured:
                     summary_structured = build_summary_structured(source_type, text, structured, topics, legal_entities)
                 summary_short = clean_text(row.get("summary_short") or "")
-                if not summary_short:
+                if not preserve_llm or not summary_short:
                     summary_short = build_summary_short(source_type, text, structured, topics)
-
-                used_fallback = str(row.get("enrichment_status") or "") == "done_fallback"
-                if isinstance(row.get("summary_structured"), dict):
-                    used_fallback = str(row["summary_structured"].get("mode") or row["summary_structured"].get("modo") or "").startswith(
-                        "fallback"
-                    ) or str(row["summary_structured"].get("modo") or "") == "preview_fallback" or used_fallback
-                current_mode = str(row.get("enrichment_mode") or "").strip() or None
                 mode = "fallback" if used_fallback else (current_mode if current_mode == "llm" else "heuristic")
                 confidence_fields = build_confidence_fields(
                     source_type,
