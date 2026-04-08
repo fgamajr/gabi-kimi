@@ -36,6 +36,6 @@ def test_llm_allowed_for_source_falls_back_to_env(monkeypatch) -> None:
     assert not _llm_allowed_for_source("tcu_btcu")
 
 
-def test_llm_allowed_for_source_defaults_to_true_without_filters(monkeypatch) -> None:
+def test_llm_allowed_for_source_defaults_to_false_without_filters(monkeypatch) -> None:
     monkeypatch.delenv("H2_LLM_SOURCE_ALLOWLIST", raising=False)
-    assert _llm_allowed_for_source("dou_documents")
+    assert not _llm_allowed_for_source("dou_documents")
