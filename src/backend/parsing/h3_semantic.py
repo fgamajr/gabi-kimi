@@ -40,7 +40,7 @@ CONSERVATIVE_SOURCES = {
     "tcu_boletim_pessoal",
 }
 
-H3_VERSION = "1.2.0"
+H3_VERSION = "1.3.0"
 H3_HASH_VERSION = "1"
 
 REQUIRED_H3_INPUT_FIELDS = (
@@ -143,7 +143,8 @@ _DISPOSITIVE_PRIORITY_RULES: tuple[tuple[int, re.Pattern[str]], ...] = (
     (
         5,
         re.compile(
-            r"\b(?:julgar irregulares as contas|condenando|pagamento das import[aâ]ncias|d[eé]bito)\b",
+            r"\b(?:julgar (?:irregulares|regulares)(?: as contas)?|condenando|"
+            r"pagamento das import[aâ]ncias|d[eé]bito|quit[aâ]ção)\b",
             re.IGNORECASE,
         ),
     ),
@@ -165,8 +166,14 @@ _DISPOSITIVE_PRIORITY_RULES: tuple[tuple[int, re.Pattern[str]], ...] = (
 
 
 _TRAILING_CROSSREF_RE = re.compile(
-    r"[\s,;]+(?:nos termos (?:do (?:sub)?item|da|de)|conforme|de acordo com)\s+[\d.]+\.?\s*$"
-    r"|[\s,;]+(?:a|ao)\s+\d{1,2}\.\d+(?:\.\d+)*\.?\s*$",
+    # "nos termos do subitem 9.3." / "conforme item 9.3." / "de acordo com 9.3."
+    r"[\s,;]+(?:nos termos|conforme|de acordo com|na forma)\s+(?:d[ao]s?\s+)?(?:sub)?(?:item|itens)\s+[\d.]+(?:\s*[,e]\s*[\d.]+)*\.?\s*$"
+    # "(art. 9.3." or "(9.3." — open paren with item/article reference (always a truncation artifact)
+    r"|[\s(,;]+(?:art(?:igo)?\.?\s*)?\d{1,2}\.\d+(?:\.\d+)*\.?\s*$"
+    # "a 9.3." / "ao item 9.3."
+    r"|[\s,;]+(?:a|ao)\s+(?:sub)?item\s+\d{1,2}\.\d+(?:\.\d+)*\.?\s*$"
+    # plain trailing "nos termos do X.X." without "item" keyword
+    r"|[\s,;]+(?:nos termos|de acordo com)\s+[\d.]+\.?\s*$",
     re.IGNORECASE,
 )
 
@@ -309,13 +316,31 @@ def _clean_trailing_crossref(text: str | None) -> str | None:
 
 
 def _extract_dispositive_summary(text: str | None) -> str | None:
+    """Full decision text: up to 2 material items joined."""
     cleaned = clean_text(text)
     if not cleaned:
         return None
     items = _dispositive_items(cleaned)
     if items:
         selected = _select_material_dispositive_items(items)
-        raw = summarize_text(" ".join(selected), limit=360) or None
+        raw = summarize_text(" ".join(selected), limit=480) or None
+        return _clean_trailing_crossref(raw)
+    match = _DISPOSITIVE_ITEM_RE.search(cleaned)
+    if match:
+        raw = summarize_text(match.group(1), limit=360) or None
+        return _clean_trailing_crossref(raw)
+    return _first_meaningful_sentence(cleaned, limit=360)
+
+
+def _extract_top1_decisao(text: str | None) -> str | None:
+    """Principal decision: only the single highest-priority item (no cross-ref artifacts)."""
+    cleaned = clean_text(text)
+    if not cleaned:
+        return None
+    items = _dispositive_items(cleaned)
+    if items:
+        selected = _select_material_dispositive_items(items)
+        raw = summarize_text(selected[0], limit=360) or None
         return _clean_trailing_crossref(raw)
     match = _DISPOSITIVE_ITEM_RE.search(cleaned)
     if match:
@@ -442,15 +467,24 @@ def _project_tcu_acordao_semantics(
         "numero_acordao"
     )
     ano = _extract_acordao_year(inp)
-    relatorio_resumo = _best_semantic_sentence(
-        _strip_section_noise((inp.raw_sections or {}).get("relatorio")), limit=440
+    relatorio_resumo = _clean_trailing_crossref(
+        _first_meaningful_sentence(
+            _strip_section_noise((inp.raw_sections or {}).get("relatorio")), limit=480
+        )
     )
-    voto_resumo = _best_semantic_sentence(
-        _strip_section_noise((inp.raw_sections or {}).get("voto")), limit=440
+    voto_resumo = _clean_trailing_crossref(
+        _best_semantic_sentence(
+            _strip_section_noise((inp.raw_sections or {}).get("voto")), limit=480
+        )
     )
     decisao = (
         _extract_dispositive_summary((inp.raw_sections or {}).get("decisao"))
         or _extract_dispositive_summary((inp.raw_sections or {}).get("acordao"))
+        or _extract_sumario_dispositivo((inp.raw_sections or {}).get("sumario"))
+    )
+    decisao_principal = (
+        _extract_top1_decisao((inp.raw_sections or {}).get("decisao"))
+        or _extract_top1_decisao((inp.raw_sections or {}).get("acordao"))
         or _extract_sumario_dispositivo((inp.raw_sections or {}).get("sumario"))
     )
     problematica = _extract_problematica(inp)
@@ -470,10 +504,10 @@ def _project_tcu_acordao_semantics(
         "relatorio_resumo": relatorio_resumo,
         "voto_resumo": voto_resumo,
         "decisao": decisao,
-        "decisao_principal": decisao or seed.get("decisao_principal"),
+        "decisao_principal": decisao_principal or decisao or seed.get("decisao_principal"),
     }
     topics = _derive_acordao_topics(inp, semantic_structured)
-    short_decision = semantic_structured.get("decisao") or inp.h2_summary_short
+    short_decision = semantic_structured.get("decisao_principal") or semantic_structured.get("decisao") or inp.h2_summary_short
     prefix_num = str(numero) if numero not in (None, "") else ""
     prefix_year = f"/{ano}" if ano is not None else ""
     colegiado = clean_text(str(semantic_structured.get("colegiado") or "TCU"))
