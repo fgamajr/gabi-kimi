@@ -99,6 +99,27 @@ class Settings(BaseSettings):
     RAG_TIMEOUT: float = 30.0
     RAG_MAX_EVIDENCE_CHUNKS: int = 15
 
+    # Audit panel / dev-converge
+    AUDIT_JUDGE_MODE: str = "official_judge"
+    AUDIT_PANEL_ENABLED: bool = True
+    AUDIT_PANEL_DASHSCOPE_BASE_URL: str = "https://coding-intl.dashscope.aliyuncs.com/v1"
+    DASHSCOPE_API_KEY: str = ""
+    ALIBABA_CLOUD_API_KEY: str = ""
+    DASHSCOPE_API_MODELS: str = "kimi-k2.5;MiniMax-M2.5;qwen3-max-2026-01-23;glm-5"
+    GEMINI_API_KEY: str = ""
+    GEMINI_API_MODELS: str = "gemini-2.0-flash"
+    AUDIT_PANEL_EXPERT_MODELS: str = ""
+    AUDIT_PANEL_JURY_MODELS: str = ""
+    AUDIT_PANEL_ENABLE_GEMINI: bool = False
+    AUDIT_PANEL_REQUIRE_NON_DASHSCOPE: bool = True
+    AUDIT_PANEL_MAX_PARALLEL_ITEMS: int = 4
+    AUDIT_PANEL_PER_MODEL_TIMEOUT_SEC: int = 120
+    AUDIT_PANEL_REQUIRE_MIN_EXPERTS: int = 3
+    AUDIT_PANEL_REQUIRE_MIN_JURORS: int = 2
+    AUDIT_PANEL_MAX_TOKENS: int = 1800
+    AUDIT_PANEL_TEMPERATURE: float = 0.1
+    AUDIT_PANEL_CALIBRATION_MIN_AGREEMENT: float = 0.8
+
     # SEO
     SPA_DIST_DIR: str = "/shared/dist"
     SITE_URL: str = "https://gabidou.top"

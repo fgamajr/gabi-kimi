@@ -37,6 +37,7 @@ services:
     environment:
       BACKEND_INTERNAL_PORT: 8000
       PYTHONPATH: /opt/app
+      PATH: /opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       POSTGRES_URL: ${POSTGRES_URL:-postgresql://gabi:gabi@postgres:5432/gabi}
       GABI_ALLOWED_HOSTS: ${GABI_ALLOWED_HOSTS:-gabidou.top,www.gabidou.top,localhost,127.0.0.1,backend}
       GABI_CORS_ORIGINS: ${GABI_CORS_ORIGINS:-https://gabidou.top,https://www.gabidou.top}
@@ -62,7 +63,7 @@ services:
     ports:
       - "8001:8000"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/live', timeout=5).read()"]
+      test: ["CMD", "/opt/venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/live', timeout=5).read()"]
       interval: 15s
       timeout: 5s
       retries: 10
@@ -82,11 +83,14 @@ services:
       OLLAMA_MAX_LOADED_MODELS: 1
     volumes:
       - ${GABI_HOST_DATA_ROOT:-/mnt/HC_Volume_105154890}/ollama:/root/.ollama
+    entrypoint:
+      - /bin/sh
+      - -lc
     command: >
-      sh -lc "ollama serve &
+      ollama serve &
       sleep 3 &&
       ollama pull ${H2_LLM_MODEL:-qwen2.5:7b-instruct} &&
-      wait"
+      wait
     expose:
       - "11434"
     ports:
@@ -119,6 +123,7 @@ services:
     environment:
       DEV_CONVERGE_INTERNAL_PORT: 8000
       PYTHONPATH: /opt/app
+      PATH: /opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       DEV_CONVERGE_MONGO_STRING: ${DEV_CONVERGE_MONGO_STRING:-mongodb://mongo:27017/gabi_dou}
       DEV_CONVERGE_DB_NAME: ${DEV_CONVERGE_DB_NAME:-gabi_dou}
       DEV_CONVERGE_DATA_ROOT: /data/dev_converge
@@ -131,7 +136,7 @@ services:
     ports:
       - "8011:8000"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/live', timeout=5).read()"]
+      test: ["CMD", "/opt/venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/live', timeout=5).read()"]
       interval: 15s
       timeout: 5s
       retries: 10
@@ -208,6 +213,7 @@ services:
       - .env
     environment:
       PYTHONPATH: /opt/app
+      PATH: /opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       RERANKER_BIND_HOST: ${RERANKER_BIND_HOST:-0.0.0.0}
       RERANKER_PORT: ${RERANKER_PORT:-8902}
       RERANKER_MODEL: ${RERANKER_MODEL:-ai/qwen3-reranker-vllm:0.6B}
@@ -223,7 +229,7 @@ services:
     ports:
       - "8902:8902"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8902/health', timeout=5).read()"]
+      test: ["CMD", "/opt/venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8902/health', timeout=5).read()"]
       interval: 15s
       timeout: 5s
       retries: 10

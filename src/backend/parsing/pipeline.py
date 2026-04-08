@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 import os
+from pathlib import Path
 import resource
 import time
 from typing import Any
@@ -36,6 +37,7 @@ from src.backend.parsing.h2_semantic import (
     validate_spans,
 )
 from src.backend.parsing.h2_vocab import ALLOWED_TAGS_VERSION, tags_for_source
+from src.backend.parsing.h3_pipeline import enqueue_h3_batch, process_one_semantic, set_h3_routing_status
 from src.backend.parsing.source_parsers import PARSER_REGISTRY, SOURCE_TYPES
 
 RAW_TABLE_BY_SOURCE: dict[str, str] = {
@@ -51,6 +53,7 @@ RAW_TABLE_BY_SOURCE: dict[str, str] = {
     "tcu_btcu": "raw.tcu_btcu_raw",
     "tcu_publicacoes": "raw.tcu_publicacoes_raw",
 }
+_EMPTY_RAW_ID_SENTINEL = "__audit_empty_selection__"
 
 
 def _pg_url() -> str:
@@ -80,6 +83,34 @@ def _normalize_source_filters(source_filters: list[str] | tuple[str, ...] | None
     return tuple(ordered)
 
 
+def _normalize_raw_ids(raw_ids: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
+    if not raw_ids:
+        return ()
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for raw_id in raw_ids:
+        normalized = str(raw_id).strip()
+        if not normalized or normalized in seen:
+            continue
+        ordered.append(normalized)
+        seen.add(normalized)
+    return tuple(ordered)
+
+
+def _load_raw_ids_file(path: str | None) -> tuple[str, ...]:
+    if not path:
+        return ()
+    raw_ids = [
+        line.strip()
+        for line in Path(path).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    normalized = _normalize_raw_ids(raw_ids)
+    if normalized:
+        return normalized
+    return (_EMPTY_RAW_ID_SENTINEL,)
+
+
 def _llm_allowed_for_source(
     source_type: str,
     llm_source_filters: list[str] | tuple[str, ...] | None = None,
@@ -90,7 +121,7 @@ def _llm_allowed_for_source(
     env_configured = _normalize_source_filters(_split_csv_values(os.getenv("H2_LLM_SOURCE_ALLOWLIST")))
     if env_configured:
         return source_type in env_configured
-    return True
+    return False
 
 
 def _rss_mb() -> float:
@@ -167,9 +198,28 @@ def _fallback_h2_output(text: str, source_type: str, reason: str) -> dict[str, A
 
 
 def _row_all_fields_sql(
-    source_type: str, limit: int, offset: int
+    source_type: str,
+    limit: int,
+    offset: int,
+    raw_ids: tuple[str, ...] = (),
 ) -> tuple[str, tuple[Any, ...]]:
     table = RAW_TABLE_BY_SOURCE[source_type]
+    if raw_ids:
+        if source_type in {"dou_documents", "tcu_btcu", "tcu_publicacoes"}:
+            sql = f"""
+                SELECT id, all_fields
+                FROM {table}
+                WHERE id = ANY(%s)
+                ORDER BY array_position(%s::text[], id)
+            """
+            return sql, (list(raw_ids), list(raw_ids))
+        sql = f"""
+            SELECT id, (to_jsonb(t) - 'id' - 'source_type' - 'dumped_at') AS all_fields
+            FROM {table} AS t
+            WHERE id = ANY(%s)
+            ORDER BY array_position(%s::text[], id)
+        """
+        return sql, (list(raw_ids), list(raw_ids))
     if source_type in {"dou_documents", "tcu_btcu", "tcu_publicacoes"}:
         sql = f"""
             SELECT id, all_fields
@@ -326,10 +376,16 @@ def _upsert_parsed(
 
 
 def run_parse(
-    source_type: str, *, limit: int, offset: int, prompt_version: str, h2_version: str
+    source_type: str,
+    *,
+    limit: int,
+    offset: int,
+    prompt_version: str,
+    h2_version: str,
+    raw_ids: tuple[str, ...] = (),
 ) -> int:
     parser = PARSER_REGISTRY[source_type]
-    sql, params = _row_all_fields_sql(source_type, limit, offset)
+    sql, params = _row_all_fields_sql(source_type, limit, offset, raw_ids=raw_ids)
     parsed_count = 0
     with psycopg.connect(_pg_url()) as conn:
         with conn.cursor(row_factory=dict_row) as cur:
@@ -364,11 +420,15 @@ def _acquire_queue_item(
     worker_id: str,
     *,
     source_filters: tuple[str, ...] = (),
+    raw_id_filters: tuple[str, ...] = (),
 ) -> QueueItem | None:
     source_clause = "AND source_type = ANY(%s)" if source_filters else ""
+    raw_id_clause = "AND raw_id = ANY(%s)" if raw_id_filters else ""
     params: list[Any] = []
     if source_filters:
         params.append(list(source_filters))
+    if raw_id_filters:
+        params.append(list(raw_id_filters))
     params.append(worker_id)
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
@@ -382,6 +442,7 @@ def _acquire_queue_item(
                 )
                 """
             + source_clause
+            + raw_id_clause
             + """
                 ORDER BY priority ASC, next_retry_at ASC, id ASC
                 FOR UPDATE SKIP LOCKED
@@ -528,12 +589,14 @@ def process_one_enrichment(
     h2_mode: str,
     source_filters: tuple[str, ...] = (),
     llm_source_filters: tuple[str, ...] = (),
+    raw_id_filters: tuple[str, ...] = (),
 ) -> bool:
     with psycopg.connect(_pg_url()) as conn:
         item = _acquire_queue_item(
             conn,
             worker_id=worker_id,
             source_filters=source_filters,
+            raw_id_filters=raw_id_filters,
         )
         if item is None:
             conn.commit()
@@ -678,7 +741,11 @@ def process_one_enrichment(
             llm_summary_used = bool(summary_short)
             if not summary_short:
                 summary_short = build_summary_short(
-                    item.source_type, clean_source_text, structured, topics
+                    item.source_type,
+                    clean_source_text,
+                    structured,
+                    topics,
+                    summary_structured,
                 )
             confidence_fields = build_confidence_fields(
                 item.source_type,
@@ -777,8 +844,15 @@ def prepare_llm_pilot_batch(
     min_confidence: float,
     allowed_statuses: tuple[str, ...],
     priority: int,
+    raw_ids: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     table = _parsed_table(source_type)
+    effective_limit = max(limit, len(raw_ids)) if raw_ids else limit
+    raw_id_clause = "AND raw_id = ANY(%s)" if raw_ids else ""
+    params: list[Any] = [H2_ENRICHMENT_VERSION, list(allowed_statuses), min_confidence]
+    if raw_ids:
+        params.append(list(raw_ids))
+    params.append(effective_limit)
     with psycopg.connect(_pg_url()) as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
@@ -791,10 +865,11 @@ def prepare_llm_pilot_batch(
                 WHERE enrichment_status = ANY(%s)
                   AND COALESCE((confidence_fields->>'overall')::double precision, 0.0) >= %s
                   AND enrichment_input_hash IS NOT NULL
+                  {raw_id_clause}
                 ORDER BY overall DESC, updated_at DESC, raw_id ASC
                 LIMIT %s
                 """,
-                (H2_ENRICHMENT_VERSION, list(allowed_statuses), min_confidence, limit),
+                params,
             )
             rows = cur.fetchall()
             selected = [row["raw_id"] for row in rows]
@@ -839,7 +914,7 @@ def prepare_llm_pilot_batch(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Parsed pipeline (H1/H2) for source-separated raw tables"
+        description="Parsed pipeline (H1/H2/H3) for source-separated raw tables"
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
@@ -849,6 +924,7 @@ def main() -> None:
     p_parse.add_argument("--offset", type=int, default=0)
     p_parse.add_argument("--prompt-version", default="1.0.0")
     p_parse.add_argument("--h2-version", default=ALLOWED_TAGS_VERSION)
+    p_parse.add_argument("--raw-id-file", default="")
 
     p_worker = sub.add_parser("h2-worker", help="Run H2 enrichment worker")
     p_worker.add_argument("--max-jobs", type=int, default=1)
@@ -859,6 +935,7 @@ def main() -> None:
     p_worker.add_argument("--max-text-chars", type=int, default=12000)
     p_worker.add_argument("--max-spans", type=int, default=120)
     p_worker.add_argument("--max-rss-mb", type=float, default=0.0)
+    p_worker.add_argument("--raw-id-file", default="")
     p_worker.add_argument(
         "--h2-mode", choices=["fast", "deep"], default=os.getenv("H2_MODE", "fast")
     )
@@ -880,6 +957,7 @@ def main() -> None:
     p_loop.add_argument("--poll-interval-sec", type=float, default=2.0)
     p_loop.add_argument("--max-idle-cycles", type=int, default=30)
     p_loop.add_argument("--max-rss-mb", type=float, default=0.0)
+    p_loop.add_argument("--raw-id-file", default="")
     p_loop.add_argument(
         "--h2-mode", choices=["fast", "deep"], default=os.getenv("H2_MODE", "fast")
     )
@@ -891,12 +969,45 @@ def main() -> None:
     p_loop.add_argument("--max-span-error-rate", type=float, default=0.02)
     p_loop.add_argument("--max-low-coverage-rate", type=float, default=0.10)
 
+    p_h3_enqueue = sub.add_parser("h3-enqueue", help="Select and enqueue a H3 projection batch for one source")
+    p_h3_enqueue.add_argument("--source", choices=list(SOURCE_TYPES), required=True)
+    p_h3_enqueue.add_argument("--limit", type=int, default=100)
+    p_h3_enqueue.add_argument("--priority", type=int, default=100)
+    p_h3_enqueue.add_argument("--status", action="append", default=[])
+    p_h3_enqueue.add_argument("--raw-id-file", default="")
+
+    p_h3_prepare = sub.add_parser("h3-prepare-llm-pilot", help="Select and reprioritize a H3 LLM pilot batch for one source")
+    p_h3_prepare.add_argument("--source", choices=list(SOURCE_TYPES), required=True)
+    p_h3_prepare.add_argument("--limit", type=int, default=100)
+    p_h3_prepare.add_argument("--priority", type=int, default=10)
+    p_h3_prepare.add_argument("--status", action="append", default=[])
+    p_h3_prepare.add_argument("--raw-id-file", default="")
+
+    p_h3_worker = sub.add_parser("h3-worker", help="Run H3 projection worker")
+    p_h3_worker.add_argument("--max-jobs", type=int, default=1)
+    p_h3_worker.add_argument("--worker-id", default=f"h3-worker-{os.getpid()}")
+    p_h3_worker.add_argument("--source-filter", action="append", default=[])
+    p_h3_worker.add_argument("--llm-source", action="append", default=[])
+    p_h3_worker.add_argument("--model", default=os.getenv("H3_LLM_MODEL", os.getenv("H2_LLM_MODEL", "qwen3")))
+    p_h3_worker.add_argument("--max-text-chars", type=int, default=12000)
+    p_h3_worker.add_argument("--raw-id-file", default="")
+    p_h3_worker.add_argument(
+        "--llm-mode", choices=["fast", "deep"], default=os.getenv("H3_MODE", os.getenv("H2_MODE", "fast"))
+    )
+
+    p_h3_routing = sub.add_parser("h3-routing", help="Update H3 routing status for one source")
+    p_h3_routing.add_argument("--source", choices=list(SOURCE_TYPES), required=True)
+    p_h3_routing.add_argument("--status", choices=["shadow", "active", "disabled"], required=True)
+    p_h3_routing.add_argument("--reason", required=True)
+    p_h3_routing.add_argument("--by", default=os.getenv("USER", "codex"))
+
     p_prepare = sub.add_parser("prepare-llm-pilot", help="Select and reprioritize a pilot batch for one source")
     p_prepare.add_argument("--source", choices=list(SOURCE_TYPES), required=True)
     p_prepare.add_argument("--limit", type=int, default=100)
     p_prepare.add_argument("--min-confidence", type=float, default=0.78)
     p_prepare.add_argument("--status", action="append", default=[])
     p_prepare.add_argument("--priority", type=int, default=10)
+    p_prepare.add_argument("--raw-id-file", default="")
 
     args = parser.parse_args()
     if args.cmd == "parse":
@@ -906,8 +1017,53 @@ def main() -> None:
             offset=args.offset,
             prompt_version=args.prompt_version,
             h2_version=args.h2_version,
+            raw_ids=_load_raw_ids_file(args.raw_id_file),
         )
         print(json.dumps({"source": args.source, "parsed": count}, ensure_ascii=False))
+        return
+
+    if args.cmd == "h3-enqueue":
+        print(
+            json.dumps(
+                enqueue_h3_batch(
+                    args.source,
+                    limit=args.limit,
+                    priority=args.priority,
+                    allowed_statuses=tuple(args.status) or ("done_full", "done_partial", "done_fallback"),
+                    raw_ids=_load_raw_ids_file(args.raw_id_file),
+                ),
+                ensure_ascii=False,
+            )
+        )
+        return
+
+    if args.cmd == "h3-prepare-llm-pilot":
+        print(
+            json.dumps(
+                enqueue_h3_batch(
+                    args.source,
+                    limit=args.limit,
+                    priority=args.priority,
+                    allowed_statuses=tuple(args.status) or ("done_full", "done_partial"),
+                    raw_ids=_load_raw_ids_file(args.raw_id_file),
+                ),
+                ensure_ascii=False,
+            )
+        )
+        return
+
+    if args.cmd == "h3-routing":
+        print(
+            json.dumps(
+                set_h3_routing_status(
+                    args.source,
+                    args.status,
+                    reason=args.reason,
+                    switched_by=args.by,
+                ),
+                ensure_ascii=False,
+            )
+        )
         return
 
     if args.cmd == "prepare-llm-pilot":
@@ -919,7 +1075,37 @@ def main() -> None:
                     min_confidence=args.min_confidence,
                     allowed_statuses=tuple(args.status) or ("done_full",),
                     priority=args.priority,
+                    raw_ids=_load_raw_ids_file(args.raw_id_file),
                 ),
+                ensure_ascii=False,
+            )
+        )
+        return
+
+    if args.cmd == "h3-worker":
+        source_filters = _normalize_source_filters(args.source_filter)
+        llm_source_filters = _normalize_source_filters(args.llm_source)
+        raw_id_filters = _load_raw_ids_file(args.raw_id_file)
+        processed = 0
+        for _ in range(args.max_jobs):
+            had = process_one_semantic(
+                worker_id=args.worker_id,
+                source_filters=source_filters,
+                llm_source_filters=llm_source_filters,
+                raw_id_filters=raw_id_filters,
+                model=args.model,
+                llm_mode=args.llm_mode,
+                max_text_chars=args.max_text_chars,
+            )
+            if not had:
+                break
+            processed += 1
+        print(
+            json.dumps(
+                {
+                    "processed": processed,
+                    "worker_id": args.worker_id,
+                },
                 ensure_ascii=False,
             )
         )
@@ -928,6 +1114,7 @@ def main() -> None:
     if args.cmd == "h2-worker":
         source_filters = _normalize_source_filters(args.source_filter)
         llm_source_filters = _normalize_source_filters(args.llm_source)
+        raw_id_filters = _load_raw_ids_file(args.raw_id_file)
         _check_quality_gate_or_raise(
             args.quality_report or None,
             min_avg_score=args.min_avg_score,
@@ -947,6 +1134,7 @@ def main() -> None:
                 h2_mode=args.h2_mode,
                 source_filters=source_filters,
                 llm_source_filters=llm_source_filters,
+                raw_id_filters=raw_id_filters,
             )
             if not had:
                 break
@@ -967,6 +1155,7 @@ def main() -> None:
     idle_cycles = 0
     source_filters = _normalize_source_filters(args.source_filter)
     llm_source_filters = _normalize_source_filters(args.llm_source)
+    raw_id_filters = _load_raw_ids_file(args.raw_id_file)
     _check_quality_gate_or_raise(
         args.quality_report or None,
         min_avg_score=args.min_avg_score,
@@ -985,6 +1174,7 @@ def main() -> None:
             h2_mode=args.h2_mode,
             source_filters=source_filters,
             llm_source_filters=llm_source_filters,
+            raw_id_filters=raw_id_filters,
         )
         if had:
             processed_total += 1
