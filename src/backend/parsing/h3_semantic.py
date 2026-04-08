@@ -40,7 +40,7 @@ CONSERVATIVE_SOURCES = {
     "tcu_boletim_pessoal",
 }
 
-H3_VERSION = "1.1.0"
+H3_VERSION = "1.2.0"
 H3_HASH_VERSION = "1"
 
 REQUIRED_H3_INPUT_FIELDS = (
@@ -164,6 +164,21 @@ _DISPOSITIVE_PRIORITY_RULES: tuple[tuple[int, re.Pattern[str]], ...] = (
 )
 
 
+_TRAILING_CROSSREF_RE = re.compile(
+    r"[\s,;]+(?:nos termos (?:do (?:sub)?item|da|de)|conforme|de acordo com)\s+[\d.]+\.?\s*$"
+    r"|[\s,;]+(?:a|ao)\s+\d{1,2}\.\d+(?:\.\d+)*\.?\s*$",
+    re.IGNORECASE,
+)
+
+_TCE_RE = re.compile(
+    r"\btomada de contas especial\b|\btomada de contas\b", re.IGNORECASE
+)
+_APOSENTADORIA_RE = re.compile(
+    r"\baposentadoria\b|\bregistro de ato(?:s de pessoal)?\b|\batos de pessoal\b"
+    r"|\breexame de registro\b|\bpedido de reexame\b",
+    re.IGNORECASE,
+)
+
 _SUMARIO_DISPOSITIVO_RE = re.compile(
     r"\b(?:negati(?:va|vo)\s+de\s+provimento|dar?\s+provimento|provimento\s+parcial|"
     r"n[aã]o\s+conhecimento|conhecimento|julgamento\s+(?:irregular|regular|de\s+m[eé]rito)|"
@@ -286,6 +301,13 @@ def _select_material_dispositive_items(items: list[str]) -> list[str]:
     return items[:1]
 
 
+def _clean_trailing_crossref(text: str | None) -> str | None:
+    if not text:
+        return None
+    cleaned = _TRAILING_CROSSREF_RE.sub("", text).strip().rstrip(";,")
+    return clean_text(cleaned) or None
+
+
 def _extract_dispositive_summary(text: str | None) -> str | None:
     cleaned = clean_text(text)
     if not cleaned:
@@ -293,10 +315,12 @@ def _extract_dispositive_summary(text: str | None) -> str | None:
     items = _dispositive_items(cleaned)
     if items:
         selected = _select_material_dispositive_items(items)
-        return summarize_text(" ".join(selected), limit=360) or None
+        raw = summarize_text(" ".join(selected), limit=360) or None
+        return _clean_trailing_crossref(raw)
     match = _DISPOSITIVE_ITEM_RE.search(cleaned)
     if match:
-        return summarize_text(match.group(1), limit=320) or None
+        raw = summarize_text(match.group(1), limit=320) or None
+        return _clean_trailing_crossref(raw)
     return _first_meaningful_sentence(cleaned, limit=320)
 
 
@@ -358,9 +382,30 @@ def _derive_acordao_topics(
         )
         if value
     )
-    topics = derive_topics(
+    full_text = f"{semantic_text} {inp.h2_summary_short or ''} {inp.h2_summary_structured or ''}"
+    topics: list[str] = derive_topics(
         inp.source_type, semantic_text, inp.structured_fields_subset or {}
     )
+
+    # Remove false-positive 'regulacao': \bregistro\b in TCU acórdão almost never means
+    # product registration — it fires on "registro de débito", "registro de atos", etc.
+    if "regulacao" in topics and not re.search(
+        r"\bregistro (?:de produto|sanitário|de medicamento)\b|\banvisa\b",
+        full_text,
+        re.IGNORECASE,
+    ):
+        topics.remove("regulacao")
+
+    # TCE cases: add fiscalizacao (tomada de contas is audit, not generic control)
+    if _TCE_RE.search(full_text) and "fiscalizacao" not in topics:
+        topics.append("fiscalizacao")
+
+    # Pessoal/aposentadoria: preserve H2 specific topics that are contextually correct
+    if _APOSENTADORIA_RE.search(full_text):
+        for h2_topic in ("pessoal", "previdencia", "servidor_publico"):
+            if h2_topic in inp.h2_topics and h2_topic not in topics:
+                topics.append(h2_topic)
+
     return list(dict.fromkeys(topic for topic in topics if topic))
 
 
@@ -398,10 +443,10 @@ def _project_tcu_acordao_semantics(
     )
     ano = _extract_acordao_year(inp)
     relatorio_resumo = _best_semantic_sentence(
-        _strip_section_noise((inp.raw_sections or {}).get("relatorio"))
+        _strip_section_noise((inp.raw_sections or {}).get("relatorio")), limit=440
     )
     voto_resumo = _best_semantic_sentence(
-        _strip_section_noise((inp.raw_sections or {}).get("voto"))
+        _strip_section_noise((inp.raw_sections or {}).get("voto")), limit=440
     )
     decisao = (
         _extract_dispositive_summary((inp.raw_sections or {}).get("decisao"))

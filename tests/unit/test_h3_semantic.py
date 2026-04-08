@@ -5,6 +5,7 @@ from src.backend.parsing.h3_semantic import (
     OPTIONAL_H3_INPUT_FIELDS,
     REQUIRED_H3_INPUT_FIELDS,
     H3Input,
+    _clean_trailing_crossref,
     _extract_sumario_dispositivo,
     build_h3_input,
     build_h3_input_hash,
@@ -83,6 +84,18 @@ def test_project_semantic_status_uses_only_quality_flag_for_fallback_decision() 
     inp = build_h3_input(row)
     assert project_semantic_status(inp, []) == "done_full"
     assert project_semantic_status(inp, ["fallback_only"]) == "done_fallback"
+
+
+def test_clean_trailing_crossref_removes_subitem_reference() -> None:
+    assert _clean_trailing_crossref(
+        "9.4. julgar irregulares as contas, nos termos do subitem 9.3."
+    ) == "9.4. julgar irregulares as contas"
+    assert _clean_trailing_crossref(
+        "9.4. julgar irregulares as contas, de acordo com 9.3."
+    ) == "9.4. julgar irregulares as contas"
+    assert _clean_trailing_crossref(
+        "9.4. julgar irregulares as contas"
+    ) == "9.4. julgar irregulares as contas"
 
 
 def test_extract_sumario_dispositivo_returns_last_known_dispositivo() -> None:
@@ -265,3 +278,30 @@ def test_project_semantic_row_for_tcu_acordao_uses_decisao_relatorio_voto_and_ye
     assert "infraestrutura" not in projected["semantic_topics"]
     # topic granularity (fiscal vs saude_publica) is LLM's job, not heuristic
     assert "/2017" in projected["semantic_summary_short"]
+    # TCE case must have fiscalizacao; regulacao must NOT appear (false positive via \bregistro\b)
+    assert "fiscalizacao" in projected["semantic_topics"]
+    assert "regulacao" not in projected["semantic_topics"]
+
+
+def test_derive_topics_preserves_pessoal_for_aposentadoria_row() -> None:
+    row = {
+        "raw_id": "ACORDAO-PESSOAL-1",
+        "source_type": "tcu_acordao_completo",
+        "summary_short": "Acórdão 100 Segunda Câmara. APOSENTADORIA.",
+        "summary_structured": {"colegiado": "Segunda Câmara"},
+        "topics": ["pessoal", "previdencia"],
+        "enrichment_status": "done_full",
+        "enrichment_mode": "heuristic",
+        "confidence_fields": {"overall": 0.80},
+        "legal_entities": [],
+        "tags_flat": ["sumario", "decisao"],
+        "structured_fields": {"ano_acordao": 2020, "colegiado": "Segunda Câmara"},
+        "body_tagged_xml": (
+            "<sumario>APOSENTADORIA. NEGATIVA DE REGISTRO.</sumario>"
+            "<decisao>9.1. conhecer do pedido de reexame para, no mérito, negar-lhe provimento.</decisao>"
+        ),
+    }
+    projected = project_semantic_row(build_h3_input(row))
+    topics = projected["semantic_topics"]
+    assert "previdencia" in topics
+    assert "pessoal" in topics
