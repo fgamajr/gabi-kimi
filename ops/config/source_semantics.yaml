@@ -1,0 +1,295 @@
+dou_documents:
+  semantic_kind: ato_normativo_administrativo
+  primary_sections:
+    - corpo
+    - ementa
+  secondary_sections:
+    - identifica
+    - fundamento_legal
+    - vigencia
+  ementary_fields:
+    - identifica
+    - ementa
+  semantic_fields:
+    - tipo_ato
+    - subtipo_ato
+    - objeto
+    - efeito_principal
+    - vigencia
+    - semantic_topics
+  decision_field: efeito_principal
+  problem_field: objeto
+  year_field: pub_date
+  llm_prompt_template: dou_documents_v1
+  llm_prompt_version: h3_dou_documents_v1
+  gate_policy:
+    require_fields:
+      - objeto
+      - efeito_principal
+
+tcu_acordao_completo:
+  semantic_kind: decisao_colegiada
+  primary_sections:
+    - decisao
+    - voto
+    - relatorio
+  secondary_sections:
+    - acordao
+    - sumario
+  ementary_fields:
+    - objeto
+    - sumario
+  semantic_fields:
+    - numero
+    - ano_acordao
+    - colegiado
+    - relator
+    - tipo_processo
+    - objeto
+    - problematica
+    - relatorio_resumo
+    - voto_resumo
+    - decisao
+    - decisao_principal
+    - semantic_topics
+  decision_field: decisao
+  problem_field: problematica
+  year_field: ano_acordao
+  llm_prompt_template: tcu_acordao_completo_v1
+  llm_prompt_version: h3_tcu_acordao_v1
+  topic_policy:
+    prefer_sections:
+      - decisao
+      - voto
+      - relatorio
+    avoid_keyword_only: true
+    drop_fns_health_only: true
+  gate_policy:
+    require_fields:
+      - ano_acordao
+      - problematica
+      - decisao
+
+tcu_jurisprudencia_selecionada:
+  semantic_kind: tese_jurisprudencial
+  primary_sections:
+    - enunciado
+    - excerto
+  secondary_sections:
+    - referencia_legal
+    - indexacao
+  ementary_fields:
+    - area
+    - tema
+    - subtema
+  semantic_fields:
+    - area
+    - tema
+    - subtema
+    - tese_central
+    - semantic_topics
+  decision_field: tese_central
+  problem_field: tema
+  year_field: ano_acordao
+  llm_prompt_template: tcu_jurisprudencia_selecionada_v1
+  llm_prompt_version: h3_tcu_jurisprudencia_v1
+  gate_policy:
+    require_fields:
+      - tese_central
+
+tcu_resposta_consulta:
+  semantic_kind: resposta_consultiva
+  primary_sections:
+    - resposta
+    - pergunta
+  secondary_sections:
+    - enunciado
+    - excerto
+  ementary_fields:
+    - area
+    - tema
+  semantic_fields:
+    - area
+    - tema
+    - pergunta
+    - resposta_curta
+    - semantic_topics
+  decision_field: resposta_curta
+  problem_field: pergunta
+  year_field: data_sessao
+  llm_prompt_template: tcu_resposta_consulta_v1
+  llm_prompt_version: h3_tcu_resposta_consulta_v1
+  gate_policy:
+    require_fields:
+      - pergunta
+      - resposta_curta
+
+tcu_sumula:
+  semantic_kind: tese_sumulada
+  primary_sections:
+    - enunciado
+  secondary_sections:
+    - excerto
+    - referencia_legal
+  ementary_fields:
+    - numero
+    - tema
+  semantic_fields:
+    - numero
+    - tema
+    - tese_central
+    - vigente
+    - semantic_topics
+  decision_field: tese_central
+  problem_field: tema
+  year_field: data_sessao
+  llm_prompt_template: tcu_sumula_v1
+  llm_prompt_version: h3_tcu_sumula_v1
+  gate_policy:
+    require_fields:
+      - tese_central
+
+tcu_boletim_jurisprudencia:
+  semantic_kind: boletim_tese
+  primary_sections:
+    - enunciado
+    - texto_acordao
+  secondary_sections:
+    - titulo
+  ementary_fields:
+    - titulo
+  semantic_fields:
+    - titulo
+    - tema
+    - tese_central
+    - semantic_topics
+  decision_field: tese_central
+  problem_field: tema
+  year_field: referencia
+  llm_prompt_template: tcu_boletim_jurisprudencia_v1
+  llm_prompt_version: h3_tcu_boletim_jurisprudencia_v1
+  gate_policy:
+    require_fields:
+      - tese_central
+
+tcu_boletim_pessoal:
+  semantic_kind: boletim_administrativo
+  primary_sections:
+    - enunciado
+    - texto_acordao
+  secondary_sections:
+    - titulo
+  ementary_fields:
+    - titulo
+  semantic_fields:
+    - titulo
+    - tema
+    - efeito_administrativo
+    - semantic_topics
+  decision_field: efeito_administrativo
+  problem_field: tema
+  year_field: numero
+  llm_prompt_template: tcu_boletim_pessoal_v1
+  llm_prompt_version: h3_tcu_boletim_pessoal_v1
+  gate_policy:
+    require_fields:
+      - efeito_administrativo
+
+tcu_boletim_informativo_lc:
+  semantic_kind: boletim_informativo
+  primary_sections:
+    - enunciado
+    - texto_info
+    - texto_acordao
+  secondary_sections:
+    - titulo
+  ementary_fields:
+    - titulo
+  semantic_fields:
+    - titulo
+    - tema
+    - ponto_principal
+    - semantic_topics
+  decision_field: ponto_principal
+  problem_field: tema
+  year_field: titulo
+  llm_prompt_template: tcu_boletim_informativo_lc_v1
+  llm_prompt_version: h3_tcu_boletim_informativo_lc_v1
+  gate_policy:
+    require_fields:
+      - ponto_principal
+
+tcu_normas:
+  semantic_kind: norma
+  primary_sections:
+    - texto_norma
+    - assunto
+  secondary_sections:
+    - titulo
+    - texto_anexo
+    - normas_relacionadas
+  ementary_fields:
+    - titulo
+  semantic_fields:
+    - tipo_norma
+    - numero
+    - ano
+    - assunto
+    - vigencia
+    - semantic_topics
+  decision_field: assunto
+  problem_field: assunto
+  year_field: ano
+  llm_prompt_template: tcu_normas_v1
+  llm_prompt_version: h3_tcu_normas_v1
+  gate_policy:
+    require_fields:
+      - assunto
+
+tcu_btcu:
+  semantic_kind: boletim_decisorio
+  primary_sections:
+    - texto_completo
+  secondary_sections:
+    - assunto
+    - base_legal
+  ementary_fields:
+    - section_title
+  semantic_fields:
+    - section_title
+    - assunto
+    - base_legal
+    - decisao_principal
+    - semantic_topics
+  decision_field: decisao_principal
+  problem_field: assunto
+  year_field: data_publicacao
+  llm_prompt_template: tcu_btcu_v1
+  llm_prompt_version: h3_tcu_btcu_v1
+  gate_policy:
+    require_fields:
+      - decisao_principal
+
+tcu_publicacoes:
+  semantic_kind: publicacao_tecnica
+  primary_sections:
+    - body_plain
+    - description
+  secondary_sections:
+    - title
+  ementary_fields:
+    - title
+  semantic_fields:
+    - title
+    - pub_type
+    - assunto
+    - ponto_principal
+    - semantic_topics
+  decision_field: ponto_principal
+  problem_field: assunto
+  year_field: pub_date
+  llm_prompt_template: tcu_publicacoes_v1
+  llm_prompt_version: h3_tcu_publicacoes_v1
+  gate_policy:
+    require_fields:
+      - ponto_principal

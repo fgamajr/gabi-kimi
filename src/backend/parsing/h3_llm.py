@@ -17,6 +17,7 @@ from src.backend.parsing.h3_semantic import (
     build_gate_decision,
     derive_quality_flags,
 )
+from src.backend.parsing.source_semantics import get_semantic_contract
 
 H3_LLM_PROMPT_VERSION = "h3_v1_2_prompt_v2"
 GENERIC_TOPICS = {"controle_externo", "normativo", "jurisprudencia", "regulacao", "administrativo"}
@@ -99,16 +100,21 @@ H3_PROMPT_TEMPLATE = (
 
 
 def build_h3_prompt(text: str, inp: H3Input) -> str:
-    schema_keys = ", ".join(
-        SOURCE_SCHEMA_KEYS.get(inp.source_type, ("tema", "ponto_principal"))
-    )
+    contract = get_semantic_contract(inp.source_type)
+    schema_keys = ", ".join(contract.semantic_fields or SOURCE_SCHEMA_KEYS.get(inp.source_type, ("tema", "ponto_principal")))
+    primary_sections = ", ".join(contract.primary_sections) or "texto"
+    ementary_fields = ", ".join(contract.ementary_fields) or "-"
     return H3_PROMPT_TEMPLATE.format(
         source_type=inp.source_type,
         schema_keys=schema_keys,
         seed_summary_short=inp.h2_summary_short or "",
         seed_summary_structured=inp.h2_summary_structured or {},
         seed_topics=inp.h2_topics or [],
-        text=text[:12000],
+        text=(
+            f"Seções primárias com maior peso semântico: {primary_sections}\n"
+            f"Campos ementários que não devem dominar o resumo: {ementary_fields}\n"
+            f"{text[:12000]}"
+        ),
     )
 
 

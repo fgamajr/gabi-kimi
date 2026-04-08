@@ -158,6 +158,22 @@ BAD_ORG_ENTITY_RE = re.compile(
 TRUNCATED_ENTITY_RE = re.compile(r"[-./:;,]$")
 ONLY_NUMBER_RE = re.compile(r"^\d+(?:[./-]\d+)*$")
 GENERIC_TOPICS = {"administrativo", "controle_externo", "normativo", "regulacao", "jurisprudencia"}
+SUMMARY_ACTION_RE = re.compile(
+    r"\b(?:altera|aprova|autoriza|concede|declara|delega|determina|disp[oõ]e|divulga|"
+    r"expede?|fixa|homologa|indefere|institui|mant[eé]m|nomeia|prorroga|publica|"
+    r"resolve|revoga|retifica|torna|conhece|nega)\b",
+    re.IGNORECASE,
+)
+TABULAR_SIGNAL_RE = re.compile(
+    r"\b(?:nome|cpf|cnpj|cidade/uf|cargo|data sa[ií]da|data retorno|qtde|valor total aprovado|"
+    r"valor aprovado no art\.?|matr[ií]cula)\b",
+    re.IGNORECASE,
+)
+MASKED_DOCUMENT_RE = re.compile(r"\*{3}\.\d{3}\.\d{3}-\*{2}|\*{3}\.\d{3}\.\d{3}/\d{4}-\d{2}")
+WEAK_TRAILING_TOKEN_RE = re.compile(
+    r"\b(?:e|ou|por|para|com|sem|em|de|da|do|das|dos|na|no|nas|nos|ao|aos|ainda|vig[eê]ncia)\b$",
+    re.IGNORECASE,
+)
 SIGNATURE_MAX_SPANS = 5
 SIGNATURE_MAX_CHARS = 80
 SIGNATURE_CONTEXT_CHARS = 60
@@ -189,14 +205,47 @@ FORBIDDEN_SIGNATURE_TOKENS = {
 SOURCE_STATUS_RULES: dict[str, dict[str, int | bool | float]] = {
     "dou_documents": {"min_structured": 2, "min_useful_tags": 2, "require_entities": 0, "min_overall": 0.7},
     "tcu_acordao_completo": {"min_structured": 3, "min_useful_tags": 2, "require_entities": 0, "min_overall": 0.72},
-    "tcu_jurisprudencia_selecionada": {"min_structured": 3, "min_useful_tags": 2, "require_entities": 0, "min_overall": 0.72},
-    "tcu_resposta_consulta": {"min_structured": 3, "min_useful_tags": 2, "require_entities": 0, "min_overall": 0.72},
+    "tcu_jurisprudencia_selecionada": {
+        "min_structured": 3,
+        "min_useful_tags": 2,
+        "require_entities": 0,
+        "min_overall": 0.72,
+    },
+    "tcu_resposta_consulta": {
+        "min_structured": 3,
+        "min_useful_tags": 2,
+        "require_entities": 0,
+        "min_overall": 0.72,
+    },
     "tcu_sumula": {"min_structured": 2, "min_useful_tags": 1, "require_entities": 0, "min_overall": 0.7},
-    "tcu_boletim_jurisprudencia": {"min_structured": 2, "min_useful_tags": 2, "require_entities": 0, "min_overall": 0.74, "allow_done_full": 0},
-    "tcu_boletim_pessoal": {"min_structured": 2, "min_useful_tags": 1, "require_entities": 0, "min_overall": 0.72, "allow_done_full": 0},
-    "tcu_boletim_informativo_lc": {"min_structured": 2, "min_useful_tags": 2, "require_entities": 0, "min_overall": 0.72},
+    "tcu_boletim_jurisprudencia": {
+        "min_structured": 2,
+        "min_useful_tags": 2,
+        "require_entities": 0,
+        "min_overall": 0.74,
+        "allow_done_full": 0,
+    },
+    "tcu_boletim_pessoal": {
+        "min_structured": 2,
+        "min_useful_tags": 1,
+        "require_entities": 0,
+        "min_overall": 0.72,
+        "allow_done_full": 0,
+    },
+    "tcu_boletim_informativo_lc": {
+        "min_structured": 2,
+        "min_useful_tags": 2,
+        "require_entities": 0,
+        "min_overall": 0.72,
+    },
     "tcu_normas": {"min_structured": 3, "min_useful_tags": 1, "require_entities": 0, "min_overall": 0.72},
-    "tcu_btcu": {"min_structured": 2, "min_useful_tags": 2, "require_entities": 1, "min_overall": 0.76, "allow_done_full": 0},
+    "tcu_btcu": {
+        "min_structured": 2,
+        "min_useful_tags": 2,
+        "require_entities": 1,
+        "min_overall": 0.76,
+        "allow_done_full": 0,
+    },
     "tcu_publicacoes": {"min_structured": 2, "min_useful_tags": 2, "require_entities": 0, "min_overall": 0.74},
 }
 SECTION_TAGS_BY_SOURCE: dict[str, tuple[str, ...]] = {
@@ -268,10 +317,15 @@ class DouSummaryStructured(BaseModel):
 class TcuAcordaoSummaryStructured(BaseModel):
     model_config = ConfigDict(extra="forbid")
     numero: str | None = None
+    ano_acordao: str | None = None
     colegiado: str | None = None
     relator: str | None = None
     tipo_processo: str | None = None
     objeto: str | None = None
+    problematica: str | None = None
+    relatorio_resumo: str | None = None
+    voto_resumo: str | None = None
+    decisao: str | None = None
     decisao_principal: str | None = None
 
 
@@ -413,6 +467,26 @@ def _normalize_string_list(values: Any) -> list[str]:
     return out
 
 
+def _normalize_token_for_dedupe(token: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", token.lower())
+
+
+def _dedupe_adjacent_tokens(text: str | None) -> str:
+    cleaned = clean_text(text)
+    if not cleaned:
+        return ""
+    out: list[str] = []
+    prev_norm = ""
+    for token in cleaned.split():
+        current_norm = _normalize_token_for_dedupe(token)
+        if current_norm and current_norm == prev_norm:
+            continue
+        out.append(token)
+        if current_norm:
+            prev_norm = current_norm
+    return " ".join(out)
+
+
 def _normalize_topic(value: str | None) -> str | None:
     cleaned = _normalize_string(value)
     if not cleaned:
@@ -423,6 +497,23 @@ def _normalize_topic(value: str | None) -> str | None:
     if normalized not in TOPIC_TAXONOMY:
         return None
     return normalized
+
+
+def _finalize_topics(source_type: str, topics: list[str]) -> list[str]:
+    ordered = list(dict.fromkeys(topic for topic in topics if topic))
+    specific = [topic for topic in ordered if topic not in GENERIC_TOPICS]
+    generic = [topic for topic in ordered if topic in GENERIC_TOPICS]
+    if specific:
+        return specific[:4]
+    if generic:
+        if source_type.startswith("tcu_") and "controle_externo" in generic:
+            return ["controle_externo"]
+        if source_type == "dou_documents" and "normativo" in generic:
+            return ["normativo"]
+        return generic[:1]
+    if source_type.startswith("tcu_"):
+        return ["controle_externo"]
+    return ["administrativo"]
 
 
 def normalize_topics(
@@ -438,7 +529,7 @@ def normalize_topics(
         if normalized not in out:
             out.append(normalized)
     if out:
-        return out[:8]
+        return _finalize_topics(source_type, out)
     return derive_topics(source_type, text, structured)
 
 
@@ -505,19 +596,34 @@ def clean_text(value: str | None) -> str:
 def summarize_text(value: str | None, limit: int = 320) -> str:
     text = clean_text(value)
     if len(text) <= limit:
-        return text
+        return _trim_summary_candidate(text)
     punct_idx = max(text.rfind(sep, 0, limit) for sep in (". ", "! ", "? ", "; ", ": "))
     if punct_idx >= max(15, limit // 4):
-        return text[: punct_idx + 1].strip()
+        return _trim_summary_candidate(text[: punct_idx + 1].strip())
     lookahead_limit = min(len(text), limit + 120)
     forward_candidates = [text.find(sep, limit, lookahead_limit) for sep in (". ", "! ", "? ", "; ")]
     forward_idx = min((idx for idx in forward_candidates if idx != -1), default=-1)
     if forward_idx != -1:
-        return text[: forward_idx + 1].strip()
+        return _trim_summary_candidate(text[: forward_idx + 1].strip())
     space_idx = text.rfind(" ", 0, limit)
     if space_idx >= max(15, limit // 4):
-        return text[:space_idx].strip()
-    return text[:limit].strip()
+        return _trim_summary_candidate(text[:space_idx].strip())
+    return _trim_summary_candidate(text[:limit].strip())
+
+
+def _trim_summary_candidate(value: str | None) -> str:
+    cleaned = clean_text(value)
+    if not cleaned:
+        return ""
+    cleaned = cleaned.rstrip(" ,;:-/")
+    while cleaned:
+        token = cleaned.rsplit(" ", 1)[-1]
+        if not WEAK_TRAILING_TOKEN_RE.fullmatch(token):
+            break
+        if " " not in cleaned:
+            break
+        cleaned = cleaned.rsplit(" ", 1)[0].rstrip(" ,;:-/")
+    return cleaned
 
 
 def fallback_tags(
@@ -561,11 +667,7 @@ def derive_topics(source_type: str, text: str, structured: dict[str, Any]) -> li
         and "energia" not in topics
     ):
         topics.append("energia")
-    if source_type.startswith("tcu_") and not topics:
-        topics.append("controle_externo")
-    if not topics:
-        topics.append("administrativo")
-    return topics[:8]
+    return _finalize_topics(source_type, topics)
 
 
 def derive_legal_entities(
@@ -765,6 +867,22 @@ def _split_sentences(text: str) -> list[str]:
     return [part.strip() for part in parts if part.strip()]
 
 
+def _looks_like_tabular_text(value: str | None) -> bool:
+    cleaned = clean_text(value)
+    if not cleaned:
+        return True
+    if re.search(r"\bNome\s+CPF\b|\bNome\s+Cargo\b|\bCidade/UF\b", cleaned, re.IGNORECASE):
+        return True
+    if TABULAR_SIGNAL_RE.search(cleaned) and (
+        cleaned.count(":") >= 2
+        or len(MASKED_DOCUMENT_RE.findall(cleaned)) >= 1
+        or len(CPF_RE.findall(cleaned)) >= 1
+        or len(CNPJ_RE.findall(cleaned)) >= 1
+    ):
+        return True
+    return cleaned.count(":") >= 3 and len(cleaned.split()) <= 40
+
+
 def _is_low_signal_sentence(value: str | None) -> bool:
     cleaned = clean_text(value)
     if not cleaned:
@@ -775,17 +893,30 @@ def _is_low_signal_sentence(value: str | None) -> bool:
         re.match(r"^(?:art\.?|arts?\.?|\d+[ºo]?,?|§|inciso|al[ií]nea)\b", cleaned, re.IGNORECASE)
         or re.match(r"^\d+[./-]?\d*", cleaned)
         or "NOME DA EMPRESA" in cleaned.upper()
+        or _looks_like_tabular_text(cleaned)
+        or _looks_like_signature_sentence(cleaned)
     )
 
 
 def _pick_best_sentence(sentences: list[str], *, skip_low_signal: bool = False) -> str | None:
     for sentence in sentences:
-        summarized = summarize_text(sentence, limit=220)
+        summarized = summarize_text(_dedupe_adjacent_tokens(sentence), limit=220)
         if skip_low_signal and _is_low_signal_sentence(summarized):
             continue
         if summarized:
             return summarized
     return None
+
+
+def _extract_action_candidate(text: str) -> str | None:
+    cleaned = _dedupe_adjacent_tokens(text)
+    if not cleaned:
+        return None
+    match = SUMMARY_ACTION_RE.search(cleaned)
+    if not match:
+        return None
+    candidate = summarize_text(cleaned[match.start() :], limit=220)
+    return candidate or None
 
 
 def _first_specific_topic(topics: list[str]) -> str | None:
@@ -797,9 +928,59 @@ def _first_specific_topic(topics: list[str]) -> str | None:
 
 def _meaningful_value(value: Any) -> str | None:
     cleaned = _normalize_string(value)
-    if not cleaned or ONLY_NUMBER_RE.fullmatch(cleaned):
+    if (
+        not cleaned
+        or ONLY_NUMBER_RE.fullmatch(cleaned)
+        or _looks_like_signature_sentence(cleaned)
+    ):
         return None
     return cleaned
+
+
+def _looks_like_signature_sentence(value: str | None) -> bool:
+    cleaned = clean_text(value)
+    if not cleaned:
+        return False
+    if len(cleaned.split()) > 12:
+        return False
+    upper = cleaned.upper()
+    return bool(
+        SIGNATURE_CANDIDATE_RE.search(upper)
+        and (
+            SIGNATURE_ROLE_RE.search(cleaned)
+            or len(cleaned.split()) <= 6
+        )
+    )
+
+
+def _normalized_value_key(value: Any) -> str | None:
+    cleaned = clean_text(str(value) if value is not None else None).lower()
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" .,:;-")
+    return cleaned or None
+
+
+def _distinct_candidate(*candidates: Any, avoid: tuple[Any, ...] = ()) -> str | None:
+    avoid_keys = {_normalized_value_key(item) for item in avoid if _normalized_value_key(item)}
+    for candidate in candidates:
+        cleaned = _meaningful_value(candidate)
+        key = _normalized_value_key(cleaned)
+        if not cleaned or not key or key in avoid_keys:
+            continue
+        return summarize_text(cleaned, limit=220)
+    return None
+
+
+def _text_without_title(text: str, title: Any) -> str:
+    cleaned_text = clean_text(text)
+    cleaned_title = summarize_text(title, limit=180)
+    if not cleaned_text or not cleaned_title:
+        return cleaned_text
+    prefix = f"{cleaned_title} "
+    if cleaned_text.lower().startswith(prefix.lower()):
+        return cleaned_text[len(prefix) :].lstrip(" .:-")
+    if cleaned_text.lower().startswith(cleaned_title.lower()):
+        return cleaned_text[len(cleaned_title) :].lstrip(" .:-")
+    return cleaned_text
 
 
 def build_summary_structured(
@@ -810,19 +991,30 @@ def build_summary_structured(
     legal_entities: list[dict[str, str]],
 ) -> dict[str, Any]:
     sentences = _split_sentences(text)
-    first_sentence = _pick_best_sentence(sentences) or summarize_text(text, limit=220)
+    action_candidate = _extract_action_candidate(text)
+    first_sentence = (
+        _pick_best_sentence(sentences, skip_low_signal=True)
+        or action_candidate
+        or summarize_text(_dedupe_adjacent_tokens(text), limit=220)
+    )
     second_sentence = _pick_best_sentence(sentences[1:], skip_low_signal=True)
 
     if source_type == "dou_documents":
         fundamento = [
             x["value"] for x in legal_entities if x["type"] == "base_legal"
         ][:6]
+        objeto = _distinct_candidate(first_sentence, action_candidate, second_sentence)
+        efeito_principal = _distinct_candidate(
+            action_candidate,
+            second_sentence,
+            avoid=(objeto,),
+        )
         return {
             "tipo_ato": structured.get("h1_tipo") or structured.get("art_type"),
             "subtipo_ato": structured.get("h1_subtipo") or structured.get("art_type"),
-            "objeto": first_sentence,
+            "objeto": objeto,
             "fundamento_legal": fundamento,
-            "efeito_principal": second_sentence or None,
+            "efeito_principal": efeito_principal,
             "vigencia": structured.get("data_text") or structured.get("pub_date"),
         }
     if source_type == "tcu_acordao_completo":
@@ -842,11 +1034,18 @@ def build_summary_structured(
             "tese_central": first_sentence,
         }
     if source_type == "tcu_resposta_consulta":
+        pergunta = _distinct_candidate(structured.get("pergunta"), structured.get("tema"), first_sentence)
+        resposta_curta = _distinct_candidate(
+            action_candidate,
+            first_sentence,
+            second_sentence,
+            avoid=(pergunta,),
+        )
         return {
             "area": structured.get("area"),
             "tema": structured.get("tema"),
-            "pergunta": summarize_text(structured.get("tema") or first_sentence, limit=220),
-            "resposta_curta": summarize_text(first_sentence, limit=220),
+            "pergunta": pergunta,
+            "resposta_curta": resposta_curta,
         }
     if source_type == "tcu_sumula":
         return {
@@ -856,65 +1055,112 @@ def build_summary_structured(
             "vigente": structured.get("vigente"),
         }
     if source_type == "tcu_boletim_jurisprudencia":
+        titulo = summarize_text(structured.get("titulo"), limit=180) or first_sentence
+        body_text = _text_without_title(text, structured.get("titulo"))
+        body_sentences = _split_sentences(body_text)
+        tese_central = _distinct_candidate(
+            _extract_action_candidate(body_text),
+            _pick_best_sentence(body_sentences, skip_low_signal=True),
+            _pick_best_sentence(body_sentences[1:], skip_low_signal=True) if len(body_sentences) > 1 else None,
+            avoid=(titulo,),
+        )
         return {
-            "titulo": summarize_text(structured.get("titulo"), limit=180) or first_sentence,
+            "titulo": titulo,
             "tema": _first_specific_topic(topics) or "jurisprudencia",
-            "tese_central": summarize_text(first_sentence, limit=220),
+            "tese_central": tese_central,
         }
     if source_type == "tcu_boletim_pessoal":
+        titulo = summarize_text(structured.get("titulo"), limit=180) or first_sentence
+        body_text = _text_without_title(text, structured.get("titulo"))
+        body_sentences = _split_sentences(body_text)
         return {
-            "titulo": summarize_text(structured.get("titulo"), limit=180) or first_sentence,
+            "titulo": titulo,
             "tema": _first_specific_topic(topics) or "pessoal",
-            "efeito_administrativo": summarize_text(first_sentence, limit=220),
+            "efeito_administrativo": _distinct_candidate(
+                _extract_action_candidate(body_text),
+                _pick_best_sentence(body_sentences, skip_low_signal=True),
+                avoid=(titulo,),
+            ),
         }
     if source_type == "tcu_boletim_informativo_lc":
+        titulo = summarize_text(structured.get("titulo"), limit=180) or first_sentence
+        body_text = _text_without_title(text, structured.get("titulo"))
+        body_sentences = _split_sentences(body_text)
         return {
-            "titulo": summarize_text(structured.get("titulo"), limit=180) or first_sentence,
+            "titulo": titulo,
             "tema": _first_specific_topic(topics) or "licitacao",
-            "ponto_principal": summarize_text(first_sentence, limit=220),
+            "ponto_principal": _distinct_candidate(
+                _extract_action_candidate(body_text),
+                _pick_best_sentence(body_sentences, skip_low_signal=True),
+                avoid=(titulo,),
+            ),
         }
     if source_type == "tcu_normas":
+        assunto = _distinct_candidate(
+            structured.get("assunto"),
+            action_candidate,
+            first_sentence,
+            avoid=(structured.get("titulo"),),
+        )
         return {
             "tipo_norma": structured.get("tipo_norma"),
             "numero": structured.get("numero_norma"),
             "ano": structured.get("ano_norma"),
-            "assunto": summarize_text(structured.get("assunto") or first_sentence, limit=220),
+            "assunto": assunto,
             "vigencia": structured.get("data_inicio_vigencia")
             or structured.get("data_dou"),
         }
     if source_type == "tcu_btcu":
         base_legal = next((x["value"] for x in legal_entities if x["type"] == "base_legal"), None)
+        section_title = summarize_text(
+            structured.get("section_title") or structured.get("section_type"),
+            limit=180,
+        ) or _first_specific_topic(topics) or "btcu"
+        body_text = _text_without_title(text, section_title)
+        body_sentences = _split_sentences(body_text)
+        assunto = _distinct_candidate(structured.get("assunto"), first_sentence, avoid=(section_title,))
+        decisao_principal = _distinct_candidate(
+            _extract_action_candidate(body_text),
+            _pick_best_sentence(body_sentences, skip_low_signal=True),
+            _pick_best_sentence(body_sentences[1:], skip_low_signal=True) if len(body_sentences) > 1 else None,
+            avoid=(section_title, assunto),
+        )
         return {
-            "section_title": summarize_text(
-                structured.get("section_title") or structured.get("section_type"),
-                limit=180,
-            )
-            or _first_specific_topic(topics)
-            or "btcu",
-            "assunto": summarize_text(structured.get("assunto") or first_sentence, limit=220),
+            "section_title": section_title,
+            "assunto": assunto,
             "base_legal": base_legal,
-            "decisao_principal": summarize_text(second_sentence or first_sentence, limit=220),
+            "decisao_principal": decisao_principal,
         }
     if source_type == "tcu_publicacoes":
         assunto = _first_specific_topic(topics) or structured.get("pub_type")
+        title = summarize_text(structured.get("title"), limit=180) or first_sentence
+        body_text = _text_without_title(text, structured.get("title"))
+        body_sentences = _split_sentences(body_text)
         return {
-            "title": summarize_text(structured.get("title"), limit=180) or first_sentence,
+            "title": title,
             "pub_type": structured.get("pub_type"),
             "assunto": summarize_text(assunto, limit=120) if assunto else None,
-            "ponto_principal": summarize_text(first_sentence, limit=220),
+            "ponto_principal": _distinct_candidate(
+                _extract_action_candidate(body_text),
+                _pick_best_sentence(body_sentences, skip_low_signal=True),
+                avoid=(title, assunto),
+            ),
         }
     key_a = next(iter(structured.keys()), None)
     key_b = next(iter(topics), None)
     primary = _meaningful_value(structured.get(key_a)) if key_a else None
     return {
-        SOURCE_SCHEMA_KEYS.get(source_type, ("ponto_principal",))[0]: summarize_text(primary or first_sentence, limit=220),
+        SOURCE_SCHEMA_KEYS.get(source_type, ("ponto_principal",))[0]: summarize_text(
+            primary or first_sentence,
+            limit=220,
+        ),
         "tema": key_b,
         "ponto_principal": summarize_text(second_sentence or first_sentence, limit=220),
     }
 
 
 def _first_sentence(text: str, max_len: int = 280) -> str:
-    text = clean_text(text)
+    text = _dedupe_adjacent_tokens(text)
     if not text:
         return ""
     for sep in (". ", "! ", "? "):
@@ -924,17 +1170,60 @@ def _first_sentence(text: str, max_len: int = 280) -> str:
 
 
 def build_summary_short(
-    source_type: str, text: str, structured: dict[str, Any], topics: list[str]
+    source_type: str,
+    text: str,
+    structured: dict[str, Any],
+    topics: list[str],
+    summary_structured: dict[str, Any] | None = None,
 ) -> str:
     first = _first_sentence(text)
     if source_type == "dou_documents":
-        prefix = "DOU"
         detail = structured.get("h1_subtipo") or structured.get("art_type") or "ato"
-        return f"{prefix}: {detail}. {first}".strip()
+        candidate = (
+            _extract_action_candidate(text)
+            or clean_text((summary_structured or {}).get("efeito_principal"))
+            or clean_text((summary_structured or {}).get("objeto"))
+            or first
+        )
+        candidate = summarize_text(_dedupe_adjacent_tokens(candidate), limit=220)
+        detail_text = clean_text(str(detail))
+        if detail_text.upper() in {"OUTROS", "UNKNOWN", "ATO"}:
+            return f"DOU: {candidate}".strip()
+        if clean_text(candidate).lower().startswith(detail_text.lower()):
+            return f"DOU: {candidate}".strip()
+        return f"DOU: {detail_text}. {candidate}".strip()
     if source_type == "tcu_acordao_completo":
         numero = structured.get("numero_acordao")
         colegiado = structured.get("colegiado") or "TCU"
-        return f"Acórdão {numero or ''} {colegiado}. {first}".strip()
+        candidate = clean_text((summary_structured or {}).get("decisao_principal")) or first
+        return f"Acórdão {numero or ''} {colegiado}. {candidate}".strip()
+    if source_type == "tcu_sumula":
+        numero = structured.get("numero")
+        candidate = clean_text((summary_structured or {}).get("tese_central")) or first
+        return f"Súmula {numero or ''}. {candidate}".strip()
+    if source_type == "tcu_resposta_consulta":
+        return clean_text((summary_structured or {}).get("resposta_curta")) or first
+    if source_type == "tcu_jurisprudencia_selecionada":
+        return clean_text((summary_structured or {}).get("tese_central")) or first
+    if source_type == "tcu_btcu":
+        return clean_text((summary_structured or {}).get("decisao_principal")) or first
+    if source_type == "tcu_publicacoes":
+        title = clean_text(structured.get("title"))
+        candidate = clean_text((summary_structured or {}).get("ponto_principal")) or first
+        if title and not candidate.lower().startswith(title.lower()):
+            return f"{title}. {candidate}".strip()
+        return candidate
+    if source_type == "tcu_normas":
+        candidate = clean_text((summary_structured or {}).get("assunto")) or first
+        return candidate
+    if source_type in {"tcu_boletim_jurisprudencia", "tcu_boletim_pessoal", "tcu_boletim_informativo_lc"}:
+        candidate = (
+            clean_text((summary_structured or {}).get("tese_central"))
+            or clean_text((summary_structured or {}).get("efeito_administrativo"))
+            or clean_text((summary_structured or {}).get("ponto_principal"))
+            or first
+        )
+        return candidate
     label = source_type.replace("_", " ")
     topic_txt = ", ".join(topics[:2])
     return f"{label}: {topic_txt}. {first}".strip()

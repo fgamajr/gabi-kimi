@@ -28,12 +28,28 @@ def test_clean_text_unescapes_html_entities() -> None:
 def test_derive_topics_never_uses_source_name() -> None:
     topics = derive_topics("dou_documents", "PORTARIA que nomeia servidor", {"art_type": "portaria"})
     assert "dou_documents" not in topics
-    assert "pessoal" in topics or "normativo" in topics
+    assert topics
+    assert any(topic in topics for topic in ("pessoal", "normativo", "servidor_publico"))
 
 
 def test_normalize_topics_enforces_taxonomy() -> None:
-    topics = normalize_topics("dou_documents", ["dou_documents", "saude", "tema_invalido"], "ANVISA publicou portaria", {})
+    topics = normalize_topics(
+        "dou_documents",
+        ["dou_documents", "saude", "tema_invalido"],
+        "ANVISA publicou portaria",
+        {},
+    )
     assert topics == ["saude_publica"]
+
+
+def test_normalize_topics_prefers_specific_topics_over_generic_topics() -> None:
+    topics = normalize_topics(
+        "tcu_jurisprudencia_selecionada",
+        ["controle_externo", "jurisprudencia", "licitacao", "normativo"],
+        "Enunciado sobre licitação",
+        {"tema": "Licitação"},
+    )
+    assert topics == ["licitacao"]
 
 
 def test_classify_done_fallback() -> None:
@@ -63,8 +79,40 @@ def test_classify_enrichment_mode_heuristic() -> None:
 
 
 def test_build_summary_short_is_clean_text() -> None:
-    summary = build_summary_short("dou_documents", "<identifica>PORTARIA</identifica> <corpo>Nomeia servidor.</corpo>", {}, ["pessoal"])
+    summary = build_summary_short(
+        "dou_documents",
+        "<identifica>PORTARIA</identifica> <corpo>Nomeia servidor.</corpo>",
+        {},
+        ["pessoal"],
+    )
     assert "<" not in summary
+
+
+def test_build_summary_short_dou_uses_effect_and_deduplicates_header_echo() -> None:
+    summary = build_summary_short(
+        "dou_documents",
+        (
+            "Despacho Despacho Relação Nº 166/2026 Fase de Licenciamento "
+            "Determina cumprimento de exigência - Prazo 30 dias."
+        ),
+        {"h1_subtipo": "DESPACHO"},
+        ["meio_ambiente"],
+        {"efeito_principal": "Determina cumprimento de exigência - Prazo 30 dias."},
+    )
+    assert "Despacho Despacho" not in summary
+    assert "Determina cumprimento de exigência" in summary
+
+
+def test_build_summary_short_sumula_drops_source_label_prefix() -> None:
+    summary = build_summary_short(
+        "tcu_sumula",
+        "SÚMULA TCU 290. É vedado o pagamento das vantagens oriundas do art. 184 da Lei 1.711/1952.",
+        {"numero": "290"},
+        ["controle_externo", "pessoal"],
+        {"tese_central": "É vedado o pagamento das vantagens oriundas do art. 184 da Lei 1.711/1952."},
+    )
+    assert summary.startswith("Súmula 290.")
+    assert "tcu sumula:" not in summary.lower()
 
 
 def test_validate_summary_structured_rejects_extra_keys() -> None:
@@ -140,6 +188,16 @@ def test_build_summary_structured_dou_does_not_duplicate_fields() -> None:
     assert summary["objeto"] != summary["efeito_principal"]
 
 
+def test_derive_topics_for_dou_prefers_specific_topic_over_normativo() -> None:
+    topics = derive_topics(
+        "dou_documents",
+        "Portaria que altera o licenciamento ambiental da obra.",
+        {"art_type": "PORTARIA", "orgao_emissor": "IBAMA"},
+    )
+    assert "meio_ambiente" in topics
+    assert "normativo" not in topics
+
+
 def test_build_confidence_fields_penalizes_signature_only() -> None:
     confidence = build_confidence_fields(
         "tcu_btcu",
@@ -182,6 +240,15 @@ def test_summarize_text_can_extend_to_sentence_boundary() -> None:
     assert "Segunda frase curta" not in summary
 
 
+def test_summarize_text_drops_trailing_weak_connective() -> None:
+    summary = summarize_text(
+        "O TCU decidiu pela prorrogação do contrato por razões supervenientes e urgentes.",
+        limit=43,
+    )
+    assert not summary.lower().endswith(" por")
+    assert "contrato" in summary
+
+
 def test_build_summary_structured_btcu_has_dedicated_fields() -> None:
     summary = build_summary_structured(
         "tcu_btcu",
@@ -195,6 +262,17 @@ def test_build_summary_structured_btcu_has_dedicated_fields() -> None:
     assert summary["base_legal"] == "Lei 8.112/1990"
 
 
+def test_build_summary_structured_btcu_skips_low_signal_brasilia_line() -> None:
+    summary = build_summary_structured(
+        "tcu_btcu",
+        "Brasília: TCU, 2017- . Determina a apuração de responsabilidade e a adoção de providências.",
+        {"section_title": "Controle Externo", "assunto": "Apuração"},
+        ["controle_externo"],
+        [],
+    )
+    assert summary["decisao_principal"] == "Determina a apuração de responsabilidade e a adoção de providências."
+
+
 def test_build_summary_structured_publicacoes_uses_specific_topic() -> None:
     summary = build_summary_structured(
         "tcu_publicacoes",
@@ -204,6 +282,34 @@ def test_build_summary_structured_publicacoes_uses_specific_topic() -> None:
         [],
     )
     assert summary["assunto"] == "licitacao"
+
+
+def test_build_summary_structured_dou_skips_signature_as_objeto() -> None:
+    summary = build_summary_structured(
+        "dou_documents",
+        "JOAO DA SILVA Diretor. Autoriza o repasse de recursos para manutenção da unidade.",
+        {"h1_tipo": "ADMINISTRATIVO", "h1_subtipo": "DESPACHO"},
+        ["administrativo"],
+        [],
+    )
+    assert summary["objeto"] == "Autoriza o repasse de recursos para manutenção da unidade."
+    assert summary["efeito_principal"] is None
+
+
+def test_build_summary_structured_boletim_jurisprudencia_avoids_title_copy() -> None:
+    summary = build_summary_structured(
+        "tcu_boletim_jurisprudencia",
+        (
+            "Boletim de Jurisprudência 25/2014 Os superavit financeiros dos "
+            "serviços sociais autônomos não podem ser computados como receita pública."
+        ),
+        {"titulo": "Boletim de Jurisprudência 25/2014"},
+        ["controle_externo", "jurisprudencia"],
+        [],
+    )
+    assert summary["titulo"] == "Boletim de Jurisprudência 25/2014"
+    assert summary["tese_central"] != summary["titulo"]
+    assert not summary["tese_central"].startswith("Boletim de Jurisprudência")
 
 
 def test_build_confidence_fields_penalizes_generic_topics() -> None:

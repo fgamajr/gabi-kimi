@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal
+
+from src.backend.parsing.h2_postprocess import clean_text, derive_topics, summarize_text
+from src.backend.parsing.source_semantics import get_semantic_contract
 
 H3RoutingStatus = Literal["shadow", "active", "disabled"]
 H3SemanticMode = Literal["heuristic", "fallback", "llm"]
@@ -70,6 +75,7 @@ class H3Input:
     legal_entities: list[dict[str, Any]] | None = None
     tags_flat: list[str] | None = None
     structured_fields_subset: dict[str, Any] | None = None
+    raw_sections: dict[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -107,6 +113,138 @@ class H3RawAccess:
         return row[0] if row else None
 
 
+_SECTION_XML_RE = re.compile(r"<(?P<tag>[a-z0-9_]+)>(?P<content>.*?)</(?P=tag)>", re.DOTALL)
+_DISPOSITIVE_ITEM_RE = re.compile(r"((?:^|\s)(?:\d{1,2}\.\d+(?:\.\d+)*)\s+.+?)(?=(?:\s\d{1,2}\.\d+(?:\.\d+)*)\s+|$)", re.DOTALL)
+_PROBLEM_MARKER_RE = re.compile(
+    r"\b(?:em raz[aã]o de|n[aã]o comprova[cç][aã]o|irregularidade|imputa[cç][aã]o|tomada de contas especial|"
+    r"dano ao er[aá]rio|sobrepre[cç]o|superfaturamento|descumprimento|omiss[aã]o)\b",
+    re.IGNORECASE,
+)
+_HEALTH_CONTEXT_RE = re.compile(
+    r"\b(?:hospital|medicamento|farm[aá]cia|atendimento|sistema de sa[uú]de|servi[cç]o de sa[uú]de|"
+    r"unidade de sa[uú]de|agente comunit[aá]rio)\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_sections_from_tagged_xml(text: str | None) -> dict[str, str]:
+    if not text:
+        return {}
+    sections: dict[str, str] = {}
+    for match in _SECTION_XML_RE.finditer(text):
+        tag = match.group("tag")
+        value = clean_text(html.unescape(match.group("content")))
+        if value:
+            sections[tag] = value
+    return sections
+
+
+def _first_meaningful_sentence(text: str | None, *, limit: int = 260) -> str | None:
+    cleaned = clean_text(text)
+    if not cleaned:
+        return None
+    parts = re.split(r"(?<=[.!?])\s+", cleaned)
+    for part in parts:
+        candidate = summarize_text(part, limit=limit)
+        if candidate and len(candidate) >= 30:
+            return candidate
+    return summarize_text(cleaned, limit=limit) or None
+
+
+def _extract_dispositive_summary(text: str | None) -> str | None:
+    cleaned = clean_text(text)
+    if not cleaned:
+        return None
+    marker = re.search(r"\b\d{1,2}\.\d+(?:\.\d+)*\.\s+", cleaned)
+    if marker:
+        tail = cleaned[marker.start() :]
+        next_marker = re.search(r"\s\d{1,2}\.\d+(?:\.\d+)*\.\s+", tail[1:])
+        snippet = tail if not next_marker else tail[: next_marker.start() + 1]
+        return summarize_text(snippet, limit=320) or None
+    match = _DISPOSITIVE_ITEM_RE.search(cleaned)
+    if match:
+        return summarize_text(match.group(1), limit=320) or None
+    return _first_meaningful_sentence(cleaned, limit=320)
+
+
+def _extract_problematica(inp: H3Input) -> str | None:
+    contract = get_semantic_contract(inp.source_type)
+    for section_name in (*contract.secondary_sections, *contract.primary_sections):
+        value = (inp.raw_sections or {}).get(section_name)
+        if not value:
+            continue
+        for sentence in re.split(r"(?<=[.!?])\s+", clean_text(value)):
+            if _PROBLEM_MARKER_RE.search(sentence):
+                return summarize_text(sentence, limit=280) or None
+    assunto = clean_text(str((inp.structured_fields_subset or {}).get("assunto") or ""))
+    if assunto:
+        return summarize_text(assunto, limit=240) or None
+    return None
+
+
+def _extract_acordao_year(inp: H3Input) -> int | None:
+    for key in ("ano_acordao", "ano"):
+        value = (inp.structured_fields_subset or {}).get(key)
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+    data_sessao = clean_text(str((inp.structured_fields_subset or {}).get("data_sessao") or ""))
+    match = re.search(r"\b(20\d{2}|19\d{2})\b", data_sessao)
+    return int(match.group(1)) if match else None
+
+
+def _derive_acordao_topics(inp: H3Input, semantic_structured: dict[str, Any]) -> list[str]:
+    semantic_text = " ".join(
+        clean_text(str(value))
+        for value in (
+            semantic_structured.get("problematica"),
+            semantic_structured.get("relatorio_resumo"),
+            semantic_structured.get("voto_resumo"),
+            semantic_structured.get("decisao"),
+        )
+        if value
+    )
+    topics = derive_topics(inp.source_type, semantic_text, inp.structured_fields_subset or {})
+    if "saude_publica" in topics:
+        lowered = semantic_text.lower()
+        if ("fundo nacional de saúde" in lowered or " fns " in f" {lowered} ") and not _HEALTH_CONTEXT_RE.search(semantic_text):
+            topics = [topic for topic in topics if topic != "saude_publica"]
+    return topics
+
+
+def _project_tcu_acordao_semantics(inp: H3Input) -> tuple[str | None, dict[str, Any], list[str]]:
+    seed = dict(inp.h2_summary_structured or {})
+    numero = seed.get("numero") or (inp.structured_fields_subset or {}).get("numero_acordao")
+    ano = _extract_acordao_year(inp)
+    relatorio_resumo = _first_meaningful_sentence((inp.raw_sections or {}).get("relatorio"))
+    voto_resumo = _first_meaningful_sentence((inp.raw_sections or {}).get("voto"))
+    decisao = _extract_dispositive_summary((inp.raw_sections or {}).get("decisao")) or _extract_dispositive_summary(
+        (inp.raw_sections or {}).get("acordao")
+    )
+    problematica = _extract_problematica(inp)
+    semantic_structured = {
+        "numero": numero,
+        "ano_acordao": str(ano) if ano is not None else None,
+        "colegiado": seed.get("colegiado") or (inp.structured_fields_subset or {}).get("colegiado"),
+        "relator": seed.get("relator") or (inp.structured_fields_subset or {}).get("relator"),
+        "tipo_processo": seed.get("tipo_processo") or (inp.structured_fields_subset or {}).get("tipo_processo"),
+        "objeto": seed.get("objeto") or clean_text(str((inp.structured_fields_subset or {}).get("assunto") or "")) or inp.h2_summary_short,
+        "problematica": problematica,
+        "relatorio_resumo": relatorio_resumo,
+        "voto_resumo": voto_resumo,
+        "decisao": decisao,
+        "decisao_principal": decisao or seed.get("decisao_principal"),
+    }
+    topics = _derive_acordao_topics(inp, semantic_structured)
+    short_decision = semantic_structured.get("decisao") or inp.h2_summary_short
+    prefix_num = str(numero) if numero not in (None, "") else ""
+    prefix_year = f"/{ano}" if ano is not None else ""
+    colegiado = clean_text(str(semantic_structured.get("colegiado") or "TCU"))
+    summary_short = f"Acórdão {prefix_num}{prefix_year} {colegiado}. {clean_text(str(short_decision))}".strip()
+    return summary_short, {key: value for key, value in semantic_structured.items() if value not in (None, "", [], {})}, topics
+
+
 def build_h3_input(row: dict[str, Any]) -> H3Input:
     confidence_fields = row.get("confidence_fields") or {}
     overall = float(confidence_fields.get("overall") or 0.0)
@@ -122,6 +260,7 @@ def build_h3_input(row: dict[str, Any]) -> H3Input:
         legal_entities=row.get("legal_entities") if isinstance(row.get("legal_entities"), list) else None,
         tags_flat=list(row.get("tags_flat") or []),
         structured_fields_subset=row.get("structured_fields") if isinstance(row.get("structured_fields"), dict) else None,
+        raw_sections=_extract_sections_from_tagged_xml(row.get("body_tagged_xml")),
     )
 
 
@@ -138,6 +277,7 @@ def build_h3_input_payload(inp: H3Input) -> dict[str, Any]:
         "legal_entities": inp.legal_entities or [],
         "tags_flat": inp.tags_flat or [],
         "structured_fields_subset": inp.structured_fields_subset or {},
+        "raw_sections": inp.raw_sections or {},
     }
 
 
@@ -236,8 +376,16 @@ def project_semantic_mode(inp: H3Input) -> H3SemanticMode:
 def project_semantic_row(inp: H3Input) -> dict[str, Any]:
     extraction = float(inp.h2_extraction_confidence_overall)
     mode = project_semantic_mode(inp)
+    semantic_summary_short = inp.h2_summary_short
+    semantic_summary_structured = inp.h2_summary_structured
+    semantic_topics = list(inp.h2_topics)
+    if inp.source_type == "tcu_acordao_completo":
+        semantic_summary_short, semantic_summary_structured, semantic_topics = _project_tcu_acordao_semantics(inp)
     quality_flags = derive_quality_flags(
         inp,
+        summary_short=semantic_summary_short,
+        summary_structured=semantic_summary_structured,
+        topics=semantic_topics,
         confidence_overall=extraction,
         semantic_mode=mode,
     )
@@ -248,9 +396,9 @@ def project_semantic_row(inp: H3Input) -> dict[str, Any]:
         "semantic_mode": mode,
         "used_layers": [mode],
         "semantic_status": status,
-        "semantic_summary_short": inp.h2_summary_short,
-        "semantic_summary_structured": inp.h2_summary_structured,
-        "semantic_topics": list(inp.h2_topics),
+        "semantic_summary_short": semantic_summary_short,
+        "semantic_summary_structured": semantic_summary_structured,
+        "semantic_topics": semantic_topics,
         "gate_decision": build_gate_decision(
             inp,
             quality_flags,
