@@ -9,7 +9,6 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 from src.backend.parsing.h2_postprocess import clean_text, derive_topics, summarize_text
-from src.backend.parsing.source_semantics import get_semantic_contract
 
 H3RoutingStatus = Literal["shadow", "active", "disabled"]
 H3SemanticMode = Literal["heuristic", "fallback", "llm"]
@@ -41,7 +40,7 @@ CONSERVATIVE_SOURCES = {
     "tcu_boletim_pessoal",
 }
 
-H3_VERSION = "1.0.0"
+H3_VERSION = "1.1.0"
 H3_HASH_VERSION = "1"
 
 REQUIRED_H3_INPUT_FIELDS = (
@@ -98,7 +97,9 @@ class H3RawAccess:
     def __init__(self, conn: Any):
         self._conn = conn
 
-    def fetch_body_tagged_xml(self, raw_id: str, source_type: str, *, reason: str) -> str | None:
+    def fetch_body_tagged_xml(
+        self, raw_id: str, source_type: str, *, reason: str
+    ) -> str | None:
         table = f"parsed.{source_type}"
         with self._conn.cursor() as cur:
             cur.execute(
@@ -108,23 +109,84 @@ class H3RawAccess:
                 """,
                 (source_type, raw_id, reason[:200]),
             )
-            cur.execute(f"SELECT body_tagged_xml FROM {table} WHERE raw_id = %s", (raw_id,))
+            cur.execute(
+                f"SELECT body_tagged_xml FROM {table} WHERE raw_id = %s", (raw_id,)
+            )
             row = cur.fetchone()
         return row[0] if row else None
 
 
-_SECTION_XML_RE = re.compile(r"<(?P<tag>[a-z0-9_]+)>(?P<content>.*?)</(?P=tag)>", re.DOTALL)
-_DISPOSITIVE_ITEM_RE = re.compile(r"((?:^|\s)(?:\d{1,2}\.\d+(?:\.\d+)*)\s+.+?)(?=(?:\s\d{1,2}\.\d+(?:\.\d+)*)\s+|$)", re.DOTALL)
+_SECTION_XML_RE = re.compile(
+    r"<(?P<tag>[a-z0-9_]+)>(?P<content>.*?)</(?P=tag)>", re.DOTALL
+)
+_DISPOSITIVE_ITEM_RE = re.compile(
+    r"((?:^|\s)(?:\d{1,2}\.\d+(?:\.\d+)*)\s+.+?)(?=(?:\s\d{1,2}\.\d+(?:\.\d+)*)\s+|$)",
+    re.DOTALL,
+)
 _PROBLEM_MARKER_RE = re.compile(
     r"\b(?:em raz[aã]o de|n[aã]o comprova[cç][aã]o|irregularidade|imputa[cç][aã]o|tomada de contas especial|"
     r"dano ao er[aá]rio|sobrepre[cç]o|superfaturamento|descumprimento|omiss[aã]o)\b",
     re.IGNORECASE,
 )
-_HEALTH_CONTEXT_RE = re.compile(
-    r"\b(?:hospital|medicamento|farm[aá]cia|atendimento|sistema de sa[uú]de|servi[cç]o de sa[uú]de|"
-    r"unidade de sa[uú]de|agente comunit[aá]rio)\b",
+_LOW_SIGNAL_PREFIX_RE = re.compile(
+    r"^(?:trata-se|aprecia-se|vistos,\s+relatados|ao empreender|transcrevo|"
+    r"em \d{1,2}/\d{1,2}/\d{4}|muito embora|preliminarmente|ante o exposto)\b",
     re.IGNORECASE,
 )
+_MATERIAL_SENTENCE_RE = re.compile(
+    r"\b(?:n[aã]o comprova[cç][aã]o|irregularidade|irregulares as contas|julg(?:ar|amento)|"
+    r"d[eé]bito|multa|ressarcimento|recolhimento|desvio de objeto|medicamentos fora da validade|"
+    r"aus[eê]ncia de documenta[cç][aã]o|servi[cç]os prestados|defesa|revelia|condena(?:r|ç[aã]o))\b",
+    re.IGNORECASE,
+)
+_DISPOSITIVE_PRIORITY_RULES: tuple[tuple[int, re.Pattern[str]], ...] = (
+    (
+        5,
+        re.compile(
+            r"\b(?:julgar irregulares as contas|condenando|pagamento das import[aâ]ncias|d[eé]bito)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        4,
+        re.compile(
+            r"\b(?:aplicar .* multa|rejeitar as alega[cç][oõ]es de defesa)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        2,
+        re.compile(
+            r"\b(?:considerar revel|excluir da rela[cç][aã]o processual)\b",
+            re.IGNORECASE,
+        ),
+    ),
+)
+
+
+_SUMARIO_DISPOSITIVO_RE = re.compile(
+    r"\b(?:negati(?:va|vo)\s+de\s+provimento|dar?\s+provimento|provimento\s+parcial|"
+    r"n[aã]o\s+conhecimento|conhecimento|julgamento\s+(?:irregular|regular|de\s+m[eé]rito)|"
+    r"contas?\s+(?:irregulares|regulares)|condenação|multa\s+isolada|arquivamento|"
+    r"cancelamento|sobrestat|n[aã]o\s+provimento|improcedente|procedente)\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_sumario_dispositivo(sumario: str | None) -> str | None:
+    """Extract the dispositivo from the TCU sumário convention: the last clause is always
+    the result (e.g. 'NEGATIVA DE PROVIMENTO', 'CONDENAÇÃO'). Only returns a value when
+    it matches known dispositivo vocabulary — avoids returning generic subject keywords."""
+    cleaned = clean_text(sumario)
+    if not cleaned:
+        return None
+    parts = [p.strip().rstrip(".") for p in cleaned.split(".") if p.strip()]
+    if not parts:
+        return None
+    last = parts[-1]
+    if _SUMARIO_DISPOSITIVO_RE.search(last):
+        return last
+    return None
 
 
 def _extract_sections_from_tagged_xml(text: str | None) -> dict[str, str]:
@@ -151,16 +213,87 @@ def _first_meaningful_sentence(text: str | None, *, limit: int = 260) -> str | N
     return summarize_text(cleaned, limit=limit) or None
 
 
+def _score_semantic_sentence(sentence: str) -> int:
+    score = 0
+    cleaned = clean_text(sentence)
+    if not cleaned:
+        return score
+    if len(cleaned) < 40:
+        score -= 1
+    if _LOW_SIGNAL_PREFIX_RE.search(cleaned):
+        score -= 2
+    if _MATERIAL_SENTENCE_RE.search(cleaned):
+        score += 4
+    if re.search(
+        r"\b(?:respons[aá]vel|respons[aá]veis|defesa|alega[cç][oõ]es)\b",
+        cleaned,
+        re.IGNORECASE,
+    ):
+        score += 1
+    if re.search(r"(?:r\$|\bd[eé]bito\b|\bmulta\b|\bcondena)", cleaned, re.IGNORECASE):
+        score += 2
+    return score
+
+
+def _best_semantic_sentence(text: str | None, *, limit: int = 280) -> str | None:
+    cleaned = clean_text(text)
+    if not cleaned:
+        return None
+    candidates: list[tuple[int, str]] = []
+    for sentence in re.split(r"(?<=[.!?])\s+", cleaned):
+        candidate = summarize_text(sentence, limit=limit)
+        if not candidate:
+            continue
+        candidates.append((_score_semantic_sentence(candidate), candidate))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], len(item[1])), reverse=True)
+    best_score, best = candidates[0]
+    if best_score <= 0:
+        return _first_meaningful_sentence(cleaned, limit=limit)
+    return best
+
+
+def _dispositive_items(text: str | None) -> list[str]:
+    cleaned = clean_text(text)
+    if not cleaned:
+        return []
+    matches = re.finditer(
+        r"(\d{1,2}\.\d+(?:\.\d+)*\.\s+)(.*?)(?=(?:\d{1,2}\.\d+(?:\.\d+)*\.\s+)|$)",
+        cleaned,
+        re.DOTALL,
+    )
+    items: list[str] = []
+    for match in matches:
+        item = summarize_text(f"{match.group(1)}{match.group(2).strip()}", limit=360)
+        if item:
+            items.append(item)
+    return items
+
+
+def _select_material_dispositive_items(items: list[str]) -> list[str]:
+    scored: list[tuple[int, str]] = []
+    for item in items:
+        score = 0
+        for weight, pattern in _DISPOSITIVE_PRIORITY_RULES:
+            if pattern.search(item):
+                score += weight
+        scored.append((score, item))
+    scored.sort(key=lambda pair: (pair[0], len(pair[1])), reverse=True)
+    selected = [item for score, item in scored if score > 0][:2]
+    if selected:
+        return selected
+    return items[:1]
+
+
 def _extract_dispositive_summary(text: str | None) -> str | None:
     cleaned = clean_text(text)
     if not cleaned:
         return None
-    marker = re.search(r"\b\d{1,2}\.\d+(?:\.\d+)*\.\s+", cleaned)
-    if marker:
-        tail = cleaned[marker.start() :]
-        next_marker = re.search(r"\s\d{1,2}\.\d+(?:\.\d+)*\.\s+", tail[1:])
-        snippet = tail if not next_marker else tail[: next_marker.start() + 1]
-        return summarize_text(snippet, limit=320) or None
+    items = _dispositive_items(cleaned)
+    if items:
+        selected = _select_material_dispositive_items(items)
+        return summarize_text(" ".join(selected), limit=360) or None
     match = _DISPOSITIVE_ITEM_RE.search(cleaned)
     if match:
         return summarize_text(match.group(1), limit=320) or None
@@ -168,17 +301,33 @@ def _extract_dispositive_summary(text: str | None) -> str | None:
 
 
 def _extract_problematica(inp: H3Input) -> str | None:
-    contract = get_semantic_contract(inp.source_type)
-    for section_name in (*contract.secondary_sections, *contract.primary_sections):
+    priority_sections = ("relatorio", "sumario", "voto", "acordao")
+    for section_name in priority_sections:
         value = (inp.raw_sections or {}).get(section_name)
         if not value:
             continue
+        best_sentence: str | None = None
+        best_score = -999
         for sentence in re.split(r"(?<=[.!?])\s+", clean_text(value)):
             if _PROBLEM_MARKER_RE.search(sentence):
-                return summarize_text(sentence, limit=280) or None
+                score = _score_semantic_sentence(sentence)
+                lowered = sentence.lower()
+                if "não comprovação" in lowered:
+                    score += 4
+                if "desvio de objeto" in lowered:
+                    score += 3
+                if "trata-se" in lowered:
+                    score -= 2
+                if "desvio de objeto" in sentence.lower():
+                    score += 2
+                if score > best_score:
+                    best_score = score
+                    best_sentence = sentence
+        if best_sentence:
+            return summarize_text(best_sentence, limit=320) or None
     assunto = clean_text(str((inp.structured_fields_subset or {}).get("assunto") or ""))
     if assunto:
-        return summarize_text(assunto, limit=240) or None
+        return summarize_text(assunto, limit=280) or None
     return None
 
 
@@ -189,12 +338,16 @@ def _extract_acordao_year(inp: H3Input) -> int | None:
             return value
         if isinstance(value, str) and value.isdigit():
             return int(value)
-    data_sessao = clean_text(str((inp.structured_fields_subset or {}).get("data_sessao") or ""))
+    data_sessao = clean_text(
+        str((inp.structured_fields_subset or {}).get("data_sessao") or "")
+    )
     match = re.search(r"\b(20\d{2}|19\d{2})\b", data_sessao)
     return int(match.group(1)) if match else None
 
 
-def _derive_acordao_topics(inp: H3Input, semantic_structured: dict[str, Any]) -> list[str]:
+def _derive_acordao_topics(
+    inp: H3Input, semantic_structured: dict[str, Any]
+) -> list[str]:
     semantic_text = " ".join(
         clean_text(str(value))
         for value in (
@@ -205,31 +358,69 @@ def _derive_acordao_topics(inp: H3Input, semantic_structured: dict[str, Any]) ->
         )
         if value
     )
-    topics = derive_topics(inp.source_type, semantic_text, inp.structured_fields_subset or {})
-    if "saude_publica" in topics:
-        lowered = semantic_text.lower()
-        if ("fundo nacional de saúde" in lowered or " fns " in f" {lowered} ") and not _HEALTH_CONTEXT_RE.search(semantic_text):
-            topics = [topic for topic in topics if topic != "saude_publica"]
-    return topics
+    topics = derive_topics(
+        inp.source_type, semantic_text, inp.structured_fields_subset or {}
+    )
+    return list(dict.fromkeys(topic for topic in topics if topic))
 
 
-def _project_tcu_acordao_semantics(inp: H3Input) -> tuple[str | None, dict[str, Any], list[str]]:
+def _strip_section_noise(value: str | None) -> str:
+    cleaned = clean_text(value)
+    if not cleaned:
+        return ""
+    cleaned = re.sub(
+        r"\b(?:é o relatório|ante o exposto, voto no sentido de que .*?)\b.*$",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"\b(?:trata-se de|aprecia-se,?\s+n(?:e|i)ta?\s+oportunidade,?)\b",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"\binstaurada pelo instaurada pelo\b",
+        "instaurada pelo",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    return clean_text(cleaned)
+
+
+def _project_tcu_acordao_semantics(
+    inp: H3Input,
+) -> tuple[str | None, dict[str, Any], list[str]]:
     seed = dict(inp.h2_summary_structured or {})
-    numero = seed.get("numero") or (inp.structured_fields_subset or {}).get("numero_acordao")
+    numero = seed.get("numero") or (inp.structured_fields_subset or {}).get(
+        "numero_acordao"
+    )
     ano = _extract_acordao_year(inp)
-    relatorio_resumo = _first_meaningful_sentence((inp.raw_sections or {}).get("relatorio"))
-    voto_resumo = _first_meaningful_sentence((inp.raw_sections or {}).get("voto"))
-    decisao = _extract_dispositive_summary((inp.raw_sections or {}).get("decisao")) or _extract_dispositive_summary(
-        (inp.raw_sections or {}).get("acordao")
+    relatorio_resumo = _best_semantic_sentence(
+        _strip_section_noise((inp.raw_sections or {}).get("relatorio"))
+    )
+    voto_resumo = _best_semantic_sentence(
+        _strip_section_noise((inp.raw_sections or {}).get("voto"))
+    )
+    decisao = (
+        _extract_dispositive_summary((inp.raw_sections or {}).get("decisao"))
+        or _extract_dispositive_summary((inp.raw_sections or {}).get("acordao"))
+        or _extract_sumario_dispositivo((inp.raw_sections or {}).get("sumario"))
     )
     problematica = _extract_problematica(inp)
     semantic_structured = {
         "numero": numero,
         "ano_acordao": str(ano) if ano is not None else None,
-        "colegiado": seed.get("colegiado") or (inp.structured_fields_subset or {}).get("colegiado"),
-        "relator": seed.get("relator") or (inp.structured_fields_subset or {}).get("relator"),
-        "tipo_processo": seed.get("tipo_processo") or (inp.structured_fields_subset or {}).get("tipo_processo"),
-        "objeto": seed.get("objeto") or clean_text(str((inp.structured_fields_subset or {}).get("assunto") or "")) or inp.h2_summary_short,
+        "colegiado": seed.get("colegiado")
+        or (inp.structured_fields_subset or {}).get("colegiado"),
+        "relator": seed.get("relator")
+        or (inp.structured_fields_subset or {}).get("relator"),
+        "tipo_processo": seed.get("tipo_processo")
+        or (inp.structured_fields_subset or {}).get("tipo_processo"),
+        "objeto": seed.get("objeto")
+        or clean_text(str((inp.structured_fields_subset or {}).get("assunto") or ""))
+        or inp.h2_summary_short,
         "problematica": problematica,
         "relatorio_resumo": relatorio_resumo,
         "voto_resumo": voto_resumo,
@@ -242,7 +433,15 @@ def _project_tcu_acordao_semantics(inp: H3Input) -> tuple[str | None, dict[str, 
     prefix_year = f"/{ano}" if ano is not None else ""
     colegiado = clean_text(str(semantic_structured.get("colegiado") or "TCU"))
     summary_short = f"Acórdão {prefix_num}{prefix_year} {colegiado}. {clean_text(str(short_decision))}".strip()
-    return summary_short, {key: value for key, value in semantic_structured.items() if value not in (None, "", [], {})}, topics
+    return (
+        summary_short,
+        {
+            key: value
+            for key, value in semantic_structured.items()
+            if value not in (None, "", [], {})
+        },
+        topics,
+    )
 
 
 def build_h3_input(row: dict[str, Any]) -> H3Input:
@@ -252,14 +451,20 @@ def build_h3_input(row: dict[str, Any]) -> H3Input:
         raw_id=str(row["raw_id"]),
         source_type=str(row["source_type"]),
         h2_summary_short=(row.get("summary_short") or None),
-        h2_summary_structured=row.get("summary_structured") if isinstance(row.get("summary_structured"), dict) else None,
+        h2_summary_structured=row.get("summary_structured")
+        if isinstance(row.get("summary_structured"), dict)
+        else None,
         h2_topics=list(row.get("topics") or []),
         h2_status=str(row.get("enrichment_status") or "pending"),
         h2_mode=str(row.get("enrichment_mode") or "") or None,
         h2_extraction_confidence_overall=overall,
-        legal_entities=row.get("legal_entities") if isinstance(row.get("legal_entities"), list) else None,
+        legal_entities=row.get("legal_entities")
+        if isinstance(row.get("legal_entities"), list)
+        else None,
         tags_flat=list(row.get("tags_flat") or []),
-        structured_fields_subset=row.get("structured_fields") if isinstance(row.get("structured_fields"), dict) else None,
+        structured_fields_subset=row.get("structured_fields")
+        if isinstance(row.get("structured_fields"), dict)
+        else None,
         raw_sections=_extract_sections_from_tagged_xml(row.get("body_tagged_xml")),
     )
 
@@ -273,7 +478,9 @@ def build_h3_input_payload(inp: H3Input) -> dict[str, Any]:
         "h2_topics": inp.h2_topics,
         "h2_status": inp.h2_status,
         "h2_mode": inp.h2_mode,
-        "h2_extraction_confidence_overall": round(inp.h2_extraction_confidence_overall, 6),
+        "h2_extraction_confidence_overall": round(
+            inp.h2_extraction_confidence_overall, 6
+        ),
         "legal_entities": inp.legal_entities or [],
         "tags_flat": inp.tags_flat or [],
         "structured_fields_subset": inp.structured_fields_subset or {},
@@ -292,7 +499,9 @@ def build_h3_input_hash(
         "h3_version": h3_version,
         "input": build_h3_input_payload(inp),
     }
-    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    encoded = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
@@ -312,10 +521,20 @@ def derive_quality_flags(
     semantic_status: str | None = None,
     semantic_mode: str | None = None,
 ) -> list[str]:
-    current_summary = summary_short if summary_short is not None else inp.h2_summary_short
-    current_structured = summary_structured if summary_structured is not None else inp.h2_summary_structured
+    current_summary = (
+        summary_short if summary_short is not None else inp.h2_summary_short
+    )
+    current_structured = (
+        summary_structured
+        if summary_structured is not None
+        else inp.h2_summary_structured
+    )
     current_topics = topics if topics is not None else inp.h2_topics
-    current_confidence = confidence_overall if confidence_overall is not None else inp.h2_extraction_confidence_overall
+    current_confidence = (
+        confidence_overall
+        if confidence_overall is not None
+        else inp.h2_extraction_confidence_overall
+    )
     current_status = semantic_status or inp.h2_status
     current_mode = semantic_mode or inp.h2_mode
     flags: list[str] = []
@@ -347,7 +566,17 @@ def build_gate_decision(
     semantic_mode: str | None = None,
 ) -> dict[str, Any]:
     primary_code = quality_flags[0] if quality_flags else "source_residual"
-    source_layer = "h2" if primary_code in {"fallback_only", "source_conservative", "signature_only", "h2_missing_entities"} else "h3"
+    source_layer = (
+        "h2"
+        if primary_code
+        in {
+            "fallback_only",
+            "source_conservative",
+            "signature_only",
+            "h2_missing_entities",
+        }
+        else "h3"
+    )
     return {
         "primary_code": primary_code,
         "contributing_codes": quality_flags,
@@ -356,13 +585,15 @@ def build_gate_decision(
             "semantic_status": semantic_status or inp.h2_status,
             "semantic_mode": semantic_mode or inp.h2_mode,
             "extraction_confidence_overall": inp.h2_extraction_confidence_overall,
-            "interpretation_confidence_overall": confidence_overall if confidence_overall is not None else inp.h2_extraction_confidence_overall,
+            "interpretation_confidence_overall": confidence_overall
+            if confidence_overall is not None
+            else inp.h2_extraction_confidence_overall,
         },
     }
 
 
 def project_semantic_status(inp: H3Input, quality_flags: list[str]) -> str:
-    if "fallback_only" in quality_flags:
+    if "fallback_only" in quality_flags or inp.h2_status == "failed":
         return "done_fallback"
     return inp.h2_status
 
@@ -380,7 +611,9 @@ def project_semantic_row(inp: H3Input) -> dict[str, Any]:
     semantic_summary_structured = inp.h2_summary_structured
     semantic_topics = list(inp.h2_topics)
     if inp.source_type == "tcu_acordao_completo":
-        semantic_summary_short, semantic_summary_structured, semantic_topics = _project_tcu_acordao_semantics(inp)
+        semantic_summary_short, semantic_summary_structured, semantic_topics = (
+            _project_tcu_acordao_semantics(inp)
+        )
     quality_flags = derive_quality_flags(
         inp,
         summary_short=semantic_summary_short,
@@ -412,7 +645,9 @@ def project_semantic_row(inp: H3Input) -> dict[str, Any]:
     }
 
 
-def build_semantic_view_from_h2(row: dict[str, Any], *, view_layer: H3ViewLayer) -> SemanticView:
+def build_semantic_view_from_h2(
+    row: dict[str, Any], *, view_layer: H3ViewLayer
+) -> SemanticView:
     inp = build_h3_input(row)
     projected = project_semantic_row(inp)
     return SemanticView(
@@ -427,7 +662,9 @@ def build_semantic_view_from_h2(row: dict[str, Any], *, view_layer: H3ViewLayer)
         gate_decision=projected["gate_decision"],
         quality_flags=projected["quality_flags"],
         extraction_confidence_overall=projected["extraction_confidence_overall"],
-        interpretation_confidence_overall=projected["interpretation_confidence_overall"],
+        interpretation_confidence_overall=projected[
+            "interpretation_confidence_overall"
+        ],
     )
 
 
@@ -439,12 +676,22 @@ def build_semantic_view_from_h3(row: dict[str, Any]) -> SemanticView:
         status=str(row.get("semantic_status") or "pending"),
         mode=str(row.get("semantic_mode") or "") or None,
         summary_short=row.get("semantic_summary_short") or None,
-        summary_structured=row.get("semantic_summary_structured") if isinstance(row.get("semantic_summary_structured"), dict) else None,
+        summary_structured=row.get("semantic_summary_structured")
+        if isinstance(row.get("semantic_summary_structured"), dict)
+        else None,
         topics=list(row.get("semantic_topics") or []),
-        gate_decision=row.get("gate_decision") if isinstance(row.get("gate_decision"), dict) else None,
+        gate_decision=row.get("gate_decision")
+        if isinstance(row.get("gate_decision"), dict)
+        else None,
         quality_flags=list(row.get("quality_flags") or []),
-        extraction_confidence_overall=float(row.get("extraction_confidence_overall")) if row.get("extraction_confidence_overall") is not None else None,
-        interpretation_confidence_overall=float(row.get("interpretation_confidence_overall")) if row.get("interpretation_confidence_overall") is not None else None,
+        extraction_confidence_overall=float(row.get("extraction_confidence_overall"))
+        if row.get("extraction_confidence_overall") is not None
+        else None,
+        interpretation_confidence_overall=float(
+            row.get("interpretation_confidence_overall")
+        )
+        if row.get("interpretation_confidence_overall") is not None
+        else None,
     )
 
 

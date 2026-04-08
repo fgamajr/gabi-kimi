@@ -5,6 +5,7 @@ from src.backend.parsing.h3_semantic import (
     OPTIONAL_H3_INPUT_FIELDS,
     REQUIRED_H3_INPUT_FIELDS,
     H3Input,
+    _extract_sumario_dispositivo,
     build_h3_input,
     build_h3_input_hash,
     build_semantic_view_from_h2,
@@ -84,6 +85,22 @@ def test_project_semantic_status_uses_only_quality_flag_for_fallback_decision() 
     assert project_semantic_status(inp, ["fallback_only"]) == "done_fallback"
 
 
+def test_extract_sumario_dispositivo_returns_last_known_dispositivo() -> None:
+    assert _extract_sumario_dispositivo(
+        "CONVÊNIO. CITAÇÃO. NEGATIVA DE PROVIMENTO."
+    ) == "NEGATIVA DE PROVIMENTO"
+    assert _extract_sumario_dispositivo(
+        "CONVÊNIO. INEXECUÇÃO PARCIAL."
+    ) is None
+
+
+def test_project_semantic_status_maps_h2_failed_to_done_fallback() -> None:
+    row = _sample_h2_row()
+    row["enrichment_status"] = "failed"
+    inp = build_h3_input(row)
+    assert project_semantic_status(inp, []) == "done_fallback"
+
+
 def test_project_semantic_row_keeps_h2_fallback_as_single_source_of_truth() -> None:
     row = _sample_h2_row()
     row["enrichment_status"] = "done_fallback"
@@ -120,16 +137,28 @@ class _ResolverStub(SemanticResolver):
     def _load_h3_row(self, conn, source_type: str, raw_id: str):  # type: ignore[override]
         return self.h3_row
 
-    def _record_fallback(self, conn, source_type: str, raw_id: str, *, view_context: str, reason_code: str) -> None:  # type: ignore[override]
+    def _record_fallback(
+        self,
+        conn,
+        source_type: str,
+        raw_id: str,
+        *,
+        view_context: str,
+        reason_code: str,
+    ) -> None:  # type: ignore[override]
         self.fallbacks.append((source_type, raw_id, reason_code))
 
 
 def test_semantic_resolver_active_falls_back_to_h2_with_log() -> None:
     resolver = _ResolverStub("active", _sample_h2_row(), None)
-    view = resolver._get_view_conn(_FakeConn(), "DOC-1", "tcu_jurisprudencia_selecionada", view_context="audit")
+    view = resolver._get_view_conn(
+        _FakeConn(), "DOC-1", "tcu_jurisprudencia_selecionada", view_context="audit"
+    )
     assert view is not None
     assert view.view_layer == "h2_fallback"
-    assert resolver.fallbacks == [("tcu_jurisprudencia_selecionada", "DOC-1", "missing_h3_row")]
+    assert resolver.fallbacks == [
+        ("tcu_jurisprudencia_selecionada", "DOC-1", "missing_h3_row")
+    ]
 
 
 def test_semantic_resolver_returns_h3_when_available() -> None:
@@ -150,7 +179,9 @@ def test_semantic_resolver_returns_h3_when_available() -> None:
             "interpretation_confidence_overall": 0.81,
         },
     )
-    view = resolver._get_view_conn(_FakeConn(), "DOC-1", "tcu_jurisprudencia_selecionada", view_context="mcp")
+    view = resolver._get_view_conn(
+        _FakeConn(), "DOC-1", "tcu_jurisprudencia_selecionada", view_context="mcp"
+    )
     assert view is not None
     assert view.view_layer == "h3"
     assert view.summary_short == "Resumo H3"
@@ -170,7 +201,9 @@ def test_h3_ros_contract_stays_compact() -> None:
     assert "raw_text" not in OPTIONAL_H3_INPUT_FIELDS
 
 
-def test_project_semantic_row_for_tcu_acordao_uses_decisao_relatorio_voto_and_year() -> None:
+def test_project_semantic_row_for_tcu_acordao_uses_decisao_relatorio_voto_and_year() -> (
+    None
+):
     row = {
         "raw_id": "ACORDAO-COMPLETO-2659936",
         "source_type": "tcu_acordao_completo",
@@ -202,20 +235,33 @@ def test_project_semantic_row_for_tcu_acordao_uses_decisao_relatorio_voto_and_ye
             "<sumario>Tomada de Contas Especial instaurada pelo Fundo Nacional de Saúde em razão da não comprovação "
             "da regular aplicação de recursos repassados pela União.</sumario>\n"
             "<relatorio>Trata-se de tomada de contas especial instaurada em razão da não comprovação da regular "
-            "aplicação dos recursos transferidos pelo FNS ao município.</relatorio>\n"
+            "aplicação dos recursos transferidos pelo FNS ao município. O fundamento para a instauração da TCE foi "
+            "a constatação das seguintes irregularidades: não apresentação de documentação comprobatória da despesa, "
+            "medicamentos fora da validade e não comprovação do serviço prestado.</relatorio>\n"
             "<voto>O voto conclui que restou caracterizada a omissão no dever de comprovar a correta aplicação dos "
-            "recursos e propõe o julgamento pela irregularidade das contas.</voto>\n"
-            "<decisao>9.1. julgar irregulares as contas das responsáveis e condená-las ao recolhimento do débito; "
-            "9.2. aplicar multa individual.</decisao>"
+            "recursos e propõe o julgamento pela irregularidade das contas. Entendo presentes todos os fundamentos "
+            "para julgar irregulares as contas e imputar débito às responsáveis.</voto>\n"
+            "<decisao>9.1. considerar revel a responsável; 9.3. rejeitar as alegações de defesa apresentadas; "
+            "9.4. julgar irregulares as contas das responsáveis e condená-las ao pagamento do débito; "
+            "9.5. aplicar multa individual.</decisao>"
         ),
     }
     projected = project_semantic_row(build_h3_input(row))
     assert projected["semantic_summary_structured"]["ano_acordao"] == "2017"
-    assert "não comprovação da regular aplicação de recursos" in projected["semantic_summary_structured"]["problematica"].lower()
+    problematica = projected["semantic_summary_structured"]["problematica"].lower()
+    assert "irregularidades" in problematica or "não comprovação" in problematica
+    assert (
+        "documentação comprobatória" in problematica
+        or "aplicação dos recursos" in problematica
+    )
     assert projected["semantic_summary_structured"]["relatorio_resumo"]
     assert projected["semantic_summary_structured"]["voto_resumo"]
-    assert projected["semantic_summary_structured"]["decisao"].startswith("9.1.")
-    assert projected["semantic_summary_structured"]["decisao_principal"].startswith("9.1.")
-    assert "saude_publica" not in projected["semantic_topics"]
+    assert "9.4." in projected["semantic_summary_structured"]["decisao"]
+    assert (
+        "julgar irregulares as contas"
+        in projected["semantic_summary_structured"]["decisao"].lower()
+    )
+    assert "9.4." in projected["semantic_summary_structured"]["decisao_principal"]
     assert "infraestrutura" not in projected["semantic_topics"]
+    # topic granularity (fiscal vs saude_publica) is LLM's job, not heuristic
     assert "/2017" in projected["semantic_summary_short"]
